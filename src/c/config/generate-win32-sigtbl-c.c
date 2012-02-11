@@ -32,7 +32,7 @@ main ()
     }
     fprintf (f, "};\n");
 
-    fprintf (f, "static System_Constants_Table SigTable = {\n");
+    fprintf (f, "static Sysconsts SigTable = {\n");
     fprintf (f, "    /* constants_count */ NUM_SIGS,\n");
     fprintf (f, "    /* consts */    SigInfo\n");
     fprintf (f, "};\n");

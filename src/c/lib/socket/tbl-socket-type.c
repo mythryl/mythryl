@@ -24,7 +24,7 @@ static System_Constant	table[] = {
 #endif
     };
 
-System_Constants_Table	_Sock_Type = {
+Sysconsts	_Sock_Type = {
 	sizeof(table) / sizeof(System_Constant),
 	table
     };

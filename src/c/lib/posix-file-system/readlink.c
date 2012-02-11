@@ -98,7 +98,7 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     if (len < MAXPATHLEN) {
         //
 	buf[len] = '\0';
-	return make_ascii_string_from_c_string (task, buf);
+	return make_ascii_string_from_c_string__may_heapclean (task, buf);
     }
 
 
@@ -147,7 +147,7 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     else if (len >= nlen)	return RAISE_ERROR(task, "readlink failure");
 
     nbuf[len] = '\0';
-    Val chunk = make_ascii_string_from_c_string (task, nbuf);
+    Val chunk = make_ascii_string_from_c_string__may_heapclean (task, nbuf);
     FREE (nbuf);
     //
     return chunk;

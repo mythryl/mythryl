@@ -309,27 +309,27 @@ inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
 //     and "allocate" for fns which do not. "nonempty" is a reminder
 //     that zero length is not ok.
 //
-extern Val  make_ascii_string_from_c_string			(Task* task,  const char* string);			// make_heap_string_from_c_string		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  make_ascii_strings_from_vector_of_c_strings		(Task* task,  char** strings);				// make_ascii_strings_from_vector_of_c_strings	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_ascii_string			(Task* task,  int len);					// allocate_nonempty_ascii_string		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_vector_of_one_byte_unts		(Task* task,  int len);					// allocate_nonempty_vector_of_one_byte_unts	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_ascii_string_from_c_string__may_heapclean		(Task* task,  const char* string);	// make_ascii_string_from_c_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_ascii_strings_from_vector_of_c_strings__may_heapclean	(Task* task,  char** strings);		// make_ascii_strings_from_vector_of_c_strings__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_ascii_string__may_heapclean		(Task* task,  int len);			// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_vector_of_one_byte_unts__may_heapclean	(Task* task,  int len);			// allocate_nonempty_vector_of_one_byte_unts__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
-extern Val  allocate_nonempty_code_chunk			(Task* task,  int len);					// allocate_nonempty_code_chunk			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_code_chunk			(Task* task,  int len);				// allocate_nonempty_code_chunk					def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
-extern Val  make_nonempty_rw_vector				(Task* task,  int len, Val initial_value);		// make_nonempty_rw_vector			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  make_nonempty_ro_vector				(Task* task,  int len, Val initial_values);		// make_nonempty_ro_vector			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_wordslots_vector		        (Task* task,  int length_in_words);			// allocate_nonempty_wordslots_vector		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern void shrink_fresh_wordslots_vector			(Task* task,  Val v, int new_length_in_words);		// shrink_fresh_wordslots_vector		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_nonempty_rw_vector__may_heapclean		(Task* task,  int len, Val initial_value);	// make_nonempty_rw_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_nonempty_ro_vector__may_heapclean		(Task* task,  int len, Val initial_values);	// make_nonempty_ro_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_wordslots_vector__may_heapclean	(Task* task,  int length_in_words);		// allocate_nonempty_wordslots_vector__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern void shrink_fresh_wordslots_vector			(Task* task,  Val v, int new_length_in_words);	// shrink_fresh_wordslots_vector				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
-extern Val  allocate_nonempty_vector_of_eight_byte_floats	(Task* task,  int len);					// allocate_nonempty_vector_of_eight_byte_floats def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_biwordslots_vector				(Task* task,  int length_in_int2s);			// allocate_biwordslots_vector			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_biwordslots_vector_sized_in_bytes  	(Task* task,  int length_in_bytes/*gets rounded up*/);	// allocate_biwordslots_vector_sized_in_bytes	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  make_biwordslots_vector_sized_in_bytes     		(Task* task,  void* data, int nbytes);			// make_biwordslots_vector_sized_in_bytes	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_vector_of_eight_byte_floats__may_heapclean(Task* task,  int len);			// allocate_nonempty_vector_of_eight_byte_floats__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_biwordslots_vector__may_heapclean			(Task* task,  int length_in_int2s);	// allocate_biwordslots_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  int length_in_bytes);	// allocate_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  void* data, int nbytes);	// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
-extern Val  make_system_constant				(Task* task,  System_Constants_Table* table, int id);	// make_system_constant				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  dump_table_as_system_constants_list			(Task* task,  System_Constants_Table* table);		// dump_table_as_system_constants_list		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_system_constant__may_heapclean				(Task* task,  Sysconsts* table, int id);// make_system_constant__may_heapclean				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  dump_table_as_system_constants_list__may_heapclean		(Task* task,  Sysconsts* table);	// dump_table_as_system_constants_list__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-extern Val  make_package_literals_via_bytecode_interpreter	(Task* task,  Unt8* lits,  int len);
+extern Val  make_package_literals_via_bytecode_interpreter__may_heapclean	(Task* task,  Unt8* lits,  int len);
 
 extern Val zero_length_string__global [];
 extern Val zero_length_vector__global [];
@@ -397,8 +397,8 @@ extern Val zero_length_vector__global [];
 //     string them together on a List and hand that list to
 //     call_heapcleaner_with_extra_roots() -- for examples of that
 //     see
-//         make_nonempty_ro_vector				in   src/c/heapcleaner/make-strings-and-vectors-etc.c 
-//     or  make_package_literals_via_bytecode_interpreter	in   src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+//         make_nonempty_ro_vector__may_heapclean				in   src/c/heapcleaner/make-strings-and-vectors-etc.c 
+//     or  make_package_literals_via_bytecode_interpreter__may_heapclean	in   src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
 //
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories

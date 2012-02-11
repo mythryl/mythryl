@@ -74,7 +74,7 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
 //		continue;
 //	    else
 //
-		return make_ascii_string_from_c_string (task, cp);
+		return make_ascii_string_from_c_string__may_heapclean (task, cp);
 	}
     }
 }

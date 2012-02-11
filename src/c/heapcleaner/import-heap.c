@@ -221,8 +221,8 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
         // Set up the arguments to the imported function:
         //
-	program_name = make_ascii_string_from_c_string(task, mythryl_program_name__global);
-	args = make_ascii_strings_from_vector_of_c_strings (task, commandline_arguments);
+	program_name = make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global);
+	args = make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments);
 
 	task->argument = make_two_slot_record( task, program_name, args );
 

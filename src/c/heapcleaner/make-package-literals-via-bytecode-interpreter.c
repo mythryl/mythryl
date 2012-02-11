@@ -143,8 +143,8 @@ static double   get_double   (Unt8* p)   {
 
 
 
-Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize)   {
-    //==============================================
+Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize)   {
+    //=============================================================
     //
     // NOTE: We allocate all of the chunks in agegroup 1,
     // but allocate the vector of literals in agegroup0.
@@ -163,7 +163,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
 
 								do_debug_logging =  TRUE;
-								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/AAA" );
+								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/AAA" );
 
 
     int pc = 0;								// 'pc' will be our 'program counter' offset into bytecode_vector.
@@ -190,7 +190,7 @@ log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
 	} while (0)
 
     #ifdef DEBUG_LITERALS
-	debug_say("make_package_literals_via_bytecode_interpreter: bytecode_vector = %#x, bytecode_vector_bytesize = %d\n", bytecode_vector, bytecode_vector_bytesize);
+	debug_say("make_package_literals_via_bytecode_interpreter__may_heapclean: bytecode_vector = %#x, bytecode_vector_bytesize = %d\n", bytecode_vector, bytecode_vector_bytesize);
     #endif
 
     if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;		// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
@@ -211,8 +211,8 @@ log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
 
 
 Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
-log_if("make_package_literals_via_bytecode_interpreter/AAA -- doing initial heapcleaner call  <===================================================");
-// log_if("make_package_literals_via_bytecode_interpreter/AAA  <===================================================");
+log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA -- doing initial heapcleaner call  <===================================================");
+// log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA  <===================================================");
 // call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, NULL);    [XYZZY]
     // Uncommenting this seems to segfault us?!
 
@@ -529,7 +529,7 @@ log_if("I_RECORD/BOT: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 	        debug_say("[%2d]: RETURN(%#x)\n", pc-5, LIST_HEAD(stack));
 	    #endif
 
-								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/ZZZ" );
+								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/ZZZ" );
 	    return  LIST_HEAD( stack );
 	    break;
 
@@ -539,7 +539,7 @@ log_if("I_RECORD/BOT: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
     }									// while
 
 																do_debug_logging =  FALSE;
-}									// fun make_package_literals_via_bytecode_interpreter
+}									// fun make_package_literals_via_bytecode_interpreter__may_heapclean
 
 
 // COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.

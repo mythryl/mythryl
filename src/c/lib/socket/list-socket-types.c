@@ -32,7 +32,7 @@ Val   _lib7_Sock_listsocktypes   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_listsocktypes");
 
-    return dump_table_as_system_constants_list( task, &_Sock_Type );
+    return dump_table_as_system_constants_list__may_heapclean( task, &_Sock_Type );
 }
 
 

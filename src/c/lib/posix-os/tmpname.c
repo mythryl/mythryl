@@ -65,7 +65,7 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
  
     sprintf (buf, "tmpfile.%d.%d.%d.tmp", c1, pid, c2);
     //
-    return make_ascii_string_from_c_string (task, buf);
+    return make_ascii_string_from_c_string__may_heapclean (task, buf);
 }
 //
 // NOTES:

@@ -92,7 +92,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	// Allocate the vector.
 	// Note that this might trigger a heapcleaning, moving things around:
 	//
-	vec = allocate_nonempty_wordslots_vector( task, BYTES_TO_WORDS(n) );
+	vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS(n) );
 
 	memcpy( PTR_CAST(char*, vec), c_vec, n );
     

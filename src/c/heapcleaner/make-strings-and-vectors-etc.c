@@ -79,26 +79,28 @@
     }
 
 //
-Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
-    //===============================
+Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char* v)   {
+    //==============================================
     // 
     // Allocate a Mythryl string using a C string as an initializer.
     // We assume that the string is small and can be allocated in
     // the agegroup0 buffer.        XXX BUGGO FIXME
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_string_from_c_string");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_string_from_c_string__may_heapclean");
 
 
     int len =   v == NULL  ?  0
                            :  strlen(v);
 
     if (len == 0) {
+        //
 	return ZERO_LENGTH_STRING__GLOBAL;
+        //
     } else {
+        //
+	int	    n = BYTES_TO_WORDS(len+1);				// '+1' to count terminal '\0' also.
 
-	int	    n = BYTES_TO_WORDS(len+1);				// Count "\0" too.
-
-	Val result = allocate_nonempty_wordslots_vector( task, n );
+	Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, n );
 
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
@@ -111,15 +113,15 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
 }
 
 //
-Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   {
-    //===================================================
+Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, char **strs)   {
+    //==========================================================
     // 
     // Given a NULL terminated rw_vector of char*, build a list of Mythryl strings.
     //
     // NOTE: we should do something about possible GC!!! XXX BUGGO FIXME**/
 
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings__may_heapclean");
 
     int		i;
     Val	p, s;
@@ -129,7 +131,7 @@ Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   
 
     p = LIST_NIL;
     while (i-- > 0) {
-	s = make_ascii_string_from_c_string(task, strs[i]);
+	s = make_ascii_string_from_c_string__may_heapclean(task, strs[i]);
 	p = LIST_CONS(task, s, p);
     }
 
@@ -137,20 +139,20 @@ Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   
 }
 
 //
-Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
-    //==============================
+Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len)   {
+    //=============================================
     // 
     // Allocate an uninitialized Mythryl string of length > 0.
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string__may_heapclean");
 
     int		nwords = BYTES_TO_WORDS(len+1);
 
     ASSERT(len > 0);
 
-    Val result = allocate_nonempty_wordslots_vector( task, nwords );
+    Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, nwords );
 
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
@@ -161,13 +163,13 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_wordslots_vector   (Task* task,  int nwords)   {
-    //==================================
+Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwords)   {		// The "__may_heapclean" suffix is a warning to caller that the heapcleaner might be invoked in this fn,
+    //=================================================						// potentially moving everything on the heap to a new address.
     // 
     // Allocate an uninitialized vector of word-sized slots.
 
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_wordslots_vector");
+										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_wordslots_vector__may_heapclean");
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
@@ -182,15 +184,21 @@ Val   allocate_nonempty_wordslots_vector   (Task* task,  int nwords)   {
 
     } else {
 
+        // By policy we don't create vectors this large in agegroup0,
+	// so we will instead create it in agegroup1, which (confusingly)
+	// is addressed as task->heap->agegroup[0]:
+
 	Sib* sib =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	pthread_mutex_lock( &pth__mutex );
+	pthread_mutex_lock( &pth__mutex );								// Agegroup1 is shared with other pthreads, so grab the lock on it.
 	    //
 	    WHILE_INSUFFICIENT_FREESPACE_IN_SIB(sib, bytesize+task->heap_allocation_buffer_bytesize) {
 
-	        // We need to do a garbage collection:
+	        // We need to heapclean agegroup1 to
+                // clear out sufficient space in the
+                // agegroup sib for our vector:
                 //
 		sib->requested_extra_free_bytes += bytesize;
                 //
@@ -202,27 +210,33 @@ Val   allocate_nonempty_wordslots_vector   (Task* task,  int nwords)   {
                 //
 		sib->requested_extra_free_bytes = 0;
 	    }
-	    *(sib->tospace.used_end++) = tagword;
-	    result = PTR_CAST( Val, sib->tospace.used_end);
-	    sib->tospace.used_end += nwords;
 
-	pthread_mutex_unlock( &pth__mutex );
+	    /////////////////////////////////////////////////////////	
+	    // We now have enough sib space to create our vector.
+	    // We cannot release the lock yet, because some other
+	    // pthread might steal the freespace out from under us.
+	    /////////////////////////////////////////////////////////	
+	
+	    *(sib->tospace.used_end++) = tagword;							// Lay down the vector tagword.
+	    result = PTR_CAST( Val, sib->tospace.used_end);						// Save pointer to start of vector proper -- our return value.
+	    sib->tospace.used_end += nwords;								// Allocate sibspace for tagword plus vector.	
+	    //
+	pthread_mutex_unlock( &pth__mutex );								// NOW we can safely release the heap lock.
 
 	COUNT_ALLOC(task, bytesize);
-
     }
 
     return result;
 }
 //
 void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_words)   {
-    // ========================
+    // =============================
     // 
     // Shrink a freshly allocated vector with word-size slots.
     // This is used by the input routines that must pessimistically
     // pre-allocate space for more input than actually gets read:
     //     src/c/lib/socket/recvfrom.c
-s    //     src/c/lib/posix-io/read.c
+    //     src/c/lib/posix-io/read.c
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_wordslots_vector");
 
@@ -251,10 +265,10 @@ s    //     src/c/lib/posix-io/read.c
 
 // Allocate an uninitialized chunk of raw64 data. 			I can't find any code which references this fn. -- 2011-10-25 CrT
 // 
-Val   allocate_biwordslots_vector   (Task* task,  int nelems)   {
-    //==================== 
+Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems)   {
+    //==========================================
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_biwordslots_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_biwordslots_vector__may_heapclean");
 
     int	nwords = DOUBLES_TO_WORDS(nelems);
     Val	tagword   = MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
@@ -348,7 +362,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
     pthread_mutex_lock( &pth__mutex );
 	//
-	dp = allocate_hugechunk (heap, allocGen, len);
+	dp = allocate_hugechunk (heap, allocGen, len);			// allocate_hugechunk		is from   src/c/heapcleaner/hugechunk.c
 	ASSERT(dp->gen == allocGen);
 	dp->next = age->hugechunks[ CODE__HUGE_SIB ];
 	age->hugechunks[ CODE__HUGE_SIB ] = dp;
@@ -361,16 +375,16 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
-    //=========================================
+Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  int len)   {
+    //========================================================
     // 
     // Allocate an uninitialized Lib7 bytearray.  Assume that len > 0.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts__may_heapclean");
 
     int		nwords = BYTES_TO_WORDS(len);
 
-    Val	result =  allocate_nonempty_wordslots_vector( task, nwords );
+    Val	result =  allocate_nonempty_wordslots_vector__may_heapclean( task, nwords );
 
     // Zero the last word to allow fast (word)
     // string comparisons, and to guarantee 0
@@ -382,27 +396,27 @@ Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
-    //=============================================
+Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task,  int len)   {
+    //============================================================
     // 
     // Allocate an uninitialized Mythryl Float64 vector.  Assume that len > 0.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats__may_heapclean");
 
-    Val result =  allocate_biwordslots_vector( task, len );
+    Val result =  allocate_biwordslots_vector__may_heapclean( task, len );		// 64-bit issue.
 
     return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
 
 //
-Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
-    //=======================
+Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_val)   {
+    //======================================
     // 
     // Allocate a Mythryl rw_vector using init_val
     // as the initial value for vector slots.
     // Assume that len > 0.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
 
     Val	result;
 
@@ -478,18 +492,18 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     }
 
     return  make_vector_header(task,  TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
-}											// fun make_nonempty_rw_vector
+}											// fun make_nonempty_rw_vector__may_heapclean
 
 //
-Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
-    //======================= 
+Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers)   {
+    //======================================
     // 
     // Allocate a Mythryl vector, using the
     // list initializers as an initializer.
     // Assume that len > 0.
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
 
     Val	tagword = MAKE_TAGWORD(len, RO_VECTOR_DATA_BTAG);
     Val* p;
@@ -566,11 +580,11 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
     }
 
     return  make_vector_header( task,  TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
-}						 // fun make_nonempty_ro_vector
+}													 // fun make_nonempty_ro_vector__may_heapclean
 
 //
-Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int id)   {
-    //====================
+Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int id)   {
+    //===================================
     // 
     // Find the system constant with the given id
     // in table, and allocate a pair to represent it.
@@ -578,31 +592,31 @@ Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int i
     // If the constant is not present then
     // return the pair (~1, "<UNKNOWN>").
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant__may_heapclean");
 
     Val	name;
 
     for (int i = 0;  i < table->constants_count;  i++) {
 	if (table->consts[i].id == id) {
-	    name = make_ascii_string_from_c_string (task, table->consts[i].name);
+	    name = make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name);
 	    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
 	}
     }
 
     // Here, we did not find the constant:
     //
-    name = make_ascii_string_from_c_string (task, "<UNKNOWN>");
+    name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>");
     return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
 }
 
 //
-Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table* table)   {
-    //===================================
+Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Sysconsts* table)   {
+    //==================================================
     //
     // Generate a list of system constants from the given table.
     // We get called to list tables of signals, errors etc.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list__may_heapclean");
 
 
     // Should check for available heap space !!! XXX BUGGO FIXME
@@ -611,7 +625,7 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 
     for (int i = table->constants_count;  --i >= 0;  ) {
 	//
-	Val name            =  make_ascii_string_from_c_string (task, table->consts[i].name);
+	Val name            =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name);
 	//
         Val system_constant =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
 	//
@@ -622,24 +636,24 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 }
 
 //
-Val   allocate_biwordslots_vector_sized_in_bytes   (Task* task,  int nbytes)   {
-    //==========================================
+Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  int nbytes)   {
+    //=========================================================
     //
     // Allocate a 64-bit aligned raw data chunk (to store abstract C data).
     //
     // This function is nowhere invoked.
     //
-    return  allocate_biwordslots_vector( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
 }
 
 
 //
-Val   make_biwordslots_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
-    //======================================
+Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void* data,  int nbytes)   {
+    //=====================================================
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_biwordslots_vector_sized_in_bytes");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_biwordslots_vector_sized_in_bytes__may_heapclean");
 
     if (nbytes == 0) {
 
@@ -647,8 +661,8 @@ Val   make_biwordslots_vector_sized_in_bytes   (Task* task,  void* data,  int nb
 
     } else {
 
-        Val chunk =  allocate_biwordslots_vector( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
-
+        Val chunk =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
+												// 64-bit issue?
 	memcpy (PTR_CAST(void*, chunk), data, nbytes);
 
 	return chunk;

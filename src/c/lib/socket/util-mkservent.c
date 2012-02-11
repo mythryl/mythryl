@@ -47,9 +47,9 @@ Val   _util_NetDB_mkservent   (Task* task,  struct servent* sentry)   {
 
     // Build the return result:
 
-    Val name    =  make_ascii_string_from_c_string(     task, sentry->s_name	);
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings( task, sentry->s_aliases	);
-    Val proto   =  make_ascii_string_from_c_string(     task, sentry->s_proto	);
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_name	);
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, sentry->s_aliases	);
+    Val proto   =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_proto	);
     Val port    =  TAGGED_INT_FROM_C_INT(      ntohs(sentry->s_port)	);
     Val result  =  make_four_slot_record(task,  name, aliases, port, proto);
 

@@ -54,28 +54,28 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
 
     l = LIST_NIL;
 
-    field = make_ascii_string_from_c_string(task, "machine");
-    s = make_ascii_string_from_c_string(task, name.machine);
+    field = make_ascii_string_from_c_string__may_heapclean(task, "machine");
+    s = make_ascii_string_from_c_string__may_heapclean(task, name.machine);
     p = make_two_slot_record(task, field, s); 
     l = LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string(task, "version");
-    s = make_ascii_string_from_c_string(task, name.version);
+    field = make_ascii_string_from_c_string__may_heapclean(task, "version");
+    s = make_ascii_string_from_c_string__may_heapclean(task, name.version);
     p = make_two_slot_record(task, field, s); 
     l = LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string(task, "release");
-    s = make_ascii_string_from_c_string(task, name.release);
+    field = make_ascii_string_from_c_string__may_heapclean(task, "release");
+    s = make_ascii_string_from_c_string__may_heapclean(task, name.release);
     p = make_two_slot_record(task, field, s); 
     l = LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string(task, "nodename");
-    s = make_ascii_string_from_c_string(task, name.nodename);
+    field = make_ascii_string_from_c_string__may_heapclean(task, "nodename");
+    s = make_ascii_string_from_c_string__may_heapclean(task, name.nodename);
     p = make_two_slot_record(task, field, s); 
     l = LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string(task, "sysname");
-    s = make_ascii_string_from_c_string(task, name.sysname);
+    field = make_ascii_string_from_c_string__may_heapclean(task, "sysname");
+    s = make_ascii_string_from_c_string__may_heapclean(task, name.sysname);
     p = make_two_slot_record(task, field, s); 
     l = LIST_CONS(task, p, l);
 

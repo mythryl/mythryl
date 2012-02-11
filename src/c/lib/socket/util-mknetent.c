@@ -32,11 +32,11 @@ Val   _util_NetDB_mknetent   (Task *task, struct netent* nentry)   {
     // Build the return result:
 
 
-    Val name    =  make_ascii_string_from_c_string(             task,                    nentry->n_name		);
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings( task,                    nentry->n_aliases	);
-    Val af      =  make_system_constant(                        task, &_Sock_AddrFamily, nentry->n_addrtype	);
+    Val name    =  make_ascii_string_from_c_string__may_heapclean( task,                    nentry->n_name		);
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(    task,                    nentry->n_aliases	);		// XXX BUGGO FIXME, this may invalidate 'name' heapref.
+    Val af      =  make_system_constant__may_heapclean(                           task, &_Sock_AddrFamily, nentry->n_addrtype	);		// XXX BUGGO FIXME, this may invalidate 'name' and 'aliases' heaprefs.
 
-    Val net     =  make_one_word_unt(                           task,  (Val_Sized_Unt) (nentry->n_net)  );
+    Val net     =  make_one_word_unt(                              task,  (Val_Sized_Unt) (nentry->n_net)  );
 
     Val	result  =  make_four_slot_record(task,  name, aliases, af, net  );
 

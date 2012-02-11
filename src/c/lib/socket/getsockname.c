@@ -56,7 +56,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 
     Val	data
 	=
-	make_biwordslots_vector_sized_in_bytes(				// make_biwordslots_vector_sized_in_bytes	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+	make_biwordslots_vector_sized_in_bytes__may_heapclean(				// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 	    //
 	    task,
 	    address_buf,

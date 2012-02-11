@@ -47,7 +47,7 @@ Val   _lib7_P_ProcEnv_getlogin   (Task* task,  Val arg)   {
 
     if (name == NULL)   return RAISE_ERROR(task, "no login name");
   
-    return  make_ascii_string_from_c_string( task, name );
+    return  make_ascii_string_from_c_string__may_heapclean( task, name );
 }
 
 

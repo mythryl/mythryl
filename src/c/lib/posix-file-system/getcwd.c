@@ -59,7 +59,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd" );
 
-    if (status != NULL)    return make_ascii_string_from_c_string (task, path);
+    if (status != NULL)    return make_ascii_string_from_c_string__may_heapclean (task, path);
 
     if (errno != ERANGE)   return RAISE_SYSERR(task, status);
 
@@ -87,7 +87,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
         if (buf == NULL)	return RAISE_ERROR(task, "no malloc memory");
     }
       
-    Val p = make_ascii_string_from_c_string (task, buf);
+    Val p = make_ascii_string_from_c_string__may_heapclean (task, buf);
     //
     FREE( buf );
     //  

@@ -60,7 +60,7 @@ static void   c_signal_handler   (/* int sig,  Signal_Handler_Info_Arg info,  Si
 Val   list_signals   (Task* task)   {						// Called from src/c/lib/signal/listsignals.c
     //============
     //
-    return dump_table_as_system_constants_list (task, &SigTable);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 void   pause_until_signal   (Pthread* pthread) {
@@ -367,7 +367,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 	    //
 	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id)) {
 	        //
-		name = make_ascii_string_from_c_string (task, SigInfo[i].name);
+		name = make_ascii_string_from_c_string__may_heapclean (task, SigInfo[i].name);
 
 		sig = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 

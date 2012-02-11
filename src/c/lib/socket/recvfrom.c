@@ -97,7 +97,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 	// Allocate the result vector.
 	// Note that this might cause a clean, moving things around:
 	//
-	vec = allocate_nonempty_wordslots_vector( task, BYTES_TO_WORDS(nbytes) );
+	vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS(nbytes) );
 
 	// Copy read bytes into result vector:
 	//
@@ -107,7 +107,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     }
 
 
-    Val	data =  make_biwordslots_vector_sized_in_bytes( task, addr_buf, address_len );
+    Val	data =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr_buf, address_len );
     Val	result;
 
     if (n == 0) {

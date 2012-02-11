@@ -36,11 +36,11 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	syserror =  OPTION_THE(  task,  TAGGED_INT_FROM_C_INT(errno)  );
     }
 
-    s = make_ascii_string_from_c_string (task, msg);
+    s = make_ascii_string_from_c_string__may_heapclean (task, msg);
     if (at == NULL) {
 	atStk = LIST_NIL;
     } else {
-	Val atMsg = make_ascii_string_from_c_string (task, at);
+	Val atMsg = make_ascii_string_from_c_string__may_heapclean (task, at);
 	atStk = LIST_CONS(task, atMsg, LIST_NIL);
     }
 

@@ -422,7 +422,7 @@ static Val   read_in_compiled_file_list   (
 	    j = strlen(p)-1;
 	    if (p[j] == '\n') p[j] = '\0';
 
-	    if (numFiles < max_num_boot_files)   file_names[numFiles++] = make_ascii_string_from_c_string(task, p);
+	    if (numFiles < max_num_boot_files)   file_names[numFiles++] = make_ascii_string_from_c_string__may_heapclean(task, p);
 	    else                                 die ("too many files\n");
 	}
 
@@ -1062,7 +1062,7 @@ static void   load_compiled_file   (
 
 	save_c_state (task, &compiled_file_list, &import_record, NULL);
 
-	mythryl_result = make_package_literals_via_bytecode_interpreter (task, data_chunk, segment_bytesize);
+	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize);
 
 	FREE(data_chunk);
 
@@ -1186,7 +1186,7 @@ static void   register_compiled_file_exports   (
     // into the Mythryl heap, so that we can use
     // it in a Mythryl-heap record:
     //
-    lib7_picklehash = allocate_nonempty_ascii_string( task,           PICKLEHASH_BYTES );				// allocate_nonempty_ascii_string		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+    lib7_picklehash = allocate_nonempty_ascii_string__may_heapclean( task,           PICKLEHASH_BYTES );		// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
     memcpy( HEAP_STRING_AS_C_STRING(lib7_picklehash), (char*)c_picklehash, PICKLEHASH_BYTES );
 
     // Allocate the list record and thread it onto the exports list:

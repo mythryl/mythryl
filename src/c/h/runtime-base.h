@@ -165,14 +165,14 @@ typedef struct {
     //
 } System_Constant;
 
-// System_Constants_Table
+// Sysconsts
 //
 typedef struct {
     //
     int		       constants_count;
     System_Constant*   consts;
     //
-} System_Constants_Table;
+} Sysconsts;
 
 
 ////////////////////////////////////////////////////////////////////////////

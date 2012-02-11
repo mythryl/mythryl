@@ -45,22 +45,22 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
 	//
 	if (msg != 0) {
 	    //
-	    s = make_ascii_string_from_c_string( task, msg );				// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+	    s = make_ascii_string_from_c_string__may_heapclean( task, msg );				// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 	} else {
 	    char     buf[64];
 	    sprintf( buf, "<unknown error %d>", errnum);				// XXX SUCKO FIXME should use a modern fn proof against buffer overrun.
-	    s = make_ascii_string_from_c_string (task, buf);
+	    s = make_ascii_string_from_c_string__may_heapclean (task, buf);
 	}
     #else
 	if (0 <= errnum  &&  errnum < sys_nerr) {
 	    //
-	    s = make_ascii_string_from_c_string (task, sys_errlist[errnum]);
+	    s = make_ascii_string_from_c_string__may_heapclean (task, sys_errlist[errnum]);
 	    //
 	} else {
 	    //
 	    char     buf[64];
 	    sprintf( buf, "<unknown error %d>", errnum);				// XXX SUCKO FIXME should use a modern fn proof against buffer overrun.
-	    s = make_ascii_string_from_c_string (task, buf);
+	    s = make_ascii_string_from_c_string__may_heapclean (task, buf);
 	}
     #endif
 

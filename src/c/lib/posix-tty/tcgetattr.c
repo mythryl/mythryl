@@ -70,7 +70,7 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
     // Allocate the vector.
     // Note that this might trigger a cleaning:
     //
-    cc = allocate_nonempty_ascii_string (task, NCCS);
+    cc = allocate_nonempty_ascii_string__may_heapclean (task, NCCS);
 
     memcpy(
 	GET_VECTOR_DATACHUNK_AS( void*, cc ),

@@ -160,7 +160,7 @@ static Val   do_get_commandline_args   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_commandline_args");
 
-    return make_ascii_strings_from_vector_of_c_strings (task, commandline_arguments);
+    return make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments);
 }
 //
 static Val   do_concatenate_two_tuples   (Task* task,  Val arg)   {
@@ -369,41 +369,41 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
     Val	  result;
 
     if (SAME_STRING("OS_NAME", name))
-	result = make_ascii_string_from_c_string(task, OS_NAME);
+	result = make_ascii_string_from_c_string__may_heapclean(task, OS_NAME);
     else if (SAME_STRING("OS_VERSION", name))
-	result = make_ascii_string_from_c_string(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
     else if (SAME_STRING("HOST_ARCH", name))
 #if defined(HOST_PWRPC32)
-	result = make_ascii_string_from_c_string(task, "PWRPC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32");
 #elif defined(HOST_SPARC32)
-	result = make_ascii_string_from_c_string(task, "SPARC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32");
 #elif defined(HOST_INTEL32)
-	result = make_ascii_string_from_c_string(task, "INTEL32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32");
 #else
-	result = make_ascii_string_from_c_string(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
 #endif
     else if (SAME_STRING("TARGET_ARCH", name))
 #if defined(TARGET_PWRPC32)
-	result = make_ascii_string_from_c_string(task, "PWRPC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32");
 #elif defined(TARGET_SPARC32)
-	result = make_ascii_string_from_c_string(task, "SPARC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32");
 #elif defined(TARGET_INTEL32)
-	result = make_ascii_string_from_c_string(task, "INTEL32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32");
 #else
-	result = make_ascii_string_from_c_string(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
 #endif
     else if (SAME_STRING("HAS_SOFTWARE_GENERATED_PERIODIC_EVENTS", name))
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE);
 #else
-	result = make_ascii_string_from_c_string(task, FALSE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE);
 #endif
     else if (SAME_STRING("HAS_MP", name))
 
 #if NEED_PTHREAD_SUPPORT
-	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE);
 #else
-	result = make_ascii_string_from_c_string(task, FALSE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE);
 #endif
     else
 	return OPTION_NULL;
@@ -718,7 +718,7 @@ static Val   do_make_package_literals_via_bytecode_interpreter   (Task* task,  V
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_make_package_literals_via_bytecode_interpreter");
 
-    return   make_package_literals_via_bytecode_interpreter (						// make_package_literals_via_bytecode_interpreter	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+    return   make_package_literals_via_bytecode_interpreter__may_heapclean (	// make_package_literals_via_bytecode_interpreter__may_heapclean	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
                  task,
                  GET_VECTOR_DATACHUNK_AS( Unt8*, arg ),
                  GET_VECTOR_LENGTH( arg )
@@ -760,7 +760,7 @@ static Val   do_get_program_name_from_commandline   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_program_name_from_commandline");
 
-    return   make_ascii_string_from_c_string( task, mythryl_program_name__global );
+    return   make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global );
 }
 
 
@@ -777,7 +777,7 @@ static Val   do_get_raw_commandline_args   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_raw_commandline_args");
 
-    return   make_ascii_strings_from_vector_of_c_strings( task, raw_args );
+    return   make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, raw_args );
 }
 
 

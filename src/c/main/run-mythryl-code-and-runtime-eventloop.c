@@ -294,11 +294,11 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		        //
 			char	buf2[192];
 			sprintf(buf2, "<file %.184s>", namestring);
-			loc = make_ascii_string_from_c_string( task, buf2 );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, buf2 );
 
 		    } else {
 
-			loc = make_ascii_string_from_c_string( task, "<unknown file>" );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, "<unknown file>" );
 		    }
 
 		    traceStk =  LIST_CONS( task, loc, LIST_NIL );
@@ -350,27 +350,27 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_STRING:
-		task->argument =   allocate_nonempty_ascii_string( task, TAGGED_INT_TO_C_INT( task->argument ) );
+		task->argument =   allocate_nonempty_ascii_string__may_heapclean( task, TAGGED_INT_TO_C_INT( task->argument ) );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_ALLOCATE_BYTE_VECTOR:
-		task->argument =   allocate_nonempty_vector_of_one_byte_unts( task, TAGGED_INT_TO_C_INT(task->argument) );
+		task->argument =   allocate_nonempty_vector_of_one_byte_unts__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument) );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS:
-		task->argument =   allocate_nonempty_vector_of_eight_byte_floats( task, TAGGED_INT_TO_C_INT(task->argument) );
+		task->argument =   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument) );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR:
-		task->argument =   make_nonempty_rw_vector( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
+		task->argument =   make_nonempty_rw_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR:
-		task->argument = make_nonempty_ro_vector( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
+		task->argument = make_nonempty_ro_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
 		SET_UP_RETURN( task );
 		break;
 

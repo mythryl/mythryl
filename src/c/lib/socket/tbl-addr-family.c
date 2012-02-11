@@ -96,7 +96,7 @@ static System_Constant	table[] = {
 #endif
     };
 
-System_Constants_Table	_Sock_AddrFamily = {
+Sysconsts	_Sock_AddrFamily = {
 	sizeof(table) / sizeof(System_Constant),
 	table
     };

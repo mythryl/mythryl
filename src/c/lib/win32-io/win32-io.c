@@ -127,7 +127,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
     // Allocate the vector.
     // Note that this might cause a GC:
     //
-    Val vec = allocate_nonempty_wordslots_vector( task, BYTES_TO_WORDS (nbytes) );
+    Val vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS (nbytes) );
 
     if (ReadFile( h, PTR_CAST(void*, vec), nbytes, &n, NULL)) {
 
@@ -193,7 +193,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
   // Allocate the vector.
   / Note that this might cause a GC.
   //
-  vec = allocate_nonempty_wordslots_vector( task, BYTES_TO_WORDS (nbytes) );
+  vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS (nbytes) );
 
   if (IS_CONIN(h)) {
     flag = ReadConsole(h,PTR_CAST(void*,vec),nbytes,&n,NULL);

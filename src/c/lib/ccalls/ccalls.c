@@ -1109,7 +1109,7 @@ handle_int:
 	#endif
 	tag = LIB7STRING_TAG;
 	space_check( task, strlen((char*)**p), root );
-	mlval = make_ascii_string_from_c_string(task,(char *) **p);
+	mlval = make_ascii_string_from_c_string__may_heapclean(task,(char *) **p);
 	(*p)++;
 	break;
 
@@ -1161,7 +1161,7 @@ handle_int:
 
 	    space_check( task, szb*n, root );
 
-	    // make_nonempty_rw_vector isn't used here since it might call cleaner.
+	    // make_nonempty_rw_vector__may_heapclean isn't used here because it might call heapcleaner.
 
 	    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n,dtag));
 

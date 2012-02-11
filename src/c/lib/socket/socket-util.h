@@ -15,8 +15,8 @@ extern Val _util_NetDB_mknetent (Task *task, netent_ptr_t nentry);
 extern Val _util_NetDB_mkservent (Task *task, servent_ptr_t sentry);
 extern Val get_or_set_boolean_socket_option (Task *task, Val arg, int option);
 
-extern System_Constants_Table	_Sock_AddrFamily;
-extern System_Constants_Table	_Sock_Type;
+extern Sysconsts	_Sock_AddrFamily;
+extern Sysconsts	_Sock_Type;
 
 #endif // _SOCK_UTIL_ 
 

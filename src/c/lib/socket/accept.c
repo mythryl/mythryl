@@ -55,7 +55,7 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
         //
     } else {
         //
-	Val data    =  make_biwordslots_vector_sized_in_bytes( task, address_buf,                  address_len );
+	Val data    =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, address_buf,                  address_len );
 	Val address =  make_vector_header(              task, UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
 	return  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT( new_socket ), address);

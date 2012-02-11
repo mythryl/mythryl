@@ -61,7 +61,7 @@ Val   _lib7_U_Dynload_dlerror   (Task* task, Val lib7_handle)   { 	// : Void -> 
     const char* e =  dlerror ();
 
     if (e == NULL)    return  OPTION_NULL;
-    else 	      return  OPTION_THE(  task,  make_ascii_string_from_c_string(task, e)  );
+    else 	      return  OPTION_THE(  task,  make_ascii_string_from_c_string__may_heapclean(task, e)  );
 }
 
 

@@ -90,13 +90,13 @@ Val   RaiseSysError (
 
     errno_string
 	=
-	make_ascii_string_from_c_string (task, msg);
+	make_ascii_string_from_c_string__may_heapclean (task, msg);
 
     if (at != NULL) {
 
 	Val  at_cstring
             =
-            make_ascii_string_from_c_string (task, at);
+            make_ascii_string_from_c_string__may_heapclean (task, at);
 
 	at_list = LIST_CONS(task, at_cstring, LIST_NIL);
 

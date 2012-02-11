@@ -32,7 +32,7 @@ _lib7_OpenCV_cvCreateImage (Task *task, Val arg)
 
     IplImage img;
 
-    Val data   =  make_biwordslots_vector_sized_in_bytes(  task, &img, sizeof(img));
+    Val data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean(  task, &img, sizeof(img));
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(img));
 
