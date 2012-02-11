@@ -56,7 +56,7 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
             + 1;
     #endif
 
-    Val data =  make_int2_vector_sized_in_bytes(task, &addr, len );
+    Val data =  make_biwordslots_vector_sized_in_bytes(task, &addr, len );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, len );
 }

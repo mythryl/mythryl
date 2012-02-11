@@ -56,7 +56,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    Val cdata =  make_int2_vector_sized_in_bytes( task, addr, address_len );
+    Val cdata =  make_biwordslots_vector_sized_in_bytes( task, addr, address_len );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, cdata, address_len);
 }

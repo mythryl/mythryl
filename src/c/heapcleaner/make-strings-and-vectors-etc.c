@@ -98,7 +98,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
 
 	int	    n = BYTES_TO_WORDS(len+1);				// Count "\0" too.
 
-	Val result = allocate_nonempty_int1_vector( task, n );
+	Val result = allocate_nonempty_wordslots_vector( task, n );
 
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
@@ -150,7 +150,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
 
     ASSERT(len > 0);
 
-    Val result = allocate_nonempty_int1_vector( task, nwords );
+    Val result = allocate_nonempty_wordslots_vector( task, nwords );
 
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
@@ -161,13 +161,13 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
-    //=============================
+Val   allocate_nonempty_wordslots_vector   (Task* task,  int nwords)   {
+    //==================================
     // 
-    // Allocate an uninitialized vector of 32-bit slots.
+    // Allocate an uninitialized vector of word-sized slots.
 
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_int1_vector");
+										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_wordslots_vector");
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
@@ -215,14 +215,16 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
     return result;
 }
 //
-void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)   {
+void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_words)   {
     // ========================
     // 
-    // Shrink a freshly allocated one_word_int vector.
+    // Shrink a freshly allocated vector with word-size slots.
     // This is used by the input routines that must pessimistically
-    // pre-allocate space for more input than actually gets read.
+    // pre-allocate space for more input than actually gets read:
+    //     src/c/lib/socket/recvfrom.c
+s    //     src/c/lib/posix-io/read.c
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_int1_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_wordslots_vector");
 
     int old_length_in_words = CHUNK_LENGTH(v);
 
@@ -249,10 +251,10 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
 
 // Allocate an uninitialized chunk of raw64 data. 			I can't find any code which references this fn. -- 2011-10-25 CrT
 // 
-Val   allocate_int2_vector   (Task* task,  int nelems)   {
+Val   allocate_biwordslots_vector   (Task* task,  int nelems)   {
     //==================== 
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_int2_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_biwordslots_vector");
 
     int	nwords = DOUBLES_TO_WORDS(nelems);
     Val	tagword   = MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
@@ -368,7 +370,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
 
     int		nwords = BYTES_TO_WORDS(len);
 
-    Val	result =  allocate_nonempty_int1_vector( task, nwords );
+    Val	result =  allocate_nonempty_wordslots_vector( task, nwords );
 
     // Zero the last word to allow fast (word)
     // string comparisons, and to guarantee 0
@@ -387,7 +389,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats");
 
-    Val result =  allocate_int2_vector( task, len );
+    Val result =  allocate_biwordslots_vector( task, len );
 
     return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
@@ -620,24 +622,24 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 }
 
 //
-Val   allocate_int2_vector_sized_in_bytes   (Task* task,  int nbytes)   {
-    //===================================
+Val   allocate_biwordslots_vector_sized_in_bytes   (Task* task,  int nbytes)   {
+    //==========================================
     //
     // Allocate a 64-bit aligned raw data chunk (to store abstract C data).
     //
     // This function is nowhere invoked.
     //
-    return  allocate_int2_vector( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+    return  allocate_biwordslots_vector( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
 }
 
 
 //
-Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
-    //===============================
+Val   make_biwordslots_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
+    //======================================
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_int2_vector_sized_in_bytes");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_biwordslots_vector_sized_in_bytes");
 
     if (nbytes == 0) {
 
@@ -645,7 +647,7 @@ Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)  
 
     } else {
 
-        Val chunk =  allocate_int2_vector( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
+        Val chunk =  allocate_biwordslots_vector( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
 
 	memcpy (PTR_CAST(void*, chunk), data, nbytes);
 

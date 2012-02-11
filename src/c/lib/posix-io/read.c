@@ -92,12 +92,12 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	// Allocate the vector.
 	// Note that this might trigger a heapcleaning, moving things around:
 	//
-	vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(n) );
+	vec = allocate_nonempty_wordslots_vector( task, BYTES_TO_WORDS(n) );
 
 	memcpy( PTR_CAST(char*, vec), c_vec, n );
     
 //	if (n < nbytes) {						// Left-over hack from old code that created vector before doing the read.
-//	    shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.
+//	    shrink_fresh_wordslots_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.
 //	}
 
 	unbuffer_mythryl_heap_value( &vec_buf );

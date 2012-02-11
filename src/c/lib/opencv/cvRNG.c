@@ -30,7 +30,7 @@ _lib7_OpenCV_cvRNG (Task *task, Val arg)
     int init = TAGGED_INT_TO_C_INT( arg );
     CvRNG rng = cvRNG( (unsigned) init);
 
-    Val data   =  make_int2_vector_sized_in_bytes( task, &rng, sizeof(rng) );
+    Val data   =  make_biwordslots_vector_sized_in_bytes( task, &rng, sizeof(rng) );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(rng));
 
