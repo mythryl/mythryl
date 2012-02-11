@@ -65,22 +65,26 @@ inline Val    commit_nascent_heapchunk    (Task* task, int length_in_words)	{
 }
 
 
-#define REF_ALLOC(task, r, a)	{						\
-	Task*	__task = (task);						\
-	Va*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = REFCELL_TAGWORD;						\
-	*__p++ = (a);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
-
+inline Val   make_refcell   (Task* task, Val v)  {
+    //       ============
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ =  REFCELL_TAGWORD;      Val result = (Val) p;
+    *p++ =  v;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+      
 
 inline Val   make_one_slot_record   (Task* task, Val a) {
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
+    *p++ =  MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -91,9 +95,9 @@ inline Val   make_two_slot_record   (Task* task, Val a, Val b) {
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = PAIR_TAGWORD;      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
+    *p++ =  PAIR_TAGWORD;      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -104,10 +108,10 @@ inline Val   make_three_slot_record   (Task* task, Val a, Val b, Val c) {
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
+    *p++ =  MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -118,11 +122,11 @@ inline Val   make_four_slot_record   (Task* task,  Val a, Val b, Val c, Val d) {
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
-    *p++ = d;
+    *p++ =  MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
+    *p++ =  d;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -133,12 +137,12 @@ inline Val   make_five_slot_record   (Task* task,  Val a, Val b, Val c, Val d, V
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
-    *p++ = d;
-    *p++ = e;
+    *p++ =  MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
+    *p++ =  d;
+    *p++ =  e;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -149,13 +153,13 @@ inline Val   make_six_slot_record   (Task* task,  Val a, Val b, Val c, Val d, Va
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
-    *p++ = d;
-    *p++ = e;
-    *p++ = f;
+    *p++ =  MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
+    *p++ =  d;
+    *p++ =  e;
+    *p++ =  f;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -166,14 +170,14 @@ inline Val   make_seven_slot_record   (Task* task,  Val a, Val b, Val c, Val d, 
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(7, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
-    *p++ = d;
-    *p++ = e;
-    *p++ = f;
-    *p++ = g;
+    *p++ =  MAKE_TAGWORD(7, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
+    *p++ =  d;
+    *p++ =  e;
+    *p++ =  f;
+    *p++ =  g;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -184,15 +188,15 @@ inline Val   make_eight_slot_record   (Task* task,  Val a, Val b, Val c, Val d, 
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = MAKE_TAGWORD(8, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
-    *p++ = a;
-    *p++ = b;
-    *p++ = c;
-    *p++ = d;
-    *p++ = e;
-    *p++ = f;
-    *p++ = g;
-    *p++ = h;
+    *p++ =  MAKE_TAGWORD(8, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ =  a;
+    *p++ =  b;
+    *p++ =  c;
+    *p++ =  d;
+    *p++ =  e;
+    *p++ =  f;
+    *p++ =  g;
+    *p++ =  h;
     //
     task->heap_allocation_pointer = p;   
     //
@@ -203,9 +207,9 @@ inline Val   make_vector_header   (Task* task,  Val tagword, Val vectordata, int
     //
     Val* p = task->heap_allocation_pointer;
     //
-    *p++ = tagword;      Val result = (Val) p;
-    *p++ = vectordata;
-    *p++ = TAGGED_INT_FROM_C_INT( vectorlen );
+    *p++ =  tagword;      Val result = (Val) p;
+    *p++ =  vectordata;
+    *p++ =  TAGGED_INT_FROM_C_INT( vectorlen );
     //
     task->heap_allocation_pointer = p;   
     //
