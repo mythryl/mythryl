@@ -324,11 +324,18 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 	    debug_say("space_check: Cleaning heap.\n");
 	#endif
 
+#ifndef OLDXTRAROOTS
 	call_heapcleaner_with_extra_roots(task,0,one_root,NULL);
+#else
+	{   Roots r1 = { one_root, NULL };
+	    //
+	    call_heapcleaner_with_extra_roots (task, 0, &r1 );
+	}
+#endif
 
 	if (need_to_call_heapcleaner(task,bytes + ONE_K_BINARY)) {
 	    //
-	    say_error( "space_check: Cannot alloc Mythryl space for Mythryl-to-C conversion.\n" );	// Is it really OK to then return??? XXX BUGGO FIXME
+	    die( "space_check: Cannot alloc Mythryl space for Mythryl-to-C conversion.\n" );
         }
     }
 }
