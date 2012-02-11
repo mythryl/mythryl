@@ -688,11 +688,11 @@ Val   _lib7_Gtk_get_queued_bool_callback   (Task *task,  Val arg)   {
         moan_and_die();
     }
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
-    LIB7_AllocWrite(  task, 2, e.entry.bool_value ?  HEAP_TRUE : HEAP_FALSE );
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
+    set_slot_in_nascent_heapchunk(  task, 2, e.entry.bool_value ?  HEAP_TRUE : HEAP_FALSE );
     //
-    return LIB7_Alloc(task, 2);
+    return commit_nascent_heapchunk(task, 2);
 }
 
 
@@ -713,10 +713,10 @@ Val   _lib7_Gtk_get_queued_float_callback   (Task* task, Val arg)  {
 
     Val boxed_double =   make_float64(task, d );					// make_float64		is from   src/c/h/make-strings-and-vectors-etc.h
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
-    LIB7_AllocWrite(  task, 2, boxed_double );
-    return LIB7_Alloc(task, 2);
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
+    set_slot_in_nascent_heapchunk(  task, 2, boxed_double );
+    return commit_nascent_heapchunk(task, 2);
 }
 
 
@@ -736,16 +736,16 @@ Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
     Val boxed_x =  make_float64(task, e.entry.button_press.x );
     Val boxed_y =  make_float64(task, e.entry.button_press.y );
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                );
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number              ));
-    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.button_press.widget_id ));
-    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.button_press.button    ));
-    LIB7_AllocWrite(  task, 4, boxed_x                                      );
-    LIB7_AllocWrite(  task, 5, boxed_y                                      );
-    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.button_press.time      ));
-    LIB7_AllocWrite(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.button_press.modifiers ));
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number              ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.button_press.widget_id ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.button_press.button    ));
+    set_slot_in_nascent_heapchunk(  task, 4, boxed_x                                      );
+    set_slot_in_nascent_heapchunk(  task, 5, boxed_y                                      );
+    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.button_press.time      ));
+    set_slot_in_nascent_heapchunk(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.button_press.modifiers ));
     //
-    return LIB7_Alloc(task, 7);
+    return commit_nascent_heapchunk(task, 7);
 }
 
 
@@ -764,14 +764,14 @@ Val   _lib7_Gtk_get_queued_key_press_callback   (Task *task,  Val arg)   {
         moan_and_die();
     }
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 5)                 );
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
-    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.key_press.key       ));
-    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.key_press.keycode   ));
-    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.key_press.time      ));
-    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.key_press.modifiers ));
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 5)                 );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.key_press.key       ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.key_press.keycode   ));
+    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.key_press.time      ));
+    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.key_press.modifiers ));
     //
-    return LIB7_Alloc(task, 5);
+    return commit_nascent_heapchunk(task, 5);
 }
 
 
@@ -793,16 +793,16 @@ Val   _lib7_Gtk_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
     Val boxed_x =  make_float64(task, e.entry.motion_notify.x );
     Val boxed_y =  make_float64(task, e.entry.motion_notify.y );
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                 );
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number               ));
-    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.widget_id ));
-    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.time      ));
-    LIB7_AllocWrite(  task, 4, boxed_x                                       );
-    LIB7_AllocWrite(  task, 5, boxed_y                                       );
-    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.modifiers ));
-    LIB7_AllocWrite(  task, 7, e.entry.motion_notify.is_hint ? HEAP_TRUE : HEAP_FALSE );
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                 );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number               ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.widget_id ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.time      ));
+    set_slot_in_nascent_heapchunk(  task, 4, boxed_x                                       );
+    set_slot_in_nascent_heapchunk(  task, 5, boxed_y                                       );
+    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.modifiers ));
+    set_slot_in_nascent_heapchunk(  task, 7, e.entry.motion_notify.is_hint ? HEAP_TRUE : HEAP_FALSE );
     //
-    return LIB7_Alloc(task, 7);
+    return commit_nascent_heapchunk(task, 7);
 }
 
 
@@ -821,16 +821,16 @@ Val   _lib7_Gtk_get_queued_expose_callback   (Task *task,  Val arg)   {
         moan_and_die();
     }
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)              );
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number        ));
-    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.expose.widget_id ));
-    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.expose.count     ));
-    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.expose.area_x    ));
-    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.expose.area_y    ));
-    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.expose.area_wide ));
-    LIB7_AllocWrite(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.expose.area_high ));
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)              );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number        ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.expose.widget_id ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.expose.count     ));
+    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.expose.area_x    ));
+    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.expose.area_y    ));
+    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.expose.area_wide ));
+    set_slot_in_nascent_heapchunk(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.expose.area_high ));
     //
-    return LIB7_Alloc(task, 7);
+    return commit_nascent_heapchunk(task, 7);
 }
 
 
@@ -849,15 +849,15 @@ Val   _lib7_Gtk_get_queued_configure_callback   (Task *task, Val arg)   {
         moan_and_die();
     }
 
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 6)                 );
-    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
-    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.configure.widget_id ));
-    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.configure.x         ));
-    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.configure.y         ));
-    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.configure.wide      ));
-    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.configure.high      ));
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 6)                 );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.configure.widget_id ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.configure.x         ));
+    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.configure.y         ));
+    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.configure.wide      ));
+    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.configure.high      ));
     //
-    return LIB7_Alloc(task, 6);
+    return commit_nascent_heapchunk(task, 6);
 }
 
 
@@ -876,12 +876,12 @@ Val   _lib7_Gtk_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
 	int wide =  w0->allocation.width;
 	int high =  w0->allocation.height;
 
-	LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
-	LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
-	LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
-	LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
-	LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
-	return LIB7_Alloc(task, 4);
+	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
+	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
+	set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
+	return commit_nascent_heapchunk(task, 4);
     #else
 	extern char* no_gtk_support_in_runtime;
 	return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -905,11 +905,11 @@ Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget ->
 
     /*      GdkWindow* result_window = */  gdk_window_get_pointer (GDK_WINDOW(w0), &x, &y, &modifiers); 
 
-	    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
-	    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
-	    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( modifiers  ));
-	    return LIB7_Alloc(task, 3);
+	    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
+	    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+	    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+	    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( modifiers  ));
+	    return commit_nascent_heapchunk(task, 3);
 	}
     #else
 	extern char* no_gtk_support_in_runtime;
@@ -932,11 +932,11 @@ Val   _lib7_Gtk_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, 
 	vbox        = find_free_widget_slot ();   widget[vbox]        = GTK_DIALOG( widget[dialog] )->vbox;
 	action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
 	//
-	LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
-	LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
-	LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
-	return LIB7_Alloc(task, 3);
+	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
+	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
+	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
+	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
+	return commit_nascent_heapchunk(task, 3);
     #else
 	extern char* no_gtk_support_in_runtime;
 	return RAISE_ERROR(task, no_gtk_support_in_runtime);

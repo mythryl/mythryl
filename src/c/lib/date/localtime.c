@@ -42,18 +42,18 @@ Val   _lib7_Date_local_time   (Task* task,  Val arg) {
 
     if (tm == NULL)   RAISE_SYSERR( task, 0 );
 
-    LIB7_AllocWrite(task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 9));
-    LIB7_AllocWrite(task, 1, TAGGED_INT_FROM_C_INT(tm->tm_sec));
-    LIB7_AllocWrite(task, 2, TAGGED_INT_FROM_C_INT(tm->tm_min));
-    LIB7_AllocWrite(task, 3, TAGGED_INT_FROM_C_INT(tm->tm_hour));
-    LIB7_AllocWrite(task, 4, TAGGED_INT_FROM_C_INT(tm->tm_mday));
-    LIB7_AllocWrite(task, 5, TAGGED_INT_FROM_C_INT(tm->tm_mon));
-    LIB7_AllocWrite(task, 6, TAGGED_INT_FROM_C_INT(tm->tm_year));
-    LIB7_AllocWrite(task, 7, TAGGED_INT_FROM_C_INT(tm->tm_wday));
-    LIB7_AllocWrite(task, 8, TAGGED_INT_FROM_C_INT(tm->tm_yday));
-    LIB7_AllocWrite(task, 9, TAGGED_INT_FROM_C_INT(tm->tm_isdst));
+    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 9));
+    set_slot_in_nascent_heapchunk(task, 1, TAGGED_INT_FROM_C_INT(tm->tm_sec));
+    set_slot_in_nascent_heapchunk(task, 2, TAGGED_INT_FROM_C_INT(tm->tm_min));
+    set_slot_in_nascent_heapchunk(task, 3, TAGGED_INT_FROM_C_INT(tm->tm_hour));
+    set_slot_in_nascent_heapchunk(task, 4, TAGGED_INT_FROM_C_INT(tm->tm_mday));
+    set_slot_in_nascent_heapchunk(task, 5, TAGGED_INT_FROM_C_INT(tm->tm_mon));
+    set_slot_in_nascent_heapchunk(task, 6, TAGGED_INT_FROM_C_INT(tm->tm_year));
+    set_slot_in_nascent_heapchunk(task, 7, TAGGED_INT_FROM_C_INT(tm->tm_wday));
+    set_slot_in_nascent_heapchunk(task, 8, TAGGED_INT_FROM_C_INT(tm->tm_yday));
+    set_slot_in_nascent_heapchunk(task, 9, TAGGED_INT_FROM_C_INT(tm->tm_isdst));
 
-    return LIB7_Alloc(task, 9);
+    return commit_nascent_heapchunk(task, 9);
 }
 
 

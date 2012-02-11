@@ -78,19 +78,19 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
 
     // Allocate the stat record:
     //
-    LIB7_AllocWrite(task,  0, MAKE_TAGWORD(11, PAIRS_AND_RECORDS_BTAG));
-    LIB7_AllocWrite(task,  1, TAGGED_INT_FROM_C_INT(ftype));
-    LIB7_AllocWrite(task,  2, mode);
-    LIB7_AllocWrite(task,  3, ino);
-    LIB7_AllocWrite(task,  4, dev);
-    LIB7_AllocWrite(task,  5, nlink);
-    LIB7_AllocWrite(task,  6, uid);
-    LIB7_AllocWrite(task,  7, gid);
-    LIB7_AllocWrite(task,  8, TAGGED_INT_FROM_C_INT(buf->st_size));
-    LIB7_AllocWrite(task,  9, atime);
-    LIB7_AllocWrite(task, 10, mtime);
-    LIB7_AllocWrite(task, 11, ctime);
-    sr = LIB7_Alloc(task, 11);
+    set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(11, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk(task,  1, TAGGED_INT_FROM_C_INT(ftype));
+    set_slot_in_nascent_heapchunk(task,  2, mode);
+    set_slot_in_nascent_heapchunk(task,  3, ino);
+    set_slot_in_nascent_heapchunk(task,  4, dev);
+    set_slot_in_nascent_heapchunk(task,  5, nlink);
+    set_slot_in_nascent_heapchunk(task,  6, uid);
+    set_slot_in_nascent_heapchunk(task,  7, gid);
+    set_slot_in_nascent_heapchunk(task,  8, TAGGED_INT_FROM_C_INT(buf->st_size));
+    set_slot_in_nascent_heapchunk(task,  9, atime);
+    set_slot_in_nascent_heapchunk(task, 10, mtime);
+    set_slot_in_nascent_heapchunk(task, 11, ctime);
+    sr = commit_nascent_heapchunk(task, 11);
 
     return sr;
 }

@@ -25,14 +25,44 @@
 
 
 ////////////////////////////////
-// Heap allocation macros
+// Heap record allocation
+//
+// The general protocol for allocating (say)
+// a seven-slot record in agegroup0 is
+//
+//     set_slot_in_nascent_heapchunk( task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7) );	// '7' is the record length in slots, not counting tagword.
+//     set_slot_in_nascent_heapchunk( task, 1, val1 );
+//     set_slot_in_nascent_heapchunk( task, 2, val2 );
+//     set_slot_in_nascent_heapchunk( task, 3, val3 );
+//     set_slot_in_nascent_heapchunk( task, 4, val4 );
+//     set_slot_in_nascent_heapchunk( task, 5, val5 );
+//     set_slot_in_nascent_heapchunk( task, 6, val6 );
+//     set_slot_in_nascent_heapchunk( task, 7, val7 );
+//     r =  commit_nascent_heapchunk( task, 7 );						// '7' is again the record length in slots not counting tagword.
+//
+// Here the
+//     set_slot_in_nascent_heapchunk()
+// calls write to unclaimed agegroup0 pace; only the final
+//     commit_nascent_heapchunk()
+// actually allocates heapspace by advancing
+//     task->heap_allocation_pointer.
+// 'r', the result value, points to the word *after* the
+// tagword;  this is the conventional way of referring to
+// such a record.
+//
+inline void   set_slot_in_nascent_heapchunk   (Task* task, int i, Val v)	{
+    //        =============================
+    //
+    task->heap_allocation_pointer[i] =  v;
+}
 
-#define LIB7_AllocWrite(task, i, x)	((((task)->heap_allocation_pointer))[i] = (x))
-
-#define LIB7_Alloc(task, n)	(						\
-    ((task)->heap_allocation_pointer += ((n)+1)),				\
-    PTR_CAST( Val, (task)->heap_allocation_pointer - (n)))
-
+inline Val    commit_nascent_heapchunk    (Task* task, int length_in_words)	{
+    //        ========================
+    //
+    task->heap_allocation_pointer +=  length_in_words +1;					// Allocate agegroup0 heapspace for record.  ('+1' for tagword.)
+    //
+    return PTR_CAST( Val, task->heap_allocation_pointer - length_in_words );			// Return pointer to first work in record proper -- the word *after* the tagword.
+}
 
 
 #define REF_ALLOC(task, r, a)	{						\

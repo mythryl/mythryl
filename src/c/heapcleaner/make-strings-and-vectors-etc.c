@@ -68,9 +68,9 @@
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
  #if NEED_PTHREAD_SUPPORT
     //
-    #define IFGC(ap, szb)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
+    #define IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
  #else
-    #define IFGC(ap, szb)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
+    #define IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
  #endif
 
 #define COUNT_ALLOC(task, nbytes)	{	\
@@ -177,8 +177,8 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
     if (nwords <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
 	//
-	LIB7_AllocWrite (task, 0, tagword);
-	result = LIB7_Alloc (task, nwords);
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, nwords);
 
     } else {
 
@@ -188,7 +188,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
-	    IFGC (sib, bytesize+task->heap_allocation_buffer_bytesize) {
+	    IF_INSUFFICIENT_FREESPACE_IN_SIB(sib, bytesize+task->heap_allocation_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
@@ -267,8 +267,8 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	    task->heap_allocation_pointer = (Val *)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
 	#endif
 
-	LIB7_AllocWrite (task, 0, tagword);
-	result = LIB7_Alloc (task, nwords);
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, nwords);
 
     } else {
 
@@ -280,7 +280,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
-	    IFGC (ap, bytesize+task->heap_allocation_buffer_bytesize) {
+	    IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytesize+task->heap_allocation_buffer_bytesize) {
 		//
 	        // We need to do a garbage collection:
 
@@ -294,6 +294,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 		//
 		ap->requested_extra_free_bytes = 0;
 	    }
+
 	    #ifdef ALIGN_FLOAT64S
 		//
 		// Force FLOAT64_BYTESIZE alignment (tagword is off by one word)
@@ -463,8 +464,8 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 
     } else {
 
-	LIB7_AllocWrite (task, 0, tagword);
-	result = LIB7_Alloc (task, len);
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, len);
     }
 
     Val* p = PTR_CAST(Val*, result);
@@ -550,8 +551,8 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 
     } else {
 
-	LIB7_AllocWrite (task, 0, tagword);
-	result = LIB7_Alloc (task, len);
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, len);
     }
 
     for (

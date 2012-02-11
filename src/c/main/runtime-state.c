@@ -213,12 +213,12 @@ void   save_c_state   (Task* task, ...)   {
     va_end (ap);
 
     va_start (ap, task);
-    LIB7_AllocWrite (task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
     for (int i = 1;  i <= n;  i++) {
 	vp = va_arg (ap, Val *);
-        LIB7_AllocWrite (task, i, *vp);
+        set_slot_in_nascent_heapchunk (task, i, *vp);
     }
-    task->callee_saved_registers[0]   = LIB7_Alloc(task, n);
+    task->callee_saved_registers[0]   = commit_nascent_heapchunk(task, n);
     task->fate    = PTR_CAST( Val, return_to_c_level_c);
     va_end (ap);
 }

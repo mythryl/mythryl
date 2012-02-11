@@ -297,20 +297,20 @@ void   construct_runtime_package__global   (Task* task) {
     //     src/c/main/load-compiledfiles.c
     //
     #define RUNTIME_ASM_SIZE	12
-	LIB7_AllocWrite(task,  0, MAKE_TAGWORD(RUNTIME_ASM_SIZE, PAIRS_AND_RECORDS_BTAG));
-	LIB7_AllocWrite(task,  1, PTR_CAST( Val,  make_typeagnostic_rw_vector_v     +1));
-	LIB7_AllocWrite(task,  2, PTR_CAST( Val,  find_cfun_v +1));
-	LIB7_AllocWrite(task,  3, PTR_CAST( Val,  call_cfun_v +1));
-	LIB7_AllocWrite(task,  4, PTR_CAST( Val,  make_unt8_rw_vector_v  +1));
-	LIB7_AllocWrite(task,  5, PTR_CAST( Val,  make_float64_rw_vector_v  +1));
-	LIB7_AllocWrite(task,  6, PTR_CAST( Val,  make_string_v  +1));
-	LIB7_AllocWrite(task,  7, PTR_CAST( Val,  make_vector_v  +1));
-	LIB7_AllocWrite(task,  8, PTR_CAST( Val,  floor_v     +1));
-	LIB7_AllocWrite(task,  9, PTR_CAST( Val,  logb_v      +1));
-	LIB7_AllocWrite(task, 10, PTR_CAST( Val,  scalb_v     +1));
-	LIB7_AllocWrite(task, 11, PTR_CAST( Val,  try_lock_v  +1));
-	LIB7_AllocWrite(task, 12, PTR_CAST( Val,  unlock_v    +1));
-	runtime_asm = LIB7_Alloc(task, RUNTIME_ASM_SIZE);
+	set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(RUNTIME_ASM_SIZE, PAIRS_AND_RECORDS_BTAG));
+	set_slot_in_nascent_heapchunk(task,  1, PTR_CAST( Val,  make_typeagnostic_rw_vector_v     +1));
+	set_slot_in_nascent_heapchunk(task,  2, PTR_CAST( Val,  find_cfun_v +1));
+	set_slot_in_nascent_heapchunk(task,  3, PTR_CAST( Val,  call_cfun_v +1));
+	set_slot_in_nascent_heapchunk(task,  4, PTR_CAST( Val,  make_unt8_rw_vector_v  +1));
+	set_slot_in_nascent_heapchunk(task,  5, PTR_CAST( Val,  make_float64_rw_vector_v  +1));
+	set_slot_in_nascent_heapchunk(task,  6, PTR_CAST( Val,  make_string_v  +1));
+	set_slot_in_nascent_heapchunk(task,  7, PTR_CAST( Val,  make_vector_v  +1));
+	set_slot_in_nascent_heapchunk(task,  8, PTR_CAST( Val,  floor_v     +1));
+	set_slot_in_nascent_heapchunk(task,  9, PTR_CAST( Val,  logb_v      +1));
+	set_slot_in_nascent_heapchunk(task, 10, PTR_CAST( Val,  scalb_v     +1));
+	set_slot_in_nascent_heapchunk(task, 11, PTR_CAST( Val,  try_lock_v  +1));
+	set_slot_in_nascent_heapchunk(task, 12, PTR_CAST( Val,  unlock_v    +1));
+	runtime_asm = commit_nascent_heapchunk(task, RUNTIME_ASM_SIZE);
     #undef RUNTIME_ASM_SIZE
 
     // Allocate the CStruct.  This is a set of heap values
@@ -326,20 +326,20 @@ void   construct_runtime_package__global   (Task* task) {
     // for part of the magic that makes it happen.
     //
     #define RUNTIME_SIZE	12
-	LIB7_AllocWrite(task,  0, MAKE_TAGWORD(RUNTIME_SIZE, PAIRS_AND_RECORDS_BTAG));
-	LIB7_AllocWrite(task,  1, runtime_asm);
-	LIB7_AllocWrite(task,  2, DIVIDE_EXCEPTION__GLOBAL);
-	LIB7_AllocWrite(task,  3, OVERFLOW_EXCEPTION__GLOBAL);
-	LIB7_AllocWrite(task,  4, RUNTIME_EXCEPTION__GLOBAL);
-	LIB7_AllocWrite(task,  5, THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL);				// this_fn_profiling_hook_refcell__global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  9, UNUSED_INT_REFCELL__GLOBAL);						// unused_int_refcell__global					in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
-	runtime = LIB7_Alloc(task, RUNTIME_SIZE);
+	set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(RUNTIME_SIZE, PAIRS_AND_RECORDS_BTAG));
+	set_slot_in_nascent_heapchunk(task,  1, runtime_asm);
+	set_slot_in_nascent_heapchunk(task,  2, DIVIDE_EXCEPTION__GLOBAL);
+	set_slot_in_nascent_heapchunk(task,  3, OVERFLOW_EXCEPTION__GLOBAL);
+	set_slot_in_nascent_heapchunk(task,  4, RUNTIME_EXCEPTION__GLOBAL);
+	set_slot_in_nascent_heapchunk(task,  5, THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL);				// this_fn_profiling_hook_refcell__global			in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  9, UNUSED_INT_REFCELL__GLOBAL);						// unused_int_refcell__global					in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
+	runtime = commit_nascent_heapchunk(task, RUNTIME_SIZE);
     #undef RUNTIME_SIZE
 
     runtime_package__global =  make_one_slot_record( task, runtime );
@@ -353,16 +353,16 @@ void   construct_runtime_package__global   (Task* task) {
 
     #ifdef ASM_MATH
         #define MATHVEC_SZ	8
-	LIB7_AllocWrite(task,  0, MAKE_TAGWORD(MATHVEC_SZ, PAIRS_AND_RECORDS_BTAG));
-	LIB7_AllocWrite(task,  1, LN_ID__GLOBAL);
-	LIB7_AllocWrite(task,  2, SQRT_ID__GLOBAL);
-	LIB7_AllocWrite(task,  3, PTR_CAST( Val,  arctan_v +1));
-	LIB7_AllocWrite(task,  4, PTR_CAST( Val,  cos_v    +1));
-	LIB7_AllocWrite(task,  5, PTR_CAST( Val,  exp_v    +1));
-	LIB7_AllocWrite(task,  6, PTR_CAST( Val,  ln_v     +1));
-	LIB7_AllocWrite(task,  7, PTR_CAST( Val,  sin_v    +1));
-	LIB7_AllocWrite(task,  8, PTR_CAST( Val,  sqrt_v   +1));
-	mathvec__global = LIB7_Alloc(task, MATHVEC_SZ);
+	set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(MATHVEC_SZ, PAIRS_AND_RECORDS_BTAG));
+	set_slot_in_nascent_heapchunk(task,  1, LN_ID__GLOBAL);
+	set_slot_in_nascent_heapchunk(task,  2, SQRT_ID__GLOBAL);
+	set_slot_in_nascent_heapchunk(task,  3, PTR_CAST( Val,  arctan_v +1));
+	set_slot_in_nascent_heapchunk(task,  4, PTR_CAST( Val,  cos_v    +1));
+	set_slot_in_nascent_heapchunk(task,  5, PTR_CAST( Val,  exp_v    +1));
+	set_slot_in_nascent_heapchunk(task,  6, PTR_CAST( Val,  ln_v     +1));
+	set_slot_in_nascent_heapchunk(task,  7, PTR_CAST( Val,  sin_v    +1));
+	set_slot_in_nascent_heapchunk(task,  8, PTR_CAST( Val,  sqrt_v   +1));
+	mathvec__global = commit_nascent_heapchunk(task, MATHVEC_SZ);
     #endif
 
 }								// fun construct_runtime_package__global

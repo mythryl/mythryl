@@ -459,9 +459,9 @@ static Val   allocate_heap_ram_for_pickle   (Task*  task,  Punt  bytesize) {
     //
     if (bytesize >= agegroup0_buffer_size_in_bytes(task)-(8*ONE_K_BINARY))   die ("Pickling %d bytes not supported -- increase agegroup0 buffer size.", bytesize);	// XXX BUGGO FIXME
 
-    LIB7_AllocWrite( task, 0, tagword );
+    set_slot_in_nascent_heapchunk( task, 0, tagword );
 
-    return   LIB7_Alloc( task, size_in_words );
+    return   commit_nascent_heapchunk( task, size_in_words );
 }
 
 

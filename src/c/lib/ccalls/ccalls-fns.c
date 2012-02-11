@@ -116,37 +116,37 @@ static Val   save_state   (
 
     if (!fate) {
 	//
-	LIB7_AllocWrite (task, 0, MAKE_TAGWORD( n, PAIRS_AND_RECORDS_BTAG ));
+	set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD( n, PAIRS_AND_RECORDS_BTAG ));
 
 	index = 1;
 
     } else {
 
 	n++;
-	LIB7_AllocWrite (task, 0, MAKE_TAGWORD( n, PAIRS_AND_RECORDS_BTAG));
-	LIB7_AllocWrite (task, 1, fate);
+	set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD( n, PAIRS_AND_RECORDS_BTAG));
+	set_slot_in_nascent_heapchunk (task, 1, fate);
 	index = 2;
     }
 
-    LIB7_AllocWrite( task, index++, TAGGED_INT_FROM_C_INT( task -> lib7_liveRegMask )           );
-    LIB7_AllocWrite( task, index++,               task -> program_counter        );
-    LIB7_AllocWrite( task, index++,               task -> exception_fate         );
-    LIB7_AllocWrite( task, index++,               task -> thread         );
+    set_slot_in_nascent_heapchunk( task, index++, TAGGED_INT_FROM_C_INT( task -> lib7_liveRegMask )           );
+    set_slot_in_nascent_heapchunk( task, index++,               task -> program_counter        );
+    set_slot_in_nascent_heapchunk( task, index++,               task -> exception_fate         );
+    set_slot_in_nascent_heapchunk( task, index++,               task -> thread         );
 #ifdef BASE_INDEX
-    LIB7_AllocWrite( task, index++,               task -> lib7_baseReg                );
+    set_slot_in_nascent_heapchunk( task, index++,               task -> lib7_baseReg                );
 #endif
     {   Val_Sized_Unt mask = task -> lib7_liveRegMask;
 	int  i;
 	for (i = 0;  mask != 0;  i++, mask >>= 1) {
 	    if ((mask & 1)) {
-		LIB7_AllocWrite( task, index++, task->lib7_roots[ ArgRegMap[ i ]] );
+		set_slot_in_nascent_heapchunk( task, index++, task->lib7_roots[ ArgRegMap[ i ]] );
 	    }
 	}
     }
 
     ASSERT( index == n+1 );
 
-    return LIB7_Alloc( task, n );
+    return commit_nascent_heapchunk( task, n );
 }
 
 static void   restore_state   (

@@ -116,15 +116,15 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     lenlo       =  make_one_word_unt(task, (Unt1) flock.l_len);
 
 
-    LIB7_AllocWrite   (task, 0, MAKE_TAGWORD (PAIRS_AND_RECORDS_BTAG, 7));
-    LIB7_AllocWrite   (task, 1, TAGGED_INT_FROM_C_INT(flock.l_type));
-    LIB7_AllocWrite   (task, 2, TAGGED_INT_FROM_C_INT(flock.l_whence));
-    LIB7_AllocWrite   (task, 3, starthi);
-    LIB7_AllocWrite   (task, 4, startlo);
-    LIB7_AllocWrite   (task, 5, lenhi);
-    LIB7_AllocWrite   (task, 6, lenlo);
-    LIB7_AllocWrite   (task, 7, TAGGED_INT_FROM_C_INT(flock.l_pid));
-    return LIB7_Alloc (task, 7);
+    set_slot_in_nascent_heapchunk   (task, 0, MAKE_TAGWORD (PAIRS_AND_RECORDS_BTAG, 7));
+    set_slot_in_nascent_heapchunk   (task, 1, TAGGED_INT_FROM_C_INT(flock.l_type));
+    set_slot_in_nascent_heapchunk   (task, 2, TAGGED_INT_FROM_C_INT(flock.l_whence));
+    set_slot_in_nascent_heapchunk   (task, 3, starthi);
+    set_slot_in_nascent_heapchunk   (task, 4, startlo);
+    set_slot_in_nascent_heapchunk   (task, 5, lenhi);
+    set_slot_in_nascent_heapchunk   (task, 6, lenlo);
+    set_slot_in_nascent_heapchunk   (task, 7, TAGGED_INT_FROM_C_INT(flock.l_pid));
+    return commit_nascent_heapchunk (task, 7);
 }									// fun _lib7_P_IO_fcntl_l_64
 
 

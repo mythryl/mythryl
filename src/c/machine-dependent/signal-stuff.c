@@ -121,19 +121,19 @@ Val   make_resumption_fate   (				// Called once from this file, once from   src
 
     // Allocate the resumption closure:
     //
-    LIB7_AllocWrite(task,  0, MAKE_TAGWORD(10, PAIRS_AND_RECORDS_BTAG));
-    LIB7_AllocWrite(task,  1, PTR_CAST( Val, resume));
-    LIB7_AllocWrite(task,  2, task->argument);
-    LIB7_AllocWrite(task,  3, task->fate);
-    LIB7_AllocWrite(task,  4, task->current_closure);
-    LIB7_AllocWrite(task,  5, task->link_register);
-    LIB7_AllocWrite(task,  6, task->program_counter);
-    LIB7_AllocWrite(task,  7, task->exception_fate);
-    LIB7_AllocWrite(task,  8, task->callee_saved_registers[0]);				// John Reppy says not to do: LIB7_AllocWrite(task,  8, task->current_thread);
-    LIB7_AllocWrite(task,  9, task->callee_saved_registers[1]);
-    LIB7_AllocWrite(task, 10, task->callee_saved_registers[2]);
+    set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(10, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk(task,  1, PTR_CAST( Val, resume));
+    set_slot_in_nascent_heapchunk(task,  2, task->argument);
+    set_slot_in_nascent_heapchunk(task,  3, task->fate);
+    set_slot_in_nascent_heapchunk(task,  4, task->current_closure);
+    set_slot_in_nascent_heapchunk(task,  5, task->link_register);
+    set_slot_in_nascent_heapchunk(task,  6, task->program_counter);
+    set_slot_in_nascent_heapchunk(task,  7, task->exception_fate);
+    set_slot_in_nascent_heapchunk(task,  8, task->callee_saved_registers[0]);				// John Reppy says not to do: set_slot_in_nascent_heapchunk(task,  8, task->current_thread);
+    set_slot_in_nascent_heapchunk(task,  9, task->callee_saved_registers[1]);
+    set_slot_in_nascent_heapchunk(task, 10, task->callee_saved_registers[2]);
     //
-    return LIB7_Alloc(task, 10);
+    return commit_nascent_heapchunk(task, 10);
 }
 
 

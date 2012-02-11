@@ -284,16 +284,16 @@ log_if("I_RAW32L/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		int need_bytes_in_agegroup0_buffer = 4*(n+1);
 		GC_CHECK;
 
-		LIB7_AllocWrite (task, 0, MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
+		set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
 
 		for (int j = 1;  j <= n;  j++) {
 		    //
 		    int i = GET32(bytecode_vector,pc);	pc += 4;
 
-		    LIB7_AllocWrite (task, j, (Val)i);
+		    set_slot_in_nascent_heapchunk (task, j, (Val)i);
 		}
 
-		Val result =  LIB7_Alloc(task, n );
+		Val result =  commit_nascent_heapchunk(task, n );
 
 		stack = LIST_CONS(task, result, stack);
 log_if("I_RAW32L/BOT: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,free_bytes_in_agegroup0_buffer,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
@@ -340,9 +340,9 @@ log_if("I_RAW64L/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 
 		int j = 2*n;							// Number of words.
 
-		LIB7_AllocWrite (task, 0, MAKE_TAGWORD(j, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
+		set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(j, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
 
-		Val result =  LIB7_Alloc(task, j );
+		Val result =  commit_nascent_heapchunk(task, j );
 
 		for (int j = 0;  j < n;  j++) {
 		    //
@@ -385,10 +385,10 @@ log_if("I_STR   /DDD: need_bytes_in_agegroup0_buffer (including header) x=%x", n
 
 		// Allocate the data chunk:
 		//
-		LIB7_AllocWrite(task, 0, MAKE_TAGWORD(j, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
-		LIB7_AllocWrite (task, j, 0);								// So word-by-word string equality works.
+		set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(j, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
+		set_slot_in_nascent_heapchunk (task, j, 0);								// So word-by-word string equality works.
 
-		Val result = LIB7_Alloc (task, j);
+		Val result = commit_nascent_heapchunk (task, j);
 
 		#ifdef DEBUG_LITERALS
 		    debug_say(" @ %#x (%d words)\n", result, j);
@@ -453,18 +453,18 @@ log_if("I_VECTOR/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 
 		// Allocate the data chunk:
 		//
-		LIB7_AllocWrite(task, 0, MAKE_TAGWORD(n, RO_VECTOR_DATA_BTAG));
+		set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(n, RO_VECTOR_DATA_BTAG));
 
 		// Top of stack is last element in vector:
 		//
 		for (int j = n;  j > 0;  j--) {
 		    //
-		    LIB7_AllocWrite(task, j, LIST_HEAD(stack));
+		    set_slot_in_nascent_heapchunk(task, j, LIST_HEAD(stack));
 
 		    stack = LIST_TAIL(stack);
 		}
 
-		Val result =  LIB7_Alloc(task, n );
+		Val result =  commit_nascent_heapchunk(task, n );
 
 		result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, n);
 
@@ -499,19 +499,19 @@ log_if("I_RECORD/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		    int need_bytes_in_agegroup0_buffer = 4*(n+1);
 		    GC_CHECK;
 
-		    LIB7_AllocWrite(task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
+		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
 		}
 
 		// Top of stack is last element in record:
 		//
 		for (int j = n;  j > 0;  j--) {
 		    //
-		    LIB7_AllocWrite(task, j, LIST_HEAD(stack));
+		    set_slot_in_nascent_heapchunk(task, j, LIST_HEAD(stack));
 
 		    stack = LIST_TAIL(stack);
 		}
 
-		Val result = LIB7_Alloc(task, n );
+		Val result = commit_nascent_heapchunk(task, n );
 
 		#ifdef DEBUG_LITERALS
 		    debug_say("...] @ %#x\n", result);

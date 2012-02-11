@@ -75,21 +75,21 @@ Val   concatenate_two_tuples   (Task* task,  Val r1,  Val r2)   {
 	int		j;
 	Val*	p;
 
-	LIB7_AllocWrite (task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
+	set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
 
 	j = 1;
 
 	for (i = 0, p = PTR_CAST(Val*, r1);  i < l1;  i++, j++) {
 	    //
-	    LIB7_AllocWrite (task, j, p[i]);
+	    set_slot_in_nascent_heapchunk (task, j, p[i]);
 	}
 
 	for (i = 0, p = PTR_CAST(Val*, r2);  i < l2;  i++, j++) {
 	    //
-	    LIB7_AllocWrite (task, j, p[i]);
+	    set_slot_in_nascent_heapchunk (task, j, p[i]);
 	}
 
-	return LIB7_Alloc(task, n);
+	return commit_nascent_heapchunk(task, n);
 
     } else {
 

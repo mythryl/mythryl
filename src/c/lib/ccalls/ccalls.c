@@ -146,10 +146,10 @@ Val_Sized_Unt*   checked_memalign   (int n, int align)   {
 
 static Val   mkWord32   (Task* task, Val_Sized_Unt p)   {
     //
-    LIB7_AllocWrite(task, 0, MAKE_TAGWORD(sizeof(Val_Sized_Unt), DTAG_string));
-    LIB7_AllocWrite(task, 1, (Val)p);
+    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(sizeof(Val_Sized_Unt), DTAG_string));
+    set_slot_in_nascent_heapchunk(task, 1, (Val)p);
     //
-    return LIB7_Alloc(task, sizeof(Val_Sized_Unt));
+    return commit_nascent_heapchunk(task, sizeof(Val_Sized_Unt));
 }
 
 static Val_Sized_Unt   getWord32   (Val v)   {
@@ -171,8 +171,8 @@ static Val   double_CtoLib7   (Task* task, double g)   {
     // Force FLOAT64_BYTESIZE alignment:
     //
     task->heap_allocation_pointer = (Val *)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
-    LIB7_AllocWrite(task,0,FLOAT64_TAGWORD);
-    result = LIB7_Alloc(task,(sizeof(double)>>2));
+    set_slot_in_nascent_heapchunk(task,0,FLOAT64_TAGWORD);
+    result = commit_nascent_heapchunk(task,(sizeof(double)>>2));
     memcpy (result, &g, sizeof(double));
 
     return result;
@@ -1163,9 +1163,9 @@ handle_int:
 
 	    // make_nonempty_rw_vector isn't used here since it might call cleaner.
 
-	    LIB7_AllocWrite (task, 0, MAKE_TAGWORD(n,dtag));
+	    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n,dtag));
 
-	    mlval = LIB7_Alloc (task, n);
+	    mlval = commit_nascent_heapchunk (task, n);
 
 	    // Clear the array/vector so that it
 	    // won't confuse the cleaner:

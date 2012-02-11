@@ -78,16 +78,16 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 	NCCS
     );
 
-    LIB7_AllocWrite   (task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7));
-    LIB7_AllocWrite   (task, 1, iflag);
-    LIB7_AllocWrite   (task, 2, oflag);
-    LIB7_AllocWrite   (task, 3, cflag);
-    LIB7_AllocWrite   (task, 4, lflag);
-    LIB7_AllocWrite   (task, 5, cc);
-    LIB7_AllocWrite   (task, 6, ispeed);
-    LIB7_AllocWrite   (task, 7, ospeed);
+    set_slot_in_nascent_heapchunk   (task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7));
+    set_slot_in_nascent_heapchunk   (task, 1, iflag);
+    set_slot_in_nascent_heapchunk   (task, 2, oflag);
+    set_slot_in_nascent_heapchunk   (task, 3, cflag);
+    set_slot_in_nascent_heapchunk   (task, 4, lflag);
+    set_slot_in_nascent_heapchunk   (task, 5, cc);
+    set_slot_in_nascent_heapchunk   (task, 6, ispeed);
+    set_slot_in_nascent_heapchunk   (task, 7, ospeed);
 
-    return LIB7_Alloc (task, 7);
+    return commit_nascent_heapchunk (task, 7);
 }
 
 

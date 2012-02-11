@@ -722,7 +722,7 @@ static int   fetch_imports   (
 
         // Save tree_node in the import record...
         //
-	LIB7_AllocWrite( task, next_import_record_slot_to_fill, tree_node );
+	set_slot_in_nascent_heapchunk( task, next_import_record_slot_to_fill, tree_node );
 
 	++ next_import_record_slot_to_fill;
 
@@ -911,7 +911,7 @@ static void   load_compiled_file   (
     // Write the header for our 'import record', which will be 
     // aLib7 record with 'import_record_slot_count' slots:
     //
-    LIB7_AllocWrite (task, 0, MAKE_TAGWORD(import_record_slot_count, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(import_record_slot_count, PAIRS_AND_RECORDS_BTAG));
 
     // Locate all the required import values and
     // save them in our nascent on-heap 'import record':
@@ -946,12 +946,12 @@ static void   load_compiled_file   (
     // just so the cleaner won't go bananas if it
     // looks at that slot:
     //
-    LIB7_AllocWrite( task, import_record_slot_count, HEAP_NIL );
+    set_slot_in_nascent_heapchunk( task, import_record_slot_count, HEAP_NIL );
 
     // Complete the above by actually allocating
     // the 'import record' on the Mythryl heap:
     //
-    import_record = LIB7_Alloc( task, import_record_slot_count );
+    import_record = commit_nascent_heapchunk( task, import_record_slot_count );
 
     // Get the export picklehash for this compiledfile.
     // This is the name by which other compiled_files will
@@ -1072,10 +1072,10 @@ static void   load_compiled_file   (
     // Do a functional update of the last element of the import_record:
     //
     for (i = 0;  i < import_record_slot_count;  i++) {
-	LIB7_AllocWrite(task, i, PTR_CAST(Val*, import_record)[i-1]);
+	set_slot_in_nascent_heapchunk(task, i, PTR_CAST(Val*, import_record)[i-1]);
     }
-    LIB7_AllocWrite( task, import_record_slot_count, mythryl_result );
-    mythryl_result = LIB7_Alloc( task, import_record_slot_count );
+    set_slot_in_nascent_heapchunk( task, import_record_slot_count, mythryl_result );
+    mythryl_result = commit_nascent_heapchunk( task, import_record_slot_count );
 
     // Do a garbage collection, if necessary:
     //
