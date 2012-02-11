@@ -175,6 +175,18 @@ typedef struct {
 } Sysconsts;
 
 
+
+typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
+    //
+    // We use this type to pass a list of "roots" (Mythryl heap
+    // values referenced from C code) to call_heapcleaner_with_extra_roots.
+    //
+    // By allocating these on the stack and linking them together,
+    // we can pass an indefinite number of extra roots, including
+    // chaining extra roots to those passed in by a parent fn.
+
+
+
 ////////////////////////////////////////////////////////////////////////////
 // Task -- C view of the state of a Mythryl computation.
 

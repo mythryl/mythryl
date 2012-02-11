@@ -52,9 +52,9 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
  
     Val	addresses = LIST_NIL;
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean( task,                    hentry->h_name	);
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(    task,                    hentry->h_aliases	);		// XXX BUGGO FIXME, this may invalidate 'name' heapref.
-    Val af      =  make_system_constant__may_heapclean(            task, &_Sock_AddrFamily, hentry->h_addrtype	);		// XXX BUGGO FIXME, this may invalidate 'name' and 'aliases' heaprefs.
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name	    );		Roots roots1 = { &name, NULL };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases  );		Roots roots2 = { &aliases, &roots1 };	// XXX BUGGO FIXME, this may invalidate 'name' heapref.
+    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, hentry->h_addrtype );					// XXX BUGGO FIXME, this may invalidate 'name' and 'aliases' heaprefs.
 
     for (nAddresses = 0;  hentry->h_addr_list[nAddresses] != NULL;  nAddresses++);
 

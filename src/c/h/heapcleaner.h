@@ -20,8 +20,6 @@ extern Val	concatenate_two_tuples			(Task* task,  Val r1,  Val r2);				// concat
 
 Unt8*		codechunk_comment_string_for_program_counter	(Val_Sized_Unt pc);				// codechunk_comment_string_for_program_counter	def in   src/c/heapcleaner/hugechunk.c
 
-
-
 #endif   // HEAPCLEANER_H
 
 
