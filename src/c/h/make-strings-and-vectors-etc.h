@@ -395,9 +395,10 @@ extern Val zero_length_vector__global [];
 //
 //     If you are maintaining an unbounded number of such values just
 //     string them together on a List and hand that list to
-//     call_heapcleaner_with_extra_roots() -- for an example of that
-//     see 
-//         src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+//     call_heapcleaner_with_extra_roots() -- for examples of that
+//     see
+//         make_nonempty_ro_vector				in   src/c/heapcleaner/make-strings-and-vectors-etc.c 
+//     or  make_package_literals_via_bytecode_interpreter	in   src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
 //
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories

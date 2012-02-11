@@ -3,9 +3,9 @@
 // Support functions which mostly create various kinds of
 // strings and vectors on the Mythryl heap.
 //
-// MP Note: when invoking the garbage collector, we add the
-// requested size to requested_extra_free_bytes, so that multiple processors
-// can request space at the same time.
+// Multicore (pthread) note: when invoking the heapcleaner
+// we add the requested size to requested_extra_free_bytes,
+// so that multiple processors can request space at the same time.
 
 
 /*
@@ -68,9 +68,9 @@
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
  #if NEED_PTHREAD_SUPPORT
     //
-    #define IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
+    #define WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
  #else
-    #define IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
+    #define WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
  #endif
 
 #define COUNT_ALLOC(task, nbytes)	{	\
@@ -188,7 +188,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
-	    IF_INSUFFICIENT_FREESPACE_IN_SIB(sib, bytesize+task->heap_allocation_buffer_bytesize) {
+	    WHILE_INSUFFICIENT_FREESPACE_IN_SIB(sib, bytesize+task->heap_allocation_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
@@ -280,7 +280,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
-	    IF_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytesize+task->heap_allocation_buffer_bytesize) {
+	    WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytesize+task->heap_allocation_buffer_bytesize) {
 		//
 	        // We need to do a garbage collection:
 
@@ -497,7 +497,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	//
 	// Since we want to avoid pointers from the
         // agegroup 1 record space into the agegroup0 space,
-	// we need to do a cleaning (while perserving our
+	// we need to do a cleaning (while preserving our
 	// initializer list).
 
 	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTERS_SIB ];
