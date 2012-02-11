@@ -88,11 +88,6 @@
     // agegroup 1.
 
 #define MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER	  ((1024 + 128) * WORD_BYTESIZE)		// Referenced only in   src/c/h/heap.h
-    //
-    // Size-in-bytes of the allocation buffer.
-    // If A is the value of the limit pointer,
-    // then A[ ALLOCATION_BUFFER_SIZE_IN_WORDS-1 ]
-    // is the address of the next store-vector location.
 
 
 #define  MAX_C_HEAPCLEANER_ROOTS	16							// Maximum number of global C variables that can be heapcleaner ("garbage collector") roots.

@@ -58,7 +58,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // ================
     //
     // Clean the heap. We always clean agegroup0. If level is greater than
-    // 0, or if agegroup0 full after cleaning, we also clean
+    // 0, or if agegroup1 is full after cleaning, we also clean
     // one or more additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner");

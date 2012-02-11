@@ -24,38 +24,16 @@
 #define REC_BYTESIZE(n)	(((n)+1)*sizeof(Val))
 
 
-////////////////////////////////
-// Heap record allocation
-//
-// The general protocol for allocating (say)
-// a seven-slot record in agegroup0 is
-//
-//     set_slot_in_nascent_heapchunk( task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7) );	// '7' is the record length in slots, not counting tagword.
-//     set_slot_in_nascent_heapchunk( task, 1, val1 );
-//     set_slot_in_nascent_heapchunk( task, 2, val2 );
-//     set_slot_in_nascent_heapchunk( task, 3, val3 );
-//     set_slot_in_nascent_heapchunk( task, 4, val4 );
-//     set_slot_in_nascent_heapchunk( task, 5, val5 );
-//     set_slot_in_nascent_heapchunk( task, 6, val6 );
-//     set_slot_in_nascent_heapchunk( task, 7, val7 );
-//     r =  commit_nascent_heapchunk( task, 7 );						// '7' is again the record length in slots not counting tagword.
-//
-// Here the
-//     set_slot_in_nascent_heapchunk()
-// calls write to unclaimed agegroup0 pace; only the final
-//     commit_nascent_heapchunk()
-// actually allocates heapspace by advancing
-//     task->heap_allocation_pointer.
-// 'r', the result value, points to the word *after* the
-// tagword;  this is the conventional way of referring to
-// such a record.
+
+// For background on using the following two fns see
+// Note[1]: Heap record allocation at bottom of file:
 //
 inline void   set_slot_in_nascent_heapchunk   (Task* task, int i, Val v)	{
     //        =============================
     //
     task->heap_allocation_pointer[i] =  v;
 }
-
+//
 inline Val    commit_nascent_heapchunk    (Task* task, int length_in_words)	{
     //        ========================
     //
@@ -361,6 +339,66 @@ extern Val zero_length_vector__global [];
 
 #endif // RUNTIME_HEAP_H
 
+
+////////////////////////////////
+// Note[1]: Heap record allocation
+//
+// The general protocol for allocating (say)
+// a seven-slot record in agegroup0 is
+//
+//     set_slot_in_nascent_heapchunk( task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7) );	// '7' is the record length in slots, not counting tagword.
+//     set_slot_in_nascent_heapchunk( task, 1, val1 );
+//     set_slot_in_nascent_heapchunk( task, 2, val2 );
+//     set_slot_in_nascent_heapchunk( task, 3, val3 );
+//     set_slot_in_nascent_heapchunk( task, 4, val4 );
+//     set_slot_in_nascent_heapchunk( task, 5, val5 );
+//     set_slot_in_nascent_heapchunk( task, 6, val6 );
+//     set_slot_in_nascent_heapchunk( task, 7, val7 );
+//     r =  commit_nascent_heapchunk( task, 7 );						// '7' is again the record length in slots not counting tagword.
+//
+// Here the
+//     set_slot_in_nascent_heapchunk()
+// calls write to unclaimed agegroup0 pace; only the final
+//     commit_nascent_heapchunk()
+// actually allocates heapspace by advancing
+//     task->heap_allocation_pointer.
+// 'r', the result value, points to the word *after* the
+// tagword;  this is the conventional way of referring to
+// such a record.
+//
+// AVOIDING AGEGROUP0 BUFFER OVERRUN:
+//
+//     Mythryl tries to guarantee a minimum of a thousand words
+//     or so of free space in agegroup0 at all times, so you					// See MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER in   src/c/h/runtime-configuration.h
+//     can usually get away with allocating a few records without
+//     checking available freespace, but if you are allocating more 
+//     than a record or two you should check that agegroup0 has
+//     sufficient space by doing one of
+//
+//         if (agegroup0_freespace_in_bytes(task) < bytes_needed) {
+//         if (agegroup0_freespace_in_words(task) < words_needed) {
+//
+//     and then if not doing a minor heapcleaning.  The simple call
+//     for this is
+//
+//         call_heapcleaner( task, 0 );								// '0' arg means clean out agegroup0 but do no further work unless logically required.
+//
+//     WARNING!!  This call may arbitrarily relocate the contents of
+//     the heap, so you cannot use it if you have pointers into the
+//     the heap, such as Val arguments to your fn.  In this case you
+//     must instead use the call
+//
+//         call_heapcleaner_with_extra_roots( task, 0, &val1, &val2, ... &valn, NULL );
+//
+//     where val1, val2, ... valn are your retained Val pointers into
+//     the heap.
+//
+//     If you are maintaining an unbounded number of such values just
+//     string them together on a List and hand that list to
+//     call_heapcleaner_with_extra_roots() -- for an example of that
+//     see 
+//         src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+//
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
