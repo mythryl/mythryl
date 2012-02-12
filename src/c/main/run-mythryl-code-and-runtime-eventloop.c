@@ -319,7 +319,8 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 	    case REQUEST_CALL_CFUN:
 		{
-		    Val    (*f)(), arg;
+		    Val    (*f)();
+		    Val    arg;
 
 		    SET_UP_RETURN( task );
 
@@ -349,7 +350,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_STRING:
-		task->argument =   allocate_nonempty_ascii_string__may_heapclean( task, TAGGED_INT_TO_C_INT( task->argument ) );
+		task->argument =   allocate_nonempty_ascii_string__may_heapclean( task, TAGGED_INT_TO_C_INT( task->argument ), NULL );
 		SET_UP_RETURN( task );
 		break;
 

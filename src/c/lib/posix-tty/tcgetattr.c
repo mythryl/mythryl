@@ -46,9 +46,6 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 
     int fd = TAGGED_INT_TO_C_INT( arg );
 
-    Val      iflag, oflag, cflag, lflag;
-    Val      cc, ispeed, ospeed;
-
     struct termios  data;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr", arg );
@@ -59,18 +56,15 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    iflag  =  make_one_word_unt(task, data.c_iflag  );
-    oflag  =  make_one_word_unt(task, data.c_oflag  );
-    cflag  =  make_one_word_unt(task, data.c_cflag  );
-    lflag  =  make_one_word_unt(task, data.c_lflag  );
+    Val iflag  =  make_one_word_unt(task, data.c_iflag  );			Roots roots1 = { &iflag,   NULL   };
+    Val oflag  =  make_one_word_unt(task, data.c_oflag  );			Roots roots2 = { &oflag,  &roots1 };
+    Val cflag  =  make_one_word_unt(task, data.c_cflag  );			Roots roots3 = { &cflag,  &roots2 };
+    Val lflag  =  make_one_word_unt(task, data.c_lflag  );			Roots roots4 = { &lflag,  &roots3 };
 
-    ispeed =  make_one_word_unt(task, cfgetispeed (&data) );
-    ospeed =  make_one_word_unt(task, cfgetospeed (&data) );
+    Val ispeed =  make_one_word_unt(task, cfgetispeed (&data) );		Roots roots5 = { &ispeed, &roots4 };
+    Val ospeed =  make_one_word_unt(task, cfgetospeed (&data) );		Roots roots6 = { &ospeed, &roots5 };
     
-    // Allocate the vector.
-    // Note that this might trigger a cleaning:
-    //
-    cc = allocate_nonempty_ascii_string__may_heapclean (task, NCCS);
+    Val cc = allocate_nonempty_ascii_string__may_heapclean (task, NCCS, &roots6 );
 
     memcpy(
 	GET_VECTOR_DATACHUNK_AS( void*, cc ),
@@ -78,6 +72,8 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 	NCCS
     );
 
+    // Construct the result vector:
+    //
     set_slot_in_nascent_heapchunk   (task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7));
     set_slot_in_nascent_heapchunk   (task, 1, iflag);
     set_slot_in_nascent_heapchunk   (task, 2, oflag);

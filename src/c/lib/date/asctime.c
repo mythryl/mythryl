@@ -46,7 +46,7 @@ Val   _lib7_Date_ascii_time   (Task* task, Val arg)   {
     tm.tm_yday	= GET_TUPLE_SLOT_AS_INT(arg, 7);
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(arg, 8);
 
-    Val result = allocate_nonempty_ascii_string__may_heapclean(task, DATE_LEN);
+    Val result = allocate_nonempty_ascii_string__may_heapclean(task, DATE_LEN, NULL);
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
 	//

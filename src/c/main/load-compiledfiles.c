@@ -1211,25 +1211,26 @@ static void   load_compiled_file   (
 
 
 static void   register_compiled_file_exports   (
-    //        =================================
+    //        ==============================
     //
     Task*       task,
     Picklehash* c_picklehash,       // Picklehash key as a C string.
     Val           exports_tree
 ){
+    Roots roots1 = { &exports_tree, NULL };
+
     ///////////////////////////////////////////////////////////
     // Add a picklehash/exports_tree key/val naming pair
     // to our heap-allocated list of loaded compiled_files.
     ///////////////////////////////////////////////////////////
 
-    Val	    lib7_picklehash;   // Picklehash key as a Mythryl string within the Mythryl heap.
-
     // Copy the picklehash naming this compiledfile
     // into the Mythryl heap, so that we can use
     // it in a Mythryl-heap record:
     //
-    lib7_picklehash = allocate_nonempty_ascii_string__may_heapclean( task,           PICKLEHASH_BYTES );		// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-    memcpy( HEAP_STRING_AS_C_STRING(lib7_picklehash), (char*)c_picklehash, PICKLEHASH_BYTES );
+    Val heap_picklehash = allocate_nonempty_ascii_string__may_heapclean( task,  PICKLEHASH_BYTES, &roots1 );	// allocate_nonempty_ascii_string__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+												
+    memcpy( HEAP_STRING_AS_C_STRING(heap_picklehash), (char*)c_picklehash, PICKLEHASH_BYTES );
 
     // Allocate the list record and thread it onto the exports list:
     //
@@ -1237,7 +1238,7 @@ static void   register_compiled_file_exports   (
 	=
         make_three_slot_record( task,
 	    //
-	    lib7_picklehash,					// Key naming compiledfile -- first slot in new record.
+	    heap_picklehash,					// Key naming compiledfile -- first slot in new record.
 	    exports_tree,					// Tree of values exported from compiledfile -- second slot in new record.
 	    PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL		// Pointer to next record in list -- third slot in new record.
 	);

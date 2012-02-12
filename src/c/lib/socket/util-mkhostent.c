@@ -50,17 +50,16 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 
     int	nAddresses;
  
-    Val	addresses = LIST_NIL;																Roots roots0 = { &addresses, NULL };
-
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name,	 NULL	);		Roots roots1 = { &name,    &roots0 };
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases,	&roots1	);		Roots roots2 = { &aliases, &roots1 };
-    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, hentry->h_addrtype );				Roots roots3 = { &af,      &roots2 };
+    Val	addresses =  LIST_NIL;																Roots roots1 = { &addresses, NULL };
+    Val name      =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name,	 NULL	);		Roots roots2 = { &name,    &roots1 };
+    Val aliases   =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(task,                    hentry->h_aliases,	&roots2	);		Roots roots3 = { &aliases, &roots2 };
+    Val af        =  make_system_constant__may_heapclean(			task, &_Sock_AddrFamily, hentry->h_addrtype );				Roots roots4 = { &af,      &roots3 };
 
     for (nAddresses = 0;  hentry->h_addr_list[nAddresses] != NULL;  nAddresses++);
 
     for (int i = nAddresses;  --i >= 0;  ) {
         //
-	addr = allocate_nonempty_ascii_string__may_heapclean (task, hentry->h_length);
+	addr = allocate_nonempty_ascii_string__may_heapclean (task, hentry->h_length, &roots4);
 
 	memcpy (GET_VECTOR_DATACHUNK_AS(void*, addr), hentry->h_addr_list[i], hentry->h_length);
 
@@ -73,7 +72,7 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 	if (agegroup0_freespace_in_bytes( task )
 	  < agegroup0_usedspace_in_bytes( task )
 	){
-	    call_heapcleaner_with_extra_roots( task,  0, &roots3 );
+	    call_heapcleaner_with_extra_roots( task,  0, &roots4 );
 	}
     }
 

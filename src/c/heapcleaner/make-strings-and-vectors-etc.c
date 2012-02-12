@@ -139,7 +139,7 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
 }
 
 //
-Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len)   {
+Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
     //=============================================
     // 
     // Allocate an uninitialized Mythryl string of length > 0.
@@ -152,7 +152,7 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len)   {
 
     ASSERT(len > 0);
 
-    Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, NULL );
+    Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, extra_roots );
 
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
