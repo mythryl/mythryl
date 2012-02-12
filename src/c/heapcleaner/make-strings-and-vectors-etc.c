@@ -100,7 +100,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
         //
 	int	    n = BYTES_TO_WORDS(len+1);				// '+1' to count terminal '\0' also.
 
-	Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, n );
+	Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, n, NULL );
 
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
@@ -152,7 +152,7 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len)   {
 
     ASSERT(len > 0);
 
-    Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, nwords );
+    Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, NULL );
 
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
@@ -163,8 +163,8 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwords)   {		// The "__may_heapclean" suffix is a warning to caller that the heapcleaner might be invoked in this fn,
-    //=================================================						// potentially moving everything on the heap to a new address.
+Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwords, Roots* roots)   {		// The "__may_heapclean" suffix is a warning to caller that the heapcleaner might be invoked in this fn,
+    //=================================================								// potentially moving everything on the heap to a new address.
     // 
     // Allocate an uninitialized vector of word-sized slots.
 
@@ -204,7 +204,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
                 //
 		pthread_mutex_unlock( &pth__mutex );
 		    //
-		    call_heapcleaner( task, 1 );
+		    call_heapcleaner_with_extra_roots( task, 1, roots );
 		    //
 		pthread_mutex_lock( &pth__mutex );
                 //
@@ -384,7 +384,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  i
 
     int		nwords = BYTES_TO_WORDS(len);
 
-    Val	result =  allocate_nonempty_wordslots_vector__may_heapclean( task, nwords );
+    Val	result =  allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, NULL );
 
     // Zero the last word to allow fast (word)
     // string comparisons, and to guarantee 0

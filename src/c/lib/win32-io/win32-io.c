@@ -120,14 +120,13 @@ static Bool CRLF_EOFscan(char *buf,int *np)
  */
 Val _lib7_win32_IO_read_vec(Task *task, Val arg)
 {
-    HANDLE h = (HANDLE) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 0));
-    DWORD nbytes = (DWORD) GET_TUPLE_SLOT_AS_INT(arg, 1);
+    HANDLE h     = (HANDLE) WORD_LIB7toC( GET_TUPLE_SLOT_AS_VAL(arg, 0) );
+    DWORD nbytes = (DWORD)                GET_TUPLE_SLOT_AS_INT(arg, 1);
     DWORD n;
 
     // Allocate the vector.
-    // Note that this might cause a GC:
     //
-    Val vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS (nbytes) );
+    Val vec =  allocate_nonempty_wordslots_vector__may_heapclean(  task,  BYTES_TO_WORDS (nbytes),  NULL  );
 
     if (ReadFile( h, PTR_CAST(void*, vec), nbytes, &n, NULL)) {
 
@@ -184,57 +183,57 @@ static void check_cntrl_c(BOOL read_OK,int bytes_read)
  */
 Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
 {
-  HANDLE h = (HANDLE) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 0));
-  DWORD nbytes = (DWORD) GET_TUPLE_SLOT_AS_INT(arg, 1);
-  Val vec;
-  DWORD	n;
-  BOOL flag = FALSE;
+    HANDLE h     = (HANDLE) WORD_LIB7toC( GET_TUPLE_SLOT_AS_VAL(arg, 0) );
+    DWORD nbytes = (DWORD)                GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-  // Allocate the vector.
-  / Note that this might cause a GC.
-  //
-  vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS (nbytes) );
+    DWORD	n;
+    BOOL flag = FALSE;
 
-  if (IS_CONIN(h)) {
-    flag = ReadConsole(h,PTR_CAST(void*,vec),nbytes,&n,NULL);
-    check_cntrl_c(flag,n); 
-  } else {
-    flag = ReadFile(h,PTR_CAST(void*,vec),nbytes,&n,NULL);
-  }
-  if (flag) {
+    // Allocate the vector.
+    / Note that this might cause a GC.
+    //
+    Val vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS (nbytes), NULL );
+
     if (IS_CONIN(h)) {
-      if (CRLF_EOFscan((char *)vec,&n)) {
-	n = 0;
-      }
-    } 
-    else {
-      rm_CRs((char *)vec,&n);
+      flag = ReadConsole(h,PTR_CAST(void*,vec),nbytes,&n,NULL);
+      check_cntrl_c(flag,n); 
+    } else {
+      flag = ReadFile(h,PTR_CAST(void*,vec),nbytes,&n,NULL);
     }
+    if (flag) {
+      if (IS_CONIN(h)) {
+	if (CRLF_EOFscan((char *)vec,&n)) {
+	  n = 0;
+	}
+      } 
+      else {
+	rm_CRs((char *)vec,&n);
+      }
 
-    if (n == 0) {
+      if (n == 0) {
 #ifdef WIN32_DEBUG
-      debug_say("_lib7_win32_IO_read_vec_txt: eof on device\n");
+	debug_say("_lib7_win32_IO_read_vec_txt: eof on device\n");
 #endif
+	return ZERO_LENGTH_STRING__GLOBAL;
+      }
+      if (n < nbytes) {
+	  shrink_fresh_wordslots_vector( task, vec, BYTES_TO_WORDS(n) );
+      }
+
+      return  make_vector_header(task,  STRING_TAGWORD, vec, n);
+    }
+    else if ((h == win32_stdin_handle) &&             /* input from stdin */
+	     (GetFileType(h) == FILE_TYPE_PIPE) &&    /* but not console */
+	     (GetLastError() == ERROR_BROKEN_PIPE)) { /* and pipe broken */
+      /* this is an EOF on redirected stdin (ReadFile failed) */
       return ZERO_LENGTH_STRING__GLOBAL;
     }
-    if (n < nbytes) {
-        shrink_fresh_wordslots_vector( task, vec, BYTES_TO_WORDS(n) );
+    else {
+  #ifdef WIN32_DEBUG
+      debug_say("_lib7_win32_IO_read_vec_txt: failing on handle %x\n",h);
+  #endif
+      return RAISE_SYSERR(task,-1);
     }
-
-    return  make_vector_header(task,  STRING_TAGWORD, vec, n);
-  }
-  else if ((h == win32_stdin_handle) &&             /* input from stdin */
-	   (GetFileType(h) == FILE_TYPE_PIPE) &&    /* but not console */
-	   (GetLastError() == ERROR_BROKEN_PIPE)) { /* and pipe broken */
-    /* this is an EOF on redirected stdin (ReadFile failed) */
-    return ZERO_LENGTH_STRING__GLOBAL;
-  }
-  else {
-#ifdef WIN32_DEBUG
-    debug_say("_lib7_win32_IO_read_vec_txt: failing on handle %x\n",h);
-#endif
-    return RAISE_SYSERR(task,-1);
-  }
 }
 
 /* _lib7_win32_IO_read_arr : (one_word_unt*word8array.Rw_Vector*int*int) -> int

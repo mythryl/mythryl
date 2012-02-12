@@ -97,7 +97,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 	// Allocate the result vector.
 	// Note that this might cause a clean, moving things around:
 	//
-	vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS(nbytes) );
+	vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS(nbytes), NULL );
 
 	// Copy read bytes into result vector:
 	//
