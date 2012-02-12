@@ -472,7 +472,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 #else
 
-void   call_heapcleaner_with_extra_roots   (Task* task,  int level, Roots* extra_roots)   {
+void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extra_roots)   {
     // =================================
     //
     // Clean with possible additional roots.  The list of

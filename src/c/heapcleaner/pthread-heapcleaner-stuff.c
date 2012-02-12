@@ -328,7 +328,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
 
 #else
 
-int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots) {
+int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_roots) {
     //========================================
     //
     // This fn is called (only) from:
@@ -352,11 +352,13 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots
 
 	    for (Root* x = extra_roots;  x;  x = x->next ) {
 		//
-		*extra_heapcleaner_roots__local++ = x->root;					// Append our args to the  extra-roots buffer.
-		*extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
+		*extra_heapcleaner_roots__local++ =  x->root;					// Append our args to the  extra-roots buffer.
 	    }
+	    *extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
+
 	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
 	    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
+
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
 	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
@@ -387,9 +389,9 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots
 
 	for (Root* x = extra_roots;  x;  x = x->next){
 	    //
-	    *extra_heapcleaner_roots__local++ = x->root;					// Append our args to the  extra-roots buffer.
-	    *extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
+	    *extra_heapcleaner_roots__local++ =  x->root;					// Append our args to the  extra-roots buffer.
 	}
+	*extra_heapcleaner_roots__local = NULL;							// Terminate extra-roots buffer with a NULL pointer.
 
 	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    //
