@@ -377,16 +377,16 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 }
 
 //
-Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  int len)   {
+Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
     //========================================================
     // 
-    // Allocate an uninitialized Lib7 bytearray.  Assume that len > 0.
+    // Allocate an uninitialized Mythryl heap bytearray.  Assume that len > 0.
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts__may_heapclean");
 
     int		nwords = BYTES_TO_WORDS(len);
 
-    Val	result =  allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, NULL );
+    Val	result =  allocate_nonempty_wordslots_vector__may_heapclean( task, nwords, extra_roots );
 
     // Zero the last word to allow fast (word)
     // string comparisons, and to guarantee 0

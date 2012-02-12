@@ -355,7 +355,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_BYTE_VECTOR:
-		task->argument =   allocate_nonempty_vector_of_one_byte_unts__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument) );
+		task->argument =   allocate_nonempty_vector_of_one_byte_unts__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), NULL );
 		SET_UP_RETURN( task );
 		break;
 
