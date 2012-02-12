@@ -263,20 +263,22 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
     PTR_CAST(Val*, v)[-1] = MAKE_TAGWORD(new_length_in_words, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
 }
 
-// Allocate an uninitialized chunk of raw64 data. 			I can't find any code which references this fn. -- 2011-10-25 CrT
+
+
+// Allocate an uninitialized chunk of raw64 data.
 // 
-Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems)   {
+Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Roots* extra_roots)   {
     //==========================================
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_biwordslots_vector__may_heapclean");
 
-    int	nwords = DOUBLES_TO_WORDS(nelems);
-    Val	tagword   = MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
+    int	nwords  =  DOUBLES_TO_WORDS(nelems);
+    Val	tagword =  MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
-    Val_Sized_Unt	bytesize;
+    Val_Sized_Unt  bytesize;
 
     if (nwords <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
-
+	//
 	#ifdef ALIGN_FLOAT64S
 	    // Force FLOAT64_BYTESIZE alignment:
 	    //
@@ -304,7 +306,7 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems)   {
 		//
 		pthread_mutex_unlock( &pth__mutex );
 		    //
-		    call_heapcleaner (task, 1);
+		    call_heapcleaner_with_extra_roots( task, 1, extra_roots );
 		    //
 		pthread_mutex_lock( &pth__mutex );
 		//
@@ -403,7 +405,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats__may_heapclean");
 
-    Val result =  allocate_biwordslots_vector__may_heapclean( task, len );		// 64-bit issue.
+    Val result =  allocate_biwordslots_vector__may_heapclean( task, len, NULL );		// 64-bit issue.
 
     return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
@@ -654,7 +656,7 @@ Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  
     //
     // This function is nowhere invoked.
     //
-    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, NULL );			// Round size up to a multiple of sizeof(Int2) and dispatch.
 }
 
 
@@ -667,13 +669,13 @@ Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_biwordslots_vector_sized_in_bytes__may_heapclean");
 
     if (nbytes == 0) {
-
+	//
 	return HEAP_VOID;
-
+	//
     } else {
-
-        Val chunk =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
-												// 64-bit issue?
+	//
+        Val chunk =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2, NULL );	// Round size up to a multiple of sizeof(Int2).
+													// 64-bit issue?
 	memcpy (PTR_CAST(void*, chunk), data, nbytes);
 
 	return chunk;
