@@ -260,218 +260,6 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			 											// fun call_heapcleaner
 
-#ifdef OLDXTRAROOTS
-
-void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
-    // =================================
-    //
-    // Clean with possible additional roots.  The list of
-    // additional roots is NULL terminated.  We always clean agegroup0.
-    // If level is greater than 0, or if agegroup 1 is full after cleaning
-    // agegroup0, then we clean one or more additional agegroups.
-    // At least 'level' agegroups are cleaned.
-    //
-    // NOTE: the multicore version of this may be BROKEN, since if a processor calls this
-    // but isn't the collecting process, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
-														// MAX_EXTRA_HEAPCLEANER_ROOTS	def in   src/c/h/runtime-configuration.h
-														ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner_with_extra_roots");
-
-														// MAX_TOTAL_CLEANING_ROOTS	def in   src/c/h/runtime-configuration.h
-    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];					// registers and globals
-    Val** roots_ptr = roots;
-    Heap* heap;
-
-    va_list ap;
-
-    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
-
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
-
-    #if NEED_PTHREAD_SUPPORT
-    {
-														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
-	va_start (ap, level);
-
-	int we_are_the_primary_heapcleaner_pthread
-	    =
-	    pth__start_heapcleaning_with_extra_roots (task, ap);						// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-
-	va_end(ap);
-
-	if (!we_are_the_primary_heapcleaner_pthread)	{
-	    //
-	    // We are not the primary heapcleaner pthread, and our
-	    // return from pth__start_heapcleaning means that the heapcleaning
-	    // is already complete, so we can now resume execution of user code.
-	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
-	    //
-	    return;
-	}
-
-	// At this point we know that
-	// 
-	//     1) We're the primary heapcleaner pthread.
-	// 
-	//     2) All other pthreads have now suspended execution of
-	//        user code and are blocked waiting for us to
-	//	  release them via the final pth__finish_heapcleaning()
-	//        call below.
-	// 
-	// Consequently, at this point we can safely just fall
-	// into the vanilla single-threaded heapcleaning code:
-    }
-    #endif
-
-    note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
-
-    #ifdef C_CALLS
-	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
-    #endif
-
-    #if NEED_PTHREAD_SUPPORT
-    {
-        // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
-        // Our extra roots were placed in pth__extra_heapcleaner_roots__global
-        // by pth__start_heapcleaning_with_extra_roots.
-        //
-	for (int i = 0;  pth__extra_heapcleaner_roots__global[i] != NULL;  i++) {
-	    //
-	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[ i ];
-	}
-    }
-    #else
-    {
-        // Note extra roots from argument list:
-	//
-	va_start (ap, level);
-	//
-	while ((Val* p = va_arg(ap, Val *)) != NULL) {
-	    //
-	    *roots_ptr++ = p;
-	}
-	va_end(ap);
-    }
-    #endif													// NEED_PTHREAD_SUPPORT
-
-    // Note a few C-level pointers into the Mythryl heap --
-    // low-level special-case stuff like the signal handler,
-    // runtime (pseudo-)package, pervasives etc:
-    //
-    for (int i = 0;  i < c_roots_count__global;  i++) {
-	//
-	*roots_ptr++ =  c_roots__global[ i ];
-    }
-
-    // Note heapcleaner roots from the register set(s)
-    // of the live Mythryl pthread task(s):
-    //
-    #if NEED_PTHREAD_SUPPORT
-    {
-	//
-	Task*     task;
-	Pthread*  pthread;
-
-	for (int j = 0;  j < MAX_PTHREADS;  j++) {
-	    //
-	    pthread = pthread_table__global[ j ];
-
-	    task    = pthread->task;
-														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-	    if (pthread->mode != PTHREAD_IS_VOID) {
-		//
-		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
-		*roots_ptr++ =  &task->argument;
-		*roots_ptr++ =  &task->fate;
-		*roots_ptr++ =  &task->current_closure;
-		*roots_ptr++ =  &task->exception_fate;
-		*roots_ptr++ =  &task->current_thread;
-		*roots_ptr++ =  &task->callee_saved_registers[ 0 ];
-		*roots_ptr++ =  &task->callee_saved_registers[ 1 ];
-		*roots_ptr++ =  &task->callee_saved_registers[ 2 ];
-		*roots_ptr++ =   task->protected_c_arg;								// No '&' on this one -- it is a pointer to the value being protected.
-	    }
-	}
-    }
-    #else
-	//
-	*roots_ptr++ =  &task->link_register;
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->current_closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->current_thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
-    #endif													// NEED_PTHREAD_SUPPORT
-
-    *roots_ptr = NULL;
-
-    heapclean_agegroup0( task, roots );										// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
-
-    heap = task->heap;
-
-
-    // If any generation-1 ilk is short on freespace,
-    // commit to doing a multigeneration heapcleaning.
-    //
-    // We can skip this check if we're anyhow already
-    // committed to    a multigeneration heapcleaning:
-    //
-    if (level == 0) {
-        //
-	Agegroup*	age1 =  heap->agegroup[0];
-        //
-	Val_Sized_Unt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
-
-	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-	    //
-	    Sib* sib = age1->sib[ i ];
-	    //
-	    if (sib_is_active( sib )										// sib_is_active		def in    src/c/h/heap.h
-            && (sib_freespace_in_bytes( sib ) < agegroup0_bytesize)						// sib_freespace_in_bytes	def in    src/c/h/heap.h
-            ){
-		level = 1;
-		break;
-	    }
-	}
-    }
-
-    if (level > 0) {
-	//
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
-
-	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups	def in   src/c/heapcleaner/heapclean-n-agegroups.c
-    }
-
-    // Reset agegroup0 buffer:
-    //
-    #if NEED_PTHREAD_SUPPORT
-    pth__finish_heapcleaning( task );
-    #else
-	task->heap_allocation_pointer = task->heap_allocation_buffer;
-
-	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
-	#else
-	    task->heap_allocation_limit
-		=
-	        HEAP_ALLOCATION_LIMIT( task );
-	#endif
-    #endif
-
-    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
-
-    note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
-
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
-}														// fun call_heapcleaner_with_extra_roots
-
-#else
-
 void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extra_roots)   {
     // =================================
     //
@@ -516,9 +304,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
 	// At this point we know that
 	// 
-	//     1) We're the primary heapcleaner pthread.
+	//     1. We're the primary heapcleaner pthread.
 	// 
-	//     2) All other pthreads have now suspended execution of
+	//     2. All other pthreads have now suspended execution of
 	//        user code and are blocked waiting for us to
 	//	  release them via the final pth__finish_heapcleaning()
 	//        call below.
@@ -672,7 +460,6 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 }														// fun call_heapcleaner_with_extra_roots
 
-#endif
 
 
 Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt bytes_needed)   {

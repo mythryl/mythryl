@@ -905,14 +905,10 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
         //
-#ifdef OLDXTRAROOTS
-	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, NULL);
-#else
 	{   Roots extra_roots = { &compiled_file_list, NULL };
 	    //
 	    call_heapcleaner_with_extra_roots (task, 0, &extra_roots );
 	}
-#endif
     }
 
     // Write the header for our 'import record', which will be 
@@ -1087,16 +1083,12 @@ static void   load_compiled_file   (
     // Do a garbage collection, if necessary:
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
-
-#ifdef OLDXTRAROOTS
-	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
-#else
+        //
 	{   Roots r1 = { &compiled_file_list, NULL };
 	    Roots r2 = { &mythryl_result,     &r1 };
 	    //
 	    call_heapcleaner_with_extra_roots (task, 0, &r2 );
 	}
-#endif
     }
 
     while (bytes_of_code_remaining > 0) {						// In practice, we always execute this loop exactly once.
@@ -1162,15 +1154,11 @@ static void   load_compiled_file   (
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-#ifdef OLDXTRAROOTS
-	    call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
-#else
 	    {   Roots r1 = { &compiled_file_list, NULL };
 		Roots r2 = { &mythryl_result,     &r1 };
 		//
 		call_heapcleaner_with_extra_roots (task, 0, &r2 );
 	    }
-#endif
         }
     }
 

@@ -258,76 +258,6 @@ int   pth__start_heapcleaning   (Task *task) {
 }							// fun pth__start_heapcleaning
 
 
-#ifdef OLDXTRAROOTS
-
-int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
-    //========================================
-    //
-    // This fn is called (only) from:
-    //
-    //     src/c/heapcleaner/call-heapcleaner.c
-    //
-    // As above, but we collect extra roots into pth__extra_heapcleaner_roots__global.
-// log_if("pth__start_heapcleaning_with_extra_roots: TOP.");
-
-
-    Pthread* pthread =  task->pthread;
-
-    pthread_mutex_lock(   &pth__mutex  );							// 
-	//
-	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
-	    ////////////////////////////////////////////////////////////
-	    // We're a secondary heapcleaner -- we'll just wait() while
-	    // the primary heapcleaner pthread does all the actual work:
-	    ////////////////////////////////////////////////////////////
-	    {   Val* p;
-		while ((p = va_arg(ap, Val*)) != NULL)  *extra_heapcleaner_roots__local++ = p;	// Append our args to the  extra-roots buffer.
-		*extra_heapcleaner_roots__local = p;						// Terminate extra-roots buffer with a NULL pointer.
-	    }
-	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
-	    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
-	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
-
-	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
-		pthread_cond_wait(&pth__condvar,&pth__mutex);
-	    }
-	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
-	    ++pth__running_pthreads_count;
-	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
-	    pthread_mutex_unlock(  &pth__mutex  );
-// log_if("pth__start_heapcleaning_with_extra_roots: return FALSE.");
-	    return FALSE;									// Resume running user code.
-	}
-	/////////////////////////////////////////////////////////////
-	// We're the primary heapcleaner -- we'll do the actual work:
-	/////////////////////////////////////////////////////////////
-	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER mode
-												// until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
-	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
-	--pth__running_pthreads_count;
-	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
-
-	extra_heapcleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
-	{   Val* p;
-	    while ((p = va_arg(ap, Val*)) != NULL)  *extra_heapcleaner_roots__local++ = p;	// Append our args to the extra-roots buffer.
-	    *extra_heapcleaner_roots__local = p;						// Terminate buffer with a NULL entry.
-	}
-
-	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
-	    pthread_cond_wait( &pth__condvar, &pth__mutex);
-	}
-
-	pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
-	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
-	//
-    pthread_mutex_unlock(  &pth__mutex  );
-
-// log_if("pth__start_heapcleaning_with_extra_roots: return TRUE.");
-    return TRUE;										// Return and run heapcleaner code.
-}												// fun pth__start_heapcleaning_with_extra_roots
-
-#else
-
 int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_roots) {
     //========================================
     //
@@ -407,7 +337,6 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
     return TRUE;										// Return and run heapcleaner code.
 }												// fun pth__start_heapcleaning_with_extra_roots
 
-#endif
 
 void    pth__finish_heapcleaning   (Task*  task)   {
     //  ========================

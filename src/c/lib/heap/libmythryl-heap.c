@@ -1008,14 +1008,10 @@ static void   clean_i_agegroups   (
     if      (age < 0)			        age =  0;
     else if (age > heap->active_agegroups)	age =  heap->active_agegroups;
 
-#ifdef OLDXTRAROOTS
-    call_heapcleaner_with_extra_roots( task, age, next, NULL );				// call_heapcleaner_with_extra_roots		def in   src/c/heapcleaner/call-heapcleaner.c
-#else
     {   Roots r1 = { next, NULL };
 	//
 	call_heapcleaner_with_extra_roots (task, age, &r1 );
     }
-#endif
 }
 
 
@@ -1026,13 +1022,9 @@ static void   clean_all_agegroups   (
     Val*     next
 ) {
     //
-#ifdef OLDXTRAROOTS
-    call_heapcleaner_with_extra_roots( task, task->heap->active_agegroups, next, NULL );		// call_heapcleaner_with_extra_roots		def in   src/c/heapcleaner/call-heapcleaner.c
-#else
     Roots r1 = { next, NULL };
     //
     call_heapcleaner_with_extra_roots( task, task->heap->active_agegroups, &r1 );			// call_heapcleaner_with_extra_roots		def in   src/c/heapcleaner/call-heapcleaner.c
-#endif
 }
 
 
