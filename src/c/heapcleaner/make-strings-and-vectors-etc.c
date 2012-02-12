@@ -113,7 +113,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
 }
 
 //
-Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, char** strs)   {
+Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, char** strs,  Roots* extra_roots)   {
     //==========================================================
     // 
     // Given a NULL terminated rw_vector of char*, build a list of Mythryl strings.
@@ -126,7 +126,7 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
     int	 i;
     for (i = 0;  strs[i] != NULL;  i++);
 
-    Val p = LIST_NIL;								Roots roots1 = { &p, NULL };
+    Val p = LIST_NIL;								Roots roots1 = { &p, extra_roots };
 
     while (i-- > 0) {
 	//

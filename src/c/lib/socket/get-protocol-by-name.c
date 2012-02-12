@@ -69,9 +69,9 @@ Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
     if (pentry == NULL)   return OPTION_NULL;
 
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean (task, pentry->p_name, NULL);					Roots extra_roots = { &name, NULL };
+    Val name    =  make_ascii_string_from_c_string__may_heapclean		(task, pentry->p_name,	   NULL   );					Roots roots1 = { &name, NULL };
 
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, pentry->p_aliases /*, &extra_roots */);
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean	(task, pentry->p_aliases, &roots1 );
 
     Val result
 	=

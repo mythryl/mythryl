@@ -29,7 +29,7 @@ Val   _lib7_P_ProcEnv_environ   (Task* task,  Val arg)   {
 
     extern char** environ;
     //
-    return make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, environ);
+    return make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, environ, NULL );
 }
 
 

@@ -47,7 +47,7 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
     //
     // Mythryl type:  Int ->   Null_Or(   (String, List(String), Int)   )
     //
-    // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX BUGGO FIXME.
+    // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX SUCKO FIXME.
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbynum");
 
@@ -63,8 +63,8 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
 
     if (rentry == NULL)   return OPTION_NULL;
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task, rentry->r_name, NULL   );					Roots extra_roots = { &name, NULL };
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task, rentry->r_aliases /*, &extra_roots */);
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task, rentry->r_name,	  NULL	    );					Roots roots1 = { &name, NULL };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task, rentry->r_aliases, &roots1    );
 
     Val result  =  make_three_slot_record(					task,  name,  aliases,  TAGGED_INT_FROM_C_INT(rentry->r_number)  );
 

@@ -52,8 +52,8 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
  
     Val	addresses = LIST_NIL;																Roots roots0 = { &addresses, NULL };
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name,	NULL    );		Roots roots1 = { &name,    &roots0 };
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases  );				Roots roots2 = { &aliases, &roots1 };
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name,	 NULL	);		Roots roots1 = { &name,    &roots0 };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases,	&roots1	);		Roots roots2 = { &aliases, &roots1 };
     Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, hentry->h_addrtype );				Roots roots3 = { &af,      &roots2 };
 
     for (nAddresses = 0;  hentry->h_addr_list[nAddresses] != NULL;  nAddresses++);
