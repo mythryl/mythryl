@@ -1011,9 +1011,10 @@ static void   clean_i_agegroups   (
 #ifndef OLDXTRAROOTS
     call_heapcleaner_with_extra_roots( task, age, next, NULL );				// call_heapcleaner_with_extra_roots		def in   src/c/heapcleaner/call-heapcleaner.c
 #else
-    Roots r1 = { next, NULL };
-    //
-    call_heapcleaner_with_extra_roots (task, 0, &r1 );
+    {   Roots r1 = { next, NULL };
+	//
+	call_heapcleaner_with_extra_roots (task, age, &r1 );
+    }
 #endif
 }
 

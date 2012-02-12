@@ -458,9 +458,10 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 #ifndef OLDXTRAROOTS
 		    call_heapcleaner_with_extra_roots (task, gc_level, &root, NULL);
 #else
-		    Roots r1 = { &root, NULL };
-		    //
-		    call_heapcleaner_with_extra_roots (task, gc_level, &r1 );
+		    {   Roots r1 = { &root, NULL };
+			//
+			call_heapcleaner_with_extra_roots (task, gc_level, &r1 );
+		    }
 #endif
 		    init_val = root;
 		pthread_mutex_lock( &pth__mutex );
@@ -551,9 +552,10 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 #ifndef OLDXTRAROOTS
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 #else
-		Roots r1 = { &root, NULL };
-		//
-		call_heapcleaner_with_extra_roots (task, clean_level, &r1 );
+		{   Roots r1 = { &root, NULL };
+		    //
+		    call_heapcleaner_with_extra_roots (task, clean_level, &r1 );
+		}
 #endif
 	        initializers = root;
 	    pthread_mutex_lock( &pth__mutex );

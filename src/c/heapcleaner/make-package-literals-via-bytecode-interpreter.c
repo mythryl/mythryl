@@ -197,10 +197,11 @@ log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
             &&  need_to_call_heapcleaner( task, need_bytes_in_agegroup0_buffer + LIST_CONS_CELL_BYTESIZE)	\
             ){													\
 log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
-		Roots r1 = { (Val*)&bytecode_vector, NULL };							\
-		Roots r2 = { &stack,                &r1 };							\
-		//												\
-		call_heapcleaner_with_extra_roots (task, 1, &r2 );						\
+	        {   Roots r1 = { (Val*)&bytecode_vector, NULL };						\
+		    Roots r2 = { &stack,                &r1 };							\
+		    /* */											\
+		    call_heapcleaner_with_extra_roots (task, 1, &r2 );						\
+		}												\
 		free_bytes_in_agegroup0_buffer = 0;								\
 														\
 	    } else {												\
@@ -251,10 +252,11 @@ log_if("luptop: CALLING HEAPCLEANER <----------------------------------");
 #ifndef OLDXTRAROOTS
 		call_heapcleaner_with_extra_roots (task, 1, (Val*)&bytecode_vector, &stack, NULL);	// Empty agegroup0 buffer, also do a collection on agegroup1.
 #else
-		Roots r1 = { (Val*)&bytecode_vector, NULL };
-		Roots r2 = { &stack,                 &r1  };
-		//
-		call_heapcleaner_with_extra_roots (task, 1, &r2 );
+		{   Roots r1 = { (Val*)&bytecode_vector, NULL };
+		    Roots r2 = { &stack,                 &r1  };
+		    //
+		    call_heapcleaner_with_extra_roots (task, 1, &r2 );
+		}
 #endif
             }
 log_if("luptop: setting free_bytes_in_agegroup0_buffer to 64K <----------------------------------");

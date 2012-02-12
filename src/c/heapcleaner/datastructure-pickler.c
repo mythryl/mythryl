@@ -56,9 +56,10 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
 #ifndef OLDXTRAROOTS
     call_heapcleaner_with_extra_roots (task, 0, &root_chunk, NULL);  				// Clean agegroup0.
 #else
-    Roots r1 = { &root_chunk, NULL };
-    //
-    call_heapcleaner_with_extra_roots (task, 0, &r1 );
+    {   Roots r1 = { &root_chunk, NULL };
+	//
+	call_heapcleaner_with_extra_roots (task, 0, &r1 );
+    }
 #endif
 
     int age =  get_chunk_age( root_chunk );						// get_chunk_age			def in   src/c/heapcleaner/get-chunk-age.c

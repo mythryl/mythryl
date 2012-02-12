@@ -908,9 +908,10 @@ static void   load_compiled_file   (
 #ifndef OLDXTRAROOTS
 	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, NULL);
 #else
-	Roots extra_roots = { &compiled_file_list, NULL };
-	//
-	call_heapcleaner_with_extra_roots (task, 0, &extra_roots );
+	{   Roots extra_roots = { &compiled_file_list, NULL };
+	    //
+	    call_heapcleaner_with_extra_roots (task, 0, &extra_roots );
+	}
 #endif
     }
 
@@ -1090,10 +1091,11 @@ static void   load_compiled_file   (
 #ifndef OLDXTRAROOTS
 	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
 #else
-	Roots r1 = { &compiled_file_list, NULL };
-	Roots r2 = { &mythryl_result,     &r1 };
-	//
-	call_heapcleaner_with_extra_roots (task, 0, &r2 );
+	{   Roots r1 = { &compiled_file_list, NULL };
+	    Roots r2 = { &mythryl_result,     &r1 };
+	    //
+	    call_heapcleaner_with_extra_roots (task, 0, &r2 );
+	}
 #endif
     }
 
@@ -1163,10 +1165,11 @@ static void   load_compiled_file   (
 #ifndef OLDXTRAROOTS
 	    call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
 #else
-	    Roots r1 = { &compiled_file_list, NULL };
-	    Roots r2 = { &mythryl_result,     &r1 };
-	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &r2 );
+	    {   Roots r1 = { &compiled_file_list, NULL };
+		Roots r2 = { &mythryl_result,     &r1 };
+		//
+		call_heapcleaner_with_extra_roots (task, 0, &r2 );
+	    }
 #endif
         }
     }

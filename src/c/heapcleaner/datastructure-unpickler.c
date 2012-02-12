@@ -190,9 +190,10 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 #ifndef OLDXTRAROOTS
 		call_heapcleaner_with_extra_roots( task, 1, &buffer, NULL );
 #else
-		Roots r1 = { &buffer, NULL };
-		//
-		call_heapcleaner_with_extra_roots (task, 1, &r1 );
+		{   Roots r1 = { &buffer, NULL };
+		    //
+		    call_heapcleaner_with_extra_roots (task, 1, &r1 );
+		}
 #endif
 
 		if (buffer != PTR_CAST( Val,  bp->base )) {
