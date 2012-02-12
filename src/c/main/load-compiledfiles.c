@@ -1084,10 +1084,10 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
         //
-	{   Roots r1 = { &compiled_file_list, NULL };
-	    Roots r2 = { &mythryl_result,     &r1 };
+	{   Roots extra_roots1 =  { &compiled_file_list, NULL		};
+	    Roots extra_roots2 =  { &mythryl_result,     &extra_roots1	};
 	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &r2 );
+	    call_heapcleaner_with_extra_roots (task, 0, &extra_roots2 );
 	}
     }
 
@@ -1154,10 +1154,10 @@ static void   load_compiled_file   (
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-	    {   Roots r1 = { &compiled_file_list, NULL };
-		Roots r2 = { &mythryl_result,     &r1 };
+	    {   Roots extra_roots1 = { &compiled_file_list, NULL	    };
+		Roots extra_roots2 = { &mythryl_result,     &extra_roots1   };
 		//
-		call_heapcleaner_with_extra_roots (task, 0, &r2 );
+		call_heapcleaner_with_extra_roots (task, 0, &extra_roots2 );
 	    }
         }
     }

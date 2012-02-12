@@ -187,9 +187,9 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
                 
 		Val buffer =  PTR_CAST( Val,  bp->base );
 
-		{   Roots r1 = { &buffer, NULL };
+		{   Roots extra_roots = { &buffer, NULL };
 		    //
-		    call_heapcleaner_with_extra_roots (task, 1, &r1 );
+		    call_heapcleaner_with_extra_roots (task, 1, &extra_roots );
 		}
 
 		if (buffer != PTR_CAST( Val,  bp->base )) {
