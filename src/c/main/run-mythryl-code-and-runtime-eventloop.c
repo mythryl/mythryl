@@ -96,8 +96,8 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
     Pthread* pthread  =  task->pthread;
 
-    Val	previous_profile_index =  IN_OTHER_CODE__CPU_USER_INDEX;
-
+    Val	previous_profile_index =  IN_OTHER_CODE__CPU_USER_INDEX;				// IN_OTHER_CODE__CPU_USER_INDEX	is from   src/c/h/profiler-call-counts.h
+												// previous_profile_index is a tagged int, so it is safe from heapcleaning.
     for (;;) {
 
         //     THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL
@@ -285,26 +285,25 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 	    case REQUEST_FAULT:                    			// A hardware fault.
                 {
-		    Val	  loc;
-		    Val	  traceStk;
-		    Val	  exn;
 		    Unt8* namestring =  codechunk_comment_string_for_program_counter( task->faulting_program_counter );		// codechunk_comment_string_for_program_counter	def in   src/c/heapcleaner/hugechunk.c
 
+		    Val loc;
 		    if (namestring != NULL) {
 		        //
 			char	buf2[192];
 			sprintf(buf2, "<file %.184s>", namestring);
-			loc = make_ascii_string_from_c_string__may_heapclean( task, buf2 );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, buf2, NULL );
 
 		    } else {
 
-			loc = make_ascii_string_from_c_string__may_heapclean( task, "<unknown file>" );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, "<unknown file>", NULL );
 		    }
 
-		    traceStk =  LIST_CONS( task, loc, LIST_NIL );
-		    exn      =  MAKE_EXCEPTION( task, task->fault_exception, HEAP_VOID, traceStk );
+		    Val trace_stack =  LIST_CONS( task, loc, LIST_NIL );
 
-		    raise_mythryl_exception( task, exn );
+		    Val exception   =  MAKE_EXCEPTION( task, task->fault_exception, HEAP_VOID, trace_stack );
+
+		    raise_mythryl_exception( task, exception );
 		}
                 break;
 

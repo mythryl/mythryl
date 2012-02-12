@@ -45,9 +45,9 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   
-    Val gr_name =  make_ascii_string_from_c_string__may_heapclean(            task,                  info->gr_name );
-    Val gr_gid  =  make_one_word_unt(                          task,  (Val_Sized_Unt)(info->gr_gid) );
-    Val gr_mem  =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(task,                  info->gr_mem  );
+    Val gr_name =  make_ascii_string_from_c_string__may_heapclean(		task,                  info->gr_name, NULL );		Roots roots1 = { &gr_name, NULL };
+    Val gr_gid  =  make_one_word_unt(						task,  (Val_Sized_Unt)(info->gr_gid) );			Roots roots2 = { &gr_gid,  &roots1 };
+    Val gr_mem  =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                  info->gr_mem /*, &roots2*/ );
 
     return   make_three_slot_record(task,  gr_name, gr_gid, gr_mem  );
 }

@@ -21,10 +21,12 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
     // will be represented by an (int * String) pair.  If alt_msg is non-zero,
     // then use it as the error string and use NULL for the System_Error.
 
-    Val	    s, syserror, arg, exn, atStk;
+
     const char	    *msg;
     char	    buf[32];
     int             errno = -1;
+
+    Val	    syserror;
 
     if (altMsg != NULL) {
 	msg = altMsg;
@@ -36,17 +38,28 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	syserror =  OPTION_THE(  task,  TAGGED_INT_FROM_C_INT(errno)  );
     }
 
-    s = make_ascii_string_from_c_string__may_heapclean (task, msg);
+    Roots extra_roots1 = { &syserror, NULL };
+
+    Val string = make_ascii_string_from_c_string__may_heapclean (task, msg, &extra_roots1 );
+
+    Val   at_stk;
+
     if (at == NULL) {
-	atStk = LIST_NIL;
+	//
+	at_stk = LIST_NIL;
+	//
     } else {
-	Val atMsg = make_ascii_string_from_c_string__may_heapclean (task, at);
-	atStk = LIST_CONS(task, atMsg, LIST_NIL);
+	//
+	Roots extra_roots2 =  { &string, &extra_roots1 };
+	//
+	Val at_msg =  make_ascii_string_from_c_string__may_heapclean (task, at, &extra_roots2 );
+	//
+	at_stk = LIST_CONS(task, at_msg, LIST_NIL);
     }
 
-    arg =  make_two_slot_record( task, s, syserror);
+    Val arg =  make_two_slot_record( task, string, syserror);
 
-    exn =  MAKE_EXCEPTION (task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, atStk);
+    Val exn =  MAKE_EXCEPTION (task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_stk);
 
     raise_mythryl_exception( task, exn );
 

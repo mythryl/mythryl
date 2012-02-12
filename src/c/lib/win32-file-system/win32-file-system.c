@@ -27,7 +27,7 @@ loop:
 	//
 	if (IS_DOTDIR(wfd.cFileName))   goto loop;
 	//
-	fname = make_ascii_string_from_c_string__may_heapclean(task,wfd.cFileName);
+	fname = make_ascii_string_from_c_string__may_heapclean(task, wfd.cFileName, NULL);
 	//
 	return OPTION_THE( task, fname );
 	//
@@ -68,7 +68,7 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
       if (IS_DOTDIR(wfd.cFileName))
 	fname_opt = find_next_file(task,h);
       else {
-	fname = make_ascii_string_from_c_string__may_heapclean(task,wfd.cFileName);
+	fname = make_ascii_string_from_c_string__may_heapclean(task,wfd.cFileName, NULL );
 	fname_opt = OPTION_THE( task, fname );
       }
     } else {
@@ -104,7 +104,7 @@ Val _lib7_win32_FS_get_current_directory(Task *task, Val arg)
   if (r == 0 || r > MAX_PATH) {
       return RAISE_SYSERR(task,-1);
   }
-  return make_ascii_string_from_c_string__may_heapclean(task,buf);
+  return make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);
 }
 
 
@@ -171,7 +171,7 @@ Val _lib7_win32_FS_get_full_path_name(Task *task, Val arg)
   if (r == 0 | r > MAX_PATH) {
       return  RAISE_SYSERR(task,-1);
   }
-  res = make_ascii_string_from_c_string__may_heapclean(task,buf);
+  res = make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);
   return res;
 }
 
@@ -353,7 +353,7 @@ Val _lib7_win32_FS_get_temp_file_name(Task *task, Val arg)
     if ((pblen <= MAX_PATH) && 
 	(GetTempFileName(path_buf,TMP_PREFIX,0,name_buf) != 0)) {
 
-	Val tfn = make_ascii_string_from_c_string__may_heapclean(task,name_buf);
+	Val tfn = make_ascii_string_from_c_string__may_heapclean(task,name_buf,NULL);
 
 	return   OPTION_THE( task, tfn );
     }

@@ -1112,7 +1112,9 @@ handle_int:
 	#endif
 	tag = LIB7STRING_TAG;
 	space_check( task, strlen((char*)**p), root );
-	mlval = make_ascii_string_from_c_string__may_heapclean(task,(char *) **p);
+	//
+	mlval = make_ascii_string_from_c_string__may_heapclean(task,  (char*) **p, NULL);
+	//
 	(*p)++;
 	break;
 

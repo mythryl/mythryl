@@ -39,7 +39,8 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
 
     struct utsname      name;
 
-    Val  l, p, s;
+    Val  p;
+    Val  s;
     Val  field;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname", arg );
@@ -52,32 +53,32 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
 
 		    // NOTE: We should do something about possible cleaning. XXX BUGGO FIXME
 
-    l = LIST_NIL;
+    Val l =  LIST_NIL;											Roots extra_roots1 = { &l, NULL };
 
-    field = make_ascii_string_from_c_string__may_heapclean(task, "machine");
-    s = make_ascii_string_from_c_string__may_heapclean(task, name.machine);
-    p = make_two_slot_record(task, field, s); 
-    l = LIST_CONS(task, p, l);
+    field =  make_ascii_string_from_c_string__may_heapclean(task, "machine",    &extra_roots1 );	Roots extra_roots2 = { &field, &extra_roots1 };
+    s     =  make_ascii_string_from_c_string__may_heapclean(task, name.machine, &extra_roots2 );	Roots extra_roots3 = { &s,     &extra_roots2 };
+    p     =  make_two_slot_record(task, field, s); 
+    l     =  LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string__may_heapclean(task, "version");
-    s = make_ascii_string_from_c_string__may_heapclean(task, name.version);
-    p = make_two_slot_record(task, field, s); 
-    l = LIST_CONS(task, p, l);
+    field =  make_ascii_string_from_c_string__may_heapclean(task, "version",	&extra_roots3 );
+    s     =  make_ascii_string_from_c_string__may_heapclean(task, name.version,	&extra_roots3 );
+    p     =  make_two_slot_record(task, field, s); 
+    l     =  LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string__may_heapclean(task, "release");
-    s = make_ascii_string_from_c_string__may_heapclean(task, name.release);
-    p = make_two_slot_record(task, field, s); 
-    l = LIST_CONS(task, p, l);
+    field =  make_ascii_string_from_c_string__may_heapclean(task, "release",	&extra_roots3 );
+    s     =  make_ascii_string_from_c_string__may_heapclean(task, name.release,	&extra_roots3 );
+    p     =  make_two_slot_record(task, field, s); 
+    l     =  LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string__may_heapclean(task, "nodename");
-    s = make_ascii_string_from_c_string__may_heapclean(task, name.nodename);
-    p = make_two_slot_record(task, field, s); 
-    l = LIST_CONS(task, p, l);
+    field =  make_ascii_string_from_c_string__may_heapclean(task, "nodename",	&extra_roots3 );
+    s     =  make_ascii_string_from_c_string__may_heapclean(task, name.nodename,&extra_roots3 );
+    p     =  make_two_slot_record(task, field, s); 
+    l     =  LIST_CONS(task, p, l);
 
-    field = make_ascii_string_from_c_string__may_heapclean(task, "sysname");
-    s = make_ascii_string_from_c_string__may_heapclean(task, name.sysname);
-    p = make_two_slot_record(task, field, s); 
-    l = LIST_CONS(task, p, l);
+    field =  make_ascii_string_from_c_string__may_heapclean(task, "sysname",	&extra_roots3 );
+    s     =  make_ascii_string_from_c_string__may_heapclean(task, name.sysname,	&extra_roots3 );
+    p     =  make_two_slot_record(task, field, s); 
+    l     =  LIST_CONS(task, p, l);
 
     return l;
 }

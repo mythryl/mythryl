@@ -97,7 +97,7 @@ Val _lib7_win32_PS_get_environment_variable(Task *task, Val arg)
 	return RAISE_SYSERR(task,-1);
     }
     if (ret > 0) {
-	ml_s = make_ascii_string_from_c_string__may_heapclean(task,buf);
+	ml_s = make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);
 	return OPTION_THE( task, ml_s );
     }
     return OPTION_NULL;

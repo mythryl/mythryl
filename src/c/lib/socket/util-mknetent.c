@@ -10,6 +10,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
 #include "socket-util.h"
+#include "heap.h"
 
 
 
@@ -31,14 +32,22 @@ Val   _util_NetDB_mknetent   (Task *task, struct netent* nentry)   {
 
     // Build the return result:
 
+    // If our agegroup0 buffer is more than half full,
+    // empty it by doing a heapcleaning.  This is very
+    // conservative -- which is the way I like it. :-)
+    //
+    if (agegroup0_freespace_in_bytes( task )
+      < agegroup0_usedspace_in_bytes( task )
+    ){
+	call_heapcleaner( task, 0 );
+    }
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean( task,                    nentry->n_name		);
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(    task,                    nentry->n_aliases	);		// XXX BUGGO FIXME, this may invalidate 'name' heapref.
-    Val af      =  make_system_constant__may_heapclean(                           task, &_Sock_AddrFamily, nentry->n_addrtype	);		// XXX BUGGO FIXME, this may invalidate 'name' and 'aliases' heaprefs.
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    nentry->n_name,    NULL	);		Roots roots1 = { &name,    NULL	    };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    nentry->n_aliases		);		Roots roots2 = { &aliases, &roots1  };
+    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, nentry->n_addrtype		);		Roots roots3 = { &af,      &roots2  };
+    Val net     =  make_one_word_unt(						task,  (Val_Sized_Unt) (nentry->n_net)			);		Roots roots4 = { &net,	   &roots3  };
 
-    Val net     =  make_one_word_unt(                              task,  (Val_Sized_Unt) (nentry->n_net)  );
-
-    Val	result  =  make_four_slot_record(task,  name, aliases, af, net  );
+    Val	result  =  make_four_slot_record(					task,  name, aliases, af, net  );
 
     return   OPTION_THE( task, result );
 }

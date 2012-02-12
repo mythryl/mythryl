@@ -79,7 +79,7 @@
     }
 
 //
-Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char* v)   {
+Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char* v,  Roots* extra_roots)   {
     //==============================================
     // 
     // Allocate a Mythryl string using a C string as an initializer.
@@ -100,7 +100,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
         //
 	int	    n = BYTES_TO_WORDS(len+1);				// '+1' to count terminal '\0' also.
 
-	Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, n, NULL );
+	Val result = allocate_nonempty_wordslots_vector__may_heapclean( task, n, extra_roots );
 
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
@@ -113,7 +113,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
 }
 
 //
-Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, char **strs)   {
+Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, char** strs)   {
     //==========================================================
     // 
     // Given a NULL terminated rw_vector of char*, build a list of Mythryl strings.
@@ -123,15 +123,15 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings__may_heapclean");
 
-    int		i;
-    Val	p, s;
+    int	 i;
+    for (i = 0;  strs[i] != NULL;  i++);
 
-    for (i = 0;  strs[i] != NULL;  i++)
-	continue;
+    Val p = LIST_NIL;								Roots roots1 = { &p, NULL };
 
-    p = LIST_NIL;
     while (i-- > 0) {
-	s = make_ascii_string_from_c_string__may_heapclean(task, strs[i]);
+	//
+	Val s =  make_ascii_string_from_c_string__may_heapclean( task, strs[i], &roots1 );
+	//
 	p = LIST_CONS(task, s, p);
     }
 
@@ -607,18 +607,20 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant__may_heapclean");
 
-    Val	name;
-
     for (int i = 0;  i < table->constants_count;  i++) {
+	//
 	if (table->consts[i].id == id) {
-	    name = make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name);
+	    //
+	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name, NULL);
+	    //	
 	    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
 	}
     }
 
     // Here, we did not find the constant:
     //
-    name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>");
+    Val name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>", NULL);
+    //
     return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
 }
 
@@ -632,13 +634,22 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
 									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list__may_heapclean");
 
 
-    // Should check for available heap space !!! XXX BUGGO FIXME
+    Val	result_list =  LIST_NIL;					Roots roots1 = { &result_list, NULL };
 
-    Val	result_list =  LIST_NIL;
 
     for (int i = table->constants_count;  --i >= 0;  ) {
 	//
-	Val name            =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name);
+	// If our agegroup0 buffer is more than half full,
+	// empty it by doing a heapcleaning.  This is very
+	// conservative -- which is the way I like it. :-)
+	//
+	if (agegroup0_freespace_in_bytes( task )
+	  < agegroup0_usedspace_in_bytes( task )
+	){
+	    call_heapcleaner_with_extra_roots( task,  0, &roots1 );
+	}
+
+	Val name            =  make_ascii_string_from_c_string__may_heapclean(task, table->consts[i].name, &roots1 );
 	//
         Val system_constant =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
 	//

@@ -10,6 +10,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
 #include "socket-util.h"
+#include "heap.h"
 
 
 
@@ -45,11 +46,21 @@ Val   _util_NetDB_mkservent   (Task* task,  struct servent* sentry)   {
 
     if (sentry == NULL)   return OPTION_NULL;
 
+    // If our agegroup0 buffer is more than half full,
+    // empty it by doing a heapcleaning.  This is very
+    // conservative -- which is the way I like it. :-)
+    //
+    if (agegroup0_freespace_in_bytes( task )
+      < agegroup0_usedspace_in_bytes( task )
+    ){
+	call_heapcleaner( task,  0 );
+    }
+
     // Build the return result:
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_name	);
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, sentry->s_aliases	);
-    Val proto   =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_proto	);
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_name, NULL	);		Roots roots1 = { &name,	    NULL };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, sentry->s_aliases	);		Roots roots2 = { &aliases,  &roots1 };
+    Val proto   =  make_ascii_string_from_c_string__may_heapclean(     task, sentry->s_proto, &roots2	);		Roots roots3 = { &proto,    &roots2 };
     Val port    =  TAGGED_INT_FROM_C_INT(      ntohs(sentry->s_port)	);
     Val result  =  make_four_slot_record(task,  name, aliases, port, proto);
 

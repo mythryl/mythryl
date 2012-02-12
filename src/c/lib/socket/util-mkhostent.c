@@ -10,6 +10,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
 #include "socket-util.h"
+#include "heap.h"
 
 
 
@@ -46,15 +47,14 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
     // Build the return result:
 
     Val	addr;
-    Val	result;
 
     int	nAddresses;
  
-    Val	addresses = LIST_NIL;
+    Val	addresses = LIST_NIL;																Roots roots0 = { &addresses, NULL };
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name	    );		Roots roots1 = { &name, NULL };
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases  );		Roots roots2 = { &aliases, &roots1 };	// XXX BUGGO FIXME, this may invalidate 'name' heapref.
-    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, hentry->h_addrtype );					// XXX BUGGO FIXME, this may invalidate 'name' and 'aliases' heaprefs.
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    hentry->h_name,	NULL    );		Roots roots1 = { &name,    &roots0 };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    hentry->h_aliases  );				Roots roots2 = { &aliases, &roots1 };
+    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, hentry->h_addrtype );				Roots roots3 = { &af,      &roots2 };
 
     for (nAddresses = 0;  hentry->h_addr_list[nAddresses] != NULL;  nAddresses++);
 
@@ -65,9 +65,19 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 	memcpy (GET_VECTOR_DATACHUNK_AS(void*, addr), hentry->h_addr_list[i], hentry->h_length);
 
 	addresses = LIST_CONS( task, addr, addresses );
+
+	// If our agegroup0 buffer is more than half full,
+	// empty it by doing a heapcleaning.  This is very
+	// conservative -- which is the way I like it. :-)
+	//
+	if (agegroup0_freespace_in_bytes( task )
+	  < agegroup0_usedspace_in_bytes( task )
+	){
+	    call_heapcleaner_with_extra_roots( task,  0, &roots3 );
+	}
     }
 
-    result =  make_four_slot_record(task,  name, aliases, af, addresses);
+    Val result =  make_four_slot_record(task,  name, aliases, af, addresses);
 
     return   OPTION_THE( task, result );
 }

@@ -48,7 +48,7 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
 	return RAISE_ERROR(task, "cannot determine controlling terminal");
     }
   
-    return   make_ascii_string_from_c_string__may_heapclean( task, name );			// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return   make_ascii_string_from_c_string__may_heapclean( task, name, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 

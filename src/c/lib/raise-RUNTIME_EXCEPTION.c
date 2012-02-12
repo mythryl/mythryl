@@ -58,14 +58,11 @@ Val   RaiseSysError (
 
     int error_number = errno;		// Various calls can trash this value so preserve it early.
 
-    Val	    errno_string;		// From strerror(errno).
-    Val	    at_list;			// [] or [ "<foo.c:187>" ].
-    Val	    null_or_errno;		// NULL or (THE errno).
-    Val	    arg;			// Holds pair (errno_string, null_or_errno).
-    Val	    syserr_exception;		// Final return value and exception raised.
 
     const char*	    msg;
     char	    buf[32];
+
+    Val  null_or_errno;
 
     if (altMsg != NULL) {
 	//
@@ -88,15 +85,19 @@ Val   RaiseSysError (
 	    (altMsg != NULL) ? -1 : error_number, msg);
     #endif
 
-    errno_string
-	=
-	make_ascii_string_from_c_string__may_heapclean (task, msg);
+    Roots extra_roots1 = { &null_or_errno, NULL };
 
+    Val errno_string = make_ascii_string_from_c_string__may_heapclean (task, msg, &extra_roots1 );
+
+    Val at_list;			// [] or [ "<foo.c:187>" ].
+    //
     if (at != NULL) {
+        //
+	Roots extra_roots2 = { &errno_string, &extra_roots1 };
 
-	Val  at_cstring
+	Val at_cstring
             =
-            make_ascii_string_from_c_string__may_heapclean (task, at);
+	    make_ascii_string_from_c_string__may_heapclean (task, at, &extra_roots2 );
 
 	at_list = LIST_CONS(task, at_cstring, LIST_NIL);
 
@@ -105,11 +106,11 @@ Val   RaiseSysError (
 	at_list = LIST_NIL;
     }
 
-    arg = make_two_slot_record( task,  errno_string, null_or_errno);
+    Val arg = make_two_slot_record( task,  errno_string, null_or_errno);
 
-    syserr_exception =   MAKE_EXCEPTION(task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
+    Val syserr_exception =   MAKE_EXCEPTION(task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
 
-    // Modify the Lib7 state so that 'syserr_exception'
+    // Modify the task state so that 'syserr_exception'
     // will be raised when Mythryl execution resumes:
     //
     raise_mythryl_exception( task, syserr_exception );		// raise_mythryl_exception	is from    src/c/main/run-mythryl-code-and-runtime-eventloop.c

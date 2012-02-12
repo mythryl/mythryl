@@ -193,10 +193,6 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
     } else { 								// EXPORT_FN_IMAGE
 
-        Val function_to_run;
-	Val program_name;
-	Val args;
-
         // Restore the signal handler:
         //
 	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
@@ -208,7 +204,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
         // Initialize the calling context (taken from run_mythryl_function):					// run_mythryl_function		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
         //
-	function_to_run		= task->argument;
+	Val function_to_run	= task->argument;
 	//
 	task->exception_fate	= PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
 	task->current_thread	= HEAP_VOID;
@@ -217,12 +213,13 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 	task->current_closure	= function_to_run;
 	//
 	task->program_counter	=
-	task->link_register	= GET_CODE_ADDRESS_FROM_CLOSURE( function_to_run );
+	task->link_register	= GET_CODE_ADDRESS_FROM_CLOSURE( function_to_run );				// Last use of 'function_to_run'.
 
         // Set up the arguments to the imported function:
         //
-	program_name = make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global);
-	args = make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments);
+	Val program_name =  make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global, NULL);
+        //
+	Val args         =  make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments);
 
 	task->argument = make_two_slot_record( task, program_name, args );
 

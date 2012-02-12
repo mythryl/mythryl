@@ -63,9 +63,9 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
 
     if (rentry == NULL)   return OPTION_NULL;
 
-    Val name    =  make_ascii_string_from_c_string__may_heapclean(             task,  rentry->r_name   );
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean( task,  rentry->r_aliases);
-    Val	result  =  make_three_slot_record(                      task,   name, aliases, TAGGED_INT_FROM_C_INT(rentry->r_number)  );
+    Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,  rentry->r_name,	NULL );						Roots extra_roots = { &name, NULL };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,  rentry->r_aliases /*, &extra_roots */);
+    Val	result  =  make_three_slot_record(					task,   name, aliases, TAGGED_INT_FROM_C_INT(rentry->r_number)  );
 
     return OPTION_THE( task, result );
 }

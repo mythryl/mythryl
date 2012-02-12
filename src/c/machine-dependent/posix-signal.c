@@ -15,6 +15,7 @@
 #include "system-dependent-signal-stuff.h"
 #include "system-signals.h"
 #include "runtime-globals.h"
+#include "heap.h"
 
 
 
@@ -330,6 +331,8 @@ void   set_signal_mask   (Task* task, Val arg)   {
 Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/signal/getsigmask.c
     //=============== 
     // 
+    // 'arg' is unused.
+    // 
     // Return the current signal mask (only those signals supported by Mythryl);
     // like set_signal_mask, the result has the following semantics:
     //	NULL	-- the empty mask
@@ -339,8 +342,8 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
 
     Signal_Set	mask;
-    Val	name, sig, signal_list;
-    int		i, n;
+    int		i;
+    int		n;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", arg );
 	//
@@ -357,19 +360,33 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 
     if (n == 0)   return OPTION_NULL;
 
+    Val	signal_list;
+
     if (n == NUM_SYSTEM_SIGS) {
 	//
 	signal_list = LIST_NIL;
 	//
     } else {
 	//
+        Roots extra_roots = { &signal_list, NULL };
+	//
 	for (i = 0, signal_list = LIST_NIL;   i < NUM_SYSTEM_SIGS;   i++) {
+
+	    // If our agegroup0 buffer is more than half full,
+	    // empty it by doing a heapcleaning.  This is very
+	    // conservative -- which is the way I like it. :-)
 	    //
+	    if (agegroup0_freespace_in_bytes( task )
+	      < agegroup0_usedspace_in_bytes( task )
+	    ){
+		call_heapcleaner_with_extra_roots( task,  0, &extra_roots );
+	    }
+
 	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id)) {
 	        //
-		name = make_ascii_string_from_c_string__may_heapclean (task, SigInfo[i].name);
+		Val name =  make_ascii_string_from_c_string__may_heapclean (task, SigInfo[i].name, &extra_roots );
 
-		sig = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
+		Val sig  =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 
 		signal_list = LIST_CONS(task, sig, signal_list);
 	    }

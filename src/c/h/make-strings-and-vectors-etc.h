@@ -309,7 +309,7 @@ inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
 //     and "allocate" for fns which do not. "nonempty" is a reminder
 //     that zero length is not ok.
 //
-extern Val  make_ascii_string_from_c_string__may_heapclean		(Task* task,  const char* string);	// make_ascii_string_from_c_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_ascii_string_from_c_string__may_heapclean		(Task* task,  const char*, Roots*);	// make_ascii_string_from_c_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  make_ascii_strings_from_vector_of_c_strings__may_heapclean	(Task* task,  char** strings);		// make_ascii_strings_from_vector_of_c_strings__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_nonempty_ascii_string__may_heapclean		(Task* task,  int len);			// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_nonempty_vector_of_one_byte_unts__may_heapclean	(Task* task,  int len);			// allocate_nonempty_vector_of_one_byte_unts__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c

@@ -369,41 +369,41 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
     Val	  result;
 
     if (SAME_STRING("OS_NAME", name))
-	result = make_ascii_string_from_c_string__may_heapclean(task, OS_NAME);
+	result = make_ascii_string_from_c_string__may_heapclean(task, OS_NAME, NULL);
     else if (SAME_STRING("OS_VERSION", name))
-	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>", NULL);
     else if (SAME_STRING("HOST_ARCH", name))
 #if defined(HOST_PWRPC32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32", NULL);
 #elif defined(HOST_SPARC32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32", NULL);
 #elif defined(HOST_INTEL32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32", NULL);
 #else
-	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>", NULL);
 #endif
     else if (SAME_STRING("TARGET_ARCH", name))
 #if defined(TARGET_PWRPC32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "PWRPC32", NULL);
 #elif defined(TARGET_SPARC32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "SPARC32", NULL);
 #elif defined(TARGET_INTEL32)
-	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "INTEL32", NULL);
 #else
-	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>");
+	result = make_ascii_string_from_c_string__may_heapclean(task, "<unknown>", NULL);
 #endif
     else if (SAME_STRING("HAS_SOFTWARE_GENERATED_PERIODIC_EVENTS", name))
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE, NULL);
 #else
-	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE, NULL);
 #endif
     else if (SAME_STRING("HAS_MP", name))
 
 #if NEED_PTHREAD_SUPPORT
-	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE, NULL);
 #else
-	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE);
+	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE, NULL);
 #endif
     else
 	return OPTION_NULL;
@@ -760,7 +760,7 @@ static Val   do_get_program_name_from_commandline   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_program_name_from_commandline");
 
-    return   make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global );
+    return   make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global, NULL );
 }
 
 

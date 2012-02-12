@@ -69,11 +69,11 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   
-    Val pw_name  =  make_ascii_string_from_c_string__may_heapclean( task,                  info->pw_name );
-    Val pw_uid   =  make_one_word_unt(               task, (Val_Sized_Unt) (info->pw_uid) );
-    Val pw_gid   =  make_one_word_unt(               task, (Val_Sized_Unt) (info->pw_gid) );
-    Val pw_dir   =  make_ascii_string_from_c_string__may_heapclean( task,                  info->pw_dir   );
-    Val pw_shell =  make_ascii_string_from_c_string__may_heapclean( task,                  info->pw_shell );
+    Val pw_name  =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_name, NULL		);		Roots extra_roots1 = { &pw_name, NULL };
+    Val pw_uid   =  make_one_word_unt(					task, (Val_Sized_Unt) (info->pw_uid)			);		Roots extra_roots2 = { &pw_uid,  &extra_roots1 };
+    Val pw_gid   =  make_one_word_unt(					task, (Val_Sized_Unt) (info->pw_gid)			);		Roots extra_roots3 = { &pw_gid,  &extra_roots2 };
+    Val pw_dir   =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_dir,   &extra_roots3	);		Roots extra_roots4 = { &pw_dir,  &extra_roots3 };
+    Val pw_shell =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_shell, &extra_roots4	);
 
     return  make_five_slot_record(task,  pw_name, pw_uid, pw_gid, pw_dir, pw_shell  );
 }

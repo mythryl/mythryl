@@ -53,6 +53,7 @@
 #include "heapcleaner.h"
 #include "runtime-globals.h"
 #include "mythryl-callable-cfun-hashtable.h"
+#include "heap.h"
 
 #ifndef SEEK_SET
 #  define SEEK_SET	0
@@ -294,30 +295,28 @@ void   load_compiled_files   (
 
 
 static Val   read_in_compiled_file_list   (
-    //       =============================
+    //       ==========================
     //
     Task*          task,
     const char*    compiled_files_to_load_filename,
     int*           return_max_boot_path_len
 ){
     // Open given file and read from it the list of
-    // filename of compiled_files to be later loaded.
-    // Return them as a Lib7 list of Lib7 strings:
+    // filenames of compiled_files to be later loaded.
+    // Return them as a Mythryl list of Mythryl strings:
 
     #define    BUF_LEN	1024		//  "This should be plenty for two numbers."   "640K should be enough for anyone."
     char  buf[ BUF_LEN ];
 
-    int	   i, j;
-
-    Val*   file_names = NULL;
+//  Val*   file_names = NULL;
     char*  name_buf   = NULL;
 
     int    max_num_boot_files = MAX_NUMBER_OF_BOOT_FILES;
     int    max_boot_path_len  = MAX_LENGTH_FOR_A_BOOTFILE_PATHNAME;
 
-    int    numFiles = 0;
+    int    file_count = 0;
 
-    FILE*  listF =  open_file( compiled_files_to_load_filename, FALSE );
+    FILE*  list_fd =  open_file( compiled_files_to_load_filename, FALSE );
 
     fprintf (
         stderr,
@@ -334,13 +333,15 @@ static Val   read_in_compiled_file_list   (
 	);
     }
 
-    if (listF) {
+    Val  file_list = LIST_NIL;			Roots extra_roots = { &file_list, NULL };
+
+    if (list_fd) {
 
         // Read header:
         //
         for (;;) {
 	    //
-	    if (!fgets (buf, BUF_LEN, listF)) {
+	    if (!fgets (buf, BUF_LEN, list_fd)) {
                 die (
                     "compiled_files_to_load file \"%s\" ends before end-of-header (first empty line)",
                     compiled_files_to_load_filename
@@ -398,14 +399,15 @@ static Val   read_in_compiled_file_list   (
 	    die ("unable to allocate space for .compiled file filenames");
         }
 
-	if (!(file_names = MALLOC( max_num_boot_files * sizeof(char*) ))) {
-	    //
-	    die ("Unable to allocate space for compiledfiles-to-load name table");
-        }
+//	if (!(file_names = MALLOC( max_num_boot_files * sizeof(char*) ))) {
+//	    //
+//	    die ("Unable to allocate space for compiledfiles-to-load name table");
+//        }
 
-        // Read in the file names, converting them to Lib7 strings:
+        // Read in the file names, converting them to
+	// Mythryl strings and saving them in a list:
         //
-	while (fgets( name_buf, max_boot_path_len, listF )) {
+	while (fgets( name_buf, max_boot_path_len, list_fd )) {
 
 	    // Skip leading whitespace:
 	    //
@@ -419,27 +421,56 @@ static Val   read_in_compiled_file_list   (
 
 	    // Strip any trailing newline:
 	    //
-	    j = strlen(p)-1;
-	    if (p[j] == '\n') p[j] = '\0';
+	    {   int j = strlen(p)-1;
+		//
+	        if (p[j] == '\n') p[j] = '\0';
+	    }	
 
-	    if (numFiles < max_num_boot_files)   file_names[numFiles++] = make_ascii_string_from_c_string__may_heapclean(task, p);
-	    else                                 die ("too many files\n");
+	    if (file_count >= max_num_boot_files)   die ("too many files\n");
+
+	    // If our agegroup0 buffer is more than half full,
+	    // empty it by doing a heapcleaning.  This is very
+	    // conservative -- which is the way I like it. :-)
+	    //
+	    if (agegroup0_freespace_in_bytes( task )
+	      < agegroup0_usedspace_in_bytes( task )
+	    ){
+		call_heapcleaner_with_extra_roots( task,  0, &extra_roots );
+	    }
+
+	    Val file_name = make_ascii_string_from_c_string__may_heapclean(task, p, &extra_roots);
+
+	    file_list = LIST_CONS(task, file_name, file_list);
 	}
 
-	fclose (listF);
+	if (name_buf)    FREE( name_buf );
+
+	fclose( list_fd );
     }
 
-    // Create the in-heap list:
+
+    // Reverse filename list (to restore
+    // original order) and return it:
     //
-    {   Val   fileList = LIST_NIL;
-	for (i = numFiles;  --i >= 0; ) {
-	    fileList = LIST_CONS(task, file_names[i], fileList);
+    {   Val file_list2 = LIST_NIL;			Roots extra_roots2 = { &file_list2, &extra_roots };
+	//
+	for (; file_list != LIST_NIL;  file_list = LIST_TAIL(file_list)) {
+	    //
+	    Val file_name = LIST_HEAD(file_list);
+	    //
+	    file_list2 = LIST_CONS(task, file_name, file_list2);
+
+	    // Again, if our agegroup0 buffer is more than
+	    // half full, empty it by doing a heapcleaning:
+	    //
+	    if (agegroup0_freespace_in_bytes( task )
+	      < agegroup0_usedspace_in_bytes( task )
+	    ){
+		call_heapcleaner_with_extra_roots( task,  0, &extra_roots2 );
+	    }
 	}
 
-	if (file_names)  FREE( file_names );
-	if (name_buf)    FREE( name_buf   );
-
-	return fileList;
+	return file_list2;
     }
 }
 
