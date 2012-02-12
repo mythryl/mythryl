@@ -26,7 +26,7 @@ Val   list_signals   (Task* task)   {
     #ifdef WIN32_DEBUG
 	debug_say("win32:list_signals: returning dummy signal list\n");
     #endif
-    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable);
+    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, NULL);
 } 
 
 void   pause_until_signal   (Pthread* pthread) {

@@ -623,7 +623,7 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 }
 
 //
-Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Sysconsts* table)   {
+Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Sysconsts* table,  Roots* extra_roots)   {
     //==================================================
     //
     // Generate a list of system constants from the given table.
@@ -632,7 +632,7 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
 									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list__may_heapclean");
 
 
-    Val	result_list =  LIST_NIL;					Roots roots1 = { &result_list, NULL };
+    Val	result_list =  LIST_NIL;					Roots roots1 = { &result_list, extra_roots };
 
 
     for (int i = table->constants_count;  --i >= 0;  ) {

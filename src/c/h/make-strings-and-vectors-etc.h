@@ -327,7 +327,7 @@ extern Val  allocate_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* tas
 extern Val  make_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  void* data, int nbytes);	// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
 extern Val  make_system_constant__may_heapclean				(Task* task,  Sysconsts*, int, Roots*);	// make_system_constant__may_heapclean				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  dump_table_as_system_constants_list__may_heapclean		(Task* task,  Sysconsts* table);	// dump_table_as_system_constants_list__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  dump_table_as_system_constants_list__may_heapclean		(Task* task,  Sysconsts*,      Roots*);	// dump_table_as_system_constants_list__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 extern Val  make_package_literals_via_bytecode_interpreter__may_heapclean	(Task* task,  Unt8* lits,  int len);
 
