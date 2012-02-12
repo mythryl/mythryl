@@ -360,7 +360,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS:
-		task->argument =   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument) );
+		task->argument =   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), NULL );
 		SET_UP_RETURN( task );
 		break;
 

@@ -398,14 +398,18 @@ Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  i
 }
 
 //
-Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task,  int len)   {
+Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
     //============================================================
     // 
     // Allocate an uninitialized Mythryl Float64 vector.  Assume that len > 0.
+    //
+    // Currently called (only) from REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS case in
+    //
+    //	   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats__may_heapclean");
 
-    Val result =  allocate_biwordslots_vector__may_heapclean( task, len, NULL );		// 64-bit issue.
+    Val result =  allocate_biwordslots_vector__may_heapclean( task, len, extra_roots );		// 64-bit issue.
 
     return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
