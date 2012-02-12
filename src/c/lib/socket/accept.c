@@ -39,7 +39,7 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
     int		new_socket;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", arg );						// Last use of 'arg'.
 	//
     /*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
 
@@ -55,8 +55,8 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
         //
     } else {
         //
-	Val data    =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, address_buf,                  address_len );
-	Val address =  make_vector_header(              task, UNT8_RO_VECTOR_TAGWORD, data, address_len);
+	Val data    =  make_biwordslots_vector_sized_in_bytes__may_heapclean(	task, address_buf,                  address_len, NULL );
+	Val address =  make_vector_header(					task, UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
 	return  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT( new_socket ), address);
     }

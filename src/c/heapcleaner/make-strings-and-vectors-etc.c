@@ -658,19 +658,19 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
 }
 
 //
-Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  int nbytes)   {
+Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  int nbytes,  Roots* extra_roots)   {	// This fn is NOWHERE INVOKED.
     //=========================================================
     //
     // Allocate a 64-bit aligned raw data chunk (to store abstract C data).
     //
     // This function is nowhere invoked.
     //
-    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, NULL );			// Round size up to a multiple of sizeof(Int2) and dispatch.
-}
+    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, extra_roots );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+}													// 64-bit issue. (Is "+7)>>2" even correct? If so, should comment why.)
 
 
 //
-Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void* data,  int nbytes)   {
+Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void* data,  int nbytes,  Roots* extra_roots)   {
     //=====================================================
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:

@@ -41,19 +41,16 @@ Val   _lib7_Sock_frominetaddr   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_frominetaddr");
+										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_frominetaddr");
 
     struct sockaddr_in*	addr
         =
-        GET_VECTOR_DATACHUNK_AS( struct sockaddr_in*, arg );
-
-    Val data;
-    Val inAddr;
+        GET_VECTOR_DATACHUNK_AS( struct sockaddr_in*, arg );			// Last use of 'arg'.
 
     ASSERT( addr->sin_family == AF_INET );
 
-    data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &(addr->sin_addr), sizeof(struct in_addr) );
-    inAddr =  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data,  sizeof(struct in_addr) );
+    Val data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &(addr->sin_addr), sizeof(struct in_addr), NULL );
+    Val inAddr =  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data,  sizeof(struct in_addr) );
 
     return  make_two_slot_record(task, inAddr, TAGGED_INT_FROM_C_INT(ntohs(addr->sin_port)) );
 }

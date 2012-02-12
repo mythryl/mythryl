@@ -38,14 +38,14 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getsockname");
+														ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getsockname");
 
     int		socket = TAGGED_INT_TO_C_INT(arg);
 
     char	address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname", arg );					// Last use of 'arg'.
 	//
 	int status = getsockname (socket, (struct sockaddr*) address_buf, &address_len);
 	//
@@ -53,15 +53,8 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 
     if (status == -1)   return  RAISE_SYSERR( task, status );
 
-
-    Val	data
-	=
-	make_biwordslots_vector_sized_in_bytes__may_heapclean(				// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
-	    //
-	    task,
-	    address_buf,
-	    address_len
-	);
+														// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val	data = make_biwordslots_vector_sized_in_bytes__may_heapclean(task, address_buf, address_len, NULL );
 
     return  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len );
 }

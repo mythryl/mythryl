@@ -40,7 +40,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getpeername");
+												ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getpeername");
 
     char addr[ MAX_SOCK_ADDR_BYTESIZE ];
 
@@ -48,7 +48,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     int sockfd = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername", arg );			// Last use of 'arg'.
 	//
 	int status = getpeername (sockfd, (struct sockaddr *)addr, &address_len);
 	//
@@ -56,7 +56,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    Val cdata =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr, address_len );
+    Val cdata =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr, address_len, NULL );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, cdata, address_len);
 }

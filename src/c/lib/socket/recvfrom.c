@@ -72,7 +72,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     //
     {   char* c_readbuf =  buffer_mythryl_heap_nonvalue( &readbuf_buf, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvfrom", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvfrom", arg );	// Last use of 'arg'. 
 	    //
 	    /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
@@ -106,8 +106,10 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &readbuf_buf );
     }
 
+    Roots roots1 = { &vec, NULL };
 
-    Val	data =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr_buf, address_len );
+    Val	data =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr_buf, address_len, &roots1 );
+
     Val	result;
 
     if (n == 0) {

@@ -29,7 +29,7 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 {
 #if HAVE_OPENCV_CV_H && HAVE_LIBCV
 
-    char*      filename  =  HEAP_STRING_AS_C_STRING( arg );
+    char*      filename  =  HEAP_STRING_AS_C_STRING( arg );				// Last use of 'arg'.
     IplImage*  ipl_image =  cvLoadImage( filename, CV_LOAD_IMAGE_UNCHANGED );
 
     if (!ipl_image)   RAISE_ERROR(task, "cvLoadImage returned NULL");
@@ -38,19 +38,15 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 	// Copy image into heap, so that it can be
 	// garbage-collected when no longer needed:
 	//
-	Val header;	Val header_data;
-	Val image;	Val  image_data;
+        Val header_data  =  make_biwordslots_vector_sized_in_bytes__may_heapclean(  task, ipl_image, sizeof(IplImage), NULL);				Roots roots1 = { &header_data,   NULL };
+        Val header       =  make_vector_header(					    task, UNT8_RO_VECTOR_TAGWORD, header_data, sizeof(IplImage));	Roots roots2 = { &header,	&roots1 };
 
+//	c_roots__global[c_roots_count__global++] = &header;			// Protect header from garbage collection while allocating image.  (Obsoleted by 'roots' mechanism.)
 
-        header_data  =  make_biwordslots_vector_sized_in_bytes__may_heapclean(  task, ipl_image, sizeof(IplImage));
-        header       =  make_vector_header(               task, UNT8_RO_VECTOR_TAGWORD, header_data, sizeof(IplImage));
-
-	c_roots__global[c_roots_count__global++] = &header;			// Protect header from garbage collection while allocating image.
-
-	image_data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean(  task,  ipl_image->imageData,               ipl_image->imageSize);
-        image        =  make_vector_header(               task,  UNT8_RO_VECTOR_TAGWORD, image_data, ipl_image->imageSize);
+	Val image_data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean(  task,  ipl_image->imageData, ipl_image->imageSize, &roots2);
+        Val image        =  make_vector_header(               			    task,  UNT8_RO_VECTOR_TAGWORD, image_data, ipl_image->imageSize);
         
-	--c_roots_count__global;
+//	--c_roots_count__global;
 	cvReleaseImage( &ipl_image );
 
 	return  make_two_slot_record( task, header, image );

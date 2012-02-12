@@ -31,9 +31,9 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     //
     //     src/lib/std/src/socket/unix-domain-socket.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_string_to_unix_domain_socket_address");
+										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_string_to_unix_domain_socket_address");
 
-    char* path = HEAP_STRING_AS_C_STRING( arg );
+    char* path = HEAP_STRING_AS_C_STRING( arg );				// Last use of 'arg'.
 
     struct sockaddr_un	addr;
     memset(            &addr, 0, sizeof(struct sockaddr_un));
@@ -56,7 +56,7 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
             + 1;
     #endif
 
-    Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean(task, &addr, len );
+    Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean(task, &addr, len, NULL );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, len );
 }

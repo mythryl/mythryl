@@ -321,10 +321,10 @@ extern Val  make_nonempty_ro_vector__may_heapclean		(Task* task,  int len, Val i
 extern Val  allocate_nonempty_wordslots_vector__may_heapclean	(Task* task,  int length_in_words, Roots*);	// allocate_nonempty_wordslots_vector__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern void shrink_fresh_wordslots_vector			(Task* task,  Val v, int new_length_in_words);	// shrink_fresh_wordslots_vector				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
-extern Val  allocate_nonempty_vector_of_eight_byte_floats__may_heapclean(Task* task,  int len, Roots*);		// allocate_nonempty_vector_of_eight_byte_floats__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_biwordslots_vector__may_heapclean			(Task* task,  int len, Roots*);		// allocate_biwordslots_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  int length_in_bytes);	// allocate_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  make_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  void* data, int nbytes);	// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_vector_of_eight_byte_floats__may_heapclean(Task* task,  int len,         Roots*);	// allocate_nonempty_vector_of_eight_byte_floats__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_biwordslots_vector__may_heapclean			(Task* task,  int len, 	       Roots*);	// allocate_biwordslots_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  int len,         Roots*);	// allocate_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  make_biwordslots_vector_sized_in_bytes__may_heapclean	(Task* task,  void* data, int, Roots*);	// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
 extern Val  make_system_constant__may_heapclean				(Task* task,  Sysconsts*, int, Roots*);	// make_system_constant__may_heapclean				def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  dump_table_as_system_constants_list__may_heapclean		(Task* task,  Sysconsts*,      Roots*);	// dump_table_as_system_constants_list__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c

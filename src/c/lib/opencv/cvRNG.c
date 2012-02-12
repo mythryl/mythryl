@@ -26,11 +26,12 @@ _lib7_OpenCV_cvRNG (Task *task, Val arg)
 {
 
 #if HAVE_OPENCV_CV_H && HAVE_LIBCV
-
-    int init = TAGGED_INT_TO_C_INT( arg );
+    //
+    int init  = TAGGED_INT_TO_C_INT( arg );								// Last use of 'arg'.
+    //
     CvRNG rng = cvRNG( (unsigned) init);
 
-    Val data   =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &rng, sizeof(rng) );
+    Val data  =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &rng, sizeof(rng), NULL );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(rng));
 

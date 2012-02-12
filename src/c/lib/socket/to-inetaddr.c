@@ -41,10 +41,10 @@ Val   _lib7_Sock_toinetaddr   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_toinetaddr");
+										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_toinetaddr");
 
-    Val	      inAddr =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
-    uint16_t  port   =  GET_TUPLE_SLOT_AS_INT( arg, 1 );	// Port in host byte order.
+    Val	      in_addr =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
+    uint16_t  port    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );			// Port in host byte order.	Last use of 'arg'.
 
     struct sockaddr_in	addr;
     memset(            &addr, 0, sizeof(struct sockaddr_in));
@@ -53,12 +53,13 @@ Val   _lib7_Sock_toinetaddr   (Task* task,  Val arg)   {
 
     memcpy (
 	&addr.sin_addr,
-	GET_VECTOR_DATACHUNK_AS( char*, inAddr ),
-	sizeof(struct in_addr));
+	GET_VECTOR_DATACHUNK_AS( char*, in_addr ),				// Last use of 'in_addr'.
+	sizeof(struct in_addr)
+    );
 
-    addr.sin_port = htons(port);			// port in network byte order.
+    addr.sin_port = htons(port);						// port in network byte order.
 
-    Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &addr, sizeof(struct sockaddr_in) );
+    Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, &addr, sizeof(struct sockaddr_in), NULL );
 
     return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(struct sockaddr_in));
 }
