@@ -594,7 +594,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 }													 // fun make_nonempty_ro_vector__may_heapclean
 
 //
-Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int id)   {
+Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int id,  Roots* extra_roots)   {
     //===================================
     // 
     // Find the system constant with the given id
@@ -609,7 +609,7 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 	//
 	if (table->consts[i].id == id) {
 	    //
-	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name, NULL);
+	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name, extra_roots);
 	    //	
 	    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
 	}
@@ -617,7 +617,7 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 
     // Here, we did not find the constant:
     //
-    Val name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>", NULL);
+    Val name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>", extra_roots);
     //
     return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
 }

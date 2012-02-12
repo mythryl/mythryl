@@ -33,7 +33,7 @@ Val   _lib7_P_Error_geterror   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Error_geterror");
 
-    return   make_system_constant__may_heapclean( task, &errno_table__global, TAGGED_INT_TO_C_INT(arg) );		// make_system_constant__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return   make_system_constant__may_heapclean( task, &errno_table__global, TAGGED_INT_TO_C_INT(arg), NULL );		// make_system_constant__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 

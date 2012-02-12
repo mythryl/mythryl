@@ -43,8 +43,8 @@ Val   _util_NetDB_mknetent   (Task *task, struct netent* nentry)   {
     }
 
     Val name    =  make_ascii_string_from_c_string__may_heapclean(		task,                    nentry->n_name,     NULL	);		Roots roots1 = { &name,    NULL	    };
-    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    nentry->n_aliases, &roots1	);		Roots roots2 = { &aliases, &roots1  };
-    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, nentry->n_addrtype		);		Roots roots3 = { &af,      &roots2  };
+    Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                    nentry->n_aliases,  &roots1	);		Roots roots2 = { &aliases, &roots1  };
+    Val af      =  make_system_constant__may_heapclean(				task, &_Sock_AddrFamily, nentry->n_addrtype, &roots2	);		Roots roots3 = { &af,      &roots2  };
     Val net     =  make_one_word_unt(						task,  (Val_Sized_Unt) (nentry->n_net)			);		Roots roots4 = { &net,	   &roots3  };
 
     Val	result  =  make_four_slot_record(					task,  name, aliases, af, net  );
