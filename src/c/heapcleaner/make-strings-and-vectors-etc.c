@@ -415,7 +415,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task
 }
 
 //
-Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_val)   {
+Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_val,  Roots* extra_roots)   {
     //======================================
     // 
     // Allocate a Mythryl rw_vector using init_val
@@ -424,6 +424,8 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
 
+    Roots roots1 = { &init_val, extra_roots };
+
     Val	result;
 
     Val	tagword = MAKE_TAGWORD(len, RW_VECTOR_DATA_BTAG);
@@ -431,7 +433,12 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 
     Val_Sized_Unt	bytesize;
 
-    if (len > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
+    if (len <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
+        //
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, len);
+        //
+    } else {
         //
 	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ RW_POINTERS_SIB ];
 
@@ -442,7 +449,7 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 	pthread_mutex_lock( &pth__mutex );
 
 	    #if NEED_PTHREAD_SUPPORT
-		clean_check: ;	// The pthread version jumps to here to recheck for GC.
+		clean_check: ;	// The pthread version jumps to here to recheck for heapcleaning.
 	    #endif
 
 	    if (! sib_is_active(ap)									// sib_is_active		def in    src/c/h/heap.h
@@ -458,15 +465,10 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 		//
 	        // Clean heap -- but preserve init_val:
                 //
-		Val	root = init_val;
 		ap->requested_extra_free_bytes += bytesize;
 		pthread_mutex_unlock( &pth__mutex );
 		    //
-		    {   Roots extra_roots = { &root, NULL };
-			//
-			call_heapcleaner_with_extra_roots (task, gc_level, &extra_roots );
-		    }
-		    init_val = root;
+		    call_heapcleaner_with_extra_roots (task, gc_level, &roots1 );
 		    //
 		pthread_mutex_lock( &pth__mutex );
 		ap->requested_extra_free_bytes = 0;
@@ -489,10 +491,6 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 
 	COUNT_ALLOC(task, bytesize);
 
-    } else {
-
-	set_slot_in_nascent_heapchunk (task, 0, tagword);
-	result = commit_nascent_heapchunk (task, len);
     }
 
     Val* p = PTR_CAST(Val*, result);
@@ -506,7 +504,7 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 }											// fun make_nonempty_rw_vector__may_heapclean
 
 //
-Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers)   {
+Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers,  Roots* extra_roots)   {
     //======================================
     // 
     // Allocate a Mythryl vector, using the
@@ -516,11 +514,18 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
 
+    Roots roots1 = { &initializers, extra_roots };
+
     Val	tagword = MAKE_TAGWORD(len, RO_VECTOR_DATA_BTAG);
     Val* p;
     Val	result;
 
-    if (len > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
+    if (len <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
+	//
+	set_slot_in_nascent_heapchunk (task, 0, tagword);
+	result = commit_nascent_heapchunk (task, len);
+	//
+    } else {
 	//
 	// Since we want to avoid pointers from the
         // agegroup 1 record space into the agegroup0 space,
@@ -529,7 +534,6 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
 	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTERS_SIB ];
 
-	Val	root = initializers;
 	int	clean_level = 0;
 
 	Val_Sized_Unt  bytesize
@@ -554,12 +558,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 	    ap->requested_extra_free_bytes += bytesize;
 	    pthread_mutex_unlock( &pth__mutex );
 		//
-		{   Roots extra_roots = { &root, NULL };
-		    //
-		    call_heapcleaner_with_extra_roots (task, clean_level, &extra_roots );
-		}
-		//
-	        initializers = root;
+		call_heapcleaner_with_extra_roots (task, clean_level, &roots1 );
 		//
 	    pthread_mutex_lock( &pth__mutex );
 
@@ -581,11 +580,6 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 	pthread_mutex_unlock( &pth__mutex );
 
 	COUNT_ALLOC(task, bytesize);
-
-    } else {
-
-	set_slot_in_nascent_heapchunk (task, 0, tagword);
-	result = commit_nascent_heapchunk (task, len);
     }
 
     for (

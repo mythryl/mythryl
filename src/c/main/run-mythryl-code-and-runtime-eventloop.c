@@ -365,12 +365,12 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR:
-		task->argument =   make_nonempty_rw_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
+		task->argument =   make_nonempty_rw_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), NULL );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR:
-		task->argument = make_nonempty_ro_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1) );
+		task->argument =   make_nonempty_ro_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), NULL );
 		SET_UP_RETURN( task );
 		break;
 
