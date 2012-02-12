@@ -12,8 +12,11 @@
 
 extern void	set_up_heap				(Task* task,  Bool is_boot,  Heapcleaner_Args* params);	// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 extern void	call_heapcleaner			(Task* task,  int  level);				// clean_heap					def in    src/c/heapcleaner/call-heapcleaner.c
+#ifdef OLDXTRAROOTS
 extern void	call_heapcleaner_with_extra_roots	(Task* task,  int  level, ...);				// call_heapcleaner_with_extra_roots		def in    src/c/heapcleaner/call-heapcleaner.c
-
+#else
+extern void	call_heapcleaner_with_extra_roots	(Task* task,  int  level, Roots* roots);		// call_heapcleaner_with_extra_roots		def in    src/c/heapcleaner/call-heapcleaner.c
+#endif
 extern Bool	need_to_call_heapcleaner		(Task* task,  Val_Sized_Unt nbytes);			// need_to_call_heapcleaner			def in   src/c/heapcleaner/call-heapcleaner.c	
 extern int	get_chunk_age				(Val chunk);						// get_chunk_age				def in   src/c/heapcleaner/get-chunk-age.c
 extern Val	concatenate_two_tuples			(Task* task,  Val r1,  Val r2);				// concatenate_two_tuples			def in   src/c/heapcleaner/tuple-ops.c

@@ -53,7 +53,7 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
 
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
     call_heapcleaner_with_extra_roots (task, 0, &root_chunk, NULL);  				// Clean agegroup0.
 #else
     {   Roots r1 = { &root_chunk, NULL };

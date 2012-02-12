@@ -324,7 +324,7 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 	    debug_say("space_check: Cleaning heap.\n");
 	#endif
 
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
 	call_heapcleaner_with_extra_roots(task, 0, one_root, NULL);
 #else
 	{   Roots r1 = { one_root, NULL };

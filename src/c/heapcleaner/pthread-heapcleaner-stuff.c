@@ -258,7 +258,7 @@ int   pth__start_heapcleaning   (Task *task) {
 }							// fun pth__start_heapcleaning
 
 
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
 
 int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
     //========================================
@@ -350,7 +350,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	    // the primary heapcleaner pthread does all the actual work:
 	    ////////////////////////////////////////////////////////////
 
-	    for (Root* x = extra_roots;  x;  x = x->next ) {
+	    for (Roots* x = extra_roots;  x;  x = x->next ) {
 		//
 		*extra_heapcleaner_roots__local++ =  x->root;					// Append our args to the  extra-roots buffer.
 	    }
@@ -387,7 +387,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 
 	extra_heapcleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
 
-	for (Root* x = extra_roots;  x;  x = x->next){
+	for (Roots* x = extra_roots;  x;  x = x->next){
 	    //
 	    *extra_heapcleaner_roots__local++ =  x->root;					// Append our args to the  extra-roots buffer.
 	}

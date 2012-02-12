@@ -173,7 +173,7 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
     // Note that the cons cell has already been accounted
     // for in free_bytes_in_agegroup0_buffer (but not in need_bytes_in_agegroup0_buffer).
     //
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
     #define GC_CHECK												\
 	do {													\
 	    if (  need_bytes_in_agegroup0_buffer								\
@@ -249,7 +249,7 @@ log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA -- doi
 	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
 		//
 log_if("luptop: CALLING HEAPCLEANER <----------------------------------");
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
 		call_heapcleaner_with_extra_roots (task, 1, (Val*)&bytecode_vector, &stack, NULL);	// Empty agegroup0 buffer, also do a collection on agegroup1.
 #else
 		{   Roots r1 = { (Val*)&bytecode_vector, NULL };

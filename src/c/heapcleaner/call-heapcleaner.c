@@ -260,7 +260,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			 											// fun call_heapcleaner
 
-#ifndef OLDXTRAROOTS
+#ifdef OLDXTRAROOTS
 
 void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // =================================
