@@ -33,7 +33,7 @@ void   load_and_run_heap_image (
     // This function is called in only one place, in
     //     src/c/main/runtime-main.c
 
-    Task* task = import_heap_image( heap_image_to_run_filename, heap_parameters );
+    Task* task =  import_heap_image__may_heapclean( heap_image_to_run_filename, heap_parameters, NULL );
 
 
     set_up_fault_handlers ();

@@ -263,12 +263,12 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 //
-// We get slotted into task->fate by   save_c_state           in   src/c/main/runtime-state.c 
-// and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and by                              import_heap_image      in   src/c/heapcleaner/import-heap.c
-// and by                              pth__pthread_create     in   src/c/pthread/pthread-on-posix-threads.c
-// and by                              pth__pthread_create     in   src/c/pthread/pthread-on-sgi.c
-// and by                              pth__pthread_create     int  src/c/pthread/pthread-on-solaris.c
+// We get slotted into task->fate by   save_c_state			in   src/c/main/runtime-state.c 
+// and by                              run_mythryl_function		in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+// and by                              import_heap_image__may_heapclean	in   src/c/heapcleaner/import-heap.c
+// and by                              pth__pthread_create		in   src/c/pthread/pthread-on-posix-threads.c
+// and by                              pth__pthread_create		in   src/c/pthread/pthread-on-sgi.c
+// and by                              pth__pthread_create		int  src/c/pthread/pthread-on-solaris.c
 //
 LIB7_CODE_HDR(return_to_c_level_asm)
 	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), request_w)

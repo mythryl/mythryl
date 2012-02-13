@@ -63,8 +63,8 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addre
 #define READ(bp,chunk)	heapio__read_block(bp, &(chunk), sizeof(chunk))
 
 
-Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
-    //  =================
+Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args* params,  Roots* extra_roots) {
+    //  ================================
     //
     // This fn is called (only) by   load_and_run_heap_image   in   src/c/main/load-and-run-heap-image.c
     //
@@ -217,7 +217,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
         // Set up the arguments to the imported function:
         //
-	Val program_name =  make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global, NULL);		Roots roots1 = { &program_name, NULL };
+	Val program_name =  make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global, extra_roots);		Roots roots1 = { &program_name, extra_roots };
         //
 	Val args         =  make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments, &roots1 );
 
@@ -238,7 +238,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
     if (verbosity > 0)   say(" done\n");
 
     return task;
-}								// fun import_heap_image
+}								// fun import_heap_image__may_heapclean
 
 
 
