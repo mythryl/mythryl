@@ -437,7 +437,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>{uppercase_path} => (yybegin postfix; tokens::uppercase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos+size (yytext)));
 <initial>{mixedcase_path} => (yybegin postfix; tokens::mixedcase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos+size (yytext)));
 <initial>{lowercase_path} => (yybegin postfix; tokens::lowercase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos+size (yytext)));
-<initial>{full_sym}+    => (if (*mythryl_parser::quotation)
+<initial>{full_sym}+    => (if (*mythryl_parser::support_smlnj_antiquotes)
                                  if (has_quote yytext)
                                       REJECT();
                                  else mythryl_token_table::check_symbol_id(yytext,yypos);
@@ -451,12 +451,12 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                                    stringlist := [];
                                    stringstart := yypos;
                                    continue()
-                            /* if (*mythryl_parser::quotation)
+                            /* if (*mythryl_parser::support_smlnj_antiquotes)
                                   yybegin qqq;
                                    stringlist := [];
                                    tokens::beginq(yypos,yypos+1);
                             else  err(yypos, yypos+1)
-                                     ERROR "quotation implementation error"
+                                     ERROR "smlnj_antiquotes implementation error"
 				     null_error_body;
                                   tokens::backticks(yypos,yypos+1); */
                              );
@@ -677,7 +677,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <postfix>{uppercase_path} => (tokens::uppercase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos + size(yytext)));
 <postfix>{mixedcase_path} => (tokens::mixedcase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos + size(yytext)));
 <postfix>{lowercase_path} => (tokens::lowercase_path (fast_symbol::raw_symbol ((hash_string yytext), yytext), yypos, yypos + size(yytext)));
-<postfix>{full_sym}+    => (if (*mythryl_parser::quotation)
+<postfix>{full_sym}+    => (if (*mythryl_parser::support_smlnj_antiquotes)
                                  if (has_quote yytext)
                                       REJECT();
                                  else mythryl_token_table::check_symbol_id(yytext,yypos);
@@ -691,13 +691,13 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                                    stringlist := [];
                                    stringstart := yypos;
                                    continue()
-                              /* if *mythryl_parser::quotation
+                              /* if *mythryl_parser::support_smlnj_antiquotes
                                   yybegin qqq;
                                   stringlist := [];
                                   tokens::beginq(yypos,yypos+1);
                             
                                 else err(yypos, yypos+1)
-                                     ERROR "quotation implementation error"
+                                     ERROR "smlnj_antiquotes implementation error"
 				     null_error_body;
                                   tokens::beginq(yypos,yypos+1);  */
                             );
