@@ -59,10 +59,17 @@ int    verbosity = 0;
 Bool   codechunk_comment_display_is_enabled__global = FALSE;
 Bool   heapcleaner_messages_are_enabled__global = FALSE;
 Bool   unlimited_heap_is_enabled__global = FALSE;
+
 char** raw_args;
-char** commandline_arguments;		// Does not include the program name (argv[0]).
+
+char** commandline_arguments;			// Does not include the program name (argv[0]).
+
 char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
 
+char*  mythryl_script__global = NULL;		// Contents of MYTHRYL_SCRIPT environment variable if set at invocation time, else NULL
+						// The MYTHRYL_SCRIPT variable is removed from the environment at startup,
+						// as soon as its contents have been cached here.
+						// This gets exported to the C level via get_script_name in src/c/lib/kludge/libmythryl-kludge.c
 Bool   saw_shebang_line = FALSE;
 Bool   running_script   = FALSE;
 
@@ -171,15 +178,43 @@ static void   process_commandline_options   (
 
     Bool	seen_error = FALSE;
 
-    {   char* script = getenv("MYTHRYL_SCRIPT");			// "The getenv() function returns a pointer to the value in the environment, or NULL if there is no match."
+
+
+    // First, a little internal kludge in support of
+    // script-style execution of Mythryl code via
+    //
+    //     #!/usr/bin/mythryl
+    //
+    // shebang lines:
+    //
+    {   char* mythryl_script = getenv("MYTHRYL_SCRIPT");			// "The getenv() function returns a pointer to the value in the environment, or NULL if there is no match."
+	//									// MYTHRYL_SCRIPT gets set by start_subprocess() in src/c/o/mythryl.c
 	//
-        if (script)   running_script = TRUE;
+	if (mythryl_script__global) {						// mythryl_script__global gets passed via   do_get_script_name	in   src/c/lib/kludge/libmythryl-kludge.c
+	    //									// and get_script_name	in   src/lib/src/kludge.pkg
+	    //									// to  main		in   src/lib/core/internal/mythryld-app.pkg
+	    // Copy MYTHRYL_SCRIPT value out of environment:
+	    //
+	    mythryl_script__global
+		=
+		(char*)  malloc( strlen(mythryl_script) +1 );			// '+1' for terminal '\0'.
+	    //
+	    strcpy( mythryl_script__global, mythryl_script );
+
+	    unsetenv( "MYTHRYL_SCRIPT" );					// My first version of the code did not do this;
+	    									// Hue White pointed out that the MYTHRYL_SCRIPT
+	    									// setting then gets inherited by subprocesses,
+	    									// with unpleasantly mysterious results.
+	    running_script = TRUE;
+	}
 	//
 	if (running_script) {
 	    if (!log_if_fd)   log_if_fd = open("script.log",  O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
 	}
 	if     (!log_if_fd)   log_if_fd = open("unknown.log", O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
     }
+
+
 
     // Special-case handling for heap images that invoke us
     // via the shebang mechanism of having
