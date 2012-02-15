@@ -75,7 +75,7 @@ static Val   do_get_script_name   (Task* task,  Val arg) {
     //
     // This fn gets bound to 'get_script_name' in:
     //
-    //     kludge.pkg
+    //     src/lib/src/kludge.pkg
 
 										ENTER_MYTHRYL_CALLABLE_C_FN("do_get_script_name");
 
