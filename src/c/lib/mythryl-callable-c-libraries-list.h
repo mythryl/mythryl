@@ -11,6 +11,7 @@
 											// MYTHRYL_CALLABLE_C_LIBRARY		def in    src/c/lib/mythryl-callable-c-libraries.c
 
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Heap				)		// Libmythryl_Heap			def in    src/c/lib/heap/libmythryl-heap.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Kludge				)		// Libmythryl_Kludge			def in    src/c/lib/kludge/libmythryl-kludge.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Signal				)		// Libmythryl_Signal			def in    src/c/lib/signal/libmythryl-signal.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Time_And_Space_Profiling		)		// Libmythryl_Time_And_Space_Profiling	def in    src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
 
