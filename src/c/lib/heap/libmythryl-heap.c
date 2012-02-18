@@ -721,7 +721,8 @@ static Val   do_make_package_literals_via_bytecode_interpreter   (Task* task,  V
     return   make_package_literals_via_bytecode_interpreter__may_heapclean (	// make_package_literals_via_bytecode_interpreter__may_heapclean	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
                  task,
                  GET_VECTOR_DATACHUNK_AS( Unt8*, arg ),
-                 GET_VECTOR_LENGTH( arg )
+                 GET_VECTOR_LENGTH( arg ),
+		 NULL								// extra_roots
              );
 }
 

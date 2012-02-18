@@ -787,7 +787,7 @@ static int   fetch_imports   (
 
 
 static void   load_compiled_file   (
-    //        =====================
+    //        ==================
     //
     Task* task,
     char* filename
@@ -1096,7 +1096,7 @@ static void   load_compiled_file   (
 
 	save_c_state (task, &compiled_file_list, &import_record, NULL);
 
-	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize);
+	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, NULL);
 
 	FREE(data_chunk);
 

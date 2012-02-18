@@ -117,7 +117,7 @@
 
 
 static double   get_double   (Unt8* p)   {
-    //          =========
+    //          ==========
     //
     union {
 	double	d;
@@ -143,7 +143,7 @@ static double   get_double   (Unt8* p)   {
 
 
 
-Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize)   {
+Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize,  Roots* extra_roots)   {
     //=============================================================
     //
     // NOTE: We allocate all of the chunks in agegroup 1,
@@ -180,10 +180,10 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
             &&  need_to_call_heapcleaner( task, need_bytes_in_agegroup0_buffer + LIST_CONS_CELL_BYTESIZE)	\
             ){													\
 log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
-	        {   Roots extra_roots1 = { (Val*)&bytecode_vector, NULL		};					\
-		    Roots extra_roots2 = { &stack,                &extra_roots1	};				\
+	        {   Roots roots1 = { (Val*)&bytecode_vector, extra_roots };					\
+		    Roots roots2 = { &stack,                &roots1	 };					\
 		    /* */											\
-		    call_heapcleaner_with_extra_roots (task, 1, &extra_roots2 );				\
+		    call_heapcleaner_with_extra_roots (task, 1, &roots2 );					\
 		}												\
 		free_bytes_in_agegroup0_buffer = 0;								\
 														\
@@ -217,7 +217,7 @@ log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
 Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA -- doing initial heapcleaner call  <===================================================");
 // log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA  <===================================================");
-// call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, NULL);    [XYZZY]
+// call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, extra_roots);    [XYZZY]
     // Uncommenting this seems to segfault us?!
 
     for (;;) {
@@ -231,10 +231,10 @@ log_if("make_package_literals_via_bytecode_interpreter__may_heapclean/AAA -- doi
 	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
 		//
 log_if("luptop: CALLING HEAPCLEANER <----------------------------------");
-		{   Roots extra_roots1 = { (Val*)&bytecode_vector, NULL		  };
-		    Roots extra_roots2 = { &stack,                 &extra_roots1  };
+		{   Roots roots1 = { (Val*)&bytecode_vector, extra_roots  };
+		    Roots roots2 = { &stack,                 &roots1	  };
 		    //
-		    call_heapcleaner_with_extra_roots (task, 1, &extra_roots2 );
+		    call_heapcleaner_with_extra_roots (task, 1, &roots2 );
 		}
             }
 log_if("luptop: setting free_bytes_in_agegroup0_buffer to 64K <----------------------------------");
