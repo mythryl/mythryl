@@ -32,10 +32,10 @@ Val   get_or_set_socket_sndbuf_option   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_sndbuf_option");
+													ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_sndbuf_option");
 
     int	socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    Val	ctl    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );
+    Val	ctl    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );							// Last use of 'arg'.
 
     int  size;
     int  status;
@@ -44,7 +44,7 @@ Val   get_or_set_socket_sndbuf_option   (Task* task,  Val arg)   {
 	//
 	socklen_t opt_size = sizeof(int);
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_sndbuf_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_sndbuf_option", NULL );
 	    //
 	    status = getsockopt (socket, SOL_SOCKET, SO_SNDBUF, (sockoptval_t)&size, &opt_size);
 	    //
@@ -56,7 +56,7 @@ Val   get_or_set_socket_sndbuf_option   (Task* task,  Val arg)   {
 
 	size =  TAGGED_INT_TO_C_INT( OPTION_GET( ctl ) );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_sndbuf_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_sndbuf_option", NULL );
 	    //
 	    status =  setsockopt( socket, SOL_SOCKET, SO_SNDBUF, (sockoptval_t) &size, sizeof(int) );
 	    //

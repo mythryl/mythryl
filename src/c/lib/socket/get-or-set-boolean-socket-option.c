@@ -39,8 +39,8 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
     //
     // This utility routine gets/sets a boolean socket option.
 
-    int	socket = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val	ctl    = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    Val	ctl    = GET_TUPLE_SLOT_AS_VAL( arg, 1 );							// Last use of 'arg'.
 
     int	flag, status;
 
@@ -48,7 +48,7 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
         //
 	socklen_t option_len = sizeof(int);
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", NULL );
 	    //
 	    status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &option_len);
 	    //
@@ -60,7 +60,7 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 
 	flag = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", NULL );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
 	    //

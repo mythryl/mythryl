@@ -44,11 +44,11 @@ Val   _lib7_P_FileSys_fchown   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fchown");
 
-    int	    fd =  GET_TUPLE_SLOT_AS_INT (arg, 0);
-    uid_t  uid =  TUPLE_GETWORD(arg, 1);
-    gid_t  gid =  TUPLE_GETWORD(arg, 2);
+    int	    fd =  GET_TUPLE_SLOT_AS_INT( arg, 0);
+    uid_t  uid =  TUPLE_GETWORD(         arg, 1);
+    gid_t  gid =  TUPLE_GETWORD(         arg, 2);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown", NULL );
 	//
         int status = fchown (fd, uid, gid);
 	//

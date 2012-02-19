@@ -34,10 +34,10 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_nodelay_option");
+													ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_nodelay_option");
 
     int	socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    Val	ctl    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );
+    Val	ctl    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );							// Last use of 'arg'.
     //
     Bool flag;
     int status;
@@ -46,7 +46,7 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
         //
 	socklen_t opt_size = sizeof(int);
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", NULL );
 	    //
 	    status = getsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, &opt_size);
 	    //
@@ -58,7 +58,7 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
 
 	flag = (Bool) TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", NULL );
 	    //
 	    status = setsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, sizeof(int));
 	    //

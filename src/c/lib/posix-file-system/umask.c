@@ -44,7 +44,7 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_umask");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask", NULL );
 	//
 	mode_t omask = umask(WORD_LIB7toC(arg));
 	//

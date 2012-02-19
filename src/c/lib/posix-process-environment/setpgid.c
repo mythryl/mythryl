@@ -38,10 +38,10 @@ Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setpgid");
 
-    int pid  =  GET_TUPLE_SLOT_AS_INT(arg,0);
-    int pgid =  GET_TUPLE_SLOT_AS_INT(arg,1);
+    int pid  =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int pgid =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid", NULL );
 	//
 	int status =  setpgid( pid, pgid );
 	//

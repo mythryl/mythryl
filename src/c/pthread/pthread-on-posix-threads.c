@@ -335,10 +335,11 @@ if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
 //	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
 //  }
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", &arg );			// Enter BLOCKED mode.
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", NULL );			// Enter BLOCKED mode.
 	//
         int err =  pthread_join( pthread->tid, NULL );					// NULL is a void** arg that can return result of joined thread. We ignore it
 	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
+	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
 
 
@@ -397,7 +398,7 @@ void   pth__shut_down (void) {
 char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_init", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_init", NULL );
 	//
         int err =  pthread_mutex_init( mutex, NULL );				// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -419,7 +420,7 @@ char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {		// http://pubs
 char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy", NULL );
 	//
 	int err =  pthread_mutex_destroy( mutex );				// pthread_mutex_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -439,7 +440,7 @@ char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {			// http://pubs.o
     //
     //
 if (running_script) log_if("pth__mutex_lock: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock", NULL );
 if (running_script) log_if("pth__mutex_lock: RELEASED...");
 	//
 	int err =  pthread_mutex_lock( mutex );
@@ -462,7 +463,7 @@ if (running_script) log_if("pth__mutex_lock: BOTTOM.");
 char*  pth__mutex_trylock   (Task* task, Val arg, Mutex* mutex, Bool* result) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", NULL );
 	//
 	int err =  pthread_mutex_trylock( mutex );						// pthread_mutex_trylock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -482,7 +483,7 @@ char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pu
     //
     //
 if (running_script) log_if("pth__mutex_unlock: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock", NULL );
 if (running_script) log_if("pth__mutex_unlock: RELEASED...");
 	//
 	int err =  pthread_mutex_unlock( mutex );						// pthread_mutex_unlock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
@@ -512,7 +513,7 @@ if (running_script) log_if("pth__mutex_unlock: BOTTOM.");
 char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_init", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_init", NULL );
 	//
 	int result = pthread_cond_init( condvar, NULL );					// pthread_cond_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -525,7 +526,7 @@ char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http:
 char*  pth__condvar_destroy (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy", NULL );
 	//
 	int result =  pthread_cond_destroy( condvar );						// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -539,7 +540,7 @@ char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex)
     // =================
     //
 if (running_script) log_if("pth__condvar_wait: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait", NULL );
 	//
 	int result = pthread_cond_wait( condvar, mutex );
 	//
@@ -554,7 +555,7 @@ char*  pth__condvar_signal   (Task* task, Val arg, Condvar* condvar) {				// htt
     // ===================
     //
 if (running_script) log_if("pth__condvar_signal: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal", NULL );
 	//
 	int result = pthread_cond_signal( condvar );						// pthread_cond_signal probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -569,7 +570,7 @@ char*  pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar) {			// h
     // ======================
     //
 if (running_script) log_if("pth__condvar_broadcast: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast", NULL );
 	//
 	int result = pthread_cond_broadcast( condvar );						// pthread_cond_broadcast probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -584,7 +585,7 @@ if (running_script) log_if("pth__condvar_broadcast: BOTTOM.");
 char*  pth__barrier_init   (Task* task, Val arg, Barrier* barrier, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_init", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_init", NULL );
 	//
 	int result = pthread_barrier_init( barrier, NULL, (unsigned) threads);			// pthread_barrier_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -597,7 +598,7 @@ char*  pth__barrier_init   (Task* task, Val arg, Barrier* barrier, int threads) 
 char*  pth__barrier_destroy   (Task* task, Val arg, Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy", NULL );
 	//
 	int result = pthread_barrier_destroy( barrier );					// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
@@ -611,7 +612,7 @@ char*  pth__barrier_destroy   (Task* task, Val arg, Barrier* barrier) {				// ht
 char*  pth__barrier_wait   (Task* task, Val arg, Barrier* barrier, Bool* result) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", NULL );
 	//
 	int err =  pthread_barrier_wait( barrier );
 	//
@@ -680,7 +681,14 @@ void   release_mythryl_heap   (Pthread* pthread,  const char* fn_name,  Val* arg
 	--pth__running_pthreads_count;
 	//
 	if (arg)   pthread->task->protected_c_arg = arg;				// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
-	//
+	//										// This is seldom used; one use is in src/c/lib/posix-io/readbuf.c
+	//										//                  Another use is in src/c/lib/posix-os/poll.c
+	//										//		    Another use is in src/c/lib/posix-passwd/getpwuid.c
+	//										//		    Another use is in src/c/lib/posix-process-environment/setgid.c
+	//										//		    Another use is in src/c/lib/posix-process-environment/setuid.c
+	//										//		    Another use is in src/c/lib/socket/recvbuf.c
+	//										//		    Another use is in src/c/lib/socket/recvbuffrom.c	
+	//										//		    Another use is in src/c/lib/socket/sendbufto.c
 // if (running_script) log_if("release_mythryl_heap: broadcasting on  pth__condvar...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
@@ -1059,7 +1067,7 @@ void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
 //
 //   o  We introduce a pair of macros
 //
-//          RELEASE_MYTHRYL_HEAP( pthread, "fn_name", &arg );
+//          RELEASE_MYTHRYL_HEAP( pthread, "fn_name", &arg );						// Use 'NULL' instead of '&arg' if 'arg' (and all its components) is dead at that point.
 //              //
 //              syscall();
 //              //

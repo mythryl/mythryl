@@ -43,7 +43,7 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
 
     struct tms   ts;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_times", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_times", NULL );
 	//
 	clock_t t = times( &ts );
 	//

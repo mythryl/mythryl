@@ -43,7 +43,8 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
 
 								// On posix: get_cpu_time()	def in   src/c/main/posix-timers.c
 								// On win32: get_cpu_time()     def in   src/c/main/win32-timers.c
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Time_gettime", &arg );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Time_gettime", NULL );
 	//
 	get_cpu_time (&usr, &sys);
 	//

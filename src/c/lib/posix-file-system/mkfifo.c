@@ -50,8 +50,8 @@ Val   _lib7_P_FileSys_mkfifo   (Task* task,  Val arg)   {
 
     int     status;
 
-    Val	    path = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
-    mode_t  mode = TUPLE_GETWORD(arg, 1);
+    Val	    path = GET_TUPLE_SLOT_AS_VAL(  arg, 0);
+    mode_t  mode = TUPLE_GETWORD(          arg, 1);
     //
     char*  heap_path = HEAP_STRING_AS_C_STRING( path );
     //
@@ -61,7 +61,7 @@ Val   _lib7_P_FileSys_mkfifo   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_mkfifo", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_mkfifo", NULL );
 	    //
 	    status = mkfifo (c_path, mode);
 	    //

@@ -33,18 +33,18 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_close");
+										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_close");
 
     int		status;
-    int         fd      =  TAGGED_INT_TO_C_INT(arg);
+    int         fd      =  TAGGED_INT_TO_C_INT( arg );				// Last use of 'arg'.
 
     // XXX BUGGO FIXME:  Architecture dependencies code should
     // probably moved to       sockets-osdep.h
 
-									log_if( "close.c/top: fd d=%d\n", fd );
+										log_if( "close.c/top: fd d=%d\n", fd );
     errno = 0;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close", NULL );
 	//
 	#if defined(OPSYS_WIN32)
 	    status = closesocket(fd);

@@ -40,11 +40,11 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek");
 
-    int       fd =  GET_TUPLE_SLOT_AS_INT(arg, 0);
-    off_t offset =  GET_TUPLE_SLOT_AS_INT(arg, 1);
-    int   whence =  GET_TUPLE_SLOT_AS_INT(arg, 2);
+    int       fd =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    off_t offset =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
+    int   whence =  GET_TUPLE_SLOT_AS_INT( arg, 2 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "", NULL );
 	//
 	off_t pos = lseek(fd, offset, whence);
 	//

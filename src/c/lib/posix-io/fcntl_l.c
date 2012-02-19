@@ -49,14 +49,14 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
     struct flock     flock;
     int              status;
     
-    flock.l_type = GET_TUPLE_SLOT_AS_INT(flock_rep, 0);
-    flock.l_whence = GET_TUPLE_SLOT_AS_INT(flock_rep, 1);
-    flock.l_start = GET_TUPLE_SLOT_AS_INT(flock_rep, 2);
-    flock.l_len = GET_TUPLE_SLOT_AS_INT(flock_rep, 3);
+    flock.l_type   =  GET_TUPLE_SLOT_AS_INT( flock_rep, 0 );
+    flock.l_whence =  GET_TUPLE_SLOT_AS_INT( flock_rep, 1 );
+    flock.l_start  =  GET_TUPLE_SLOT_AS_INT( flock_rep, 2 );
+    flock.l_len    =  GET_TUPLE_SLOT_AS_INT( flock_rep, 3 );
    
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l", NULL );
 	    //
 	    status = fcntl(fd, cmd, &flock);
 	    //

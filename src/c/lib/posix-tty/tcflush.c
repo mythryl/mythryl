@@ -46,10 +46,10 @@ Val    _lib7_P_TTY_tcflush   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcflush");
 
-    int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int queue  =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+    int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int queue  =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflush", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflush", NULL );
 	//
 	int status =  tcflush( fd, queue );
 	//

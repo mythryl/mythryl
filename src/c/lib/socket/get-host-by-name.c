@@ -48,9 +48,9 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/dns-host-lookup.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_host_by_name");
+													ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_host_by_name");
 
-    char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+    char* heap_name = HEAP_STRING_AS_C_STRING( arg );							// Last use of 'arg'.
 
     struct hostent* result;
 
@@ -66,7 +66,7 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
 	    buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
 
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_name", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_name", NULL );
 	    //
 	    result = gethostbyname( c_name );
 	    //
@@ -75,7 +75,7 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &name_buf );
     }
 
-    return  _util_NetDB_mkhostent (task, result);								// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+    return  _util_NetDB_mkhostent (task, result);							// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 }
 
 

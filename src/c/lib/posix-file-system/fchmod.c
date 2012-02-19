@@ -42,9 +42,9 @@ Val   _lib7_P_FileSys_fchmod   (Task* task,  Val arg) {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fchmod");
 
     int	   fd   =  GET_TUPLE_SLOT_AS_INT( arg, 0);
-    mode_t mode =  TUPLE_GETWORD(arg, 1);
+    mode_t mode =  TUPLE_GETWORD(         arg, 1);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod", NULL );
 	//
         int status = fchmod (fd, mode);
 	//

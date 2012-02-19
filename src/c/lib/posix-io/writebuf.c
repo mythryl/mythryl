@@ -64,7 +64,7 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
 
 /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_writebuf", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_writebuf", NULL );
 	    //
 	    n = write (fd, c_data, nbytes);
 	    //

@@ -885,7 +885,7 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 // lengthy C operation (which does not involve the Mythryl heap!)
 // should do
 //
-//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", &arg );
+//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", &arg );		// Pass &arg if 'arg' (or any part of it) is live at this point, else NULL.
 //         //
 //         slow_c_operation_not_using_mythryl_heap();
 //         //
@@ -909,7 +909,8 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 //     things around -- and delete them! -- you must:
 //
 //     o  Use the third arg to RELEASE_MYTHRYL_HEAP
-//        to protect the main Val arg to the fn.
+//        to protect the main Val arg to the fn if
+//        any part of 'arg' is live, else pass NULL.
 //
 //     o  NOT reference the Mythryl heap in any
 //        way between RELEASE_MYTHRYL_HEAP and

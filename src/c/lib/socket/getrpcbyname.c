@@ -37,11 +37,11 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
     // 
     // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX SUCKO FIXME.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbyname");
+															ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbyname");
 
     struct rpcent*   rentry;
 
-    char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+    char* heap_name = HEAP_STRING_AS_C_STRING( arg );									// Last use of 'arg'.
 
     // We cannot reference anything on the Mythryl
     // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
@@ -52,7 +52,7 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
     //
     {   char* c_name =  buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbyname", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbyname", NULL );
 	    //
 	    rentry =  getrpcbyname( c_name );
 	    //

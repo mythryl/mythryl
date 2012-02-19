@@ -34,12 +34,12 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_accept");
 
-    int		socket = TAGGED_INT_TO_C_INT(arg);
+    int		socket = TAGGED_INT_TO_C_INT( arg );				// Last use of 'arg'.
     char	address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
     int		new_socket;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", arg );						// Last use of '&arg'.
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", NULL );
 	//
     /*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
 

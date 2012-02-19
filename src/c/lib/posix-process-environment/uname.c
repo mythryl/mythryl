@@ -43,7 +43,7 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
     Val  s;
     Val  field;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname", NULL );
 	//
 	int status =  uname( &name );
 	//

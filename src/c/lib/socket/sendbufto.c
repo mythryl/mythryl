@@ -81,7 +81,7 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     //
     {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbufto", &arg );
+      RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbufto", &arg );			// 'arg' is still live here!
 	    //
 	/*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 

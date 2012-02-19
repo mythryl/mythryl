@@ -58,7 +58,7 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwnam", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwnam", NULL );
 	    //
 	    info =  getpwnam( c_name );
 	    //

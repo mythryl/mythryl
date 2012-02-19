@@ -46,7 +46,7 @@ Val   _lib7_P_IO_dup2   (Task* task,  Val arg)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup2", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup2", NULL );
 	    //
 	    status = dup2( fd0, fd1 );
 	    //

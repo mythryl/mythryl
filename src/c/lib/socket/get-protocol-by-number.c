@@ -44,11 +44,11 @@ Val   _lib7_netdb_get_protocol_by_number   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-protocol-db.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_protocol_by_number");
+															ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_protocol_by_number");
 
-    int number = TAGGED_INT_TO_C_INT( arg );
+    int number = TAGGED_INT_TO_C_INT( arg );										// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number", NULL );
 	//
 	struct protoent*  pentry =   getprotobynumber( number );
 	//

@@ -42,8 +42,8 @@ Val    _lib7_P_FileSys_rename   (Task* task,  Val arg)   {
 
     int status;
 
-    Val	oldname = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-    Val	newname = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    Val	oldname = GET_TUPLE_SLOT_AS_VAL( arg, 0 );
+    Val	newname = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
 
     char* heap_oldname = HEAP_STRING_AS_C_STRING(oldname);
     char* heap_newname = HEAP_STRING_AS_C_STRING(newname);
@@ -59,7 +59,7 @@ Val    _lib7_P_FileSys_rename   (Task* task,  Val arg)   {
     {	char* c_oldname	= buffer_mythryl_heap_value( &oldname_buf, (void*) heap_oldname, strlen( heap_oldname ) +1 );		// '+1' for terminal NUL on string.
 	char* c_newname	= buffer_mythryl_heap_value( &newname_buf, (void*) heap_newname, strlen( heap_newname ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rename", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rename", NULL );
 	    //
 	    status = rename(c_oldname, c_newname);
 	    //

@@ -48,7 +48,7 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 
     struct termios  data;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr", NULL);
 	//
 	int status =  tcgetattr( fd, &data );
 	//

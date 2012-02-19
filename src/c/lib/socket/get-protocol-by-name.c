@@ -42,11 +42,11 @@ Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
     // 
     //     src/lib/std/src/socket/net-protocol-db.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_protocol_by_name");
+															ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_protocol_by_name");
 
     struct protoent*  pentry;
 
-    char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+    char* heap_name = HEAP_STRING_AS_C_STRING( arg );									// Last use of 'arg'.
 
     // We cannot reference anything on the Mythryl
     // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
@@ -57,7 +57,7 @@ Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
     //
     {	char* c_name =  buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_name", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_name", NULL );
 	    //
 	    pentry =	getprotobyname( c_name );
 	    //

@@ -71,7 +71,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     int   offset    = GET_TUPLE_SLOT_AS_INT( arg, 2);
     int   nbytes    = GET_TUPLE_SLOT_AS_INT( arg, 3);
     Val   oob       = GET_TUPLE_SLOT_AS_VAL( arg, 4);
-    Val   dontroute = GET_TUPLE_SLOT_AS_VAL( arg, 5);
+    Val   dontroute = GET_TUPLE_SLOT_AS_VAL( arg, 5);									// Last use of 'arg'.
 
     char* heap_data = HEAP_STRING_AS_C_STRING(buf) + offset;
 
@@ -99,7 +99,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     //
     {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf", NULL );
 	    //
     /*      do { */	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//

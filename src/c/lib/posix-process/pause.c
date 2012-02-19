@@ -38,7 +38,7 @@ Val   _lib7_P_Process_pause   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_pause");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_pause", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_pause", NULL );
 	//
 	pause ();								// Documentation in	man 2 pause
 	//

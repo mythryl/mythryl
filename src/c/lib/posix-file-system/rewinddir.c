@@ -46,9 +46,9 @@ Val   _lib7_P_FileSys_rewinddir   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_rewinddir");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir", NULL );
 	//
-	rewinddir(PTR_CAST(DIR*, arg));
+	rewinddir(PTR_CAST(DIR*, arg));					// Note that 'arg' points into the C heap not the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir" );
 

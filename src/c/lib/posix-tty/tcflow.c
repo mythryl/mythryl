@@ -46,10 +46,10 @@ Val   _lib7_P_TTY_tcflow   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcflow");
 
-    int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int action =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+    int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int action =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflow", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflow", NULL );
 	//
 	int status =  tcflow( fd, action );
 	//

@@ -45,9 +45,9 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcsetattr");
 
-    int fd         =  GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int action     =  GET_TUPLE_SLOT_AS_INT(arg, 1);
-    Val termio_rep =  GET_TUPLE_SLOT_AS_VAL(arg, 2);
+    int fd         =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int action     =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
+    Val termio_rep =  GET_TUPLE_SLOT_AS_VAL( arg, 2 );
 
     struct termios   data;
 
@@ -57,12 +57,12 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     data.c_lflag = TUPLE_GETWORD(         termio_rep, 3);
     Val c_cc     = GET_TUPLE_SLOT_AS_VAL( termio_rep, 4);
     int ispeed   = TUPLE_GETWORD(         termio_rep, 5);
-    int ospeed   = TUPLE_GETWORD(         termio_rep, 6);
+    int ospeed   = TUPLE_GETWORD(         termio_rep, 6);		// Last use of 'termio_rep'.
 
     memcpy (data.c_cc, GET_VECTOR_DATACHUNK_AS( void*, c_cc ), NCCS);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", NULL );
 	//
 	int status = cfsetispeed (&data, ispeed);
 	//
@@ -72,7 +72,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", NULL );
 	//
 	status = cfsetospeed (&data, ospeed);
 	//
@@ -82,7 +82,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", NULL );
 	//
 	status = tcsetattr(fd, action, &data);
 	//

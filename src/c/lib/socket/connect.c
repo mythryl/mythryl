@@ -59,16 +59,16 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_connect");
+										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_connect");
 
     int status;
 
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    Val	addr   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
+    Val	addr   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );				// Last use of 'arg'.
     //
-    socklen_t addrlen              =  GET_VECTOR_LENGTH(                         addr );
+    socklen_t addrlen  =  GET_VECTOR_LENGTH( addr );
 
-    {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );
+    {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );	// Last use of 'addr'.
         char buf[ 1024 ];
 
 										// Translate to hex for log:
@@ -91,7 +91,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 	errno = 0;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", NULL );
 	    //
 	    status =  connect (socket, (struct sockaddr*)buf, addrlen );
 	    //
@@ -127,7 +127,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 	    errno = 0;
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", &arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", NULL );
 		//
 		status = select(maxfd, &read_set, &write_set, NULL, NULL); 
 		//

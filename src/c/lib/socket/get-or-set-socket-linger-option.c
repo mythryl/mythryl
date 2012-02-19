@@ -48,10 +48,11 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_linger_option");
+													ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_linger_option");
 
-    int		    socket = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val	    ctl = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    int  socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    Val	    ctl = GET_TUPLE_SLOT_AS_VAL( arg, 1 );							// Last use of 'arg'.
+
     struct linger   optVal;
     int		    status;
 
@@ -59,7 +60,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
         //
 	socklen_t  optSz =  sizeof( struct linger );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", NULL );
 	    //
 	    status =  getsockopt( socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, &optSz );
 	    //
@@ -78,7 +79,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
 	    optVal.l_linger = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	}
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", NULL );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
 	    //

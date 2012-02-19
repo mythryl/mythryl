@@ -31,8 +31,9 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlopen");
 
     Val ml_libname = GET_TUPLE_SLOT_AS_VAL (arg, 0);
-    int lazy = GET_TUPLE_SLOT_AS_VAL (arg, 1) == HEAP_TRUE;
-    int global = GET_TUPLE_SLOT_AS_VAL (arg, 2) == HEAP_TRUE;
+    int lazy       = GET_TUPLE_SLOT_AS_VAL (arg, 1) == HEAP_TRUE;
+    int global     = GET_TUPLE_SLOT_AS_VAL (arg, 2) == HEAP_TRUE;
+
     char *libname = NULL;
     void *handle;
 
@@ -62,7 +63,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	if (global) flag |= RTLD_GLOBAL;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", NULL );
 	    //
 	    handle = dlopen (libname, flag);
 	    //

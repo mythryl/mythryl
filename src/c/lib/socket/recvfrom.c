@@ -58,7 +58,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     int  socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int  nbytes =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     if (           GET_TUPLE_SLOT_AS_VAL( arg, 2 ) == HEAP_TRUE) flag |= MSG_OOB;
-    if (           GET_TUPLE_SLOT_AS_VAL( arg, 3 ) == HEAP_TRUE) flag |= MSG_PEEK;
+    if (           GET_TUPLE_SLOT_AS_VAL( arg, 3 ) == HEAP_TRUE) flag |= MSG_PEEK;	// Last use of 'arg'.
 
 
     int n;
@@ -72,7 +72,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     //
     {   char* c_readbuf =  buffer_mythryl_heap_nonvalue( &readbuf_buf, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvfrom", arg );	// Last use of '&arg'. 
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvfrom", NULL );
 	    //
 	    /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 

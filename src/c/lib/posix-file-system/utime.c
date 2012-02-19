@@ -49,9 +49,9 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 
     int status;
 
-    Val	    path    =  GET_TUPLE_SLOT_AS_VAL(     arg, 0);
-    time_t  actime  =  TUPLE_GET_INT1(arg, 1);
-    time_t  modtime =  TUPLE_GET_INT1(arg, 2);
+    Val	    path    =  GET_TUPLE_SLOT_AS_VAL( arg, 0);
+    time_t  actime  =  TUPLE_GET_INT1(        arg, 1);
+    time_t  modtime =  TUPLE_GET_INT1(        arg, 2);
 
     char* heap_path =  HEAP_STRING_AS_C_STRING( path );
 
@@ -69,7 +69,7 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 
 	if (actime == -1) {
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", &arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", NULL );
 		//
 		status = utime( c_path, NULL );
 		//
@@ -82,7 +82,7 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 	    tb.actime = actime;
 	    tb.modtime = modtime;
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", &arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", NULL );
 		//
 		status = utime( c_path, &tb );
 		//

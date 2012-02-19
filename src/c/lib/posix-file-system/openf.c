@@ -43,9 +43,9 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_openf");
 
-    Val path  = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
-    int flags = TUPLE_GETWORD(arg, 1);
-    int mode  = TUPLE_GETWORD(arg, 2);
+    Val path  = GET_TUPLE_SLOT_AS_VAL( arg, 0);
+    int flags = TUPLE_GETWORD(         arg, 1);
+    int mode  = TUPLE_GETWORD(         arg, 2);
 
     int	 fd;
 
@@ -64,7 +64,7 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 
     /*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", &arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", NULL );
 		//
 		fd    = open( c_path, flags, mode );
 		//

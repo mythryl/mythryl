@@ -44,15 +44,14 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-service-db.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_service_by_port");
+																	ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_service_by_port");
 
-    Val	ml_protocol = GET_TUPLE_SLOT_AS_VAL(arg, 1);
-
-    int port = GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int port        = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    Val	ml_protocol = GET_TUPLE_SLOT_AS_VAL( arg, 1 );											// Last use of 'arg'.
 
     char*				heap_protocol;
     if (ml_protocol == OPTION_NULL)	heap_protocol =  NULL;
-    else			  	heap_protocol =  HEAP_STRING_AS_C_STRING( OPTION_GET( ml_protocol ) );
+    else			  	heap_protocol =  HEAP_STRING_AS_C_STRING( OPTION_GET( ml_protocol ) );				// Last use of 'ml_protocol'.
 
     struct servent* result;
 
@@ -65,7 +64,7 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     //
     {	char* c_protocol =  buffer_mythryl_heap_value( &protocol_buf, (void*) heap_protocol, strlen( heap_protocol ) +1 );		// '+1' for terminal NUL on string.
         //
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port", NULL );
 	    //
 	    result =  getservbyport( port, c_protocol );
 	    //

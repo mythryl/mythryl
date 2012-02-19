@@ -97,8 +97,8 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 
     int		val;
 
-    Val	mlPathname = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-    Val	mlAttr     = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    Val	mlPathname = GET_TUPLE_SLOT_AS_VAL( arg, 0);
+    Val	mlAttr     = GET_TUPLE_SLOT_AS_VAL( arg, 1);
 
     char* heap_pathname = HEAP_STRING_AS_C_STRING( mlPathname );
 
@@ -121,7 +121,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 	    buffer_mythryl_heap_value( &pathname_buf, (void*) heap_pathname, strlen( heap_pathname ) +1 );		// '+1' for terminal NUL on string.
 
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf", NULL );
 	    //
 	    errno = 0;
 	    while (((val = pathconf (c_pathname, attribute->val)) == -1) && (errno == EINTR)) {
@@ -153,10 +153,10 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fpathconf");
 
-    int		val;
+    int	val;
 
-    int         fd  = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val	mlAttr = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0);
+    Val	mlAttr =  GET_TUPLE_SLOT_AS_VAL( arg, 1);
 
     name_val_t*  attribute =  _lib7_posix_nv_lookup( HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS );
 
@@ -165,7 +165,7 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 	return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", NULL );
 	//
 	errno = 0;
 	while (((val = fpathconf (fd, attribute->val)) == -1) && (errno == EINTR)) {

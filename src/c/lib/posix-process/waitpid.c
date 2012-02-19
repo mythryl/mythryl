@@ -65,12 +65,12 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 
     int  result;
 
-    int pid     = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int options = TUPLE_GETWORD(        arg, 1);    
+    int pid     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int options = TUPLE_GETWORD(         arg, 1 );    
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_waitpid", &arg );
+        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_waitpid", NULL );
 	    //
 	    result = waitpid( pid, &status, options );
 	    //

@@ -345,7 +345,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
     int		i;
     int		n;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", NULL );
 	//
 	GET_PROCESS_SIGNAL_MASK( mask );
 	//

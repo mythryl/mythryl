@@ -59,8 +59,8 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     Val vec;
     int n;
 
-    int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int nbytes =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+    int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int nbytes =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
     if (nbytes == 0)   return ZERO_LENGTH_STRING__GLOBAL;
 
@@ -78,7 +78,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 
     /*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_read", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_read", NULL );
 	    //
 	    n = read (fd, c_vec, nbytes);
 	    //

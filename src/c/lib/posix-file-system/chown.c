@@ -47,9 +47,10 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
 
     int   status;
 
-    Val	  path = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
-    uid_t uid  = TUPLE_GETWORD(arg, 1);
-    gid_t gid  = TUPLE_GETWORD(arg, 2);
+    Val	  path = GET_TUPLE_SLOT_AS_VAL(   arg, 0);
+    uid_t uid  = TUPLE_GETWORD(           arg, 1);
+    gid_t gid  = TUPLE_GETWORD(           arg, 2);
+
     char* heap_path=  HEAP_STRING_AS_C_STRING(path);
 
 
@@ -64,7 +65,7 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", NULL );
 	    //
 	    status = chown (c_path, uid, gid);
 	    //

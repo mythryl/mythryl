@@ -52,9 +52,9 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
     while (TRUE) {
 	errno = 0;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir", NULL );
 	    //
-	    dirent = readdir(PTR_CAST(DIR*, arg));					// Note that 'arg' does not actually point into the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
+	    dirent = readdir(PTR_CAST(DIR*, arg));					// Note that 'arg' points into the C heap not the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir" );
 

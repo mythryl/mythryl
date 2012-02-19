@@ -43,22 +43,21 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek_64");
 
-    int fd =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int fd =  GET_TUPLE_SLOT_AS_INT( arg, 0);
 
 
     #if (SIZEOF_OFF_T > 4)					// i.e., (sizeof(off_t) > 4)   --   see  src/c/config/generate-sizes-of-some-c-types-h.c
         //
-	off_t	offset = ( ((off_t) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 1))) << 32)
-			 | ((off_t)(WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 2))));
+	off_t	offset = ( ((off_t) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL( arg, 1 ))) << 32)
+			 | ((off_t)(WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL( arg, 2 ))));
     #else
-        off_t   offset = ((off_t)(WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 2))));
+        off_t   offset = ((off_t)(WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(   arg, 2 ))));
     #endif
 
+    int  whence = GET_TUPLE_SLOT_AS_INT(                                arg, 3);
 
-    int  whence = GET_TUPLE_SLOT_AS_INT(arg, 3);
 
-
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64", NULL );
 	//
 	off_t pos =  lseek(fd, offset, whence);
 	//

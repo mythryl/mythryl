@@ -49,13 +49,13 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
     //
     // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX SUCKO FIXME.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbynum");
+												ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbynum");
 
     struct rpcent*  rentry;
 
-    int number = TAGGED_INT_TO_C_INT( arg );
+    int number = TAGGED_INT_TO_C_INT( arg );							// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum", NULL );
 	//
 	rentry = getrpcbynumber( number );
 	//

@@ -43,12 +43,13 @@ Val   _lib7_P_IO_fcntl_sfl   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_sfl");
 
     int             status;
-    int             fd0 = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val_Sized_Unt   flag =        TUPLE_GETWORD(arg, 1);
+
+    int             fd0  = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    Val_Sized_Unt   flag =         TUPLE_GETWORD( arg, 1 );
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfl", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfl", NULL );
 	    //
 	    status = fcntl(fd0, F_SETFL, flag);
 	    //

@@ -30,13 +30,13 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getERROR");
+													ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getERROR");
 
-    int	socket =  TAGGED_INT_TO_C_INT( arg );
+    int	socket =  TAGGED_INT_TO_C_INT( arg );								// Last use of 'arg'.
 
     socklen_t	opt_size = sizeof(int);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR", NULL );
 	//
 	int	                                                                flag;
 	int status =  getsockopt( socket, SOL_SOCKET, SO_ERROR, (sockoptval_t) &flag, &opt_size );

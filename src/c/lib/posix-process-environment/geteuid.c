@@ -36,7 +36,7 @@ Val   _lib7_P_ProcEnv_geteuid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_geteuid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid", &arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid", NULL );
 	//
 	int euid = geteuid ();
 	//

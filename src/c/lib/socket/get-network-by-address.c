@@ -52,16 +52,18 @@ Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-db.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_network_by_address");
+												ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_network_by_address");
 
     #if defined(OPSYS_WIN32)
-        // XXX BUGGO FIXME:  getnetbyaddr() does not seem to exist under Windows.	  What is the equivalent?
+        // XXX BUGGO FIXME:
+	//     getnetbyaddr() does not seem to exist under Windows.
+	// What is the equivalent?
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyaddr not implemented>", NULL);
     #else
-	unsigned long   net  =  TUPLE_GETWORD(arg, 0);
-	int		type =  GET_TUPLE_SLOT_AS_INT( arg, 1);
+	unsigned long   net  =  TUPLE_GETWORD(         arg, 0 );
+	int		type =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "", &arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "", NULL );
 	    //
 	    struct netent* result =  getnetbyaddr(net, type);
 	    //
