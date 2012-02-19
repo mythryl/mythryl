@@ -378,7 +378,7 @@ typedef   struct cleaner_args   Heapcleaner_Args;
 extern Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char** argv);					// handle_heapcleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
 
 extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Heapcleaner_Args* params);		// load_compiled_files				def in   src/c/main/load-compiledfiles.c/load_compiled_files()
-extern void  load_and_run_heap_image (const char* heap_image_to_run_filename,         Heapcleaner_Args* params);	// load_and_run_heap_image			def in   src/c/main/load-and-run-heap-image.c
+extern void  load_and_run_heap_image__may_heapclean (const char* filename,  Heapcleaner_Args*, Roots*);			// load_and_run_heap_image__may_heapclean	def in   src/c/main/load-and-run-heap-image.c
 
 extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);						// make_task					def in   src/c/main/runtime-state.c
 extern void initialize_task (Task *task);										// initialize_task				def in   src/c/main/runtime-state.c

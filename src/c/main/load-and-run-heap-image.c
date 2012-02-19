@@ -11,11 +11,12 @@
 //
 //     src/c/main/runtime-main.c
 // 
-void   load_and_run_heap_image (
-    // =======================
+void   load_and_run_heap_image__may_heapclean (
+    // ======================================
     //
-    const char*	    heap_image_to_run_filename,
-    Heapcleaner_Args*   heap_parameters
+    const char*	        heap_image_to_run_filename,
+    Heapcleaner_Args*   heap_parameters,
+    Roots*              extra_roots
 ) {
     // Load a heap image from a file and resume execution.
     //
@@ -33,7 +34,7 @@ void   load_and_run_heap_image (
     // This function is called in only one place, in
     //     src/c/main/runtime-main.c
 
-    Task* task =  import_heap_image__may_heapclean( heap_image_to_run_filename, heap_parameters, NULL );
+    Task* task =  import_heap_image__may_heapclean( heap_image_to_run_filename, heap_parameters, extra_roots );
 
 
     set_up_fault_handlers ();

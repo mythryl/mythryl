@@ -258,7 +258,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	        //
 	    case REQUEST_RETURN_TO_C_LEVEL:
 		// Here to return to whoever
-                // called us.	    If our caller was   load_and_run_heap_image                 in   src/c/main/load-and-run-heap-image.c
+                // called us.	    If our caller was   load_and_run_heap_image__may_heapclean  in   src/c/main/load-and-run-heap-image.c
 		// this will return us to               main                                    in   src/c/main/runtime-main.c
 		// which will print stats
 		// and exit(), but  if our caller was   no_args_entry  or  some_args_entry      in   src/c/lib/ccalls/ccalls-fns.c

@@ -66,7 +66,7 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addre
 Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args* params,  Roots* extra_roots) {
     //  ================================
     //
-    // This fn is called (only) by   load_and_run_heap_image   in   src/c/main/load-and-run-heap-image.c
+    // This fn is called (only) by   load_and_run_heap_image__may_heapclean   in   src/c/main/load-and-run-heap-image.c
     //
     Task*		task;
     Heapfile_Header	image_header;
