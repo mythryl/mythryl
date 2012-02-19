@@ -61,7 +61,7 @@ Val   _lib7_P_FileSys_mkstemp   (Task* task,  Val arg)   {
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever. HAVEN"T CHECKED WHETHER mkstemp IS INTERRUPTABLE -- this is copied blindly from openf.c.
 
 
-    CHECK_RETURN_VAL(task, fd, TAGGED_INT_FROM_C_INT( fd ));
+    RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, TAGGED_INT_FROM_C_INT( fd ), NULL);
 }
 
 

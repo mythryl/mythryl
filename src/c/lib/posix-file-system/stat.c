@@ -143,7 +143,7 @@ Val   _lib7_P_FileSys_stat   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     return  mkStatRep( task, &buf );
 }
@@ -181,7 +181,7 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fstat" );
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     return  mkStatRep( task, &buf );
 }
@@ -234,7 +234,7 @@ Val   _lib7_P_FileSys_lstat   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, statusf, NULL);
 
     return  mkStatRep( task, &buf );
 }

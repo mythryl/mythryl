@@ -49,7 +49,7 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname" );
 
-    if (status == -1)    RAISE_SYSERR(task, status);
+    if (status == -1)    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 		    // NOTE: We should do something about possible cleaning. XXX BUGGO FIXME
 

@@ -24,7 +24,8 @@ Val   _lib7_Ncurses_has_colors   (Task* task,  Val arg)   {	// : Void -> Bool
 	return (has_colors()  ? HEAP_TRUE : HEAP_FALSE);
     #else
 	extern char* no_ncurses_support_in_runtime;
-	return RAISE_ERROR(task, no_ncurses_support_in_runtime);
+	//
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
 }
 

@@ -9,7 +9,7 @@
 #include "lib7-c.h"
 
 
-Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
+Val   raise_sys_error__may_heapclean   (Task* task,  const char* altMsg,  char* at, Roots* extra_roots)   {
     //
     // RaiseSysError:
     //
@@ -38,9 +38,9 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	syserror =  OPTION_THE(  task,  TAGGED_INT_FROM_C_INT(errno)  );
     }
 
-    Roots extra_roots1 = { &syserror, NULL };
+    Roots roots1 = { &syserror, extra_roots };
 
-    Val string = make_ascii_string_from_c_string__may_heapclean (task, msg, &extra_roots1 );
+    Val string = make_ascii_string_from_c_string__may_heapclean (task, msg, &roots1 );
 
     Val   at_stk;
 
@@ -50,9 +50,9 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	//
     } else {
 	//
-	Roots extra_roots2 =  { &string, &extra_roots1 };
+	Roots roots2 =  { &string, &roots1 };
 	//
-	Val at_msg =  make_ascii_string_from_c_string__may_heapclean (task, at, &extra_roots2 );
+	Val at_msg =  make_ascii_string_from_c_string__may_heapclean (task, at, &roots2 );
 	//
 	at_stk = LIST_CONS(task, at_msg, LIST_NIL);
     }

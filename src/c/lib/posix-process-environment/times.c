@@ -49,7 +49,7 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_times" );
 
-    if (t == -1)   return RAISE_SYSERR(task, -1);
+    if (t == -1)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 
     e  =  make_one_word_int(task,  t            );
     u  =  make_one_word_int(task,  ts.tms_utime );

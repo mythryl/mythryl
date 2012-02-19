@@ -53,7 +53,7 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
 /*  } while (flag < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     if (flag == -1) {
-        return RAISE_SYSERR(task, flag);
+        return RAISE_SYSERR__MAY_HEAPCLEAN(task, flag, NULL);
     } else {
         return  make_one_word_unt(task, flag);
     }

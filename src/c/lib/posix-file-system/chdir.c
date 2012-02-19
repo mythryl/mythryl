@@ -59,7 +59,7 @@ Val   _lib7_P_FileSys_chdir   (Task* task,  Val arg) {
 	unbuffer_mythryl_heap_value( &dir_buf );
     }
 
-    CHECK_RETURN_UNIT(task, status)
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

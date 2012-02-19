@@ -57,7 +57,7 @@ Val   _lib7_netdb_get_network_by_name   (Task* task,  Val arg)   {
 
     #if defined(OPSYS_WIN32)
         // XXX BUGGO FIXME:  getnetbyname() does not seem to exist under Windows.  What is the equivalent?
-        return RAISE_ERROR(task, "<getnetbyname not implemented>");
+        return RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyname not implemented>", NULL);
     #else
 	struct netent* result;
 

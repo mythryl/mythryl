@@ -46,7 +46,7 @@ Val   _lib7_Sock_getATMARK   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getATMARK" );
 
-    if (status < 0)     return RAISE_SYSERR( task, status );
+    if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     return    n ? HEAP_TRUE : HEAP_FALSE;
 }

@@ -48,7 +48,7 @@ Val   _lib7_Sock_bind   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_bind" );
 
-    CHECK_RETURN_UNIT(task, status);
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

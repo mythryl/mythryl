@@ -73,7 +73,7 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    CHECK_RETURN_UNIT(task, status)
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

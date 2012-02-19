@@ -67,7 +67,7 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option" );
     }
 
-    if (status < 0)	return  RAISE_SYSERR( task, status );
+    if (status < 0)	return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     else	        return  (flag ? HEAP_TRUE : HEAP_FALSE);
 }
 

@@ -26,11 +26,13 @@ Val   _lib7_Ncurses_move   (Task* task,  Val arg)   {    // : (Int, Int) -> Void
 
 	int result = move( y, x );
 
-	if (result == ERR)     return RAISE_ERROR(task, "move");
+	if (result == ERR)     return RAISE_ERROR__MAY_HEAPCLEAN(task, "move", NULL);
+
 	return HEAP_VOID;
     #else
 	extern char* no_ncurses_support_in_runtime;
-	return RAISE_ERROR(task, no_ncurses_support_in_runtime);
+	//
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
 }
 

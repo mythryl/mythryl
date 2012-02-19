@@ -48,7 +48,7 @@ Val   _lib7_P_SysDB_getpwuid   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwuid" );
 
-    if (info == NULL)   return RAISE_SYSERR(task, -1);
+    if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   
     Val pw_name  =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_name,  NULL		);		Roots extra_roots1 = { &pw_name, NULL };
     Val pw_uid   =  make_one_word_unt(					task,  (Val_Sized_Unt) (info->pw_uid)			);		Roots extra_roots2 = { &pw_uid,  &extra_roots1 };

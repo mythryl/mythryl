@@ -66,7 +66,7 @@ Val   _lib7_P_SysDB_getgrnam   (Task* task,  Val arg)   {
 
 	unbuffer_mythryl_heap_value( &name_buf );
     }
-    if (info == NULL)   return RAISE_SYSERR(task, -1);
+    if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   
     Val gr_name =  make_ascii_string_from_c_string__may_heapclean(		task,                  info->gr_name, NULL	);		Roots roots1 = { &gr_name, NULL };
     Val gr_gid  =  make_one_word_unt(						task, (Val_Sized_Unt) (info->gr_gid)		);		Roots roots2 = { &gr_name, &roots1 };

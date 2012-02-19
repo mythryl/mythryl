@@ -94,7 +94,7 @@ Val _lib7_win32_PS_get_environment_variable(Task *task, Val arg)
     Val ml_s;
 
     if (ret > GEV_BUF_SZ) {
-	return RAISE_SYSERR(task,-1);
+	return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
     }
     if (ret > 0) {
 	ml_s = make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);

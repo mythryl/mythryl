@@ -54,7 +54,7 @@ Val   _lib7_P_IO_close   (Task* task,  Val arg)   {
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    CHECK_RETURN_UNIT(task, status)
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

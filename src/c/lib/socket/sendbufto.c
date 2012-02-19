@@ -105,7 +105,7 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     //
     *GET_VECTOR_DATACHUNK_AS (struct sockaddr*, addr ) = sockaddr;
 
-    CHECK_RETURN (task, n);
+    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
 }
 
 

@@ -91,7 +91,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 
 	if (n < 0) {
 	    unbuffer_mythryl_heap_value( &readbuf_buf );
-	    return RAISE_SYSERR(task, status);
+	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	}
 
 	// Allocate the result vector.

@@ -54,7 +54,7 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr" );
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     Val iflag  =  make_one_word_unt(task, data.c_iflag  );			Roots roots1 = { &iflag,   NULL   };
     Val oflag  =  make_one_word_unt(task, data.c_oflag  );			Roots roots2 = { &oflag,  &roots1 };

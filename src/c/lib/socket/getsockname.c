@@ -51,7 +51,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname" );
 
-    if (status == -1)   return  RAISE_SYSERR( task, status );
+    if (status == -1)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 														// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
     Val	data = make_biwordslots_vector_sized_in_bytes__may_heapclean(task, address_buf, address_len, NULL );

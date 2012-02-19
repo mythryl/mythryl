@@ -49,7 +49,7 @@ Val _lib7_win32_IO_close(Task *task, Val arg)
     debug_say("_lib7_win32_IO_close: failing\n");
 #endif
 
-    return RAISE_SYSERR(task,-1);
+    return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
 }
 
 
@@ -148,7 +148,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
 #ifdef WIN32_DEBUG
         debug_say("_lib7_win32_IO_read_vec: failing %d %d\n",n,nbytes);
 #endif
-        return RAISE_SYSERR(task,-1);
+        return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
     }
 }
 
@@ -232,7 +232,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
   #ifdef WIN32_DEBUG
       debug_say("_lib7_win32_IO_read_vec_txt: failing on handle %x\n",h);
   #endif
-      return RAISE_SYSERR(task,-1);
+      return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
     }
 }
 
@@ -264,7 +264,7 @@ Val _lib7_win32_IO_read_arr(Task *task, Val arg)
 #ifdef WIN32_DEBUG
   debug_say("_lib7_win32_IO_read_arr: failing\n");
 #endif
-  return RAISE_SYSERR(task,-1);
+  return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
 }
 
 /* _lib7_win32_IO_read_arr_txt : (one_word_unt*char8array.Rw_Vector*int*int) -> int
@@ -315,7 +315,7 @@ Val _lib7_win32_IO_read_arr_txt(Task *task, Val arg)
 #ifdef WIN32_DEBUG
   debug_say("_lib7_win32_IO_read_arr_txt: failing\n");
 #endif
-  return RAISE_SYSERR(task,-1);
+  return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
 }
 
 
@@ -368,7 +368,7 @@ Val _lib7_win32_IO_write_buf(Task *task, Val arg)
 #ifdef WIN32_DEBUG
   debug_say("_lib7_win32_IO_write_buf: failing\n");
 #endif
-  return RAISE_SYSERR(task,-1);
+  return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
 }
 
 Val _lib7_win32_IO_write_vec(Task *task, Val arg)

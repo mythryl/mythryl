@@ -52,7 +52,7 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 
     if (t < 0) {
         //
-        return RAISE_ERROR(task, "Invalid date");
+        return RAISE_ERROR__MAY_HEAPCLEAN(task, "Invalid date", NULL);
     } else {
 
 	return  make_one_word_int(task,  t  );

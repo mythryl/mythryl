@@ -182,7 +182,7 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 	int pthread_table_slot;							// An index into the   pthread_table__global[]   defined in   src/c/main/runtime-state.c
 	char* err = pth__pthread_create( &pthread_table_slot, task->current_thread, closure );
 
-	if (err)   return RAISE_ERROR( task, err );
+	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);
 	else	   return TAGGED_INT_FROM_C_INT( pthread_table_slot );
 										// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
@@ -221,7 +221,7 @@ static Val   join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issu
     #if NEED_PTHREAD_SUPPORT
     {   char* err = pth__pthread_join( task, pthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
 	    //
-	    if (err) {  log_if("join_pthread failed!");		return RAISE_ERROR( task, err );	}
+	    if (err) {  log_if("join_pthread failed!");		return RAISE_ERROR__MAY_HEAPCLEAN(task, err,NULL );	}
 	    else     {						return HEAP_VOID;			}
 	}
     #else
@@ -331,14 +331,14 @@ static Val   mutex_init   (Task* task,  Val arg)   {
 	    case       CLEARED_MUTEX:
 		{   char* err = pth__mutex_init( task, arg, &mutex->mutex );
 		    //
-		    if (err)   {                                     return RAISE_ERROR( task, err );  }
+		    if (err)   {                                     return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );  }
 		    else       { mutex->state = INITIALIZED_MUTEX;   return HEAP_VOID;                 }
 		}
 		break;
 
-	    case   INITIALIZED_MUTEX:	log_if("Attempt to set already-set mutex.");		return RAISE_ERROR( task, "Attempt to set already-set mutex.");
-	    case         FREED_MUTEX:	log_if("Attempt to set freed mutex.");			return RAISE_ERROR( task, "Attempt to set freed mutex.");
-	    default:			log_if("mutex_init: Attempt to set bogus value.");	return RAISE_ERROR( task, "mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)");
+	    case   INITIALIZED_MUTEX:	log_if("Attempt to set already-set mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set mutex.", NULL);
+	    case         FREED_MUTEX:	log_if("Attempt to set freed mutex.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed mutex.", NULL);
+	    default:			log_if("mutex_init: Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)", NULL);
 	}
 
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -365,15 +365,15 @@ static Val   mutex_destroy   (Task* task,  Val arg)   {
 	    case   INITIALIZED_MUTEX:
 		{   char* err = pth__mutex_destroy( task, arg, &mutex->mutex );
 		    //
-		    if (err)   { log_if("mutex_destroy returned error");	return RAISE_ERROR( task, err );	}
+		    if (err)   { log_if("mutex_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);	}
 		    else       { mutex->state = CLEARED_MUTEX;			return HEAP_VOID;			}
 		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:		log_if("Attempt to clear uninitialized mutex.");		return RAISE_ERROR( task, "Attempt to clear uninitialized mutex.");
-	    case       CLEARED_MUTEX:		log_if("Attempt to clear already-cleared mutex.");		return RAISE_ERROR( task, "Attempt to clear already-cleared mutex.");
-	    case         FREED_MUTEX:		log_if("Attempt to clear already-freed mutex.");		return RAISE_ERROR( task, "Attempt to clear already-freed mutex.");
-	    default:				log_if("mutex_destroy: Attempt to clear bogus value.");		return RAISE_ERROR( task, "mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:		log_if("Attempt to clear uninitialized mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized mutex.", NULL);
+	    case       CLEARED_MUTEX:		log_if("Attempt to clear already-cleared mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared mutex.", NULL);
+	    case         FREED_MUTEX:		log_if("Attempt to clear already-freed mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed mutex.", NULL);
+	    default:				log_if("mutex_destroy: Attempt to clear bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -403,15 +403,15 @@ if (running_script) log_if("mutex_lock: BBB...");
 		{    char* err =  pth__mutex_lock( task, arg, &mutex->mutex );
 		    //
 if (running_script) log_if("mutex_lock: CCC...");
-		    if (err)   return RAISE_ERROR( task, err );
+		    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 		    else       return HEAP_VOID;
 		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:				log_if("mutex_lock: Attempt to acquire mutex before setting it."); return RAISE_ERROR( task, "Attempt to acquire mutex before setting it.");
-	    case       CLEARED_MUTEX:				log_if("mutex_lock: Attempt to acquire mutex after clearing it."); return RAISE_ERROR( task, "Attempt to acquire mutex after clearing it.");
-	    case         FREED_MUTEX:				log_if("mutex_lock: Attempt to acquire mutex after freeing it.");  return RAISE_ERROR( task, "Attempt to acquire mutex after freeing it.");
-	    default:						log_if("mutex_lock: mutex_lock: Attempt to acquire bogus value."); return RAISE_ERROR( task, "mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:	log_if("mutex_lock: Attempt to acquire mutex before setting it."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex before setting it.", NULL);
+	    case       CLEARED_MUTEX:	log_if("mutex_lock: Attempt to acquire mutex after clearing it."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex after clearing it.", NULL);
+	    case         FREED_MUTEX:	log_if("mutex_lock: Attempt to acquire mutex after freeing it.");  return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex after freeing it.", NULL);
+	    default:			log_if("mutex_lock: mutex_lock: Attempt to acquire bogus value."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)", NULL);
 	}
 if (running_script) log_if("mutex_lock: YYY..."); 
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -442,15 +442,15 @@ if (running_script) log_if("mutex_unlock: CCC...");
 		{   char* err =  pth__mutex_unlock( task, arg, &mutex->mutex );
 if (running_script) log_if("mutex_unlock: DDD...");
 		    //
-		    if (err)   return RAISE_ERROR( task, err );
+		    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 		    else       return HEAP_VOID;
 		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:				log_if("mutex_unlock: Attempt to release mutex before setting it.");	return RAISE_ERROR(task,"Attempt to release mutex before setting it.");
-	    case       CLEARED_MUTEX:				log_if("mutex_unlock: Attempt to release mutex after clearing it.");	return RAISE_ERROR(task,"Attempt to release mutex after clearing it.");
-	    case         FREED_MUTEX:				log_if("mutex_unlock: Attempt to release mutex after freeing it.");	return RAISE_ERROR(task,"Attempt to release mutex after freeing it.");
-	    default:						log_if("mutex_unlock: Attempt to release bogus value.");		return RAISE_ERROR(task,"mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:	log_if("mutex_unlock: Attempt to release mutex before setting it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex before setting it.", NULL);
+	    case       CLEARED_MUTEX:	log_if("mutex_unlock: Attempt to release mutex after clearing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after clearing it.", NULL);
+	    case         FREED_MUTEX:	log_if("mutex_unlock: Attempt to release mutex after freeing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after freeing it.", NULL);
+	    default:			log_if("mutex_unlock: Attempt to release bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN(task,"mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)", NULL);
 	}
 if (running_script) log_if("mutex_unlock: YYY...");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -482,17 +482,17 @@ log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/CCC");
 		    char* err = pth__mutex_trylock( task, arg, &mutex->mutex, &result );
 log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/DDD");
 		    //
-		    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR( task, err );	}
+		    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    //
 		    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
 		    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
 		};
 		break;
 
-	    case UNINITIALIZED_MUTEX:				log_if("mutex_trylock: Attempt to try mutex before setting it.");	return RAISE_ERROR(task,"Attempt to try mutex before setting it." );
-	    case       CLEARED_MUTEX:				log_if("mutex_trylock: Attempt to try mutex after clearing it.");	return RAISE_ERROR(task,"Attempt to try mutex after clearing it." );
-	    case         FREED_MUTEX:				log_if("mutex_trylock: Attempt to try mutex after freeing it.");	return RAISE_ERROR(task,"Attempt to try mutex after freeing it.") ;
-	    default:						log_if("mutex_trylock: mutex_trylock: Attempt to try bogus value.");	return RAISE_ERROR(task,"mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)" );
+	    case UNINITIALIZED_MUTEX:	log_if("mutex_trylock: Attempt to try mutex before setting it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex before setting it.", NULL);
+	    case       CLEARED_MUTEX:	log_if("mutex_trylock: Attempt to try mutex after clearing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex after clearing it.", NULL);
+	    case         FREED_MUTEX:	log_if("mutex_trylock: Attempt to try mutex after freeing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex after freeing it.", NULL) ;
+	    default:			log_if("mutex_trylock: mutex_trylock: Attempt to try bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)", NULL );
 	}
         return HEAP_VOID;							// Cannot execute.
 
@@ -601,14 +601,14 @@ static Val   barrier_init   (Task* task,  Val arg)   {
 		//
 		{   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
 		    //
-		    if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR( task, err );	}
+		    if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
 		    else		{ barrier->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
 		}
 		break;
 
-	    case   INITIALIZED_BARRIER:			log_if("barrier_init:  Attempt to set already-set barrier.");	return RAISE_ERROR( task, "Attempt to set already-set barrier.");
-	    case         FREED_BARRIER:			log_if("barrier_init:  Attempt to set freed barrier.");		return RAISE_ERROR( task, "Attempt to set freed barrier.");
-	    default:					log_if("barrier_init:  Attempt to set bogus value.");		return RAISE_ERROR( task, "barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)");
+	    case   INITIALIZED_BARRIER:	log_if("barrier_init:  Attempt to set already-set barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set barrier.", NULL);
+	    case         FREED_BARRIER:	log_if("barrier_init:  Attempt to set freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed barrier.", NULL);
+	    default:			log_if("barrier_init:  Attempt to set bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -635,15 +635,15 @@ static Val   barrier_destroy   (Task* task,  Val arg)   {
 		{
 		    char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
 		    //
-		    if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR( task, err );	}
+		    if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    else	{ barrier->state = CLEARED_BARRIER;			return HEAP_VOID;			}
 		}
 		break;
 
-	    case UNINITIALIZED_BARRIER:			log_if("barrier_destroy:  Attempt to clear uninitialized barrier");	return RAISE_ERROR( task, "Attempt to clear uninitialized barrier.");
-	    case       CLEARED_BARRIER:			log_if("barrier_destroy:  Attempt to clear already-cleared barrier.");	return RAISE_ERROR( task, "Attempt to clear already-cleared barrier.");
-	    case         FREED_BARRIER:			log_if("barrier_destroy:  Attempt to clear already-freed barrier.");	return RAISE_ERROR( task, "Attempt to clear already-freed barrier.");
-	    default:					log_if("barrier_destroy:  Attempt to clear bogus value.");		return RAISE_ERROR( task, "barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
+	    case UNINITIALIZED_BARRIER:	log_if("barrier_destroy:  Attempt to clear uninitialized barrier");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized barrier.", NULL);
+	    case       CLEARED_BARRIER:	log_if("barrier_destroy:  Attempt to clear already-cleared barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared barrier.", NULL);
+	    case         FREED_BARRIER:	log_if("barrier_destroy:  Attempt to clear already-freed barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed barrier.", NULL);
+	    default:			log_if("barrier_destroy:  Attempt to clear bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -670,16 +670,16 @@ static Val   barrier_wait   (Task* task,  Val arg)   {
 		{   Bool result;
 		    char* err =   pth__barrier_wait( task, arg, &barrier->barrier, &result );
 		    //
-		    if (err)	{ log_if("barrier_wait returned error");	return RAISE_ERROR( task, err );	}
+		    if (err)	{ log_if("barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    if (result)							return HEAP_TRUE;
 		    else							return HEAP_FALSE;
 		}
 		break;
 
-	    case UNINITIALIZED_BARRIER:		log_if("barrier_wait: Attempt to wait on uninitialized barrier.");		return RAISE_ERROR( task, "Attempt to wait on uninitialized barrier.");
-	    case       CLEARED_BARRIER:		log_if("barrier_wait: Attempt to wait on cleared barrier."); 			return RAISE_ERROR( task, "Attempt to wait on cleared barrier.");
-	    case         FREED_BARRIER:		log_if("barrier_wait: Attempt to wait on freed barrier.");			return RAISE_ERROR( task, "Attempt to wait on freed barrier.");
-	    default:				log_if("barrier_wait: Attempt to wait on bogus value.");			return RAISE_ERROR( task, "barrier_wait: Attempt to wait on bogus value. (Already-freed barrier? Junk?)");
+	    case UNINITIALIZED_BARRIER:	log_if("barrier_wait: Attempt to wait on uninitialized barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized barrier.", NULL);
+	    case       CLEARED_BARRIER:	log_if("barrier_wait: Attempt to wait on cleared barrier."); 		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on cleared barrier.", NULL);
+	    case         FREED_BARRIER:	log_if("barrier_wait: Attempt to wait on freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on freed barrier.", NULL);
+	    default:			log_if("barrier_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "barrier_wait: Attempt to wait on bogus value. (Already-freed barrier?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -784,14 +784,14 @@ static Val   condvar_init   (Task* task,  Val arg)   {
 		{
 		    char* err = pth__condvar_init( task, arg, &condvar->condvar );
 		    //
-		    if (err)		{ log_if("pth__condvar_init returned error");	return RAISE_ERROR( task, err );	}
+		    if (err)		{ log_if("pth__condvar_init returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    else		{ condvar->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
 		}
 		break;
 
-	    case   INITIALIZED_CONDVAR:		log_if("condvar_init:  Attempt to set already-set condvar.");	return RAISE_ERROR( task, "Attempt to set already-set condvar.");
-	    case         FREED_CONDVAR:		log_if("condvar_init:  Attempt to set freed condvar.");		return RAISE_ERROR( task, "Attempt to set freed condvar.");
-	    default:				log_if("condvar_init:  Attempt to set bogus value.");		return RAISE_ERROR( task, "condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)");
+	    case   INITIALIZED_CONDVAR:	log_if("condvar_init:  Attempt to set already-set condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set condvar.", NULL);
+	    case         FREED_CONDVAR:	log_if("condvar_init:  Attempt to set freed condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed condvar.", NULL);
+	    default:			log_if("condvar_init:  Attempt to set bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -818,15 +818,15 @@ static Val   condvar_destroy   (Task* task,  Val arg)   {
 		{
 		    char* err =  pth__condvar_destroy( task, arg, &condvar->condvar );
 		    //
-		    if (err)		{ log_if("condvar_destroy returned error");	return RAISE_ERROR( task, err );		}
+		    if (err)		{ log_if("condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
 		    else		{ condvar->state = CLEARED_CONDVAR;		return HEAP_VOID;	  			}
 		}
 		break;
 
-	    case UNINITIALIZED_CONDVAR:		log_if("condvar_destroy:  Attempt to clear uninitialized condvar.");	return RAISE_ERROR( task, "Attempt to clear uninitialized condvar.");
-	    case       CLEARED_CONDVAR:		log_if("condvar_destroy:  Attempt to clear already-cleared condvar.");	return RAISE_ERROR( task, "Attempt to clear already-cleared condvar.");
-	    case         FREED_CONDVAR:		log_if("condvar_destroy:  Attempt to clear already-freed condvar.");	return RAISE_ERROR( task, "Attempt to clear already-freed condvar.");
-	    default:				log_if("condvar_destroy:  Attempt to clear bogus value.");		return RAISE_ERROR( task, "condvar_destroy: Attempt to clear bogus value. (Already-freed condvar? Junk?)");
+	    case UNINITIALIZED_CONDVAR:	log_if("condvar_destroy:  Attempt to clear uninitialized condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized condvar.", NULL);
+	    case       CLEARED_CONDVAR:	log_if("condvar_destroy:  Attempt to clear already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared condvar.", NULL);
+	    case         FREED_CONDVAR:	log_if("condvar_destroy:  Attempt to clear already-freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed condvar.", NULL);
+	    default:			log_if("condvar_destroy:  Attempt to clear bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_destroy: Attempt to clear bogus value. (Already-freed condvar? Junk?)", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -856,25 +856,25 @@ if (running_script) log_if("condvar_wait: BBB...");
 	    //
 	    case   INITIALIZED_CONDVAR:		break;
 	    //
-	    case UNINITIALIZED_CONDVAR:					log_if("condvar_wait: Attempt to wait on uninitialized condvar.");	return RAISE_ERROR( task, "Attempt to wait on uninitialized condvar.");
-	    case       CLEARED_CONDVAR:					log_if("condvar_wait: Attempt to wait on already-cleared condvar.");	return RAISE_ERROR( task, "Attempt to wait on already-cleared condvar.");
-	    case         FREED_CONDVAR:					log_if("condvar_wait: Attempt to wait on already-freed condvar.");	return RAISE_ERROR( task, "Attempt to wait on already-freed condvar.");
-	    default:							log_if("condvar_wait: Attempt to wait on bogus value.");		return RAISE_ERROR( task, "condvar_wait: Attempt to wait on bogus value.");
+	    case UNINITIALIZED_CONDVAR:		log_if("condvar_wait: Attempt to wait on uninitialized condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized condvar.", NULL);
+	    case       CLEARED_CONDVAR:		log_if("condvar_wait: Attempt to wait on already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on already-cleared condvar.", NULL);
+	    case         FREED_CONDVAR:		log_if("condvar_wait: Attempt to wait on already-freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on already-freed condvar.", NULL);
+	    default:				log_if("condvar_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_wait: Attempt to wait on bogus value.", NULL);
 	}
 
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:		break;
 	    //
-	    case UNINITIALIZED_MUTEX:					log_if("condvar_wait: Attempt to condvar_wait on uninitialized mutex."); return RAISE_ERROR( task, "Attempt to condvar_wait on uninitialized mutex.");
-	    case       CLEARED_MUTEX:					log_if("condvar_wait: Attempt to condvar_wait on cleared mutex.");	 return RAISE_ERROR( task, "Attempt to condvar_wait on cleared mutex.");
-	    case         FREED_MUTEX:					log_if("condvar_wait: Attempt to condvar_wait on freed condvar.");	 return RAISE_ERROR( task, "Attempt to condvar_wait on freed condvar.");
-	    default:							log_if("condvar_wait: Attempt to convar_wait on bogus mutex value.");	 return RAISE_ERROR( task, "condvar_wait: Attempt to convar_wait on bogus mutex value.");
+	    case UNINITIALIZED_MUTEX:		log_if("condvar_wait: Attempt to condvar_wait on uninitialized mutex."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on uninitialized mutex.", NULL);
+	    case       CLEARED_MUTEX:		log_if("condvar_wait: Attempt to condvar_wait on cleared mutex.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on cleared mutex.", NULL);
+	    case         FREED_MUTEX:		log_if("condvar_wait: Attempt to condvar_wait on freed condvar.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on freed condvar.", NULL);
+	    default:				log_if("condvar_wait: Attempt to convar_wait on bogus mutex value.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_wait: Attempt to convar_wait on bogus mutex value.", NULL);
 	}
 
 	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, &mutex->mutex );
 	    //
-	    if (err)		{					log_if("condvar_wait: condvar_wait returned error");			 return RAISE_ERROR( task, err );	}
+	    if (err)		{					log_if("condvar_wait: condvar_wait returned error");			 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 	    else		{														 return HEAP_VOID;			}
 	}
 
@@ -904,15 +904,15 @@ if (running_script) log_if("condvar_signal: TOP...");
 		{
 		    char* err =  pth__condvar_signal( task, arg, &condvar->condvar );
 		    //
-		    if (err)	{ log_if("condvar_signal returned error");		return RAISE_ERROR( task, err );	}
+		    if (err)	{ log_if("condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    else								return HEAP_VOID;
 		}
 		break;
 
-	    case UNINITIALIZED_CONDVAR:		log_if("condvar_signal:  Attempt to signal via uninitialized condvar.");		return RAISE_ERROR( task, "Attempt to signal via uninitialized condvar.");
-	    case       CLEARED_CONDVAR:		log_if("condvar_signal:	 Attempt to signal via cleared condvar.");			return RAISE_ERROR( task, "Attempt to signal via cleared condvar.");
-	    case         FREED_CONDVAR:		log_if("condvar_signal:	 Attempt to signal via freed condvar.");			return RAISE_ERROR( task, "Attempt to signal via freed condvar.");
-	    default:				log_if("condvar_signal:	 Attempt to signal via bogus value.");				return RAISE_ERROR( task, "condvar_signal: Attempt to signal via bogus value.");
+	    case UNINITIALIZED_CONDVAR:	log_if("condvar_signal:  Attempt to signal via uninitialized condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via uninitialized condvar.", NULL);
+	    case       CLEARED_CONDVAR:	log_if("condvar_signal:	 Attempt to signal via cleared condvar.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via cleared condvar.", NULL);
+	    case         FREED_CONDVAR:	log_if("condvar_signal:	 Attempt to signal via freed condvar.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via freed condvar.", NULL);
+	    default:			log_if("condvar_signal:	 Attempt to signal via bogus value.");				return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_signal: Attempt to signal via bogus value.", NULL);
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
@@ -943,15 +943,15 @@ if (running_script) log_if("condvar_broadcast: BBB...");
 		    char* err =  pth__condvar_broadcast( task, arg, &condvar->condvar );
 if (running_script) log_if("condvar_broadcast: CCC...");
 		    //
-		    if (err)			{ log_if("condvar_broadcast returned error.");	return RAISE_ERROR( task, err );	}
+		    if (err)			{ log_if("condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    else			{						return HEAP_VOID;			}
 		}
 		break;
 
-	    case UNINITIALIZED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via uninitialized condvar.");	return RAISE_ERROR( task, "Attempt to broadcast via uninitialized condvar.");
-	    case       CLEARED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via cleared condvar.");		return RAISE_ERROR( task, "Attempt to broadcast via cleared condvar.");
-	    case         FREED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via freed condvar.");		return RAISE_ERROR( task, "Attempt to broadcast via freed condvar.");
-	    default:				log_if("condvar_broadcast: Attempt to broadcast via bogus value.");		return RAISE_ERROR( task, "condvar_broadcast: Attempt to broadcast via bogus value.");
+	    case UNINITIALIZED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via uninitialized condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via uninitialized condvar.", NULL);
+	    case       CLEARED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via cleared condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via cleared condvar.", NULL);
+	    case         FREED_CONDVAR:		log_if("condvar_broadcast: Attempt to broadcast via freed condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via freed condvar.", NULL);
+	    default:				log_if("condvar_broadcast: Attempt to broadcast via bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_broadcast: Attempt to broadcast via bogus value.", NULL);
 	}
 
     #else

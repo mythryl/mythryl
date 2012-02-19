@@ -25,7 +25,8 @@ Val   _lib7_Ncurses_getch   (Task* task,  Val arg)   {	// : Void -> Char
 	return  make_one_word_int(task,  getch()  );
     #else
 	extern char* no_ncurses_support_in_runtime;
-	return RAISE_ERROR(task, no_ncurses_support_in_runtime);
+	//
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
 }
 

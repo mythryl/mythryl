@@ -54,13 +54,13 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir", arg );
 	    //
-	    dirent = readdir(PTR_CAST(DIR*, arg));				// Note that 'arg' does not actually point into the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
+	    dirent = readdir(PTR_CAST(DIR*, arg));					// Note that 'arg' does not actually point into the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir" );
 
 	if (dirent == NULL) {
-	    if (errno != 0)  return RAISE_SYSERR(task, -1);     // Error occurred.
-	    else	     return ZERO_LENGTH_STRING__GLOBAL;	// End of stream.
+	    if (errno != 0)  return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);	// Error occurred.
+	    else	     return ZERO_LENGTH_STRING__GLOBAL;				// End of stream.
 	} else {
 	    char	*cp = dirent->d_name;
 

@@ -32,7 +32,7 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
     char*      filename  =  HEAP_STRING_AS_C_STRING( arg );				// Last use of 'arg'.
     IplImage*  ipl_image =  cvLoadImage( filename, CV_LOAD_IMAGE_UNCHANGED );
 
-    if (!ipl_image)   RAISE_ERROR(task, "cvLoadImage returned NULL");
+    if (!ipl_image)   RAISE_ERROR__MAY_HEAPCLEAN(task, "cvLoadImage returned NULL", NULL);
 
     {   
 	// Copy image into heap, so that it can be
@@ -55,7 +55,8 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 #else
 
     extern char* no_opencv_support_in_runtime;
-    return RAISE_ERROR(task, no_opencv_support_in_runtime);
+    //
+    return  RAISE_ERROR__MAY_HEAPCLEAN(task, no_opencv_support_in_runtime, NULL);
 
 #endif
 }

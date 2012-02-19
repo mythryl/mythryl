@@ -46,7 +46,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_IO_select");
 
 #if ((*defined(HAS_SELECT)) && (*defined(HAS_POLL)))
-    return RAISE_ERROR (task, "LIB7-io.select unsupported");
+    return RAISE_ERROR__MAY_HEAPCLEAN (task, "LIB7-io.select unsupported", NULL);
 #else
     Val	    rl = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val	    wl = GET_TUPLE_SLOT_AS_VAL(arg, 1);
@@ -140,7 +140,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 #ifdef HAS_POLL
 	FREE (fds);
 #endif
-	return RAISE_SYSERR (task, status);
+	return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     }
     else {
 	Val	    rfdl, wfdl, efdl, res;

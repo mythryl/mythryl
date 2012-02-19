@@ -94,7 +94,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
 /*  } while (status < 0 && errno == EINTR);	*/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
     #if (SIZEOF_STRUCT_FLOCK_L_START > 4)					// As above.

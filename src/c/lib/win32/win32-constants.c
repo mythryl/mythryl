@@ -133,9 +133,9 @@ Val _lib7_win32_get_const(Task *task, Val arg)
     if (res = nv_lookup(s2, table[index].ptab, table[index].size)) {
       return  make_one_word_unt(task, res->data );
     }
-    return RAISE_ERROR(task,"win32_cconst: unknown constant");
+    return RAISE_ERROR__MAY_HEAPCLEAN(task,"win32_cconst: unknown constant", NULL);
   }
-  return RAISE_ERROR(task,"win32_cconst: unknown constant ilk");
+  return RAISE_ERROR__MAY_HEAPCLEAN(task,"win32_cconst: unknown constant ilk", NULL);
 }
 
 /* end of win32-constants.c */

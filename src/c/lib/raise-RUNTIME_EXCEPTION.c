@@ -35,20 +35,20 @@
 
 
 
-Val   RaiseSysError (
-    //=============
+Val   raise_sys_error__may_heapclean (
+    //==============================
     //
-    Task*  task,
-    const char*    altMsg,
-    const char*    at			// C sourcefile and line number raising this error:  "<foo.c:37>"
-
+    Task*	    task,
+    const char*	    altMsg,
+    const char*     at,			// C sourcefile and line number raising this error:  "<foo.c:37>"
+    Roots*	    extra_roots
 ) {
     // Raise the Mythryl exception RUNTIME_EXCEPTION, which is defined as:
     //
     //    exception RUNTIME_EXCEPTION (String, Null_Or(System_Error) );
     //
     // We normally get invoked via either the
-    // RAISE_SYSERR or RAISE_ERROR macro from
+    // RAISE_SYSERR__MAY_HEAPCLEAN or RAISE_ERROR__MAY_HEAPCLEAN macro from
     //
     //     src/c/lib/lib7-c.h 
     //
@@ -85,19 +85,19 @@ Val   RaiseSysError (
 	    (altMsg != NULL) ? -1 : error_number, msg);
     #endif
 
-    Roots extra_roots1 = { &null_or_errno, NULL };
+    Roots roots1 = { &null_or_errno, extra_roots };
 
-    Val errno_string = make_ascii_string_from_c_string__may_heapclean (task, msg, &extra_roots1 );
+    Val errno_string = make_ascii_string_from_c_string__may_heapclean (task, msg, &roots1 );
 
     Val at_list;			// [] or [ "<foo.c:187>" ].
     //
     if (at != NULL) {
         //
-	Roots extra_roots2 = { &errno_string, &extra_roots1 };
+	Roots roots2 = { &errno_string, &roots1 };
 
 	Val at_cstring
             =
-	    make_ascii_string_from_c_string__may_heapclean (task, at, &extra_roots2 );
+	    make_ascii_string_from_c_string__may_heapclean (task, at, &roots2 );
 
 	at_list = LIST_CONS(task, at_cstring, LIST_NIL);
 
@@ -116,7 +116,7 @@ Val   RaiseSysError (
     raise_mythryl_exception( task, syserr_exception );		// raise_mythryl_exception	is from    src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     return  syserr_exception;
-}								// fun RaiseSysError
+}								// fun raise_sys_error__may_heapclean
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,

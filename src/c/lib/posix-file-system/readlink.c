@@ -93,7 +93,7 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (len < 0)   return RAISE_SYSERR(task, len);
+    if (len < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, len, NULL);
 
     if (len < MAXPATHLEN) {
         //
@@ -119,13 +119,13 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (result < 0)   return RAISE_SYSERR(task, result);
+    if (result < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, result, NULL);
 
     int nlen = sbuf.st_size + 1;
 
     char* nbuf = MALLOC(nlen);
 
-    if (nbuf == 0)   return RAISE_ERROR(task, "out of malloc memory");
+    if (nbuf == 0)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "out of malloc memory", NULL);
 
     // Try the readlink again. Give up on error or if len is still bigger
     // than the buffer size.
@@ -143,8 +143,8 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (len < 0)		return RAISE_SYSERR(task, len);
-    else if (len >= nlen)	return RAISE_ERROR(task, "readlink failure");
+    if (len < 0)		return RAISE_SYSERR__MAY_HEAPCLEAN(task, len, NULL);
+    if (len >= nlen)		return RAISE_ERROR__MAY_HEAPCLEAN(task, "readlink failure", NULL);
 
     nbuf[len] = '\0';
     Val chunk = make_ascii_string_from_c_string__may_heapclean (task, nbuf, NULL);

@@ -45,7 +45,7 @@ Val   _lib7_Sock_getTYPE   (Task* task,  Val arg)   {		//  : Socket -> Sock_type
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getTYPE" );
 
-    if (status < 0)     return RAISE_SYSERR(task, status);
+    if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     else		return make_system_constant__may_heapclean( task, &_Sock_Type, flag, NULL );
 }
 

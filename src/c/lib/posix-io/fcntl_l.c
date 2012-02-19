@@ -64,7 +64,7 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     return  make_five_slot_record( task,
 		//

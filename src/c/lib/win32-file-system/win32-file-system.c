@@ -102,7 +102,7 @@ Val _lib7_win32_FS_get_current_directory(Task *task, Val arg)
   DWORD r = GetCurrentDirectory(MAX_PATH,buf);
 
   if (r == 0 || r > MAX_PATH) {
-      return RAISE_SYSERR(task,-1);
+      return RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
   }
   return make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);
 }
@@ -169,7 +169,7 @@ Val _lib7_win32_FS_get_full_path_name(Task *task, Val arg)
 
   r = GetFullPathName(HEAP_STRING_AS_C_STRING(arg),MAX_PATH,buf,&dummy);
   if (r == 0 | r > MAX_PATH) {
-      return  RAISE_SYSERR(task,-1);
+      return  RAISE_SYSERR__MAY_HEAPCLEAN(task,-1,NULL);
   }
   res = make_ascii_string_from_c_string__may_heapclean(task,buf,NULL);
   return res;

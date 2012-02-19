@@ -50,7 +50,7 @@ Val   _lib7_P_IO_pipe   (Task* task,  Val arg)   {
 
     if (status == -1) {
         //
-        return RAISE_SYSERR(task, -1);
+        return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
         //
     } else {
         //

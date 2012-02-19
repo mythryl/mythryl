@@ -69,7 +69,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
 
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
@@ -79,7 +79,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
 
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
@@ -89,7 +89,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
 
 
-    CHECK_RETURN_UNIT( task, status )
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN( task, status, NULL );
 }
 
 

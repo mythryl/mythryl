@@ -93,7 +93,7 @@ Val   _lib7_Sock_recvbuf   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &readbuf_buf );
     }
 
-    CHECK_RETURN (task, n)
+    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
 }
 
 

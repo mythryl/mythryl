@@ -68,7 +68,7 @@ static Val   mkValue   (Task* task,  int val)   {
 
     } else {
 
-	return RAISE_SYSERR(task, val);
+	return RAISE_SYSERR__MAY_HEAPCLEAN(task, val, NULL);
     }
 }
 
@@ -106,7 +106,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 
     if (!attribute) {
 	errno = EINVAL;
-	return RAISE_SYSERR(task, -1);
+	return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
     // We cannot reference anything on the Mythryl
@@ -162,7 +162,7 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 
     if (!attribute) {
 	errno = EINVAL;
-	return RAISE_SYSERR(task, -1);
+	return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", arg );

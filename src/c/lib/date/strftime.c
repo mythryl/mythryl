@@ -70,7 +70,7 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
 	unbuffer_mythryl_heap_value( &fmt_buf );    
     }
 
-    if (size <= 0)   return RAISE_ERROR(task, "strftime failed");
+    if (size <= 0)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "strftime failed", NULL);
 
     Val                               result = allocate_nonempty_ascii_string__may_heapclean(task, size, NULL);	// Tried 'size+1' for terminal NUL byte here:  It injected NULs into text logfiles. Ungood. -- 2011-11-19 CrT
     strncpy (HEAP_STRING_AS_C_STRING( result ), buf, size);

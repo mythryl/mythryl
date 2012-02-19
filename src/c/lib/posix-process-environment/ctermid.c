@@ -45,7 +45,8 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ctermid" );
 
     if (status == NULL || *status == '\0') {
-	return RAISE_ERROR(task, "cannot determine controlling terminal");
+        //
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, "cannot determine controlling terminal", NULL);
     }
   
     return   make_ascii_string_from_c_string__may_heapclean( task, name, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c

@@ -77,7 +77,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 
 	if (n <= 0) {
 	    unbuffer_mythryl_heap_value( &read_buf );
-	    if (n <  0)   return RAISE_SYSERR(task, status);
+	    if (n <  0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	    if (n == 0)   return ZERO_LENGTH_STRING__GLOBAL;
 	}
 

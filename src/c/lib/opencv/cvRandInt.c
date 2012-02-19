@@ -37,7 +37,8 @@ _lib7_OpenCV_cvRandInt (Task *task, Val arg)
 #else
 
     extern char* no_opencv_support_in_runtime;
-    return RAISE_ERROR(task, no_opencv_support_in_runtime);
+
+    return RAISE_ERROR__MAY_HEAPCLEAN(task, no_opencv_support_in_runtime, NULL);
 
 #endif
 }

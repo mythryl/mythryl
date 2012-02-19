@@ -86,8 +86,8 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 
     /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-	if (n <  0)    	{ unbuffer_mythryl_heap_value( &vec_buf );	return RAISE_SYSERR(task, n);		}
-	if (n == 0)	{ unbuffer_mythryl_heap_value( &vec_buf );	return ZERO_LENGTH_STRING__GLOBAL;	}
+	if (n <  0)    	{ unbuffer_mythryl_heap_value( &vec_buf );	return RAISE_SYSERR__MAY_HEAPCLEAN(task, n, NULL);		}
+	if (n == 0)	{ unbuffer_mythryl_heap_value( &vec_buf );	return ZERO_LENGTH_STRING__GLOBAL;				}
 
 	// Allocate the vector.
 	// Note that this might trigger a heapcleaning, moving things around:

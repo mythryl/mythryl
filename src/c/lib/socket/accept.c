@@ -51,7 +51,7 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
 
     if (new_socket == -1) {
         //
-	return  RAISE_SYSERR( task, new_socket );
+	return  RAISE_SYSERR__MAY_HEAPCLEAN( task, new_socket, NULL);
         //
     } else {
         //

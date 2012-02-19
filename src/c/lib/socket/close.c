@@ -60,7 +60,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
 
 									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
 
-    CHECK_RETURN_UNIT(task, status);
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

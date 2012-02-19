@@ -40,7 +40,7 @@ Val   _lib7_Date_local_time   (Task* task,  Val arg) {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time" );
 
-    if (tm == NULL)   RAISE_SYSERR( task, 0 );
+    if (tm == NULL)   RAISE_SYSERR__MAY_HEAPCLEAN( task, 0, NULL );
 
     set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 9));
     set_slot_in_nascent_heapchunk(task, 1, TAGGED_INT_FROM_C_INT(tm->tm_sec));

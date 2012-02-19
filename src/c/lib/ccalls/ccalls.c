@@ -571,7 +571,8 @@ static Val   RaiseError   (Task* task,  int err)   {
     //       =========
     //
     sprintf(errbuf,"Lib7-C-Interface: %s",errtable[err]);
-    return RAISE_ERROR(task, errbuf);
+    //
+    return RAISE_ERROR__MAY_HEAPCLEAN(task, errbuf, NULL);
 }
 
 

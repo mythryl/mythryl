@@ -103,7 +103,7 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
 
     return HEAP_VOID;
 #else
-    return RAISE_ERROR(task, "time profiling not supported");
+    return RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
 #endif
 
 }
@@ -127,7 +127,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
     #ifndef HAS_SETITIMER
 	//
-	return RAISE_ERROR(task, "time profiling not supported");
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
 	//
     #else
 	//     "The system provides each process with three interval timers,
@@ -154,7 +154,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 	} else if (time_profiling_rw_vector__global == HEAP_VOID) {
 	    //
-	    return RAISE_ERROR(task, "no time_profiling_rw_vector set");
+	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "no time_profiling_rw_vector set", NULL);
 
 	} else {
 	    //
@@ -167,7 +167,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 	int status = setitimer (ITIMER_VIRTUAL, &new_itv, NULL);
 
-	CHECK_RETURN_UNIT(task, status );
+	RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
     #endif
 }

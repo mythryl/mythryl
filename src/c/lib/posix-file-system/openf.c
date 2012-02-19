@@ -75,7 +75,7 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    CHECK_RETURN( task, fd )
+    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN( task, fd, NULL );
 }
 
 

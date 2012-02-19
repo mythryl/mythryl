@@ -54,7 +54,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername" );
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     Val cdata =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr, address_len, NULL );
 

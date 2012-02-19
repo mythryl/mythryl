@@ -53,7 +53,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     char  path[ MAXPATHLEN ];
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );				// Last use of 'arg'.
 	//
 	char* status = getcwd(path, MAXPATHLEN);
 	//
@@ -61,12 +61,12 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     if (status != NULL)    return make_ascii_string_from_c_string__may_heapclean (task, path, NULL);
 
-    if (errno != ERANGE)   return RAISE_SYSERR(task, status);
+    if (errno != ERANGE)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     int   buflen = 2*MAXPATHLEN;
     char* buf    = MALLOC( buflen );
 
-    if (buf == NULL)      return RAISE_ERROR(task, "no malloc memory");
+    if (buf == NULL)      return RAISE_ERROR__MAY_HEAPCLEAN(task, "no malloc memory", NULL);
 
     while (status == NULL) {
 	//
@@ -79,12 +79,12 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 	//
         FREE (buf);
 	//
-        if (errno != ERANGE)    return RAISE_SYSERR(task, status);
+        if (errno != ERANGE)    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	//
         buflen = 2*buflen;
         buf    = MALLOC( buflen );
 	//
-        if (buf == NULL)	return RAISE_ERROR(task, "no malloc memory");
+        if (buf == NULL)	return RAISE_ERROR__MAY_HEAPCLEAN(task, "no malloc memory", NULL);
     }
       
     Val p = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);

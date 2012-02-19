@@ -74,7 +74,7 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
     if (!attribute) {
         //
         errno = EINVAL;
-        return RAISE_SYSERR(task, -1);
+        return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_sysconf", arg );
@@ -95,8 +95,8 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
         return  make_one_word_unt(task, val );
     }
 
-    if (errno == 0)   return RAISE_ERROR(task, "unsupported POSIX feature");
-    else              return RAISE_SYSERR(task, -1);
+    if (errno == 0)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "unsupported POSIX feature", NULL);
+    else              return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 }
 
 

@@ -179,7 +179,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 	if (status < 0) {
 	    //
 	    FREE(fds);
-	    return RAISE_SYSERR(task, status);
+	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	    //
 	} else {
 	    //
@@ -274,7 +274,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 /*printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status);*/
 
     if (status < 0)
-        return RAISE_SYSERR(task, status);
+        return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     else if (status == 0)
 	return LIST_NIL;
     else {

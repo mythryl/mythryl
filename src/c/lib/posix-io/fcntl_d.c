@@ -56,7 +56,7 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
 
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    CHECK_RETURN(task, fd)
+    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, NULL);
 }
 
 

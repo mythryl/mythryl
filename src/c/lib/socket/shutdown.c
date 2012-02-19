@@ -31,15 +31,15 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_shutdown");
+													ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_shutdown");
 
     int socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );						// RAISE_SYSERR	def in   src/c/lib/lib7-c.h
-												// shutdown is documented by	man 2 shutdown
+    int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );							// RAISE_SYSERR__MAY_HEAPCLEAN	def in   src/c/lib/lib7-c.h
+													// shutdown is documented by	man 2 shutdown
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_shutdown", arg );
 	//
-	if (shutdown( socket, how ) < 0)   return  RAISE_SYSERR(task, status);			// Where is 'status' coming from? Is this rational? ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
-	//
+	if (shutdown( socket, how ) < 0)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// Where is 'status' coming from? Is this rational?
+	//												// ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_shutdown" );
 
     return  HEAP_VOID;

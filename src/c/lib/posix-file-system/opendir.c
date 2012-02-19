@@ -70,7 +70,7 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (dir == NULL)  return RAISE_SYSERR(task, -1);
+    if (dir == NULL)  return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 
     return PTR_CAST( Val, dir);						// I would think just casting a C pointer to a Val and returning
 }									// it should crash the garbage collector, but doing

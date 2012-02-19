@@ -78,7 +78,7 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socketpair" );
 
-    if (status < 0)   return RAISE_SYSERR(task, status);
+    if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     return  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT(socket[0]), TAGGED_INT_FROM_C_INT(socket[1]));
 }

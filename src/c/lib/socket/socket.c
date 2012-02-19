@@ -172,7 +172,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socket" );
 										log_if( "socket.c/bot: socket d=%d errno d=%d\n", sock, errno );
-    if (sock < 0)   return RAISE_SYSERR(task, status);				// RAISE_SYSERR is defined in src/c/lib/lib7-c.h
+    if (sock < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// RAISE_SYSERR__MAY_HEAPCLEAN is defined in src/c/lib/lib7-c.h
 										// 'status' looks bogus here (ignored except on MacOS). XXX BUGGO FIXME
     return  TAGGED_INT_FROM_C_INT( sock );
 }

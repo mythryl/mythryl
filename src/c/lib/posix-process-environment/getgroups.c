@@ -98,7 +98,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	// If the error was not due to too small buffer size,
 	// raise exception.
 	//
-	if (errno != EINVAL)   return RAISE_SYSERR(task, -1);
+	if (errno != EINVAL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 
         // Find out how many groups there
         // are and allocate enough space:
@@ -113,7 +113,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	//
 	if (gp == 0) {
 	    errno = ENOMEM;
-	    return RAISE_SYSERR(task, -1);
+	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 	}
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
@@ -122,7 +122,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups" );
 
-	if (ngrps == -1)   result = RAISE_SYSERR(task, -1);
+	if (ngrps == -1)   result = RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 	else		   result = mkList (task, ngrps, gp);
         
 	FREE ((void *)gp);

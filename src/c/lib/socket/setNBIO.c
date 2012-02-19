@@ -52,10 +52,10 @@ Val   _lib7_Sock_setNBIO   (Task  *task,   Val  arg)   {
 	//
 	int n = fcntl(F_GETFL, socket);
 
-	if (n < 0)   return RAISE_SYSERR (task, n);
+	if (n < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, n, NULL);
 
-	if (GET_TUPLE_SLOT_AS_VAL(arg, 1) == HEAP_TRUE)	n |=  O_NONBLOCK;
-	else				n &= ~O_NONBLOCK;
+	if (GET_TUPLE_SLOT_AS_VAL(arg, 1) == HEAP_TRUE)	 n |=  O_NONBLOCK;
+	else				                 n &= ~O_NONBLOCK;
 
     /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
@@ -73,7 +73,7 @@ Val   _lib7_Sock_setNBIO   (Task  *task,   Val  arg)   {
     /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
     #endif
 
-    CHECK_RETURN_UNIT(task, status);
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 

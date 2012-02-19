@@ -180,9 +180,9 @@ static Val   do_concatenate_two_tuples   (Task* task,  Val arg)   {
     if (r1 == HEAP_VOID)	return r2;
     else if (r2 == HEAP_VOID)	return r1;
     else {
-      Val  result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/heapcleaner/tuple-ops.c
+	Val  result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/heapcleaner/tuple-ops.c
 
-	if (result == HEAP_VOID)   return RAISE_ERROR( task, "recordmeld: not a record");
+	if (result == HEAP_VOID)   return RAISE_ERROR__MAY_HEAPCLEAN( task, "recordmeld: not a record", NULL);
 	else                       return result;
     }
 }
@@ -272,7 +272,8 @@ static Val   do_spawn_to_disk   (Task* task,  Val arg)   {    // :
     );
 
     if (!(file = fopen(filename, "wb"))) {
-      return RAISE_ERROR( task, "Unable to open file for writing");
+	//
+	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Unable to open file for writing", NULL);
     }
 
     status =  export_fn_image( task, funct, file );				// export_fn_image	def in   src/c/heapcleaner/export-heap.c
@@ -285,7 +286,7 @@ static Val   do_spawn_to_disk   (Task* task,  Val arg)   {    // :
     // NB: It would be nice to raise a RUNTIME_EXCEPTION exception here,
     // but the Mythryl state has been trashed as a side-effect of the
     // export operation.
-    //	    return RAISE_ERROR(task, "export failed");
+    //	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "export failed", NULL);
 
     exit(1);			// Cannot execute; just here to prevent a compiler warning.
 }
@@ -317,7 +318,7 @@ static Val   do_export_heap   (Task* task,  Val arg)   {
 
     if (!(file = fopen(fname, "wb"))) {
         //
-        return RAISE_ERROR(task, "unable to open file for writing");
+        return RAISE_ERROR__MAY_HEAPCLEAN(task, "unable to open file for writing", NULL);
     }
 
     task->argument = HEAP_TRUE;
@@ -327,7 +328,7 @@ static Val   do_export_heap   (Task* task,  Val arg)   {
     fclose (file);
 
     if (status)   return HEAP_FALSE;
-    else          return RAISE_ERROR( task, "export failed");
+    else          return RAISE_ERROR__MAY_HEAPCLEAN( task, "export failed", NULL);
 }
 
 //
@@ -423,7 +424,7 @@ static Val   do_interval_tick__unimplemented   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_interval_tick__unimplemented");
 
-    return RAISE_ERROR( task, "interval_tick unimplemented");
+    return RAISE_ERROR__MAY_HEAPCLEAN(task, "interval_tick unimplemented", NULL);
 }
 
 
@@ -796,9 +797,9 @@ static Val   do_pickle_datastructure   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_pickle_datastructure");
 
-    Val  pickle =  pickle_datastructure( task, arg );								// pickle_datastructure	def in   src/c/heapcleaner/datastructure-pickler.c
+    Val  pickle =  pickle_datastructure( task, arg );										// pickle_datastructure	def in   src/c/heapcleaner/datastructure-pickler.c
 
-    if (pickle == HEAP_VOID)   return RAISE_ERROR(task, "Attempt to pickle datastructure failed");		// XXX BUGGO FIXME Need a clearer diagnostic here.
+    if (pickle == HEAP_VOID)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "Attempt to pickle datastructure failed", NULL);		// XXX BUGGO FIXME Need a clearer diagnostic here.
     else                       return pickle;
 }
 
@@ -828,8 +829,9 @@ static Val   do_unpickle_datastructure   (Task* task,  Val arg)   {
 	    &seen_error
 	);
 
-    if (seen_error)  	return RAISE_ERROR( task, "unpickle_datastructure");
-    else         	return datastructure;
+    if (seen_error)  	return RAISE_ERROR__MAY_HEAPCLEAN(task, "unpickle_datastructure", NULL);
+
+    return datastructure;
 }
 
 
@@ -881,28 +883,28 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "do_set_sigalrm_frequency" );
 
-    CHECK_RETURN_UNIT(task, status);
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
 #elif defined(OPSYS_WIN32)
 
     if (arg == OPTION_NULL) {
 
 	if (win32StopTimer())	  return HEAP_VOID;
-	else                      return RAISE_ERROR( task, "win32 setitimer: couldn't stop timer");
+	else                      return RAISE_ERROR__MAY_HEAPCLEAN( task, "win32 setitimer: couldn't stop timer", NULL);
 
     } else {
 
 	Val	tmp = OPTION_GET(arg);
 	int		mSecs = TUPLE_GET_INT1(tmp,0) * 1000 + GET_TUPLE_SLOT_AS_INT(tmp,1) / 1000;
 
-	if (mSecs <= 0)   return RAISE_ERROR( task, "win32 setitimer: invalid resolution");
+	if (mSecs <= 0)   return RAISE_ERROR__MAY_HEAPCLEAN( task, "win32 setitimer: invalid resolution", NULL);
 	else {
 	    if (win32StartTimer(mSecs))	   return HEAP_VOID;
-	    else                           return RAISE_ERROR( task, "win32 setitimer: couldn't start timer");
+	    else                           return RAISE_ERROR__MAY_HEAPCLEAN( task, "win32 setitimer: couldn't start timer", NULL);
 	}
     }
 #else
-    return RAISE_ERROR( task, "setitimer not supported");
+    return RAISE_ERROR__MAY_HEAPCLEAN( task, "setitimer not supported", NULL);
 #endif
 
 }

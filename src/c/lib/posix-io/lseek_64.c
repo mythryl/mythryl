@@ -64,7 +64,7 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64" );
 
-    if (pos < 0)    RAISE_SYSERR (task, (int)pos);
+    if (pos < 0)    RAISE_SYSERR__MAY_HEAPCLEAN(task, (int)pos, NULL);
 
     #if (SIZEOF_OFF_T > 4)						// As above.
         Val poshi =  make_one_word_unt(task,   (Unt1) (pos >> 32));	// 64-bit issue.

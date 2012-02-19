@@ -155,7 +155,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
     log_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
 
-    CHECK_RETURN_UNIT(task, status);		// CHECK_RETURN_UNIT	is from   src/c/lib/lib7-c.h
+    RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/lib7-c.h
 }
 
 // EINTR discussion:      (2010-02-26 CrT)

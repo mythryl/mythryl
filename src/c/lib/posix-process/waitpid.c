@@ -78,7 +78,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 
 /*  } while (result < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (result < 0)   return RAISE_SYSERR(task, result);
+    if (result < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, result, NULL);
 
     if (WIFEXITED(status)) {
 	//
@@ -97,7 +97,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 
     } else {
 
-        return RAISE_ERROR(task, "unknown child status");
+        return RAISE_ERROR__MAY_HEAPCLEAN(task, "unknown child status", NULL);
     }
 
     return   make_three_slot_record(task,  TAGGED_INT_FROM_C_INT(result), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val) );

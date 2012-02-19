@@ -45,7 +45,7 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname" );
 
-    if (name == NULL)   return RAISE_ERROR(task, "not a terminal device");
+    if (name == NULL)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "not a terminal device", NULL);
     //  
     return make_ascii_string_from_c_string__may_heapclean( task, name, NULL );
 }

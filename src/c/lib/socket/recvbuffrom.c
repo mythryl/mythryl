@@ -96,7 +96,7 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
 
 	if (n < 0) {
 	    unbuffer_mythryl_heap_value( &readbuf_buf );
-	    return RAISE_SYSERR(task, status);
+	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	}
 
 	Val   buf      =  GET_TUPLE_SLOT_AS_VAL( arg, 1);		// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.

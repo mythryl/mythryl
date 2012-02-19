@@ -52,7 +52,7 @@ Val   _lib7_netdb_get_host_name  (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
 	//
-	if (gethostname( hostname, MAXHOSTNAMELEN ) == -1)   return  RAISE_SYSERR( task,  status);
+	if (gethostname( hostname, MAXHOSTNAMELEN ) == -1)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "" );
 
