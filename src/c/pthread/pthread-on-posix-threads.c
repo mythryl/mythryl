@@ -668,7 +668,8 @@ Pthread*  pth__get_pthread   ()   {
 //
 //     src/c/h/runtime-base.h
 //
-void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
+void   release_mythryl_heap   (Pthread* pthread,  const char* fn_name,  Val* arg)   {
+    // ====================
     //
 // if (running_script) log_if("release_mythryl_heap: acquiring pth__mutex...");
     //
@@ -678,7 +679,7 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
 	--pth__running_pthreads_count;
 	//
-	pthread->task->protected_c_arg = arg;						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
+	if (arg)   pthread->task->protected_c_arg = arg;				// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//
 // if (running_script) log_if("release_mythryl_heap: broadcasting on  pth__condvar...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
@@ -693,7 +694,9 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 //
 //     src/c/h/runtime-base.h
 //
-void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
+void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
+    // ====================
+    //
     //
 // if (running_script) log_if("recover_mythryl_heap: acquiring pth__mutex...");
     pthread_mutex_lock(   &pth__mutex  );
