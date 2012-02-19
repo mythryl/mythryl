@@ -328,8 +328,8 @@ void   set_signal_mask   (Task* task, Val arg)   {
 }
 
 
-Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/signal/getsigmask.c
-    //=============== 
+Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)   {		// Called from src/c/lib/signal/getsigmask.c
+    //==============================
     // 
     // 'arg' is unused.
     // 
@@ -339,7 +339,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask__may_heapclean");
 
     Signal_Set	mask;
     int		i;
@@ -368,7 +368,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 	//
     } else {
 	//
-        Roots extra_roots = { &signal_list, NULL };
+        Roots roots1 = { &signal_list, extra_roots };
 	//
 	for (i = 0, signal_list = LIST_NIL;   i < NUM_SYSTEM_SIGS;   i++) {
 
@@ -379,12 +379,12 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 	    if (agegroup0_freespace_in_bytes( task )
 	      < agegroup0_usedspace_in_bytes( task )
 	    ){
-		call_heapcleaner_with_extra_roots( task,  0, &extra_roots );
+		call_heapcleaner_with_extra_roots( task,  0, &roots1 );
 	    }
 
 	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id)) {
 	        //
-		Val name =  make_ascii_string_from_c_string__may_heapclean (task, SigInfo[i].name, &extra_roots );
+		Val name =  make_ascii_string_from_c_string__may_heapclean (task, SigInfo[i].name, &roots1 );
 
 		Val sig  =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 

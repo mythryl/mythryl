@@ -76,8 +76,8 @@ void   set_signal_mask   (Task* task, Val sigList)   {
 }
 
 
-Val   get_signal_mask   (Task* task, Val arg)   {
-    //=============
+Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)   {
+    //===============
     //
     // Return the current signal mask (only those signals supported by Lib7); like
     // set_signal_mask, the result has the following semantics:
@@ -86,7 +86,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {
     //	THE l	-- the signals in l are the mask
     //
 #ifdef WIN32_DEBUG
-    debug_say("win32:get_signal_mask: returning mask as NULL\n");
+    debug_say("win32:get_signal_mask__may_heapclean: returning mask as NULL\n");
 #endif
     return OPTION_NULL;
 }
