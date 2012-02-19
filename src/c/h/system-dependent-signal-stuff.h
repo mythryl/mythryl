@@ -52,13 +52,13 @@ extern void   load_resume_state			(Task* task);
 //     src/c/machine-dependent/posix-signal.c
 //     src/c/machine-dependent/win32-signal.c
 //
-extern void	pause_until_signal	(Pthread* pthread);						//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
-extern void	set_signal_state	(Pthread* pthread, int signal_number, int signal_state);
-extern int	get_signal_state	(Pthread* pthread, int signal_number);
+extern void	pause_until_signal		(Pthread* pthread);						//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
+extern void	set_signal_state		(Pthread* pthread, int signal_number, int signal_state);
+extern int	get_signal_state		(Pthread* pthread, int signal_number);
 //
-extern Val	list_signals		(Task* task);
-extern void	set_signal_mask		(Task* task, Val signal_list);
-extern Val	get_signal_mask		(Task* task, Val arg);
+extern Val	list_signals__may_heapclean	(Task* task, Roots*);
+extern void	set_signal_mask			(Task* task, Val signal_list);
+extern Val	get_signal_mask			(Task* task, Val arg);
 
 #endif // SYSTEM_DEPENDENT_SIGNAL_STUFF_H
 

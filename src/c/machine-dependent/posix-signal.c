@@ -58,10 +58,10 @@ extern		Zero_Heap_Allocation_Limit[];					// Actually a pointer, not an array.
 static void   c_signal_handler   (/* int sig,  Signal_Handler_Info_Arg info,  Signal_Handler_Context_Arg* scp */);
 
 
-Val   list_signals   (Task* task)   {						// Called from src/c/lib/signal/listsignals.c
-    //============
+Val   list_signals__may_heapclean   (Task* task, Roots* extra_roots)   {						// Called from src/c/lib/signal/listsignals.c
+    //===========================
     //
-    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, NULL);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, extra_roots);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 void   pause_until_signal   (Pthread* pthread) {

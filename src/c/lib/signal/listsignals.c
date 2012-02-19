@@ -33,8 +33,8 @@ Val   _lib7_Sig_listsigs   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sig_listsigs");
 
-    return   list_signals( task );		// See src/c/machine-dependent/posix-signal.c
-}						// This does not actually make a system call.
+    return   list_signals__may_heapclean( task, NULL );			// See src/c/machine-dependent/posix-signal.c
+}									// This does not actually make a system call.
 
 
 

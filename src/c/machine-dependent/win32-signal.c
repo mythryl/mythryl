@@ -21,16 +21,16 @@
     #define SELF_PTHREAD	(pthread_table__global[ 0 ])
 #endif
 
-Val   list_signals   (Task* task)   {
-    //===========
+Val   list_signals__may_heapclean  (Task* task, Roots* extra_roots)   {
+    //===========================
     #ifdef WIN32_DEBUG
 	debug_say("win32:list_signals: returning dummy signal list\n");
     #endif
-    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, NULL);
+    return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, extra_roots);
 } 
 
 void   pause_until_signal   (Pthread* pthread) {
-    // ================
+    // ==================
     // Suspend the given Pthread until a signal is received.
     //
     #ifdef WIN32_DEBUG
