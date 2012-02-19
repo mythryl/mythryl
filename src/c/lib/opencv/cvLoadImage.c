@@ -18,7 +18,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
 #include "cfun-proto-list.h"
-#include "../lib7-c.h"
+#include "../raise-error.h"
 
 /* _lib7_OpenCV_cvLoadImage : String -> Image
  *

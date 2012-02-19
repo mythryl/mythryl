@@ -37,7 +37,7 @@
 #include "heapcleaner.h"
 #include "heap-io.h"
 
-#include "lib7-c.h"
+#include "raise-error.h"
 #include "mythryl-callable-c-libraries.h"
 #include "make-strings-and-vectors-etc.h"
 

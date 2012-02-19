@@ -13,7 +13,7 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include "../lib7-c.h"
+#include "../raise-error.h"
 
 #include <string.h>	// XXX BUGGO DELETEME
 

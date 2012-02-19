@@ -22,7 +22,7 @@
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 #include "cfun-proto-list.h"
 
 #define MODE_BITS (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID)

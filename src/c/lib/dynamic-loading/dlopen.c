@@ -19,7 +19,7 @@ extern void dlerror_set (const char *fmt, const char *s);
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 #include "cfun-proto-list.h"
 
 Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool) -> one_word_unt::Unt

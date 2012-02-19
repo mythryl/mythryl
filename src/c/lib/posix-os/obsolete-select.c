@@ -25,7 +25,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
 #include "ml-signal.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 #include "cfun-proto-list.h"
 
 #ifdef HAS_SELECT

@@ -7,7 +7,7 @@
 #include "fp-dep.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 #ifndef NO_ROUNDING_MODE_CTL
     // 

@@ -18,7 +18,7 @@
 //	    global 'errno' is used.
 //
 //	    This macro is checked only once, in
-//		src/c/lib/lib7-c.h
+//		src/c/lib/raise-error.h
 
 
 #ifndef SYSTEM_DEPENDENT_STUFF_H

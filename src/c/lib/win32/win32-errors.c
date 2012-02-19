@@ -9,7 +9,7 @@
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 /* _lib7_win32_get_last_error: Void -> word
  */

@@ -54,7 +54,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "mythryl-callable-c-libraries.h"
 
-#include "../lib7-c.h"
+#include "../raise-error.h"
 
 struct mutex_struct {
     //

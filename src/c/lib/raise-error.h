@@ -1,4 +1,4 @@
-// lib7-c.h
+// raise-error.h
 //
 // Header file for C functions that are callable from Mythryl.
 // We define a number of macros for checking return results

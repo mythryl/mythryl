@@ -8,7 +8,7 @@
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 // One of the library bindings exported via
 //     src/c/lib/date/cfun-list.h

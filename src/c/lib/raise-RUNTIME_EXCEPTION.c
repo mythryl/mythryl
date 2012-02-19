@@ -11,7 +11,7 @@
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 
 #ifndef HAS_STRERROR
@@ -50,7 +50,7 @@ Val   raise_sys_error__may_heapclean (
     // We normally get invoked via either the
     // RAISE_SYSERR__MAY_HEAPCLEAN or RAISE_ERROR__MAY_HEAPCLEAN macro from
     //
-    //     src/c/lib/lib7-c.h 
+    //     src/c/lib/raise-error.h 
     //
     // For the time being, we use the errno value as the System_Error; eventually that
     // will be represented by an (Int, String) pair.  If alt_msg is non-zero,

@@ -5,7 +5,7 @@
 #include "runtime-base.h"
 #include "mythryl-callable-c-libraries.h"
 #include "cfun-proto-list.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 
 // The table of C functions and Lib7 names:

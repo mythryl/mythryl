@@ -9,7 +9,7 @@
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 #define TMP_PREFIX "TMP-LIB7"
 

@@ -6,7 +6,7 @@
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 
 
 Val   raise_sys_error__may_heapclean   (Task* task,  const char* altMsg,  char* at, Roots* extra_roots)   {

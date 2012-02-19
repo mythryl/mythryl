@@ -10,7 +10,7 @@
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "lib7-c.h"
+#include "raise-error.h"
 #include "cfun-proto-list.h"
 
 
@@ -34,7 +34,7 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
 													ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_shutdown");
 
     int socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );							// RAISE_SYSERR__MAY_HEAPCLEAN	def in   src/c/lib/lib7-c.h
+    int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );							// RAISE_SYSERR__MAY_HEAPCLEAN	def in   src/c/lib/raise-error.h
 													// shutdown is documented by	man 2 shutdown
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_shutdown", arg );
 	//
