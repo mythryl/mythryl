@@ -1,4 +1,4 @@
-// win32-raise-syserr.c
+// raise-error-win32.c
 
 #include "../mythryl-config.h"
 
@@ -9,7 +9,7 @@
 #include "raise-error.h"
 
 
-Val   raise_sys_error__may_heapclean   (Task* task,  const char* altMsg,  char* at, Roots* extra_roots)   {
+Val   raise_error__may_heapclean   (Task* task,  const char* altMsg,  char* at, Roots* extra_roots)   {
     //
     // RaiseSysError:
     //

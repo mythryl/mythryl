@@ -1,4 +1,4 @@
-// raise-RUNTIME_EXCEPTION.c
+// raise-error.c
 
 #include "../mythryl-config.h"
 
@@ -35,7 +35,7 @@
 
 
 
-Val   raise_sys_error__may_heapclean (
+Val   raise_error__may_heapclean (
     //==============================
     //
     Task*	    task,
@@ -116,7 +116,7 @@ Val   raise_sys_error__may_heapclean (
     raise_mythryl_exception( task, syserr_exception );		// raise_mythryl_exception	is from    src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     return  syserr_exception;
-}								// fun raise_sys_error__may_heapclean
+}								// fun raise_error__may_heapclean
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
