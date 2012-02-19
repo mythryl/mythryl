@@ -543,8 +543,8 @@ extern int    log_if_fd;
 extern void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  );		// release_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
 extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name             );		// recover_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
 //
-#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )	release_mythryl_heap(  pthread,  fn_name,  &arg  )
-#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name         )
+#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )	release_mythryl_heap(  pthread,  fn_name,  arg  )
+#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name        )
     //
     // For background comments see Note[1]
 
@@ -885,7 +885,7 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 // lengthy C operation (which does not involve the Mythryl heap!)
 // should do
 //
-//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", arg );
+//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", &arg );
 //         //
 //         slow_c_operation_not_using_mythryl_heap();
 //         //

@@ -39,7 +39,7 @@ Val   _lib7_Sock_getATMARK   (Task* task,  Val arg)   {
 
     int device = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getATMARK", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getATMARK", &arg );
 	//
 	int	                                         n;
 	int status = ioctl (device, SIOCATMARK, (char*) &n );

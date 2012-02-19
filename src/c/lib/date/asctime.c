@@ -48,7 +48,7 @@ Val   _lib7_Date_ascii_time   (Task* task, Val arg)   {
 
     Val result = allocate_nonempty_ascii_string__may_heapclean(task, DATE_LEN, NULL);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", &arg );
 	//
         char* string = asctime( &tm );
 	//

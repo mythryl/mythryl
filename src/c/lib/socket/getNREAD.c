@@ -37,7 +37,7 @@ Val   _lib7_Sock_getNREAD   (Task* task,  Val arg)   {
 
     int device = TAGGED_INT_TO_C_INT(arg);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getNREAD", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getNREAD", &arg );
 	//
 	int	                                       n;
 	int status = ioctl( device, FIONREAD, (char*) &n );

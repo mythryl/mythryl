@@ -49,7 +49,7 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
     struct in_addr*  heap_arg =  (struct in_addr*) HEAP_STRING_AS_C_STRING(arg);
     struct in_addr      c_arg = *heap_arg;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_address", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_address", &arg );
 	//
 	struct hostent* result = gethostbyaddr (&c_arg, sizeof(struct in_addr), AF_INET);
 	//

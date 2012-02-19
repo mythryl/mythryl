@@ -58,7 +58,7 @@ Val   _lib7_P_FileSys_link   (Task* task,  Val arg)   {
     {	char* c_existing =  buffer_mythryl_heap_value( &existing_buf, (void*) heap_existing, strlen( heap_existing ) +1 );		// '+1' for terminal NUL on string.
 	char* c_new_name =  buffer_mythryl_heap_value( &new_name_buf, (void*) heap_new_name, strlen( heap_new_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link", &arg );
 	    //
 	    status = link( c_existing, c_new_name );
 	    //

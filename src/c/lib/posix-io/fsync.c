@@ -42,7 +42,7 @@ Val   _lib7_P_IO_fsync   (Task* task,  Val arg)   {
     int status;
     int fd = TAGGED_INT_TO_C_INT(arg);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fsync", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fsync", &arg );
 	//
 	status = fsync(fd);
 	//

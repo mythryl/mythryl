@@ -44,7 +44,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
 									log_if( "close.c/top: fd d=%d\n", fd );
     errno = 0;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close", &arg );
 	//
 	#if defined(OPSYS_WIN32)
 	    status = closesocket(fd);

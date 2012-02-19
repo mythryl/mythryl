@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_getgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getgid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgid", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgid", &arg );
 	//
 	int gid = getgid ();
 	//

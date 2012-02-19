@@ -46,7 +46,7 @@ Val   _lib7_P_FileSys_rewinddir   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_rewinddir");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir", &arg );
 	//
 	rewinddir(PTR_CAST(DIR*, arg));
 	//

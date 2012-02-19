@@ -59,7 +59,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
         //
 	socklen_t  optSz =  sizeof( struct linger );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", &arg );
 	    //
 	    status =  getsockopt( socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, &optSz );
 	    //
@@ -78,7 +78,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
 	    optVal.l_linger = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	}
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", &arg );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
 	    //

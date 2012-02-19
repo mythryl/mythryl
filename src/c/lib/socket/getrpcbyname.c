@@ -52,7 +52,7 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
     //
     {   char* c_name =  buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbyname", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbyname", &arg );
 	    //
 	    rentry =  getrpcbyname( c_name );
 	    //

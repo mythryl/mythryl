@@ -56,7 +56,7 @@ Val   _lib7_P_FileSys_ftruncate_64   (Task* task,  Val arg)   {
 
 /*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate_64", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate_64", &arg );
 	    //
 	    status = ftruncate (fd, len);						// This call can return EINTR, so it is officially "slow".
 	    //

@@ -42,7 +42,7 @@ Val   _lib7_P_TTY_tcgetpgrp   (Task* task,  Val arg)   {
 
     int fd = TAGGED_INT_TO_C_INT(arg);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetpgrp", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetpgrp", &arg );
 	//
 	int result = tcgetpgrp( fd );
 	//

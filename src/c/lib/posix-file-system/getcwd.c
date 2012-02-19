@@ -53,7 +53,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     char  path[ MAXPATHLEN ];
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );				// Last use of 'arg'.
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );				// Last use of '&arg'.
 	//
 	char* status = getcwd(path, MAXPATHLEN);
 	//
@@ -70,7 +70,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     while (status == NULL) {
 	//
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", &arg );
 	    //
             status = getcwd(buf, buflen);
 	    //

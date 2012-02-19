@@ -39,7 +39,7 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_ttyname");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname", &arg );
 	//
 	char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
 	//

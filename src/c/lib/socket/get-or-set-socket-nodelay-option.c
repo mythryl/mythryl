@@ -46,7 +46,7 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
         //
 	socklen_t opt_size = sizeof(int);
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", &arg );
 	    //
 	    status = getsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, &opt_size);
 	    //
@@ -58,7 +58,7 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
 
 	flag = (Bool) TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", &arg );
 	    //
 	    status = setsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, sizeof(int));
 	    //

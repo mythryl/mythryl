@@ -65,7 +65,7 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     //
     {	char* c_protocol =  buffer_mythryl_heap_value( &protocol_buf, (void*) heap_protocol, strlen( heap_protocol ) +1 );		// '+1' for terminal NUL on string.
         //
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port", &arg );
 	    //
 	    result =  getservbyport( port, c_protocol );
 	    //

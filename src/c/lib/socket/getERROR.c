@@ -36,7 +36,7 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
 
     socklen_t	opt_size = sizeof(int);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR", &arg );
 	//
 	int	                                                                flag;
 	int status =  getsockopt( socket, SOL_SOCKET, SO_ERROR, (sockoptval_t) &flag, &opt_size );

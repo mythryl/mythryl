@@ -48,7 +48,7 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
 
 /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_d", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_d", &arg );
 	    //
 	    fd = fcntl(fd0, F_DUPFD, fd1);
 	    //

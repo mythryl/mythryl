@@ -48,7 +48,7 @@ Val   _lib7_netdb_get_protocol_by_number   (Task* task,  Val arg)   {
 
     int number = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number", &arg );
 	//
 	struct protoent*  pentry =   getprotobynumber( number );
 	//

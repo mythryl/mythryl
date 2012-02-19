@@ -57,7 +57,7 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
 
 /*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_readbuf", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_readbuf", &arg );
 	    //
 	    n = read( fd, c_vec, nbytes );
 	    //

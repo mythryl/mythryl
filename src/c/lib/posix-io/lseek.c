@@ -44,7 +44,7 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
     off_t offset =  GET_TUPLE_SLOT_AS_INT(arg, 1);
     int   whence =  GET_TUPLE_SLOT_AS_INT(arg, 2);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "", &arg );
 	//
 	off_t pos = lseek(fd, offset, whence);
 	//

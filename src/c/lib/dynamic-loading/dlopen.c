@@ -62,7 +62,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	if (global) flag |= RTLD_GLOBAL;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", &arg );
 	    //
 	    handle = dlopen (libname, flag);
 	    //

@@ -40,7 +40,7 @@ Val   _lib7_Sig_setsigstate   (Task* task,  Val arg)   {
     int signal_number =  GET_TUPLE_SLOT_AS_INT(sig, 0);
     int signal_state  =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_setsigstate", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_setsigstate", &arg );
 	//
 	set_signal_state(								// set_signal_state	def in    src/c/machine-dependent/posix-signal.c
 	    //

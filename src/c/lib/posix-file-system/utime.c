@@ -69,7 +69,7 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 
 	if (actime == -1) {
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", &arg );
 		//
 		status = utime( c_path, NULL );
 		//
@@ -82,7 +82,7 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 	    tb.actime = actime;
 	    tb.modtime = modtime;
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", &arg );
 		//
 		status = utime( c_path, &tb );
 		//

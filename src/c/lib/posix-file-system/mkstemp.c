@@ -52,7 +52,7 @@ Val   _lib7_P_FileSys_mkstemp   (Task* task,  Val arg)   {
 
 /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "", &arg );
 	//
 	fd  =  mkstemp( buf );
 	//

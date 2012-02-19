@@ -48,7 +48,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     int sockfd = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername", arg );			// Last use of 'arg'.
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername", arg );			// Last use of '&arg'.
 	//
 	int status = getpeername (sockfd, (struct sockaddr *)addr, &address_len);
 	//

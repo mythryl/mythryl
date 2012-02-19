@@ -64,7 +64,7 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
 
     int	 socket[2];
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socketpair", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socketpair", &arg );
 	//
 	int status
 	    =

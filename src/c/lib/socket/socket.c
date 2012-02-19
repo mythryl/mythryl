@@ -166,7 +166,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
 										log_if( "socket.c/top: domain d=%d (%s) type d=%d (%s) protocol d=%d\n", domain, domain_name(domain), type, type_name(type), protocol );
     errno = 0;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socket", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socket", &arg );
 	//
 	int sock =  socket (domain, type, protocol);				// socket	documented in   man 2 socket
 	//

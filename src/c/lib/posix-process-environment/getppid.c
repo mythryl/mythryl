@@ -37,7 +37,7 @@ Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getppid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getppid", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getppid", &arg );
 	//
 	int ppid =  getppid ();
 	//

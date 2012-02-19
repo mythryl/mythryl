@@ -43,7 +43,7 @@ Val   _lib7_Sock_listen   (Task* task,  Val arg)   {
     int socket  =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int backlog =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_listen", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_listen", &arg );
 	//
 	int status =  listen( socket, backlog );
 	//

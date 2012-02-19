@@ -37,7 +37,7 @@ Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
 
     int sig_num = GET_TUPLE_SLOT_AS_INT(arg, 0);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigstate", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigstate", &arg );
 	//
 	int state = get_signal_state (task->pthread, sig_num );
 	//

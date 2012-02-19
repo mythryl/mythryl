@@ -45,7 +45,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
     char	address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname", arg );					// Last use of 'arg'.
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname", arg );					// Last use of '&arg'.
 	//
 	int status = getsockname (socket, (struct sockaddr*) address_buf, &address_len);
 	//

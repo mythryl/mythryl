@@ -42,7 +42,7 @@ Val   _lib7_P_IO_pipe   (Task* task,  Val arg)   {
     int         status;
     int         fds[2];
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_pipe", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_pipe", &arg );
 	//
 	status =  pipe(fds);
 	//

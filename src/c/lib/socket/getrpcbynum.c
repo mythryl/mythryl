@@ -55,7 +55,7 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
 
     int number = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum", &arg );
 	//
 	rentry = getrpcbynumber( number );
 	//

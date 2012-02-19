@@ -121,7 +121,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 	    buffer_mythryl_heap_value( &pathname_buf, (void*) heap_pathname, strlen( heap_pathname ) +1 );		// '+1' for terminal NUL on string.
 
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf", &arg );
 	    //
 	    errno = 0;
 	    while (((val = pathconf (c_pathname, attribute->val)) == -1) && (errno == EINTR)) {
@@ -165,7 +165,7 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 	return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", &arg );
 	//
 	errno = 0;
 	while (((val = fpathconf (fd, attribute->val)) == -1) && (errno == EINTR)) {

@@ -73,7 +73,7 @@ Val   _lib7_Sock_recvbuf   (Task* task,  Val arg)   {
     //
     {   char* c_readbuf =  buffer_mythryl_heap_nonvalue( &readbuf_buf, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvbuf", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvbuf", &arg );
 	    //
 	/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//

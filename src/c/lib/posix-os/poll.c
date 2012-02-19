@@ -168,7 +168,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
 /*      do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", arg );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", &arg );
 		//
 		status = poll (fds, nfds, tout);
 		//
@@ -261,7 +261,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", &arg );
 	    //
 	    status = select (maxFD+1, rfds, wfds, efds, timeout);
 	    //

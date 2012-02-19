@@ -65,7 +65,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 										log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
 	errno = 0;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recv", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recv", &arg );
 	    //
 	/*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//

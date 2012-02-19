@@ -62,7 +62,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     memcpy (data.c_cc, GET_VECTOR_DATACHUNK_AS( void*, c_cc ), NCCS);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
 	//
 	int status = cfsetispeed (&data, ispeed);
 	//
@@ -72,7 +72,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
 	//
 	status = cfsetospeed (&data, ospeed);
 	//
@@ -82,7 +82,7 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", &arg );
 	//
 	status = tcsetattr(fd, action, &data);
 	//

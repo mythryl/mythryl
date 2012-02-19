@@ -134,7 +134,7 @@ Val   _lib7_P_FileSys_stat   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_stat", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_stat", &arg );
 	    //
 	    status =  stat( c_path, &buf );
 	    //
@@ -175,7 +175,7 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
     int           fd = TAGGED_INT_TO_C_INT(arg);
     struct stat   buf;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fstat", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fstat", &arg );
 	//
 	status =  fstat( fd, &buf );
 	//
@@ -225,7 +225,7 @@ Val   _lib7_P_FileSys_lstat   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_lstat", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_lstat", &arg );
 	    //
 	    status = lstat(c_path, &buf);
 	    //

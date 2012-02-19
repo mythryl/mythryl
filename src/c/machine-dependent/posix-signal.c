@@ -320,7 +320,7 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //
 //  log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x", mask );	// Commented out because it floods mythryl.compile.log -- 2011-10-10 CrT
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "set_signal_mask", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "set_signal_mask", NULL );
 	//
 	SET_PROCESS_SIGNAL_MASK( mask );
 	//
@@ -345,7 +345,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
     int		i;
     int		n;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", &arg );
 	//
 	GET_PROCESS_SIGNAL_MASK( mask );
 	//

@@ -81,7 +81,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 
     Val	result;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", &arg );
 	//
 	int ngrps =  getgroups( NGROUPS_MAX, gidset );
 	//
@@ -103,7 +103,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
         // Find out how many groups there
         // are and allocate enough space:
         //
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", &arg );
 	    //
 	    ngrps = getgroups( 0, gidset );
 	    //
@@ -116,7 +116,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 	}
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", &arg );
 	    //
 	    ngrps = getgroups (ngrps, gp);
 	    //

@@ -42,7 +42,7 @@ Val   _lib7_Sock_bind   (Task* task,  Val arg)   {
 
     struct sockaddr c_sockaddr = *heap_sockaddr;			// May not reference Mythryl heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP, so make copy on C stack.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_bind", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_bind", &arg );
 	//
 	int status = bind (socket, &c_sockaddr, addr_len);
 	//

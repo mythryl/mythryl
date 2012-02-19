@@ -37,7 +37,7 @@ Val   _lib7_P_ProcEnv_setgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setgid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setgid", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setgid", &arg );
 	//
 	int status =  setgid( WORD_LIB7toC( arg ));
 	//

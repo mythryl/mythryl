@@ -58,7 +58,7 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
     int  whence = GET_TUPLE_SLOT_AS_INT(arg, 3);
 
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64", &arg );
 	//
 	off_t pos =  lseek(fd, offset, whence);
 	//

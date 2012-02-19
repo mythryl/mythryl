@@ -34,7 +34,7 @@ Val   _lib7_Date_local_time   (Task* task,  Val arg) {
 
     time_t t =  (time_t)  INT1_LIB7toC( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time", &arg );
 	//
         struct tm*  tm =  localtime( &t );
 	//
