@@ -7,7 +7,7 @@
 //
 // Our primary entrypoint is
 //
-//      load_compiled_files (),
+//      load_compiled_files__may_heapclean (),
 //
 // which is invoked from src/c/main/runtime-main.c:main()
 // when mythryl-runtime-intel32 is given the "--runtime-compiledfiles-to-load=filename"
@@ -95,16 +95,13 @@ static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
 //
  static FILE* open_file				(const char* filename,   Bool isBinary);
 //
+ static Val   read_in_compiled_file_list__may_heapclean ( Task* task, const char* compiled_files_to_load_filename, int* max_boot_path_len_ptr, Roots* extra_roots );
  static void  load_compiled_file		(Task* task, char* filename);
  static void  register_compiled_file_exports	(Task* task, Picklehash* picklehash, Val chunk);
  static Val   picklehash_to_exports_tree	(Picklehash* picklehash);
 
  static void  picklehash_to_hex_string		(char *buf, int buflen, Picklehash* picklehash);
 
- static Val   read_in_compiled_file_list	( Task* task,
-                                                  const char*    compiled_files_to_load_filename,
-			                          int*           max_boot_path_len_ptr
-                                                );
 
 static FILE*       log_fd = NULL;
 
@@ -130,11 +127,12 @@ static void   open_logfile   () {
 
 
 
-void   load_compiled_files   (
-    // ======================
+void   load_compiled_files__may_heapclean   (
+    // ==================================
     //
     const char*         compiled_files_to_load_filename,
-    Heapcleaner_Args*   heap_parameters					// See   struct cleaner_args   in   src/c/h/heap.h
+    Heapcleaner_Args*   heap_parameters,				// See   struct cleaner_args   in   src/c/h/heap.h
+    Roots*              extra_roots
 ){
     // Load into the runtime heap all the .compiled files
     // listed one per line in given compiled_files_to_load file:
@@ -194,10 +192,11 @@ void   load_compiled_files   (
     //
     compiled_file_list
 	=
-	read_in_compiled_file_list (
+	read_in_compiled_file_list__may_heapclean (
 	    task,
             compiled_files_to_load_filename,
-            &max_boot_path_len
+            &max_boot_path_len,
+	    extra_roots
 	);
 
     // This space is ultimately wasted:           XXX BUGGO FIXME
@@ -294,12 +293,13 @@ void   load_compiled_files   (
 }
 
 
-static Val   read_in_compiled_file_list   (
-    //       ==========================
+static Val   read_in_compiled_file_list__may_heapclean   (
+    //       =========================================
     //
     Task*          task,
     const char*    compiled_files_to_load_filename,
-    int*           return_max_boot_path_len
+    int*           return_max_boot_path_len,
+    Roots*         extra_roots
 ){
     // Open given file and read from it the list of
     // filenames of compiled_files to be later loaded.
@@ -333,7 +333,7 @@ static Val   read_in_compiled_file_list   (
 	);
     }
 
-    Val  file_list = LIST_NIL;			Roots extra_roots = { &file_list, NULL };
+    Val  file_list = LIST_NIL;			Roots roots1 = { &file_list, extra_roots };
 
     if (list_fd) {
 
@@ -435,10 +435,10 @@ static Val   read_in_compiled_file_list   (
 	    if (agegroup0_freespace_in_bytes( task )
 	      < agegroup0_usedspace_in_bytes( task )
 	    ){
-		call_heapcleaner_with_extra_roots( task,  0, &extra_roots );
+		call_heapcleaner_with_extra_roots( task,  0, &roots1 );
 	    }
 
-	    Val file_name = make_ascii_string_from_c_string__may_heapclean(task, p, &extra_roots);
+	    Val file_name = make_ascii_string_from_c_string__may_heapclean(task, p, &roots1 );
 
 	    file_list = LIST_CONS(task, file_name, file_list);
 	}
@@ -452,7 +452,7 @@ static Val   read_in_compiled_file_list   (
     // Reverse filename list (to restore
     // original order) and return it:
     //
-    {   Val file_list2 = LIST_NIL;			Roots extra_roots2 = { &file_list2, &extra_roots };
+    {   Val file_list2 = LIST_NIL;			Roots roots2 = { &file_list2, &roots1 };
 	//
 	for (; file_list != LIST_NIL;  file_list = LIST_TAIL(file_list)) {
 	    //
@@ -466,7 +466,7 @@ static Val   read_in_compiled_file_list   (
 	    if (agegroup0_freespace_in_bytes( task )
 	      < agegroup0_usedspace_in_bytes( task )
 	    ){
-		call_heapcleaner_with_extra_roots( task,  0, &extra_roots2 );
+		call_heapcleaner_with_extra_roots( task,  0, &roots2 );
 	    }
 	}
 

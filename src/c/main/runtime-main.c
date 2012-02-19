@@ -100,7 +100,7 @@ int   main   (int argc, char** argv) {
 	do_start_of_world_stuff( argc, argv );
 
 
-    if (is_boot)         load_compiled_files(  compiled_files_to_load_filename, heapcleaner_args );				// load_compiled_files					def in   src/c/main/load-compiledfiles.c
+    if (is_boot)         load_compiled_files__may_heapclean(  compiled_files_to_load_filename, heapcleaner_args,  NULL );	// load_compiled_files__may_heapclean			def in   src/c/main/load-compiledfiles.c
     //
     else 	         load_and_run_heap_image__may_heapclean( heap_image_to_run_filename,   heapcleaner_args,  NULL );	// load_and_run_heap_image__may_heapclean		def in   src/c/main/load-and-run-heap-image.c
 
