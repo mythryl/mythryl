@@ -103,7 +103,7 @@
 #define run_heapcleaner_ptr	REGOFF(32,ESP)			// Needs to match   run_heapcleaner__offset  in  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
 								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner_asm (below) which returns a REQUEST_CLEANING to
-								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+								// run_mythryl_task_and_runtime_eventloop__may_heaplcean ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/heapcleaner/call-heapcleaner.c
 #define unused_2		REGOFF(36,ESP)
 #define eaxSpill		REGOFF(40,ESP) // eax=0
@@ -244,7 +244,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 	JMP(CSYM(set_request))
 
 
-// Here to return to                                     run_mythryl_task_and_runtime_eventloop  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+// Here to return to                                     run_mythryl_task_and_runtime_eventloop__may_heapclean  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and thence to whoever called it.  If the caller was   load_and_run_heap_image__may_heapclean  in   src/c/main/load-and-run-heap-image.c
 // this will return us to                                main                                    in   src/c/main/runtime-main.c
 // which will print stats
@@ -256,7 +256,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // help of the src/lib/c-glue-old/ stuff,
 // which is currently non-operational.
 //
-// run_mythryl_task_and_runtime_eventloop is also called by
+// run_mythryl_task_and_runtime_eventloop__may_heapclean is also called by
 //     src/c/pthread/pthread-on-posix-threads.c
 //     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
@@ -363,7 +363,7 @@ ENTRY(set_request)
 	//
 	MOV_L(request_w,creturn)
 
-	// Pop the stack frame and return to  run_mythryl_task_and_runtime_eventloop()  in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
+	// Pop the stack frame and return to  run_mythryl_task_and_runtime_eventloop__may_heapclean()  in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 #if defined(OPSYS_DARWIN)
 	LEA_L(REGOFF(LIB7_FRAME_SIZE+12,ESP),ESP)
 #else

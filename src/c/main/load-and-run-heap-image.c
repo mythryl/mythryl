@@ -45,7 +45,7 @@ void   load_and_run_heap_image__may_heapclean (
 	patch_static_heapchunk_32_bit_addresses ();
     #endif
 
-    run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+	run_mythryl_task_and_runtime_eventloop__may_heapclean( task, extra_roots );				// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 }
 
 

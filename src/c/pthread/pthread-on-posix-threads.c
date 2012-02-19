@@ -129,12 +129,12 @@ static void*  pthread_main   (void* task_as_voidptr)   {
 
     pthread_mutex_unlock( &pth__mutex );								// This lock was acquired by pth__pthread_create (below).
 
-    run_mythryl_task_and_runtime_eventloop( task );							// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );				// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 
-    // run_mythryl_task_and_runtime_eventloop should never return:
+    // run_mythryl_task_and_runtime_eventloop__may_heapclean should never return:
     //
-    die ("pthread_main:  Returned fromd run_mythryl_task_and_runtime_eventloop()?!\n");
+    die ("pthread_main:  Returned fromd run_mythryl_task_and_runtime_eventloop__may_heapclean()?!\n");
 
     return  (void*) NULL;										// Cannot execute; only to keep gcc quiet.
 }

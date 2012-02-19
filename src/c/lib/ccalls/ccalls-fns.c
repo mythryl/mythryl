@@ -275,7 +275,7 @@ int   no_args_entry   (void)   {
 	printf("no_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);
     #endif
 
-    // Set up task for run_mythryl_task_and_runtime_eventloop evaluation of (f LIST_NIL):
+    // Set up task for run_mythryl_task_and_runtime_eventloop__may_heapclean evaluation of (f LIST_NIL):
     //
     set_up_task( visible_task__local, last_code_header_used__local->the_g, LIST_NIL );
 
@@ -285,7 +285,7 @@ int   no_args_entry   (void)   {
 	printf("no_arg_entry: calling Mythryl from C\n");
     #endif
     //
-    run_mythryl_task_and_runtime_eventloop( visible_task__local );							// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( visible_task__local, NULL );				// run_mythryl_task_and_runtime_eventloop__may_heapcledan	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     
     #ifdef DEBUG_C_CALLS
@@ -339,7 +339,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
     //
     lp = revLib7List(lp,LIST_NIL);
 
-    // Set up task for run_mythryl_task_and_runtime_eventloop evaluation of (f lp):
+    // Set up task for run_mythryl_task_and_runtime_eventloop__heapclean evaluation of (f lp):
     //
     set_up_task( visible_task__local, last_code_header_used__local->the_g, lp );
 
@@ -349,7 +349,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
 	printf("some_arg_entry: calling Lib7 from C\n");
     #endif
     //
-    run_mythryl_task_and_runtime_eventloop( visible_task__local );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( visible_task__local, NULL );				// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     #ifdef DEBUG_C_CALLS
 	printf("some_args_entry: return value is %d\n", visible_task__local->argument);

@@ -521,9 +521,9 @@ static void*   resume_pthread   (void* vtask)   {
 
 	pth__mutex_unlock(mp_pthread_mutex__local);
 
-	run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+	run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );					// run_mythryl_task_and_runtime_eventloop__may_heapclean def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
-	die ("return after run_mythryl_task_and_runtime_eventloop(task) in mp_release_pthread\n");
+	die ("return after run_mythryl_task_and_runtime_eventloop__may_heapclean(task) in mp_release_pthread\n");
     }
 }
 
@@ -620,7 +620,7 @@ void   pth__pthread_exit   (Task* task)   {
 static void*   pthread_main   (void* vtask)   {
     //         ============
     //
-    // Invoke run_mythryl_task_and_runtime_eventloop on task; die if it returns.
+    // Invoke run_mythryl_task_and_runtime_eventloop__may_heapclean on task; die if it returns.
 
     Task* task = (Task*) vtask;
 
@@ -640,9 +640,9 @@ static void*   pthread_main   (void* vtask)   {
 
     pth__mutex_unlock(mp_pthread_mutex__local);		// Implicitly handed to us by the parent.
 
-    run_mythryl_task_and_runtime_eventloop( task );			// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );		// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
-    // run_mythryl_task_and_runtime_eventloop() should never return:
+    // run_mythryl_task_and_runtime_eventloop__may_heapclean() should never return:
     //
     die("proc returned after run_lib7() in pthread_main().\n");
 }

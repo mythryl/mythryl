@@ -361,43 +361,43 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
 ///////////////////////////////////////////////////////////////////
 // Run-time system messages:
 //
-extern void say       (char* fmt, ...);											// say				def in    src/c/main/error-reporting.c
-extern void debug_say (char* fmt, ...);											// debug_say			def in    src/c/main/error-reporting.c
-extern void say_error (char*,     ...);											// say_error			def in    src/c/main/error-reporting.c
-extern void die       (char*,     ...);											// die				def in    src/c/main/error-reporting.c
+extern void say       (char* fmt, ...);										// say								def in    src/c/main/error-reporting.c
+extern void debug_say (char* fmt, ...);										// debug_say							def in    src/c/main/error-reporting.c
+extern void say_error (char*,     ...);										// say_error							def in    src/c/main/error-reporting.c
+extern void die       (char*,     ...);										// die								def in    src/c/main/error-reporting.c
 
-extern Bool do_debug_logging;												// Used to control special debug logging.  def in   src/c/lib/heap/libmythryl-heap.c
+extern Bool do_debug_logging;											// Used to control special debug logging.			def in   src/c/lib/heap/libmythryl-heap.c
 
-extern void print_stats_and_exit      (int code);									// print_stats_and_exit		def in    src/c/main/runtime-main.c
+extern void print_stats_and_exit      (int code);								// print_stats_and_exit						def in    src/c/main/runtime-main.c
 
 typedef   struct cleaner_args   Heapcleaner_Args;
     //
     // An abstract type whose representation depends
     // on the particular cleaner being used.
 
-extern Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char** argv);					// handle_heapcleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char** argv);				// handle_heapcleaner_commandline_arguments			def in   src/c/heapcleaner/heapcleaner-initialization.c
 
-extern void  load_compiled_files__may_heapclean (const char* filename, Heapcleaner_Args*, Roots*);			// load_compiled_files__may_heapclean		def in   src/c/main/load-compiledfiles.c
-extern void  load_and_run_heap_image__may_heapclean (const char* filename,  Heapcleaner_Args*, Roots*);			// load_and_run_heap_image__may_heapclean	def in   src/c/main/load-and-run-heap-image.c
+extern void  load_compiled_files__may_heapclean (const char* filename, Heapcleaner_Args*, Roots*);		// load_compiled_files__may_heapclean				def in   src/c/main/load-compiledfiles.c
+extern void  load_and_run_heap_image__may_heapclean (const char* filename,  Heapcleaner_Args*, Roots*);		// load_and_run_heap_image__may_heapclean			def in   src/c/main/load-and-run-heap-image.c
 
-extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);						// make_task					def in   src/c/main/runtime-state.c
-extern void initialize_task (Task *task);										// initialize_task				def in   src/c/main/runtime-state.c
-extern void save_c_state    (Task *task, ...);										// save_c_state					def in   src/c/main/runtime-state.c
-extern void restore_c_state (Task *task, ...);										// restore_c_state				def in   src/c/main/runtime-state.c
+extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);					// make_task							def in   src/c/main/runtime-state.c
+extern void initialize_task (Task *task);									// initialize_task						def in   src/c/main/runtime-state.c
+extern void save_c_state    (Task *task, ...);									// save_c_state							def in   src/c/main/runtime-state.c
+extern void restore_c_state (Task *task, ...);									// restore_c_state						def in   src/c/main/runtime-state.c
 
 
 extern void set_up_timers ();
 
-extern Val    run_mythryl_function (Task *task, Val f, Val arg, Bool use_fate);						// run_mythryl_function				def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern Val    run_mythryl_function (Task *task, Val f, Val arg, Bool use_fate);					// run_mythryl_function						def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 extern void   reset_timers (Pthread* pthread);
-extern void   run_mythryl_task_and_runtime_eventloop (Task* task);							// run_mythryl_task_and_runtime_eventloop	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-extern void   raise_mythryl_exception (Task* task, Val exn);								// raise_mythryl_exception			def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-extern void   handle_uncaught_exception   (Val e);									// handle_uncaught_exception			def in   src/c/main/runtime-exception-stuff.c
+extern void   run_mythryl_task_and_runtime_eventloop__may_heapclean (Task* task, Roots*);			// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern void   raise_mythryl_exception (Task* task, Val exn);							// raise_mythryl_exception					def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern void   handle_uncaught_exception   (Val e);								// handle_uncaught_exception					def in   src/c/main/runtime-exception-stuff.c
 
-extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
-															// set_up_fault_handlers			def in   src/c/machine-dependent/cygwin-fault.c
-															// set_up_fault_handlers			def in   src/c/machine-dependent/win32-fault.c
+extern void   set_up_fault_handlers ();										// set_up_fault_handlers				def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
+														// set_up_fault_handlers					def in   src/c/machine-dependent/cygwin-fault.c
+														// set_up_fault_handlers					def in   src/c/machine-dependent/win32-fault.c
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
     //
     extern void reset_heap_allocation_limit_for_software_generated_periodic_events (Task *task);

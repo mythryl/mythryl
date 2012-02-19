@@ -129,21 +129,21 @@ asm (".equ __win32_exception_list,0");
 extern exception_list * 
    _win32_exception_list asm ("%fs:__win32_exception_list");
 
-void   run_mythryl_task_and_runtime_eventloop   (Task* task) {
+void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Roots* extra_roots) {
     // ================
     // This overrides the default RunLib7.  
     // It just adds a new exception handler
     // at the very beginning before
     // Mythryl code is executed.
 
-     extern void SystemRunLib7 (Task*);					// system_run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+     extern void system_run_mythryl_task_and_runtime_eventloop__may_heapclean (Task*,Roots*);		// system_run_mythryl_task_and_runtime_eventloop__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
      exception_list el;
      el.handler = page_fault_handler;
      el.prev    = _win32_exception_list;
      _win32_exception_list = &el;
 
-     return SystemRunLib7(task);
+     return system_run_mythryl_task_and_runtime_eventloop__may_heapclean(task,extra_roots);
 }
 
 #endif

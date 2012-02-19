@@ -62,7 +62,7 @@ Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool us
     task->program_counter  =
     task->link_register	   = GET_CODE_ADDRESS_FROM_CLOSURE( function );
 
-    run_mythryl_task_and_runtime_eventloop( task );					// run_mythryl_task_and_runtime_eventloop	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );		// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     return task->argument;
 }
@@ -74,12 +74,12 @@ extern int  asm_run_mythryl_task  (Task* task);						// asm_run_mythryl_task	def
 											//
 											// asm_run_mythryl_task	def in   src/c/machine-dependent/win32-fault.c
 
-// run_mythryl_task_and_runtime_eventloop
+// run_mythryl_task_and_runtime_eventloop__may_heapclean
 //
 #if !defined(__CYGWIN32__)
 
-void   run_mythryl_task_and_runtime_eventloop   (Task* task)   {
-    // ======================================
+void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Roots* extra_roots)   {
+    // =====================================================
     //
     // Called from:
     //     src/c/main/load-and-run-heap-image.c
@@ -87,8 +87,8 @@ void   run_mythryl_task_and_runtime_eventloop   (Task* task)   {
 
 #else
 
-void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// called from			 src/c/machine-dependent/cygwin-fault.c
-//     =============================================
+  void   system_run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task *task, Roots* extra_roots)   {		// called from			 src/c/machine-dependent/cygwin-fault.c
+//       ============================================================
 
 #endif
 
@@ -292,11 +292,11 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		        //
 			char	buf2[192];
 			sprintf(buf2, "<file %.184s>", namestring);
-			loc = make_ascii_string_from_c_string__may_heapclean( task, buf2, NULL );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, buf2, extra_roots );
 
 		    } else {
 
-			loc = make_ascii_string_from_c_string__may_heapclean( task, "<unknown file>", NULL );
+			loc = make_ascii_string_from_c_string__may_heapclean( task, "<unknown file>", extra_roots );
 		    }
 
 		    Val trace_stack =  LIST_CONS( task, loc, LIST_NIL );
@@ -350,27 +350,27 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_STRING:
-		task->argument =   allocate_nonempty_ascii_string__may_heapclean( task, TAGGED_INT_TO_C_INT( task->argument ), NULL );
+		task->argument =   allocate_nonempty_ascii_string__may_heapclean( task, TAGGED_INT_TO_C_INT( task->argument ), extra_roots );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_ALLOCATE_BYTE_VECTOR:
-		task->argument =   allocate_nonempty_vector_of_one_byte_unts__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), NULL );
+		task->argument =   allocate_nonempty_vector_of_one_byte_unts__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), extra_roots );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS:
-		task->argument =   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), NULL );
+		task->argument =   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean( task, TAGGED_INT_TO_C_INT(task->argument), extra_roots );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR:
-		task->argument =   make_nonempty_rw_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), NULL );
+		task->argument =   make_nonempty_rw_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), extra_roots );
 		SET_UP_RETURN( task );
 		break;
 
 	    case REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR:
-		task->argument =   make_nonempty_ro_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), NULL );
+		task->argument =   make_nonempty_ro_vector__may_heapclean( task, GET_TUPLE_SLOT_AS_INT(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1), extra_roots );
 		SET_UP_RETURN( task );
 		break;
 
@@ -425,7 +425,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 	    }
 	}
     }									// while
-}									// fun run_mythryl_task_and_runtime_eventloop
+}									// fun run_mythryl_task_and_runtime_eventloop__may_heapclean
 
 
 

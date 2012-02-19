@@ -284,11 +284,12 @@ static void   pthread_main   (void* vtask)   {
     PTHREAD_LOG_IF ("[new proc main: releasing mutex]\n");
 
     pth__mutex_unlock( MP_ProcLock );						// Implicitly handed to us by the parent.
-    run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );	// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //
-    // run_mythryl_task_and_runtime_eventloop should never return:
+    // run_mythryl_task_and_runtime_eventloop__may_heapclean should never return:
     //
-    die ("pthread returned after run_mythryl_task_and_runtime_eventloop() in pthread_main().\n");
+    die ("pthread returned after run_mythryl_task_and_runtime_eventloop__may_heapclean() in pthread_main().\n");
 }
 
 
@@ -428,7 +429,7 @@ void   pth__pthread_exit   (Task* task)   {
     //
     PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
-    call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
+    call_heapcleaner( task, 1 );										// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
     pth__mutex_lock(MP_ProcLock);
 
@@ -443,9 +444,9 @@ void   pth__pthread_exit   (Task* task)   {
 
     PTHREAD_LOG_IF ("[release_pthread: resuming]\n");
 
-    run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );					// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
-    die ("return after run_mythryl_task_and_runtime_eventloop(task) in mp_release_pthread\n");
+    die ("return after run_mythryl_task_and_runtime_eventloop__may_heapclean(task) in mp_release_pthread\n");
 }
 
 
