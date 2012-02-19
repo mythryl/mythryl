@@ -11,7 +11,7 @@
 #include <errno.h>
 #include <pthread.h>
 
-#ifdef HAVE_LIBDIS_H
+#if HAVE_LIBDIS_H
 #include <libdis.h>	// x86 disasembler library from Debian packages:  libdisasm0 + libdisasm-dev
 #endif
 
@@ -748,7 +748,7 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 
 	    hexdump_to_file  (fd, "", chunk, chunk_len);
 
-#ifdef HAVE_LIBDIS_H
+#if HAVE_LIBDIS_H
 	    // Disassemble the compiled code using libdisasm. (For altenatives and discussion see Note[1].)
 	    // For background see:        http://bastard.sourceforge.net/libdisasm.html
 	    // Debian packages this as:   libdisasm0 libdisasm-dev

@@ -11,7 +11,7 @@
 
 #include "../mythryl-config.h"
 
-#ifdef HAVE_STRING_H
+#if HAVE_STRING_H
 #include <string.h>
 #endif
 
