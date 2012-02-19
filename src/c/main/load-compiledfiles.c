@@ -95,9 +95,10 @@ static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
 //
  static FILE* open_file				(const char* filename,   Bool isBinary);
 //
- static Val   read_in_compiled_file_list__may_heapclean ( Task* task, const char* compiled_files_to_load_filename, int* max_boot_path_len_ptr, Roots* extra_roots );
- static void  load_compiled_file		(Task* task, char* filename);
- static void  register_compiled_file_exports	(Task* task, Picklehash* picklehash, Val chunk);
+ static Val   read_in_compiled_file_list__may_heapclean 	( Task* task, const char* compiled_files_to_load_filename, int* max_boot_path_len_ptr, Roots* extra_roots );
+ static void  load_compiled_file__may_heapclean			( Task* task, char* filename, Roots* extra_roots);
+ static void  register_compiled_file_exports__may_heapclean	( Task* task, Picklehash* picklehash, Val chunk, Roots*);
+
  static Val   picklehash_to_exports_tree	(Picklehash* picklehash);
 
  static void  picklehash_to_hex_string		(char *buf, int buflen, Picklehash* picklehash);
@@ -213,7 +214,7 @@ void   load_compiled_files__may_heapclean   (
         char* filename =  filename_buf;
 
         // Need to make a copy of the filename because
-        // load_compiled_file is going to scribble into it:
+        // load_compiled_file__may_heapclean is going to scribble into it:
         //
 	strcpy( filename_buf, HEAP_STRING_AS_C_STRING( LIST_HEAD( compiled_file_list )));
        
@@ -225,7 +226,7 @@ void   load_compiled_files__may_heapclean   (
 	    //
 	    // ... then we can load it normally:
 	    //
-	    load_compiled_file( task, filename );
+	    load_compiled_file__may_heapclean( task, filename, extra_roots );
 
 	} else {
 
@@ -284,7 +285,8 @@ void   load_compiled_files__may_heapclean   (
 		filename
 	    );
 
-	    register_compiled_file_exports( task, &picklehash, runtime_package__global );
+	    register_compiled_file_exports__may_heapclean( task, &picklehash, runtime_package__global, extra_roots );
+
 	    seen_runtime_package_picklehash = TRUE;							// Make sure that we register the runtime system picklehash only once.
 	}
     }
@@ -786,20 +788,21 @@ static int   fetch_imports   (
 
 
 
-static void   load_compiled_file   (
-    //        ==================
+static void   load_compiled_file__may_heapclean   (
+    //        =================================
     //
-    Task* task,
-    char* filename
+    Task*  task,
+    char*  filename,
+    Roots* extra_roots
 ){
     ///////////////////////////////////////////////////////
     // Loading an compiledfile is a five-step process:
     //
-    // 1) Read the header, which holds various
+    // 1. Read the header, which holds various
     //    numbers we need such as the number of
     //    code segments in the compiledfile.
     //
-    // 2) Locate all the values imported by this
+    // 2. Locate all the values imported by this
     //    compiledfile from the export lists of
     //    previously loaded compiled_files.
     //      For subsequent ease of access, we
@@ -936,9 +939,9 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
         //
-	{   Roots extra_roots = { &compiled_file_list, NULL };
+	{   Roots roots1 = { &compiled_file_list, extra_roots };
 	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &extra_roots );
+	    call_heapcleaner_with_extra_roots (task, 0, &roots1 );
 	}
     }
 
@@ -1096,7 +1099,7 @@ static void   load_compiled_file   (
 
 	save_c_state (task, &compiled_file_list, &import_record, NULL);
 
-	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, NULL);
+	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, extra_roots);
 
 	FREE(data_chunk);
 
@@ -1115,10 +1118,10 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
         //
-	{   Roots extra_roots1 =  { &compiled_file_list, NULL		};
-	    Roots extra_roots2 =  { &mythryl_result,     &extra_roots1	};
+	{   Roots roots1 =  { &compiled_file_list, extra_roots	};
+	    Roots roots2 =  { &mythryl_result,     &roots1	};
 	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &extra_roots2 );
+	    call_heapcleaner_with_extra_roots (task, 0, &roots2 );
 	}
     }
 
@@ -1185,10 +1188,10 @@ static void   load_compiled_file   (
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-	    {   Roots extra_roots1 = { &compiled_file_list, NULL	    };
-		Roots extra_roots2 = { &mythryl_result,     &extra_roots1   };
+	    {   Roots roots1 = { &compiled_file_list, extra_roots	};
+		Roots roots2 = { &mythryl_result,     &roots1		};
 		//
-		call_heapcleaner_with_extra_roots (task, 0, &extra_roots2 );
+		call_heapcleaner_with_extra_roots (task, 0, &roots2 );
 	    }
         }
     }
@@ -1198,26 +1201,28 @@ static void   load_compiled_file   (
     //
     if (bytes_of_exports) {
 	//
-	register_compiled_file_exports (
+	register_compiled_file_exports__may_heapclean (
             task,
             &export_picklehash,     // key -- the 16-byte picklehash naming this compiledfile.
-            mythryl_result          // val -- the tree of exported Mythryl values.
+            mythryl_result,         // val -- the tree of exported Mythryl values.
+	    extra_roots
         );
     }
 
     fclose (file);
-}                                   // load_compiled_file
+}                                   // load_compiled_file__may_heapclean
 
 
 
-static void   register_compiled_file_exports   (
-    //        ==============================
+static void   register_compiled_file_exports__may_heapclean   (
+    //        =============================================
     //
     Task*       task,
     Picklehash* c_picklehash,       // Picklehash key as a C string.
-    Val           exports_tree
+    Val         exports_tree,
+    Roots*      extra_roots 
 ){
-    Roots roots1 = { &exports_tree, NULL };
+    Roots roots1 = { &exports_tree, extra_roots };
 
     ///////////////////////////////////////////////////////////
     // Add a picklehash/exports_tree key/val naming pair

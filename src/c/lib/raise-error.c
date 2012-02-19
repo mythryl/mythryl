@@ -36,7 +36,7 @@
 
 
 Val   raise_error__may_heapclean (
-    //==============================
+    //==========================
     //
     Task*	    task,
     const char*	    altMsg,
