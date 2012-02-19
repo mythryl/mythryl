@@ -196,7 +196,7 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 
 // The return fate for the Mythryl signal handler.
 //
-LIB7_CODE_HDR( return_from_signal_handler_asm)
+MYTHRYL_CODE_HEADER( return_from_signal_handler_asm)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
 	MOV_L(CONST(HEAP_VOID),program_counter)
@@ -215,7 +215,7 @@ ENTRY( resume_after_handling_signal )
 // The return fate for the Mythryl
 // software generated periodic events handler.
 //
-LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
+MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 	MOV_L(CONST(REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), request_w)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
@@ -238,7 +238,7 @@ ENTRY( resume_after_handling_software_generated_periodic_event )
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and src/c/heapcleaner/import-heap.c
 //
-LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
+MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), request_w)
 	MOVE(stdlink,temp,program_counter)
 	JMP(CSYM(set_request))
@@ -263,14 +263,12 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 //
-// We get slotted into task->fate by   save_c_state			in   src/c/main/runtime-state.c 
-// and by                              run_mythryl_function		in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and by                              import_heap_image__may_heapclean	in   src/c/heapcleaner/import-heap.c
-// and by                              pth__pthread_create		in   src/c/pthread/pthread-on-posix-threads.c
-// and by                              pth__pthread_create		in   src/c/pthread/pthread-on-sgi.c
-// and by                              pth__pthread_create		int  src/c/pthread/pthread-on-solaris.c
+// We get slotted into task->fate by   save_c_state				in   src/c/main/runtime-state.c 
+// and by                              run_mythryl_function__may_heapclean	in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+// and by                              import_heap_image__may_heapclean		in   src/c/heapcleaner/import-heap.c
+// and by                              pth__pthread_create			in   src/c/pthread/pthread-on-posix-threads.c
 //
-LIB7_CODE_HDR(return_to_c_level_asm)
+MYTHRYL_CODE_HEADER(return_to_c_level_asm)
 	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), request_w)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
@@ -300,12 +298,12 @@ ENTRY(request_fault)
 // We pass the buck via    REQUEST_FIND_CFUN	in    src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // to                      get_mythryl_callable_c_function		in    src/c/lib/mythryl-callable-c-libraries.c
 //
-LIB7_CODE_HDR(find_cfun_asm)
+MYTHRYL_CODE_HEADER(find_cfun_asm)
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_FIND_CFUN), request_w)
 	JMP(CSYM(set_request))
 
-LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
+MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER), request_w)
 	JMP(CSYM(set_request))
@@ -317,7 +315,7 @@ LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
 //
-LIB7_CODE_HDR(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.pkg
+MYTHRYL_CODE_HEADER(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.pkg
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_CALL_CFUN), request_w)
 	JMP(CSYM(set_request))
@@ -476,7 +474,7 @@ pending:
 // Allocate a new Rw_Vector and initialize with given value.
 // This can trigger cleaning.
 //
-LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT
 	MOV_L (REGIND(stdarg), temp)						// temp := length in words.
 	SAR_L (CONST(1), temp)							// temp := length untagged.
@@ -524,7 +522,7 @@ LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
 
 // make_float64_rw_vector : Int -> Float64_Rw_Vector
 //
-LIB7_CODE_HDR(make_float64_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 	CHECKLIMIT
 #define temp1 misc0
         PUSH_L(misc0)						// Free temp1.
@@ -568,7 +566,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 
 // make_unt8_rw_vector : Int -> Unt8_Rw_Vector
 //
-LIB7_CODE_HDR(make_unt8_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 	CHECKLIMIT
 	MOV_L(stdarg,temp)							// temp := length(tagged int)
 	SAR_L(CONST(1),temp)							// temp := length(untagged)
@@ -611,7 +609,7 @@ LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 
 // make_string : Int -> String
 //
-LIB7_CODE_HDR(make_string_asm)
+MYTHRYL_CODE_HEADER(make_string_asm)
 	CHECKLIMIT
 	MOV_L(stdarg,temp)
 	SAR_L(CONST(1),temp)					// temp := length(untagged)
@@ -663,7 +661,7 @@ LIB7_CODE_HDR(make_string_asm)
 //	in
 //	    src/lib/core/init/pervasive.pkg
 //
-LIB7_CODE_HDR(make_vector_asm)
+MYTHRYL_CODE_HEADER(make_vector_asm)
 	CHECKLIMIT
 	PUSH_L(misc0)
 	PUSH_L(misc1)
@@ -731,7 +729,7 @@ LIB7_CODE_HDR(make_vector_asm)
 // it is likely to succeed.
 //    -- 2011-11-01 CrT
 //
-LIB7_CODE_HDR(try_lock_asm)
+MYTHRYL_CODE_HEADER(try_lock_asm)
 #if (MAX_PROCS > 1)
 #  error prim.intel32.asm:  try_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
@@ -746,7 +744,7 @@ LIB7_CODE_HDR(try_lock_asm)
 // This is an ancient mutex left-over from 1992 multi-processor
 // support: See src/src/A.PTHREAD-SUPPORT.OVERVIEW.    -- 2011-11-01 CrT
 //
-LIB7_CODE_HDR(unlock_asm)
+MYTHRYL_CODE_HEADER(unlock_asm)
 #if (MAX_PROCS > 1)
     #error prim.intel32.asm:  unlock_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
@@ -823,7 +821,7 @@ ENTRY(fesetround)
 // Return the nearest integer that is less or equal to the argument.
 //	 Caller's responsibility to make sure arg is in range.
 
-LIB7_CODE_HDR(floor_asm)
+MYTHRYL_CODE_HEADER(floor_asm)
 	FSTCW(old_controlwd)			// Get FP control word.
 	MOV_W(old_controlwd, AX)
 	AND_W(CONST(0xf3ff), AX)		// Clear rounding field.
@@ -845,7 +843,7 @@ LIB7_CODE_HDR(floor_asm)
 // Extract the unbiased exponent pointed to by stdarg.
 // Note: Using fxtract, and fistl does not work for inf's and nan's.
 //
-LIB7_CODE_HDR(logb_asm)
+MYTHRYL_CODE_HEADER(logb_asm)
 	MOV_L(REGOFF(4,stdarg),temp)		// msb for little endian arch
 	SAR_L(CONST(20), temp)			// throw out 20 bits
 	AND_L(CONST(0x7ff),temp)		// clear all but 11 low bits
@@ -862,7 +860,7 @@ LIB7_CODE_HDR(logb_asm)
 // NB: We assume the first floating point "register" is
 // caller-save, so we can use it here (see intel32/intel32.pkg).
 
-LIB7_CODE_HDR(scalb_asm)
+MYTHRYL_CODE_HEADER(scalb_asm)
 	CHECKLIMIT
 	PUSH_L(REGOFF(4,stdarg))				// Get copy of scalar.				64-bit issue
 	SAR_L(CONST(1), REGIND(ESP))				// Untag it.

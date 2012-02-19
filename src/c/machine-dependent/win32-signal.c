@@ -40,6 +40,7 @@ void   pause_until_signal   (Pthread* pthread) {
 
 
 void   set_signal_state   (Pthread* pthread,  int signal_number,  int signal_state) {
+    // ================
     //
     #ifdef WIN32_DEBUG
 	debug_say("win32:set_signal_state: not setting state for signal %d\n", signal_number);
@@ -49,6 +50,7 @@ void   set_signal_state   (Pthread* pthread,  int signal_number,  int signal_sta
 
 
 int   get_signal_state   (Pthread* pthread, int signal_number) {
+    //================
 
     #ifdef WIN32_DEBUG
 	debug_say("win32:get_signal_state: returning state for signal %d as LIB7_SIG_DEFAULT\n", signal_number);

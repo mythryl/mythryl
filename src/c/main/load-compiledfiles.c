@@ -1182,9 +1182,9 @@ static void   load_compiled_file__may_heapclean   (
         // constructs and returns the tree of exports from
         // our compiledfile.
 	//
-	save_c_state                           (task, &compiled_file_list, NULL);
-	mythryl_result =  run_mythryl_function (task, closure, mythryl_result, TRUE);						// run_mythryl_function		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-	restore_c_state                        (task, &compiled_file_list, NULL);
+	save_c_state                                          (task, &compiled_file_list, NULL);
+	mythryl_result =  run_mythryl_function__may_heapclean (task, closure, mythryl_result, TRUE, NULL);	// run_mythryl_function__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+	restore_c_state					      (task, &compiled_file_list, NULL);
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //

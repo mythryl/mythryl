@@ -175,7 +175,7 @@ void   initialize_task   (Task* task)   {
     //
     // Note that we do not initialize the root registers here,
     // since this is sometimes called when the roots are live
-    // (from run_mythryl_function).					// run_mythryl_function		def in    src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    // (from run_mythryl_function).					// run_mythryl_function__may_heapclean		def in    src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //
     // This fn is called two places, above and in
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c

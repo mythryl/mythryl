@@ -158,7 +158,7 @@
 // return_from_signal_handler_asm:
 // The return fate for the Mythryl signal handler.
 //
-LIB7_CODE_HDR(return_from_signal_handler_asm)
+MYTHRYL_CODE_HEADER(return_from_signal_handler_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -179,7 +179,7 @@ ENTRY(resume_after_handling_signal)
 // The return fate for the Mythryl software
 // generated periodic event handler.
 //
-LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
+MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -203,7 +203,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and src/c/heapcleaner/import-heap.c
 //
-LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
+MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_HANDLE_UNCAUGHT_EXCEPTION,TMPREG3		// (delay slot)
@@ -229,10 +229,10 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 // 
-// We get slotted into task->fate by   save_c_state           in   src/c/main/runtime-state.c 
-// and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+// We get slotted into task->fate by   save_c_state				in   src/c/main/runtime-state.c 
+// and by                              run_mythryl_function__may_heapclean	in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 //
-LIB7_CODE_HDR(return_to_c_level_asm)
+MYTHRYL_CODE_HEADER(return_to_c_level_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -251,12 +251,12 @@ ENTRY(request_fault)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg	
 //
-LIB7_CODE_HDR(find_cfun_asm)
+MYTHRYL_CODE_HEADER(find_cfun_asm)
 	CHECKLIMIT(find_cfun_v_limit)
 	ba	set_request
 	set	REQUEST_FIND_CFUN,TMPREG3		// (delay slot)
 
-LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
+MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT(make_package_literals_via_bytecode_interpreter_a_limit)
 	ba	set_request
 	set	REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER,TMPREG3	// (delay slot)
@@ -268,7 +268,7 @@ LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
 //
-LIB7_CODE_HDR(call_cfun_asm)
+MYTHRYL_CODE_HEADER(call_cfun_asm)
 	CHECKLIMIT(call_cfun_a_limit)
 	ba	set_request
 	set	REQUEST_CALL_CFUN,TMPREG3		// (delay slot)
@@ -393,7 +393,7 @@ ENTRY(Zero_Heap_Allocation_Limit)
 // Allocate and initialize a new rw_vector.
 // This can trigger cleaning.
 //
-LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT(make_typeagnostic_rw_vector_a_limit)
 	ld	[STDARG],TMPREG1				// tmp1 = length in words
 	sra	TMPREG1,1,TMPREG2				// tmp2 = length (untagged)
@@ -431,7 +431,7 @@ LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
 // make_float64_rw_vector:  Int -> Float64_Rw_Vector
 // Create a new Float64_Rw_Vector.
 //
-LIB7_CODE_HDR(make_float64_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 	CHECKLIMIT(make_float64_rw_vector_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (untagged int)
 	sll	TMPREG2,1,TMPREG2				// tmp2 = length in words
@@ -469,7 +469,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 // make_unt8_rw_vector:  Int -> Unt8_Rw_Vector
 // Create a bytearray of the given length.
 //
-LIB7_CODE_HDR(make_unt8_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 	CHECKLIMIT(make_unt8_rw_vector_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (sparc int)
 	add	TMPREG2,3,TMPREG2				// tmp2 = length in words
@@ -505,7 +505,7 @@ LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 // make_string:  Int -> String
 // Create a string of the given length (> 0).
 //
-LIB7_CODE_HDR(make_string_asm)
+MYTHRYL_CODE_HEADER(make_string_asm)
 	CHECKLIMIT(make_string_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (sparc int)
 	add	TMPREG2,4,TMPREG2				// tmp2 = length in words
@@ -554,7 +554,7 @@ LIB7_CODE_HDR(make_string_asm)
 //	in
 //	    src/lib/core/init/pervasive.pkg
 //
-LIB7_CODE_HDR(make_vector_asm)
+MYTHRYL_CODE_HEADER(make_vector_asm)
 	CHECKLIMIT(make_vector_a_limit)
 	ld	[STDARG],TMPREG1				// tmp1 = length (tagged int)
 	sra	TMPREG1,1,TMPREG2				// tmp2 = length (untagged int)
@@ -599,7 +599,7 @@ LIB7_CODE_HDR(make_vector_asm)
 // Do not check for out-of-range -- it is the Mythryl
 // code's responsibility to check before calling.
 //
-LIB7_CODE_HDR(floor_asm)
+MYTHRYL_CODE_HEADER(floor_asm)
 	ld	[STDARG],%f0					// Fetch arg into %f0, %f1.
 	ld	[STDARG+4],%f1
 	ld	[STDARG],TMPREG2				// tmpreg2 gets high word.
@@ -632,7 +632,7 @@ LIB7_CODE_HDR(floor_asm)
 // Extract and unbias the exponent.
 // The IEEE bias is 1023.
 //
-LIB7_CODE_HDR(logb_asm)
+MYTHRYL_CODE_HEADER(logb_asm)
 	ld	[STDARG],TMPREG2				// Extract exponent.
 	srl	TMPREG2,19,TMPREG2
 	and	TMPREG2,2047*2,TMPREG2				// Unbias and convert to Mythryl int.
@@ -644,7 +644,7 @@ LIB7_CODE_HDR(logb_asm)
 // Scale the first argument by 2 raised to the second argument.
 // Raise Float("underflow") or Float("overflow") as appropriate.
 //
-LIB7_CODE_HDR(scalb_asm)
+MYTHRYL_CODE_HEADER(scalb_asm)
 	CHECKLIMIT(scalb_a_limit)
 	ld	[STDARG+4],TMPREG1					// tmpreg1 gets scale (second arg)
 	sra	TMPREG1,1,TMPREG1					// Convert scale to sparc int. 
@@ -802,7 +802,7 @@ _lib7_udiv:
 // low-level test-and-set style primitive for mutual-exclusion among 
 // processors.
 //
-LIB7_CODE_HDR(try_lock_asm)
+MYTHRYL_CODE_HEADER(try_lock_asm)
 #if (MAX_PROCS > 1)
 	???
 #else (MAX_PROCS == 1)
@@ -815,7 +815,7 @@ LIB7_CODE_HDR(try_lock_asm)
 
 // unlock : releases a spin lock 
 //
-LIB7_CODE_HDR(unlock_asm)
+MYTHRYL_CODE_HEADER(unlock_asm)
 #if (MAX_PROCS > 1)
 	???
 #else (MAX_PROCS == 1)

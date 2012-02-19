@@ -40,8 +40,8 @@
 
 
 
-Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool use_fate)   {
-    //====================
+Val   run_mythryl_function__may_heapclean   (Task* task,  Val function,  Val argument,  Bool use_fate,  Roots* extra_roots)   {
+    //===================================
     //
     // Apply the Mythryl closure 'function' to 'argument' and return the result.
     // If the flag   use_fate   is set, then the Task has already
@@ -62,7 +62,7 @@ Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool us
     task->program_counter  =
     task->link_register	   = GET_CODE_ADDRESS_FROM_CLOSURE( function );
 
-    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, NULL );		// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop__may_heapclean( task, extra_roots );		// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     return task->argument;
 }

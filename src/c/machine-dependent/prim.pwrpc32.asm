@@ -262,7 +262,7 @@ cvti2d_CONST:
 	TEXT
 // sig_return : (Fate(X), X) -> Y
 //
-LIB7_CODE_HDR( return_from_signal_handler_asm )
+MYTHRYL_CODE_HEADER( return_from_signal_handler_asm )
 	li 	atmp4,REQUEST_RETURN_FROM_SIGNAL_HANDLER
 	li	stdlink,         HEAP_VOID
 	li	stdclos,         HEAP_VOID
@@ -280,7 +280,7 @@ ENTRY( resume_after_handling_signal )
 // The return fate for the Mythryl software
 // generated periodic event handler.
 //
-LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
+MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 	li	atmp4,REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER
 	li	stdlink,         HEAP_VOID
 	li	stdclos,         HEAP_VOID
@@ -303,7 +303,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and src/c/heapcleaner/import-heap.c
 //
-LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
+MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 	li	atmp4,REQUEST_HANDLE_UNCAUGHT_EXCEPTION
 	addi	program_counter, stdlink, 0
 	b	set_request
@@ -329,10 +329,10 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 // 
-// We get slotted into task->fate by   save_c_state           in   src/c/main/runtime-state.c 
-// and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+// We get slotted into task->fate by   save_c_state				in   src/c/main/runtime-state.c 
+// and by                              run_mythryl_function__may_heapclean	in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 //
-LIB7_CODE_HDR(return_to_c_level_asm)
+MYTHRYL_CODE_HEADER(return_to_c_level_asm)
 	li	atmp4,REQUEST_RETURN_TO_C_LEVEL
 	li	stdlink,         HEAP_VOID
 	li	stdclos,         HEAP_VOID
@@ -352,12 +352,12 @@ ENTRY(request_fault)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg	
 //
-LIB7_CODE_HDR(find_cfun_asm)
+MYTHRYL_CODE_HEADER(find_cfun_asm)
 	CHECKLIMIT(find_cfun_v_limit) 
 	li	atmp4,REQUEST_FIND_CFUN
 	b	set_request
 
-LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
+MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT(make_package_literals_via_bytecode_interpreter_v_limit) 
 	li	atmp4,REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER
 	b	set_request
@@ -369,7 +369,7 @@ LIB7_CODE_HDR(make_package_literals_via_bytecode_interpreter_asm)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
 //
-LIB7_CODE_HDR(call_cfun_asm)
+MYTHRYL_CODE_HEADER(call_cfun_asm)
 	CHECKLIMIT(call_cfun_v_limit) 
 	li	atmp4,REQUEST_CALL_CFUN
 	b	set_request
@@ -539,7 +539,7 @@ pending_sigs:				// There are pending signals.
 // make_typeagnostic_rw_vector : (Int, X) -> Rw_Vector(X)
 // Allocate and initialize a new array.	 This can trigger cleaning.
 //
-LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT(make_typeagnostic_rw_vector_a_limit)
 
 	lwz	atmp1,0(stdarg)					// atmp1 := length in words
@@ -579,7 +579,7 @@ make_typeagnostic_rw_vector_a_large:				// Offline allocation
 // make_unt8_rw_vector : Int -> Unt8_Rw_Vector
 // Create a bytearray of the given length.
 //
-LIB7_CODE_HDR(make_unt8_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 	CHECKLIMIT(make_unt8_rw_vector_a_limit)
 
 	srawi	atmp2,stdarg,1		// atmp2 = length (untagged int)
@@ -617,7 +617,7 @@ make_unt8_rw_vector_a_large:				// Offline allocation.
 
 // make_string_asm: Int -> String
 //
-LIB7_CODE_HDR(make_string_asm)
+MYTHRYL_CODE_HEADER(make_string_asm)
 	CHECKLIMIT(make_string_a_limit)
 
 	srawi	atmp2,stdarg,1		// atmp2 = length(untagged int)
@@ -653,7 +653,7 @@ make_string_a_large:			// Offline allocation.
 
 
 
-LIB7_CODE_HDR(make_float64_rw_vector_asm)
+MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 	CHECKLIMIT(make_float64_rw_vector_a_limit)
 
 	srawi	atmp2,stdarg,1		// atmp2 = length (untagged int)
@@ -701,7 +701,7 @@ make_float64_rw_vector_a_large:			// Offline allocation.
 //	in
 //	    src/lib/core/init/pervasive.pkg
 //
-LIB7_CODE_HDR(make_vector_asm)
+MYTHRYL_CODE_HEADER(make_vector_asm)
 	CHECKLIMIT(make_vector_a_limit)
 	
 	lwz	atmp1,0(stdarg)		// atmp1 = tagged length
@@ -762,7 +762,7 @@ floor_CONST:
 	//	perform an exponent alignment, which will 
 	//	bring the required bits into the mantissa.
 	//
-LIB7_CODE_HDR(floor_asm)
+MYTHRYL_CODE_HEADER(floor_asm)
 	lfd	f1, 0(stdarg)		
 	/*
 	** Neat thing here is that this code works for
@@ -791,7 +791,7 @@ LIB7_CODE_HDR(floor_asm)
 	CONTINUE
 
 
-LIB7_CODE_HDR(logb_asm)
+MYTHRYL_CODE_HEADER(logb_asm)
 	lwz	stdarg,0(stdarg)  	// Most significant part.
 	srawi 	stdarg,stdarg,20	// Throw out 20 low bits.
 	andi.	stdarg,stdarg,0x07ff	// Clear all but 11 low bits.
@@ -804,7 +804,7 @@ LIB7_CODE_HDR(logb_asm)
 // scalb : real * int -> real
 //	scalb(x,y) = x * 2^y
 //
-LIB7_CODE_HDR(scalb_asm)
+MYTHRYL_CODE_HEADER(scalb_asm)
 	CHECKLIMIT(scalb_v_limit)
 	lwz	atmp1,4(stdarg)		// atmp1 := y
 	srawi	atmp1,atmp1,1		// atmp1 := machine int y
@@ -848,7 +848,7 @@ LABEL(scalb_overflow)
 
 
 
-LIB7_CODE_HDR(try_lock_asm)
+MYTHRYL_CODE_HEADER(try_lock_asm)
 	lwz	atmp1,0(stdarg)
 	li	atmp2,1			// HEAP_FALSE
 	stw	atmp2,0(stdarg)
@@ -856,7 +856,7 @@ LIB7_CODE_HDR(try_lock_asm)
 	CONTINUE
 
 
-LIB7_CODE_HDR(unlock_asm)
+MYTHRYL_CODE_HEADER(unlock_asm)
 	li	atmp1,3			// HEAP_TRUE
 	stw	atmp1,0(stdarg)
 	li	stdarg,1		// Just return unit

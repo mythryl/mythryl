@@ -388,7 +388,7 @@ extern void restore_c_state (Task *task, ...);									// restore_c_state						d
 
 extern void set_up_timers ();
 
-extern Val    run_mythryl_function (Task *task, Val f, Val arg, Bool use_fate);					// run_mythryl_function						def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern Val    run_mythryl_function__may_heapclean (Task *task, Val f, Val arg, Bool use_fate, Roots*);		// run_mythryl_function__may_heapclean				def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 extern void   reset_timers (Pthread* pthread);
 extern void   run_mythryl_task_and_runtime_eventloop__may_heapclean (Task* task, Roots*);			// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c

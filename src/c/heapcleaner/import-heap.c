@@ -202,7 +202,7 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 	task->argument		= image.stdArg;
 	read_heap (&inbuf, &heap_header, task, externs);
 
-        // Initialize the calling context (taken from run_mythryl_function):					// run_mythryl_function		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+        // Initialize the calling context (taken from run_mythryl_function__may_heapclean):			// run_mythryl_function__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
         //
 	Val function_to_run	= task->argument;
 	//
