@@ -124,6 +124,7 @@ struct agegroup {
     int	    target_heapcleaning_frequency_ratio;		// Desired number of collections of the previous agegroup for one collection of this agegroup.
 
     int	    heapcleanings_count_of_younger_agegroup_during_last_heapcleaning;	// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
+										// (We use this to check how close we are coming to desired ratio of heapcleanings between agegroups.)
 
     Sib*    sib[ MAX_PLAIN_SIBS ];				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 

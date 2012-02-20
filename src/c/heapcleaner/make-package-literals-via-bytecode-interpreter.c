@@ -152,7 +152,40 @@ static int   ensure_sufficient_space__may_heapclean   (Task* task,  int bytes_ne
     return free_bytes;
 }
 
-
+static int   empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots* extra_roots)   {
+    //       =============================================
+    //
+    // The original SML/NJ code tried to empty the
+    // agegroup0 buffer only if it was absolutely full.
+    //
+    // The original SML/NJ code also tended to segfault
+    // and coredump under obscure conditions hard to
+    // repeat or diagnose.
+    //
+    // I'm not as fond of Heisenbugs as the SML/NJ Fellowship
+    // apparently is, so here I'm erring on the side of being
+    // very, very conservative.
+    //
+    // It should be sufficient to empty the agegroup0 buffer
+    // only if it is within about
+    //
+    //     MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS			// about 2KB -- see src/c/h/runtime-configuration.h
+    //
+    // of full, and the agegroup0 buffer is about 256KB long		// See DEFAULT_AGEGROUP0_BUFFER_BYTESIZE in src/c/h/runtime-configuration.h
+    // so emptying when over half-full is conservative.  But
+    // we don't get called very often, and at worst we call
+    // the garbage collector twice as often as usual (normally
+    // about 200Hz)  -- which does *not* mean it does twice as
+    // much work, since it does work only proportional to live
+    // data in the buffer -- so why not just stay a really long
+    // way away from the slightest risk of buffer-overrun here?
+    //
+    if (agegroup0_freespace_in_bytes(task)
+    <   agegroup0_usedspace_in_bytes(task)
+    ){
+	call_heapcleaner_with_extra_roots (task, 1, extra_roots );	// '0' means only empty agegroup0.
+    }
+}
 
 Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize,  Roots* extra_roots)   {
     //=============================================================
@@ -187,31 +220,31 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/AAA" );
 
 
-    int pc = 0;								// 'pc' will be our 'program counter' offset into bytecode_vector.
+    int pc = 0;									// 'pc' will be our 'program counter' offset into bytecode_vector.
 
 
-    if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;		// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
+    if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;			// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
 
     Val_Sized_Unt  magic
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
-    Val_Sized_Unt  max_depth						/* This variable is currently unused, so suppress 'unused var' compiler warning: */   		__attribute__((unused))
+    Val_Sized_Unt  max_depth							/* This variable is currently unused, so suppress 'unused var' compiler warning: */   		__attribute__((unused))
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
 
-    int free_bytes = 0;							// Free bytes in our agegroup0 buffer. This is a known-lower-limit, not an exact number.
+    int free_bytes = 0;								// Free bytes in our agegroup0 buffer. This is a known-lower-limit, not an exact number.
 
 
 Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 
-    // Uncommenting this seems to segfault us?!
-
     for (;;) {
 	//
+//	empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
+
 	ASSERT(pc < bytecode_vector_bytesize);
 
 	free_bytes -= LIST_CONS_CELL_BYTESIZE;	// Space for stack cons cell.
