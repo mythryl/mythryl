@@ -567,10 +567,10 @@ static char*   errtable   [] = {
 
 static char   errbuf[ 100 ];
 
-static Val   RaiseError   (Task* task,  int err)   {
-    //       =========
+static Val   raise_error   (Task* task,  int err)   {
+    //       ===========
     //
-    sprintf(errbuf,"Lib7-C-Interface: %s",errtable[err]);
+    sprintf(errbuf,"Lib7-C-Interface: %s", errtable[err]);
     //
     return RAISE_ERROR__MAY_HEAPCLEAN(task, errbuf, NULL);
 }
@@ -988,7 +988,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
     if (err) {
         free_pointerlist();
         restore_pointerlist(    saved_pl  );
-        return RaiseError(  task, err );
+        return raise_error(  task, err );
     }
 
     // Return (result,list of pointers to alloc'd C chunks):
@@ -1004,7 +1004,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
     return make_two_slot_record( task, result, lp);
 }
 
-static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* root)   {
+static Val   word_c_to_mythryl   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* root)   {
     //       ============
     //
     Val result =  HEAP_VOID;
@@ -1017,13 +1017,13 @@ static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* ro
 	//
     case LIB7PAD_CODE:
 	#ifdef DEBUG_C_CALLS
-		debug_say("word_CtoLib7: skipping pad %x ", *p);
+		debug_say("word_c_to_mythryl: skipping pad %x ", *p);
 	#endif
 	DO_PAD(p,t);
 	#ifdef DEBUG_C_CALLS
 		debug_say(" to %x\n", *p);
 	#endif
-	return word_CtoLib7(task,t,p,root);
+	return word_c_to_mythryl(task,t,p,root);
 
     case LIB7VOID_CODE:
 	return NULLARY_VALCON;
@@ -1038,17 +1038,17 @@ static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* ro
 	{
 	    Val_Sized_Unt q;
 	    #ifdef DEBUG_C_CALLS
-		debug_say("word_CtoLib7: ptr %x\n", **(Val_Sized_Unt ****)p);
+		debug_say("word_c_to_mythryl: ptr %x\n", **(Val_Sized_Unt ****)p);
 	    #endif
 	    tag = LIB7PTR_TAG;
 	    #ifdef DEBUG_C_CALLS
-		debug_say("word_CtoLib7: size is %d\n", extract_unsigned((unsigned char **)t,4));
-		debug_say("word_CtoLib7: align is %d\n",extract_unsigned((unsigned char **)t,1));
+		debug_say("word_c_to_mythryl: size is %d\n", extract_unsigned((unsigned char **)t,4));
+		debug_say("word_c_to_mythryl: align is %d\n",extract_unsigned((unsigned char **)t,1));
 	    #else
 		*t += 5;  // 5 bytes of size.
 	    #endif
 	    q = **p;
-	    mlval = word_CtoLib7(task,t,(Val_Sized_Unt **) &q,root);
+	    mlval = word_c_to_mythryl(task,t,(Val_Sized_Unt **) &q,root);
 	    (*p)++;
         }
 	break;
@@ -1076,7 +1076,7 @@ handle_int:
 	    Val_Sized_Unt *cp = ** (Val_Sized_Unt ***) p;
 	
 	    #ifdef DEBUG_C_CALLS
-		debug_say("word_CtoLib7:  C addr %x\n", cp);
+		debug_say("word_c_to_mythryl:  C addr %x\n", cp);
 	    #endif
 
 	    tag = LIB7ADDR_TAG;
@@ -1092,7 +1092,7 @@ handle_int:
 	    tag = LIB7FLOAT_TAG;
 	    mlval = double_CtoLib7(task,(double) *(*(float **)p)++);
 	    #ifdef DEBUG_C_CALLS
-	        debug_say("word_CtoLib7: made float %l.15f\n", *(double*)mlval);
+	        debug_say("word_c_to_mythryl: made float %l.15f\n", *(double*)mlval);
 	    #endif
 	}
 	break;
@@ -1102,14 +1102,14 @@ handle_int:
 	    tag = LIB7DOUBLE_TAG;
 	    mlval = double_CtoLib7(task,*(*(double **)p)++);
 	    #ifdef DEBUG_C_CALLS
-	        debug_say("word_CtoLib7: made double %l.15f\n", *(double*)mlval);
+	        debug_say("word_c_to_mythryl: made double %l.15f\n", *(double*)mlval);
             #endif
         }
 	break;
 
     case LIB7STRING_CODE:
 	#ifdef DEBUG_C_CALLS
-	    debug_say("word_CtoLib7:  string \"%s\"\n", (char *)**p);
+	    debug_say("word_c_to_mythryl:  string \"%s\"\n", (char *)**p);
 	#endif
 	tag = LIB7STRING_TAG;
 	space_check( task, strlen((char*)**p), root );
@@ -1127,13 +1127,13 @@ handle_int:
 	    mlval = LIST_NIL;
 
 	    #ifdef DEBUG_C_CALLS
-		debug_say("word_CtoLib7: open struct\n");
+		debug_say("word_c_to_mythryl: open struct\n");
 	    #endif
 
 	    while (**t != LIB7CLOSESTRUCT_CODE) {
 		//
 		local_root = LIST_CONS(task, mlval, *root);
-		result = word_CtoLib7(task,t,p,&local_root);
+		result = word_c_to_mythryl(task,t,p,&local_root);
 		mlval = LIST_HEAD(local_root);
 		*root = LIST_TAIL(local_root);
 		mlval = LIST_CONS(task, result, mlval);
@@ -1146,7 +1146,7 @@ handle_int:
 
     case LIB7CLOSESTRUCT_CODE:
 	//
-	die("word_CtoLib7: found lone LIB7CLOSESTRUCT_CODE");
+	die("word_c_to_mythryl: found lone LIB7CLOSESTRUCT_CODE");
 
     case LIB7ARRAY_CODE: 
     case LIB7VECTOR_CODE:
@@ -1160,7 +1160,7 @@ handle_int:
 	    int szb  = extract_unsigned((unsigned char **)t,2);	// Element size-in-bytes.
 
 	    #ifdef DEBUG_C_CALLS
-	        debug_say("word_CtoLib7: array/vector with %d elems of size %d\n", n, szb);
+	        debug_say("word_c_to_mythryl: array/vector with %d elems of size %d\n", n, szb);
 	    #endif
 
 	    char*  saved_t =  *t;
@@ -1185,11 +1185,11 @@ handle_int:
 		//
 		*t = saved_t;
 
-	        Val                                    local_root;
-		local_root = LIST_CONS(task,           mlval, *root );
-		Val result = word_CtoLib7(task, t, p, &local_root );
-		mlval = LIST_HEAD(                     local_root );
-		*root = LIST_TAIL(                     local_root );
+	        Val                                         local_root;
+		local_root = LIST_CONS(task,              mlval, *root );
+		Val result = word_c_to_mythryl(task, t, p, &local_root );
+		mlval = LIST_HEAD(                          local_root );
+		*root = LIST_TAIL(                          local_root );
 
 		PTR_CAST( Val*, mlval )[ i ] =   result;
 	    }
@@ -1302,7 +1302,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     int err = NO_ERR;
 
     if (n_cargs > N_ARGS) {
-	return RaiseError(task,ERR_TOO_MANY_ARGS);	// Mythryl side guarantees that this can't happen.
+	return raise_error(task,ERR_TOO_MANY_ARGS);	// Mythryl side guarantees that this can't happen.
     }	
 	
     // Save the pointerlist since C
@@ -1343,7 +1343,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     if (err) {
 	free_pointerlist();
 	restore_pointerlist(saved_pointerlist);
-	return RaiseError(task,err);
+	return raise_error(task,err);
     }
 
     #ifdef DEBUG_C_CALLS

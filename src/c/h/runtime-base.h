@@ -184,7 +184,10 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
     // By allocating these on the stack and linking them together,
     // we can pass an indefinite number of extra roots, including
     // chaining extra roots to those passed in by a parent fn.
-
+    //
+    // See also: "Protecting Mythryl Heap Pointers in C Runtime Code"
+    // in
+    //     src/A.GARBAGE-COLLECTOR.OVERVIEW
 
 
 ////////////////////////////////////////////////////////////////////////////

@@ -17,8 +17,8 @@
 
 static WIN32_FIND_DATA wfd;
 
-static Val   find_next_file   (Task* task, HANDLE h)   {
-    //       ==============
+static Val   find_next_file__may_heapclean   (Task* task, HANDLE h, Roots* extra_roots)   {
+    //       =============================
     //
     Val fname;
 
@@ -27,7 +27,7 @@ loop:
 	//
 	if (IS_DOTDIR(wfd.cFileName))   goto loop;
 	//
-	fname = make_ascii_string_from_c_string__may_heapclean(task, wfd.cFileName, NULL);
+	fname = make_ascii_string_from_c_string__may_heapclean(task, wfd.cFileName, extra_roots);
 	//
 	return OPTION_THE( task, fname );
 	//
@@ -49,7 +49,7 @@ Val   _lib7_win32_FS_find_next_file   (Task* task,  Val arg)   {
 
     HANDLE h = (HANDLE) WORD_LIB7toC(arg);
     //
-    return find_next_file(task,h);
+    return find_next_file__may_heapclean(task,h,NULL);
 }
 
 
@@ -66,7 +66,7 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
     Val result;
     if (h != INVALID_HANDLE_VALUE) {
       if (IS_DOTDIR(wfd.cFileName))
-	fname_opt = find_next_file(task,h);
+	fname_opt = find_next_file__may_heapclean(task,h,NULL);
       else {
 	fname = make_ascii_string_from_c_string__may_heapclean(task,wfd.cFileName, NULL );
 	fname_opt = OPTION_THE( task, fname );

@@ -60,7 +60,7 @@ Val   _util_NetDB_mkservent   (Task* task,  struct servent* sentry)   {
 
     Val name    =  make_ascii_string_from_c_string__may_heapclean(		task, sentry->s_name,     NULL	);		Roots roots1 = { &name,	    NULL };
     Val aliases =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task, sentry->s_aliases, &roots1);		Roots roots2 = { &aliases,  &roots1 };
-    Val proto   =  make_ascii_string_from_c_string__may_heapclean(		task, sentry->s_proto,   &roots2);		Roots roots3 = { &proto,    &roots2 };
+    Val proto   =  make_ascii_string_from_c_string__may_heapclean(		task, sentry->s_proto,   &roots2);	//	Roots roots3 = { &proto,    &roots2 };
     Val port    =  TAGGED_INT_FROM_C_INT(					ntohs(sentry->s_port)		);
 
     Val result  =  make_four_slot_record(task,  name, aliases, port, proto);

@@ -245,10 +245,10 @@ MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 
 
 // Here to return to                                     run_mythryl_task_and_runtime_eventloop__may_heapclean  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and thence to whoever called it.  If the caller was   load_and_run_heap_image__may_heapclean  in   src/c/main/load-and-run-heap-image.c
-// this will return us to                                main                                    in   src/c/main/runtime-main.c
+// and thence to whoever called it.  If the caller was   load_and_run_heap_image__may_heapclean			in   src/c/main/load-and-run-heap-image.c
+// this will return us to                                main							in   src/c/main/runtime-main.c
 // which will print stats
-// and exit(), but                   if the caller was   no_args_entry or some_args_entry        in   src/c/lib/ccalls/ccalls-fns.c
+// and exit(), but                   if the caller was   no_args_entry or some_args_entry       		in   src/c/lib/ccalls/ccalls-fns.c
 // then we may have some scenario
 // where C calls Mythryl which calls C which ...
 // and we may just be unwinding one level.

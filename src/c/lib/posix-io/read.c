@@ -76,7 +76,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	    buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );
 
 
-    /*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_read", NULL );
 	    //

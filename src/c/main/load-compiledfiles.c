@@ -292,7 +292,7 @@ void   load_compiled_files__may_heapclean   (
     }
 
     if (log_fd)   fclose( log_fd );
-}
+}													// load_compiled_files__may_heapclean
 
 
 static Val   read_in_compiled_file_list__may_heapclean   (
@@ -377,7 +377,7 @@ static Val   read_in_compiled_file_list__may_heapclean   (
 	    }
         }
 
-        if (max_num_boot_files < 0) {
+        if (max_num_boot_files < 0)  {
 	    //
             die("compiled_files_to_load file \"%s\" contains negative files count?! (%d)",
                 compiled_files_to_load_filename,
@@ -432,7 +432,7 @@ static Val   read_in_compiled_file_list__may_heapclean   (
 
 	    // If our agegroup0 buffer is more than half full,
 	    // empty it by doing a heapcleaning.  This is very
-	    // conservative -- which is the way I like it. :-)
+	    // conservative -- which is the way I like it. *grin*
 	    //
 	    if (agegroup0_freespace_in_bytes( task )
 	      < agegroup0_usedspace_in_bytes( task )

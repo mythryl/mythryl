@@ -58,7 +58,7 @@ extern int	get_signal_state		(Pthread* pthread, int signal_number);
 //
 extern Val	list_signals__may_heapclean	(Task* task, Roots*);
 extern void	set_signal_mask			(Task* task, Val signal_list);
-extern Val	get_signal_mask__may_heapclean			(Task* task, Val arg, Roots*);
+extern Val	get_signal_mask__may_heapclean	(Task* task, Val arg, Roots*);
 
 #endif // SYSTEM_DEPENDENT_SIGNAL_STUFF_H
 
