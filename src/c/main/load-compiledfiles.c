@@ -88,7 +88,7 @@
 //
 #define PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL	(*PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL ))
 
-static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
+static Val  compiled_file_list__local = LIST_NIL;	// A list of .compiled files to load.
 
 
 // Forward declarations for private local functions:
@@ -191,7 +191,7 @@ void   load_compiled_files__may_heapclean   (
 
     // Construct the list of files to be loaded:
     //
-    compiled_file_list
+    compiled_file_list__local
 	=
 	read_in_compiled_file_list__may_heapclean (
 	    task,
@@ -209,16 +209,16 @@ void   load_compiled_files__may_heapclean   (
 
     // Load all requested compiled_files into the heap:
     //
-    while (compiled_file_list != LIST_NIL) {
+    while (compiled_file_list__local != LIST_NIL) {
 	//
         char* filename =  filename_buf;
 
         // Need to make a copy of the filename because
         // load_compiled_file__may_heapclean is going to scribble into it:
         //
-	strcpy( filename_buf, HEAP_STRING_AS_C_STRING( LIST_HEAD( compiled_file_list )));
+	strcpy( filename_buf, HEAP_STRING_AS_C_STRING( LIST_HEAD( compiled_file_list__local )));
        
-	compiled_file_list = LIST_TAIL( compiled_file_list );		// Remove above filename from list of files to process.
+	compiled_file_list__local = LIST_TAIL( compiled_file_list__local );		// Remove above filename from list of files to process.
 
 	// If 'filename' does not begin with "RUNTIME_PACKAGE_PICKLEHASH=" ...
 	//
@@ -939,7 +939,7 @@ static void   load_compiled_file__may_heapclean   (
     //
     if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
         //
-	{   Roots roots1 = { &compiled_file_list, extra_roots };
+	{   Roots roots1 = { &compiled_file_list__local, extra_roots };
 	    //
 	    call_heapcleaner_with_extra_roots (task, 0, &roots1 );
 	}
@@ -1097,13 +1097,13 @@ static void   load_compiled_file__may_heapclean   (
 
 	read_n_bytes_from_file( file, data_chunk, segment_bytesize, filename );
 
-	save_c_state (task, &compiled_file_list, &import_record, NULL);
+	save_c_state (task, &compiled_file_list__local, &import_record, NULL);
 
 	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, extra_roots);
 
 	FREE(data_chunk);
 
-	restore_c_state( task, &compiled_file_list, &import_record, NULL );
+	restore_c_state( task, &compiled_file_list__local, &import_record, NULL );
     }
 
     // Do a functional update of the last element of the import_record:
@@ -1118,7 +1118,7 @@ static void   load_compiled_file__may_heapclean   (
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
         //
-	{   Roots roots1 =  { &compiled_file_list, extra_roots	};
+	{   Roots roots1 =  { &compiled_file_list__local, extra_roots	};
 	    Roots roots2 =  { &mythryl_result,     &roots1	};
 	    //
 	    call_heapcleaner_with_extra_roots (task, 0, &roots2 );
@@ -1182,14 +1182,14 @@ static void   load_compiled_file__may_heapclean   (
         // constructs and returns the tree of exports from
         // our compiledfile.
 	//
-	save_c_state                                          (task, &compiled_file_list, NULL);
+	save_c_state                                          (task, &compiled_file_list__local, NULL);
 	mythryl_result =  run_mythryl_function__may_heapclean (task, closure, mythryl_result, TRUE, NULL);	// run_mythryl_function__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-	restore_c_state					      (task, &compiled_file_list, NULL);
+	restore_c_state					      (task, &compiled_file_list__local, NULL);
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-	    {   Roots roots1 = { &compiled_file_list, extra_roots	};
-		Roots roots2 = { &mythryl_result,     &roots1		};
+	    {   Roots roots1 = { &compiled_file_list__local, extra_roots	};
+		Roots roots2 = { &mythryl_result,           &roots1		};
 		//
 		call_heapcleaner_with_extra_roots (task, 0, &roots2 );
 	    }
