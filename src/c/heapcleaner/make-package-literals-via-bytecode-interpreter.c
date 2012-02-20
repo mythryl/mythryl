@@ -140,14 +140,43 @@ static double   get_double   (Unt8* p)   {
     return u.d;
 }
 
+static int   ensure_sufficient_space__may_heapclean   (Task* task,  int bytes_needed,  int free_bytes,  Roots* extra_roots)   {
+    //       ======================================
+    //
+    // Check that sufficient space is available for the
+    // literal chunk that we are about to allocate.
+    // Note that the cons cell has already been accounted
+    // for in bytes_free but not in bytes_needed.
+    //
+    if (bytes_needed > free_bytes
+    &&  need_to_call_heapcleaner( task, bytes_needed + LIST_CONS_CELL_BYTESIZE)
+    ){
+										log_if("ensure_sufficient_space__may_heapclean calling heapcleaner <---------------------------------");
+	call_heapcleaner_with_extra_roots (task, 1, extra_roots );
+
+	free_bytes = 0;
+
+    } else {
+
+	free_bytes -= bytes_needed;
+    }
+
+    return free_bytes;
+}
 
 
 
 Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize,  Roots* extra_roots)   {
     //=============================================================
     //
+    // bytecode_vector is a Mythryl-heap vector datachunk cast to Unt8*.
+    //
     // NOTE: We allocate all of the chunks in agegroup 1,
     // but allocate the vector of literals in agegroup0.
+    //
+    // We get called at the C level in
+    //
+    //    src/c/main/load-compiledfiles.c
     //
     // This fn gets exported to the Mythryl level as
     //
@@ -155,12 +184,16 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
     // in
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
     // via
-    //     src/c/lib/heap/make-package-literals-via-bytecode-interpreter.c
+    //     src/c/lib/heap/libmythryl-heap.c
     //
-    // Our ultimate invocation is in
+    // Our ultimate Mythryl-level invocation is in
     //
-    //     src/lib/compiler/execution/main/execute.pkg
+    //     src/lib/compiler/execution/main/link-and-run-package.pkg
 
+    Val	stack = HEAP_NIL;
+
+    Roots roots1 = { (Val*)&bytecode_vector, extra_roots };
+    Roots roots2 = { &stack,                &roots1	 };
 
 								do_debug_logging =  TRUE;
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/AAA" );
@@ -168,30 +201,6 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 
     int pc = 0;								// 'pc' will be our 'program counter' offset into bytecode_vector.
 
-    // Check that sufficient space is available for the
-    // literal chunk that we are about to allocate.
-    // Note that the cons cell has already been accounted
-    // for in free_bytes_in_agegroup0_buffer (but not in need_bytes_in_agegroup0_buffer).
-    //
-    #define GC_CHECK												\
-	do {													\
-	    if (  need_bytes_in_agegroup0_buffer								\
-                > free_bytes_in_agegroup0_buffer								\
-            &&  need_to_call_heapcleaner( task, need_bytes_in_agegroup0_buffer + LIST_CONS_CELL_BYTESIZE)	\
-            ){													\
-log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
-	        {   Roots roots1 = { (Val*)&bytecode_vector, extra_roots };					\
-		    Roots roots2 = { &stack,                &roots1	 };					\
-		    /* */											\
-		    call_heapcleaner_with_extra_roots (task, 1, &roots2 );					\
-		}												\
-		free_bytes_in_agegroup0_buffer = 0;								\
-														\
-	    } else {												\
-														\
-		free_bytes_in_agegroup0_buffer -= need_bytes_in_agegroup0_buffer;				\
-	    }													\
-	} while (0)
 
     #ifdef DEBUG_LITERALS
 	debug_say("make_package_literals_via_bytecode_interpreter__may_heapclean: bytecode_vector = %#x, bytecode_vector_bytesize = %d\n", bytecode_vector, bytecode_vector_bytesize);
@@ -209,7 +218,6 @@ log_if("GC_CHECK calling heapcleaner <---------------------------------");					\
 
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
-    Val	stack = HEAP_NIL;
 
     int free_bytes_in_agegroup0_buffer = 0;
 
@@ -290,7 +298,7 @@ log_if("I_RAW32L/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		ASSERT(n > 0);
 
 		int need_bytes_in_agegroup0_buffer = 4*(n+1);
-		GC_CHECK;
+		free_bytes_in_agegroup0_buffer = ensure_sufficient_space__may_heapclean(task, need_bytes_in_agegroup0_buffer, free_bytes_in_agegroup0_buffer, &roots2);
 
 		set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
 
@@ -338,7 +346,7 @@ log_if("I_RAW64L/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		ASSERT(n > 0);
 
 		int need_bytes_in_agegroup0_buffer = 8*(n+1);
-		GC_CHECK;
+		free_bytes_in_agegroup0_buffer = ensure_sufficient_space__may_heapclean(task, need_bytes_in_agegroup0_buffer, free_bytes_in_agegroup0_buffer, &roots2);
 
 		#ifdef ALIGN_FLOAT64S
 		    // Force FLOAT64_BYTESIZE alignment (descriptor is off by one word)
@@ -389,7 +397,7 @@ log_if("I_STR   /CCC: bytes to words (including terminal nul) x=%x", j);
 		//
 		int need_bytes_in_agegroup0_buffer = WORD_BYTESIZE*(j+1+3);
 log_if("I_STR   /DDD: need_bytes_in_agegroup0_buffer (including header) x=%x", need_bytes_in_agegroup0_buffer);
-		GC_CHECK;
+		free_bytes_in_agegroup0_buffer = ensure_sufficient_space__may_heapclean(task, need_bytes_in_agegroup0_buffer, free_bytes_in_agegroup0_buffer, &roots2);
 
 		// Allocate the data chunk:
 		//
@@ -457,7 +465,7 @@ log_if("I_VECTOR/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		// the sequence header chunk.
 		//
 		int need_bytes_in_agegroup0_buffer = WORD_BYTESIZE*(n+1+3);
-		GC_CHECK;
+		free_bytes_in_agegroup0_buffer = ensure_sufficient_space__may_heapclean(task, need_bytes_in_agegroup0_buffer, free_bytes_in_agegroup0_buffer, &roots2);
 
 		// Allocate the data chunk:
 		//
@@ -505,7 +513,8 @@ log_if("I_RECORD/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		} else {
 
 		    int need_bytes_in_agegroup0_buffer = 4*(n+1);
-		    GC_CHECK;
+
+		    free_bytes_in_agegroup0_buffer = ensure_sufficient_space__may_heapclean(task, need_bytes_in_agegroup0_buffer, free_bytes_in_agegroup0_buffer, &roots2);
 
 		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
 		}
