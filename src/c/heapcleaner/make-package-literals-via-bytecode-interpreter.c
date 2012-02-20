@@ -152,7 +152,7 @@ static int   ensure_sufficient_space__may_heapclean   (Task* task,  int bytes_ne
     return free_bytes;
 }
 
-static int   empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots* extra_roots)   {
+static void  empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots* extra_roots)   {
     //       =============================================
     //
     // The original SML/NJ code tried to empty the
@@ -183,7 +183,7 @@ static int   empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots
     if (agegroup0_freespace_in_bytes(task)
     <   agegroup0_usedspace_in_bytes(task)
     ){
-	call_heapcleaner_with_extra_roots (task, 1, extra_roots );	// '0' means only empty agegroup0.
+	call_heapcleaner_with_extra_roots (task, 0, extra_roots );	// '0' means only empty agegroup0.
     }
 }
 
@@ -244,6 +244,12 @@ Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocati
     for (;;) {
 	//
 //	empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
+//
+// Uncommenting above currently results in
+//                    load-compiledfiles.c:   Writing load log to     load-compiledfiles.c.log
+//
+//                    load-compiledfiles.c:   Reading   file          COMPILED_FILES_TO_LOAD
+// Dumping heap due to bogus fault not in Mythryl sig = 11, code = 0x805a39b, pc = 0x805a39b. (Check logfile for details).
 
 	ASSERT(pc < bytecode_vector_bytesize);
 
