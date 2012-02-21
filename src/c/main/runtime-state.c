@@ -207,9 +207,7 @@ void   save_c_state   (Task* task, ...)   {
 
     va_start (ap, task);
     int  n;
-    for (n = 0; (vp = va_arg(ap, Val *)) != NULL;  n++) {
-	continue;
-    }
+    for (n = 0; (vp = va_arg(ap, Val *)) != NULL;  n++);
     va_end (ap);
 
     va_start (ap, task);
@@ -226,7 +224,7 @@ void   save_c_state   (Task* task, ...)   {
 void   restore_c_state   (Task* task, ...)   {
     // ===============
     //
-    //    Restore a collection of Lib7 values from the return closure.
+    //    Restore a collection of Mythryl values from the return closure.
     //
     // This fn is called only in:
     //

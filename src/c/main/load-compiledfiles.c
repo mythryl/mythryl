@@ -36,6 +36,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -812,15 +813,12 @@ static void   load_compiled_file__may_heapclean   (
     //
     ///////////////////////////////////////////////////////
 
+printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): top\n", filename);
     FILE* file;
     int   i;
     int   bytes_of_code_remaining;
     int   import_record_slot_count;			// Size-in-slots of import_record.
     int   bytes_of_exports = 0;
-
-    Val	    import_record;				// Contains all the values we import from other compiled_files.
-    Val	    closure;
-    Val	    mythryl_result;
 
     Compiledfile_Header   header;
 
@@ -853,12 +851,12 @@ static void   load_compiled_file__may_heapclean   (
 		 compiledfile_filename = colon_ptr + 1;
 	    }
 
-	    archive_offset = strtoul (at_ptr + 1, NULL, 0);        // XXX BUGGO FIXME Needs more sanity checking.
+	    archive_offset = strtoul (at_ptr + 1, NULL, 0);        // XXX SUCKO FIXME Needs more sanity checking.
 	    *at_ptr = '\0';
 	}
     }
 
-    // Log all files loaded for diagnostic/information purposes:
+    // Log all files loaded, for diagnostic/information purposes:
     //
     if (!archive_offset) {
         //
@@ -892,12 +890,7 @@ static void   load_compiled_file__may_heapclean   (
         //
         if (fseek (file, archive_offset, SEEK_SET) == -1) {
 	    //
-  	    // XXX BUGGO FIXME should call strerror(errno)
-            // here to report the specific error:
-            //
-	    die ("Cannot seek on archive file \"%s@%ul\"",
-		 filename, (unsigned long) archive_offset
-            );
+	    die ("Cannot seek on archive file \"%s@%ul\": %s", filename, (unsigned long) archive_offset, strerror(errno) );
         }
     }
 
@@ -946,8 +939,9 @@ static void   load_compiled_file__may_heapclean   (
     }
 
     // Write the header for our 'import record', which will be 
-    // aLib7 record with 'import_record_slot_count' slots:
+    // a Mythryl record with 'import_record_slot_count' slots:
     //
+printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): import_record_slot_count d=%d\n", filename, import_record_slot_count);
     set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(import_record_slot_count, PAIRS_AND_RECORDS_BTAG));
 
     // Locate all the required import values and
@@ -988,7 +982,7 @@ static void   load_compiled_file__may_heapclean   (
     // Complete the above by actually allocating
     // the 'import record' on the Mythryl heap:
     //
-    import_record = commit_nascent_heapchunk( task, import_record_slot_count );
+    Val import_record =  commit_nascent_heapchunk( task, import_record_slot_count );			// Contains all the values we import from other compiled_files.
 
     // Get the export picklehash for this compiledfile.
     // This is the name by which other compiled_files will
@@ -1043,7 +1037,8 @@ static void   load_compiled_file__may_heapclean   (
 	                 + header.pad;
 
 	if (fseek(file, file_offset, SEEK_SET) == -1) {
-	    die ("cannot seek on .compiled file \"%s\"", filename);
+	    //
+	    die ("cannot seek on .compiled file \"%s\": %s", filename, strerror(errno) );
         }
     }
 
@@ -1087,6 +1082,9 @@ static void   load_compiled_file__may_heapclean   (
 	die ("format error (data size mismatch) in .compiled file \"%s\"", filename);
     }
 
+
+    Val	    mythryl_result;
+
     if (segment_bytesize <= 0) {
         //
 	mythryl_result = HEAP_VOID;
@@ -1096,20 +1094,22 @@ static void   load_compiled_file__may_heapclean   (
 	Unt8* data_chunk =  MALLOC_VEC( Unt8, segment_bytesize );
 
 	read_n_bytes_from_file( file, data_chunk, segment_bytesize, filename );
-
-	save_c_state (task, &compiled_file_list__local, &import_record, NULL);
+											// save_c_state		is from   src/c/main/runtime-state.c
+	save_c_state (task, &compiled_file_list__local, &import_record, NULL);		// <============ use of import_record
 
 	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, extra_roots);
 
 	FREE(data_chunk);
+// printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): SSS\n", filename);
 
-	restore_c_state( task, &compiled_file_list__local, &import_record, NULL );
+	restore_c_state( task, &compiled_file_list__local, &import_record, NULL );	// <============ use of import_record
     }
+// printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): TTT\n", filename);
 
     // Do a functional update of the last element of the import_record:
     //
     for (i = 0;  i < import_record_slot_count;  i++) {
-	set_slot_in_nascent_heapchunk(task, i, PTR_CAST(Val*, import_record)[i-1]);
+	set_slot_in_nascent_heapchunk(task, i, PTR_CAST(Val*, import_record)[i-1]);	// <============ last use of import_record
     }
     set_slot_in_nascent_heapchunk( task, import_record_slot_count, mythryl_result );
     mythryl_result = commit_nascent_heapchunk( task, import_record_slot_count );
@@ -1160,31 +1160,32 @@ static void   load_compiled_file__may_heapclean   (
       
         // Create closure, taking entry point into account:
 	//
-	closure = make_one_slot_record(  task,  PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes)  );
+	{   Val closure = make_one_slot_record(  task,  PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes)  );
 
-        // Apply the closure to the import picklehash vector.
-        //
-        // This actually executes all the top-level code for
-        // the compile unit, which is to say that if the
-        // source for our compiledfile looked something like
-        //
-        // package my_pkg {
-        //     my _ = file::print "Hello, world!\n";
-        // };
-        //
-        // then when we do the following 'apply' call, you'd see
-        //
-        // Hello, world!
-        //
-        // printed on the standard output.
-        //
-        // In addition, invisible compiler-generated code
-        // constructs and returns the tree of exports from
-        // our compiledfile.
-	//
-	save_c_state                                          (task, &compiled_file_list__local, NULL);
-	mythryl_result =  run_mythryl_function__may_heapclean (task, closure, mythryl_result, TRUE, NULL);	// run_mythryl_function__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-	restore_c_state					      (task, &compiled_file_list__local, NULL);
+	    // Apply the closure to the import picklehash vector.
+	    //
+	    // This actually executes all the top-level code for
+	    // the compile unit, which is to say that if the
+	    // source for our compiledfile looked something like
+	    //
+	    // package my_pkg {
+	    //     my _ = file::print "Hello, world!\n";
+	    // };
+	    //
+	    // then when we do the following 'apply' call, you'd see
+	    //
+	    // Hello, world!
+	    //
+	    // printed on the standard output.
+	    //
+	    // In addition, invisible compiler-generated code
+	    // constructs and returns the tree of exports from
+	    // our compiledfile.
+	    //
+	    save_c_state                                          (task, &compiled_file_list__local, NULL);
+	    mythryl_result =  run_mythryl_function__may_heapclean (task, closure, mythryl_result, TRUE, NULL); 	// run_mythryl_function__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+	    restore_c_state					  (task, &compiled_file_list__local, NULL);
+	}
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
@@ -1210,6 +1211,7 @@ static void   load_compiled_file__may_heapclean   (
     }
 
     fclose (file);
+printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean: bottom\n");
 }                                   // load_compiled_file__may_heapclean
 
 
