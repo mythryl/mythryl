@@ -243,13 +243,7 @@ Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocati
 
     for (;;) {
 	//
-//	empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
-//
-// Uncommenting above currently results in
-//                    load-compiledfiles.c:   Writing load log to     load-compiledfiles.c.log
-//
-//                    load-compiledfiles.c:   Reading   file          COMPILED_FILES_TO_LOAD
-// Dumping heap due to bogus fault not in Mythryl sig = 11, code = 0x805a39b, pc = 0x805a39b. (Check logfile for details).
+	empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
 
 	ASSERT(pc < bytecode_vector_bytesize);
 
