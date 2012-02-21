@@ -128,31 +128,7 @@ static double   get_double   (Unt8* p)   {
     return u.d;
 }
 
-static int   ensure_sufficient_space__may_heapclean   (Task* task,  int bytes_needed,  int free_bytes,  Roots* extra_roots)   {
-    //       ======================================
-    //
-    // Check that sufficient space is available for the
-    // literal chunk that we are about to allocate.
-    // Note that the cons cell has already been accounted
-    // for in bytes_free but not in bytes_needed.
-    //
-    if (bytes_needed > free_bytes
-    &&  need_to_call_heapcleaner( task, bytes_needed + LIST_CONS_CELL_BYTESIZE)
-    ){
-										log_if("ensure_sufficient_space__may_heapclean calling heapcleaner <---------------------------------");
-	call_heapcleaner_with_extra_roots (task, 1, extra_roots );
-
-	free_bytes = 0;
-
-    } else {
-
-	free_bytes -= bytes_needed;
-    }
-
-    return free_bytes;
-}
-
-static void  empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots* extra_roots)   {
+static int   empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots* extra_roots)   {
     //       =============================================
     //
     // The original SML/NJ code tried to empty the
@@ -180,11 +156,14 @@ static void  empty_agegroup0_buffer_if_more_than_half_full   (Task* task,  Roots
     // data in the buffer -- so why not just stay a really long
     // way away from the slightest risk of buffer-overrun here?
     //
-    if (agegroup0_freespace_in_bytes(task)
-    <   agegroup0_usedspace_in_bytes(task)
-    ){
+    int freebytes = agegroup0_freespace_in_bytes(task);
+    int usedbytes = agegroup0_usedspace_in_bytes(task);
+
+    if (freebytes < usedbytes) {
+	//
 	call_heapcleaner_with_extra_roots (task, 0, extra_roots );	// '0' means only empty agegroup0.
     }
+    return freebytes;
 }
 
 Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* task,   Unt8* bytecode_vector,   int bytecode_vector_bytesize,  Roots* extra_roots)   {
@@ -220,83 +199,64 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/AAA" );
 
 
-    int pc = 0;									// 'pc' will be our 'program counter' offset into bytecode_vector.
+    int pc = 0;														// 'pc' will be our 'program counter' offset into bytecode_vector.
 
 
-    if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;			// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
+    if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;								// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
 
     Val_Sized_Unt  magic
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
-    Val_Sized_Unt  max_depth							/* This variable is currently unused, so suppress 'unused var' compiler warning: */   		__attribute__((unused))
+    Val_Sized_Unt  max_depth												/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
 
-    int free_bytes = 0;								// Free bytes in our agegroup0 buffer. This is a known-lower-limit, not an exact number.
-
-
 Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 
     for (;;) {
-	//
-	empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
+	int free_bytes													/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
+	    =
+	    empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
 
 	ASSERT(pc < bytecode_vector_bytesize);
-
-	free_bytes -= LIST_CONS_CELL_BYTESIZE;	// Space for stack cons cell.
-
-	if (free_bytes < ONE_K_BINARY) {
-	    //
-	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
-		//
-		{   Roots roots1 = { (Val*)&bytecode_vector, extra_roots  };
-		    Roots roots2 = { &stack,                 &roots1	  };
-		    //
-		    call_heapcleaner_with_extra_roots (task, 1, &roots2 );
-		}
-            }
-
-	    free_bytes = 64*ONE_K_BINARY;
-	}
-
 
 if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 	switch (bytecode_vector[ pc++ ]) {
 	    //
-	case MAKE_TAGGED_VAL:										// Make 31-bit in-pointer int on 32-bit machines, 63-bit in-pointer in on 64-bit machines.
+	case MAKE_TAGGED_VAL:												// Make 31-bit in-pointer int on 32-bit machines, 63-bit in-pointer in on 64-bit machines.
 	    {
-		int i = GET32(bytecode_vector,pc);	pc += 4;					// 64-bit issue.
+		int i = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
 
-		stack = LIST_CONS(task, TAGGED_INT_FROM_C_INT(i), stack);				// LIST_CONST		is from   src/c/h/make-strings-and-vectors-etc.h
+		stack = LIST_CONS(task, TAGGED_INT_FROM_C_INT(i), stack);						// LIST_CONST		is from   src/c/h/make-strings-and-vectors-etc.h
 	    }
 	    break;
 
-	case MAKE_FOUR_BYTE_VAL:									// Make 32-bit int or unt.
+	case MAKE_FOUR_BYTE_VAL:											// Make a boxed 32-bit int or unt.   This will consume two words, one for the tagword, one for the value.
 	    {
-		int i = GET32(bytecode_vector,pc);	pc += 4;					// 64-bit issue.
+		int i = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
 
-		Val result =  make_one_word_int(task, i );
+		Val result =  make_one_word_int(task, i );								// make_one_word_int	is from   src/c/h/make-strings-and-vectors-etc.h
 
-		stack = LIST_CONS(task, result, stack);
-		free_bytes -= 2*WORD_BYTESIZE;
+		stack = LIST_CONS(task, result, stack);									// Add boxed int/unt to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 	    }
 	    break;
 
-	case MAKE_FOUR_BYTE_VALS:									// Make 32-bit ints or unts on 32-bit or 64-bit machines.
+	case MAKE_FOUR_BYTE_VALS:											// Make vector of word-length (4byte?) nonpointer values. We'll use one tagword + N words for the values.
 	    {
-		int n = GET32(bytecode_vector,pc);	pc += 4;					// 64-bit issue.
+		int n = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
 
 		ASSERT(n > 0);
 
-		int free_bytes_needed = 4*(n+1);									// 64-bit issue.
-		free_bytes = ensure_sufficient_space__may_heapclean(task, free_bytes_needed, free_bytes, &roots2);
-
-		set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
+		set_slot_in_nascent_heapchunk
+		  ( task,
+                    0,
+                    MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)						// 64-bit issue.
+		);
 
 		for (int j = 1;  j <= n;  j++) {
 		    //
@@ -311,26 +271,23 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	    }
 	    break;
 
-	case MAKE_EIGHT_BYTE_VAL:
-	    {
+	case MAKE_EIGHT_BYTE_VAL:											// Make a boxed 64-bit nonpointer value -- usually a float, potentially a 64-bit int/unt/whatever.
+	    {														// On 32-bit machines this will consume up to four words: one for alignment padding, two for data, one tagword.
+															// On 64-bit machines this will consume exactly two words: tagword plus dataword.
 		double d = get_double(&(bytecode_vector[pc]));	pc += 8;						// 64-bit issue.
 
-		Val result = make_float64(task, d );
+		Val result = make_float64(task, d );									// make_float64	def in   src/c/h/make-strings-and-vectors-etc.h
 
-		stack = LIST_CONS(task, result, stack);
-
-		free_bytes -= 4*WORD_BYTESIZE;		// Extra 4 bytes for alignment padding.				// 64-bit issue.
+		stack = LIST_CONS(task, result, stack);									// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 	    }
 	    break;
 
-	case MAKE_EIGHT_BYTE_VALS:
-	    {
-		int n = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
+	case MAKE_EIGHT_BYTE_VALS:											// Make vector of biword-length (8byte?) nonpointer values. We'll use one tagword + N words for the values.
+	    {														// Currently this will (almost?) always be float64s.
+		int len_in_slots = GET32(bytecode_vector,pc);								// Get of 64-bit slots for vector.  (Why HALF??)
+		pc += 4;												// 64-bit issue -- on 64-bit machines should probably be 8 bytes.
 
 		ASSERT(n > 0);
-
-		int free_bytes_needed = 8*(n+1);									// 64-bit issue.
-		free_bytes = ensure_sufficient_space__may_heapclean(task, free_bytes_needed, free_bytes, &roots2);
 
 		#ifdef ALIGN_FLOAT64S
 		    // Force FLOAT64_BYTESIZE alignment (descriptor is off by one word)
@@ -338,57 +295,61 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    task->heap_allocation_pointer = (Val*)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
 		#endif
 
-		int j = 2*n;							// Number of words.			// 64-bit issue...?
+		Val result;
 
-		set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(j, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
+		{   int len_in_hostwords = 2 * len_in_slots;								// Compute length for tagword -- tagword length is in hostwords not 64-bit words.	// 64-bit issue.
 
-		Val result =  commit_nascent_heapchunk(task, j );
+		    set_slot_in_nascent_heapchunk
+		      ( task,
+			0,
+			MAKE_TAGWORD( len_in_hostwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+		      );
 
-		for (int j = 0;  j < n;  j++) {
-		    //
-		    PTR_CAST(double*, result)[j] = get_double(&(bytecode_vector[pc]));	pc += 8;			// 64-bit issue.
+		    result =  commit_nascent_heapchunk(task, len_in_hostwords );
 		}
-		stack = LIST_CONS(task, result, stack);
+
+		for (int i = 0;  i < len_in_slots;  i++) {
+		    //
+		    PTR_CAST(double*, result)[i] = get_double(&(bytecode_vector[pc]));	pc += 8;			// 64-bit issue.
+		}
+
+		stack = LIST_CONS(task, result, stack);									// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 	    }
 	    break;
 
 	case MAKE_ASCII_STRING:												// More generally, vector of byte-size values.
-	    {
-		int n = GET32(bytecode_vector,pc);		pc += 4;						// 64-bit issue.
+	    {														// We allocate a vector and also the silly separate vector-header,
+															// so total space consumption is two tagwords, indirection pointer, plus the bytevector contents proper.
+		int len_in_bytes = GET32(bytecode_vector,pc);		pc += 4;					// 64-bit issue.
 
-		if (n == 0) {
+		if (len_in_bytes == 0) {
 		    //
 		    stack = LIST_CONS(task, ZERO_LENGTH_STRING__GLOBAL, stack);
 
-		    break;
+		} else {
+
+		    Val result; 	
+
+		    {	int  len_in_hostwords
+			    =
+			    BYTES_TO_WORDS( len_in_bytes +1 );								// '+1' to include space for '\0'.
+
+			set_slot_in_nascent_heapchunk									// Write the bytevector tagword.
+			  ( task,
+			    0,
+			    MAKE_TAGWORD( len_in_hostwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+			);
+
+			set_slot_in_nascent_heapchunk     (task, len_in_hostwords, 0);					// Make sure any left-over bytes are zeroed, so word-by-word string equality works.
+			result = commit_nascent_heapchunk (task, len_in_hostwords);
+		    }	
+
+		    memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], len_in_bytes);	pc += len_in_bytes;
+
+		    result = make_vector_header(task, STRING_TAGWORD, result, len_in_bytes);				// Allocate the header chunk.
+
+		    stack = LIST_CONS(task, result, stack);								// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 		}
-
-		int j = BYTES_TO_WORDS(n+1);										// '+1' to include space for '\0'.
-
-		// The space request includes space for the data-chunk header word and
-		// the sequence header chunk.
-		//
-		int free_bytes_needed = WORD_BYTESIZE*(j+1+3);								// 64-bit issue.
-
-		free_bytes = ensure_sufficient_space__may_heapclean(task, free_bytes_needed, free_bytes, &roots2);
-
-		// Allocate the data chunk:
-		//
-		set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(j, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG));
-		set_slot_in_nascent_heapchunk (task, j, 0);								// So word-by-word string equality works.
-
-		Val result = commit_nascent_heapchunk (task, j);
-
-		memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], n);		pc += n;
-
-		// Allocate the header chunk:
-		//
-		result = make_vector_header(task, STRING_TAGWORD, result, n);
-
-		// Push on stack:
-		//
-		stack = LIST_CONS(task, result, stack);
-
 	    }
 	    break;
 
@@ -399,94 +360,79 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		Val result = stack;
 
-		for (int j = 0;  j < n;  j++) {
+		for (int i = 0;  i < n;  ++i) {
 		    //
-		    result = LIST_TAIL(result);
+		    result = LIST_TAIL( result );
 		}
 
-		stack = LIST_CONS(task, LIST_HEAD(result), stack);
-
+		stack = LIST_CONS(task, LIST_HEAD(result), stack);							// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 	    }
 	    break;
 
 	  case MAKE_VECTOR:												// Make n-slot vector, fill it by popping last N values from stack.
-	    {
+	    {														// We allocate the vector and also the silly separate vector-header,
+															// so total space consumption is two tagwords, indirection pointer, plus the bytevector contents proper.
 
-		int n = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
+		int len_in_slots = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
 
-		if (n == 0) {
+		if (len_in_slots == 0) {
 		    //
 		    stack = LIST_CONS(task, ZERO_LENGTH_VECTOR__GLOBAL, stack);
 		    //
-		    break;
-		}
-
-		// The space request includes space
-		// for the data-chunk header word and
-		// the sequence header chunk.
-		//
-		int free_bytes_needed = WORD_BYTESIZE*(n+1+3);								// 64-bit issue.
-		free_bytes = ensure_sufficient_space__may_heapclean(task, free_bytes_needed, free_bytes, &roots2);
-
-		// Allocate the data chunk:
-		//
-		set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(n, RO_VECTOR_DATA_BTAG));
-
-		// Top of stack is last element in vector:
-		//
-		for (int j = n;  j > 0;  j--) {
+		} else {
 		    //
-		    set_slot_in_nascent_heapchunk(task, j, LIST_HEAD(stack));
+		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, RO_VECTOR_DATA_BTAG));		// Do tagword for vector.		// 64-bit issue?
 
-		    stack = LIST_TAIL(stack);
+		    // Over all slots in vector:
+		    //
+		    for (int i = len_in_slots;  i > 0;  --i) {								// Iterate in reverse order because top of stack is last element in record.
+			//
+			set_slot_in_nascent_heapchunk(task, i, LIST_HEAD(stack));					// Initialize i-th slot of vector.
+
+			stack = LIST_TAIL( stack );									// Pop slot initializer from stack.
+		    }
+
+		    Val result =  commit_nascent_heapchunk(task, len_in_slots );					// Allocate the data chunk.
+
+		    result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len_in_slots );		// Allocate the silly indirect-reference-to-vector record.
+
+		    stack = LIST_CONS(task, result, stack);								// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 		}
-
-		Val result =  commit_nascent_heapchunk(task, n );
-
-		result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, n);
-
-		stack = LIST_CONS(task, result, stack);
-
 	    }
 	    break;
 
-	case MAKE_RECORD:													// Make n-slot record, fill it by popping last N values from stack.
+	case MAKE_RECORD:												// Make n-slot record, fill it by popping last N values from stack.
 	    {
 
-		int n = GET32(bytecode_vector,pc);	pc += 4;								// 64-bit issue.
+		int len_in_slots = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
 
-		if (n == 0) {
+		if (len_in_slots == 0) {
 		    //
 		    stack = LIST_CONS(task, HEAP_VOID, stack);
 		    //
-		    break;
-
 		} else {
 
-		    int free_bytes_needed = 4*(n+1);
+		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, PAIRS_AND_RECORDS_BTAG));		// Set up tagword for vector.		// 64-bit issue?
 
-		    free_bytes = ensure_sufficient_space__may_heapclean(task, free_bytes_needed, free_bytes, &roots2);
-
-		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
-		}
-
-		// Top of stack is last element in record:
-		//
-		for (int j = n;  j > 0;  j--) {
+		    // Over all slots in record:
 		    //
-		    set_slot_in_nascent_heapchunk(task, j, LIST_HEAD(stack));
+		    for (int i = len_in_slots;  i > 0;  i--) {								// Iterate in reverse order because top of stack is last element in record.
+			//
+			set_slot_in_nascent_heapchunk(task,  i,  LIST_HEAD(stack));					// Set up i-th slot in vector.
 
-		    stack = LIST_TAIL(stack);
+			stack = LIST_TAIL(stack);									// Pop slot initializer from stack.
+		    }
+
+		    Val result = commit_nascent_heapchunk(task, len_in_slots );						// Allocate the vector by bumping end-of-buffer pointer.
+
+		    stack = LIST_CONS(task, result, stack);								// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 		}
-
-		Val result = commit_nascent_heapchunk(task, n );
-
-		stack = LIST_CONS(task, result, stack);
 
 	    }
 	    break;
 
-	case RETURN_LAST_LITERAL:													// Pop and return top entry on linklist of constructed literals, discarding rest of list.
+	case RETURN_LAST_LITERAL:											// Pop and return top entry on linklist of constructed literals, discarding rest of list.
+	    //	
 	    ASSERT(pc == bytecode_vector_bytesize);
 
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter__may_heapclean/ZZZ" );
