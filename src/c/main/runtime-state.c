@@ -189,7 +189,7 @@ void   initialize_task   (Task* task)   {
     #endif
 }
 
-void   save_c_state   (Task* task, ...)   {
+void   save_c_state   (Task* task, Roots* extra_roots)   {
     // ============
     // 
     // Build a return closure that will save
@@ -201,27 +201,26 @@ void   save_c_state   (Task* task, ...)   {
     //
     //     src/c/main/load-compiledfiles.c
 
-    va_list ap;
 
     Val*    vp;
 
-    va_start (ap, task);
-    int  n;
-    for (n = 0; (vp = va_arg(ap, Val *)) != NULL;  n++);
-    va_end (ap);
+    int  n = 0;
 
-    va_start (ap, task);
+    Roots* r;
+    for (r = extra_roots;   r;   r = r->next)  ++n;
+
     set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(n, PAIRS_AND_RECORDS_BTAG));
-    for (int i = 1;  i <= n;  i++) {
-	vp = va_arg (ap, Val *);
-        set_slot_in_nascent_heapchunk (task, i, *vp);
-    }
-    task->callee_saved_registers[0]   = commit_nascent_heapchunk(task, n);
-    task->fate    = PTR_CAST( Val, return_to_c_level_c);
-    va_end (ap);
+    int  i = 1;
+    for (r = extra_roots;   r;   r = r->next, ++i) {
+	//
+        set_slot_in_nascent_heapchunk (task, i, *r->root);
+    }    
+    task->callee_saved_registers[0] =  commit_nascent_heapchunk(task, n);
+
+    task->fate =  PTR_CAST( Val, return_to_c_level_c);
 }
 
-void   restore_c_state   (Task* task, ...)   {
+void   restore_c_state   (Task* task, Roots* extra_roots)   {
     // ===============
     //
     //    Restore a collection of Mythryl values from the return closure.
@@ -230,22 +229,24 @@ void   restore_c_state   (Task* task, ...)   {
     //
     //     src/c/main/load-compiledfiles.c
 
-    va_list ap;
     Val*    vp;
     Val	    saved_state;
 
-    va_start (ap, task);
-
     saved_state = task->callee_saved_registers[0];
 
-    int n = CHUNK_LENGTH(saved_state);
+    int n							/* This variable will be unused if ASSERTs, are off, so suppress 'unused var' compiler warning: */   		__attribute__((unused))
+        =
+        CHUNK_LENGTH(saved_state);
 
-    for (int i = 0;  i < n;  i++) {
+    int  i = 0;
+
+    for (Roots* r = extra_roots;   r;   r = r->next, ++i) {
 	//
-	vp =  va_arg (ap, Val*);
+	vp =  r->root;
        *vp =  GET_TUPLE_SLOT_AS_VAL(saved_state, i);
     }
-    va_end (ap);
+
+    ASSERT( i == n );
 }
 
 

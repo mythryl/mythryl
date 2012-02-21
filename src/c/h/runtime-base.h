@@ -385,8 +385,25 @@ extern void  load_and_run_heap_image__may_heapclean (const char* filename,  Heap
 
 extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);					// make_task							def in   src/c/main/runtime-state.c
 extern void initialize_task (Task *task);									// initialize_task						def in   src/c/main/runtime-state.c
-extern void save_c_state    (Task *task, ...);									// save_c_state							def in   src/c/main/runtime-state.c
-extern void restore_c_state (Task *task, ...);									// restore_c_state						def in   src/c/main/runtime-state.c
+
+
+
+extern void save_c_state    (Task *task, Roots*);								// save_c_state							def in   src/c/main/runtime-state.c
+extern void restore_c_state (Task *task, Roots*);								// restore_c_state						def in   src/c/main/runtime-state.c
+    //
+    // These two are used (only) in
+    //
+    //     src/c/main/load-compiledfiles.c
+    //
+    // where they are used to bracket a call to
+    //
+    //     run_mythryl_function__may_heapclean
+    //
+    // which can (and does) execute arbitrary Mythryl compiled code.
+    //
+    // They must in particular protect C pointers into the
+    // Mythryl heap from any possible garbage collections.
+
 
 
 extern void set_up_timers ();

@@ -89,7 +89,6 @@
 //
 #define PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL	(*PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL ))
 
-static Val  compiled_file_list__local = LIST_NIL;	// A list of .compiled files to load.
 
 
 // Forward declarations for private local functions:
@@ -192,7 +191,7 @@ void   load_compiled_files__may_heapclean   (
 
     // Construct the list of files to be loaded:
     //
-    compiled_file_list__local
+    Val compiled_file_list
 	=
 	read_in_compiled_file_list__may_heapclean (
 	    task,
@@ -200,6 +199,8 @@ void   load_compiled_files__may_heapclean   (
             &max_boot_path_len,
 	    extra_roots
 	);
+
+    Roots roots1 = { &compiled_file_list, extra_roots };
 
     // This space is ultimately wasted:           XXX BUGGO FIXME
     //
@@ -210,16 +211,16 @@ void   load_compiled_files__may_heapclean   (
 
     // Load all requested compiled_files into the heap:
     //
-    while (compiled_file_list__local != LIST_NIL) {
+    while (compiled_file_list != LIST_NIL) {
 	//
         char* filename =  filename_buf;
 
         // Need to make a copy of the filename because
         // load_compiled_file__may_heapclean is going to scribble into it:
         //
-	strcpy( filename_buf, HEAP_STRING_AS_C_STRING( LIST_HEAD( compiled_file_list__local )));
+	strcpy( filename_buf, HEAP_STRING_AS_C_STRING( LIST_HEAD( compiled_file_list )));
        
-	compiled_file_list__local = LIST_TAIL( compiled_file_list__local );		// Remove above filename from list of files to process.
+	compiled_file_list = LIST_TAIL( compiled_file_list );		// Remove above filename from list of files to process.
 
 	// If 'filename' does not begin with "RUNTIME_PACKAGE_PICKLEHASH=" ...
 	//
@@ -227,7 +228,7 @@ void   load_compiled_files__may_heapclean   (
 	    //
 	    // ... then we can load it normally:
 	    //
-	    load_compiled_file__may_heapclean( task, filename, extra_roots );
+	    load_compiled_file__may_heapclean( task, filename, &roots1 );
 
 	} else {
 
@@ -286,7 +287,7 @@ void   load_compiled_files__may_heapclean   (
 		filename
 	    );
 
-	    register_compiled_file_exports__may_heapclean( task, &picklehash, runtime_package__global, extra_roots );
+	    register_compiled_file_exports__may_heapclean( task, &picklehash, runtime_package__global, &roots1 );
 
 	    seen_runtime_package_picklehash = TRUE;							// Make sure that we register the runtime system picklehash only once.
 	}
@@ -813,11 +814,9 @@ static void   load_compiled_file__may_heapclean   (
     //
     ///////////////////////////////////////////////////////
 
-printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): top\n", filename);
     FILE* file;
     int   i;
     int   bytes_of_code_remaining;
-    int   import_record_slot_count;			// Size-in-slots of import_record.
     int   bytes_of_exports = 0;
 
     Compiledfile_Header   header;
@@ -923,37 +922,33 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
     // needed values located in the export tree of previously-
     // loaded compiled_files:
     //
-    import_record_slot_count
+    int imports_record_slot_count
         =
         header.number_of_imported_picklehashes + 1;
 
     // Make sure we have enough free heap space to allocate 
     // our 'import record' vector of imported values:
     //
-    if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
+    if (need_to_call_heapcleaner (task, REC_BYTESIZE(imports_record_slot_count))) {
         //
-	{   Roots roots1 = { &compiled_file_list__local, extra_roots };
-	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &roots1 );
-	}
+	call_heapcleaner_with_extra_roots (task, 0, extra_roots );
     }
 
     // Write the header for our 'import record', which will be 
-    // a Mythryl record with 'import_record_slot_count' slots:
+    // a Mythryl record with 'imports_record_slot_count' slots:
     //
-printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): import_record_slot_count d=%d\n", filename, import_record_slot_count);
-    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(import_record_slot_count, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(imports_record_slot_count, PAIRS_AND_RECORDS_BTAG));
 
     // Locate all the required import values and
     // save them in our nascent on-heap 'import record':
     //
-    {   int    next_import_record_slot_to_fill = 1;
+    {   int    next_imports_record_slot_to_fill = 1;
 
         // Over all previously loaded .compiled files
         // from which we import values:
         //
-	while (next_import_record_slot_to_fill < import_record_slot_count) {
-
+	while (next_imports_record_slot_to_fill < imports_record_slot_count) {
+	    //
 	    Picklehash	picklehash_naming_previously_loaded_compiled_file;
 
 	    read_n_bytes_from_file( file, &picklehash_naming_previously_loaded_compiled_file, sizeof(Picklehash), filename );
@@ -961,15 +956,15 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
             // Locate all needed imports exported by that
             // particular pre-loaded compiledfile:
             //
-	    next_import_record_slot_to_fill
-            =
-            fetch_imports (
-                task,
-                file,
-                filename,
-                next_import_record_slot_to_fill,
-		picklehash_to_exports_tree( &picklehash_naming_previously_loaded_compiled_file )
-            );
+	    next_imports_record_slot_to_fill
+		=
+		fetch_imports (
+		    task,
+		    file,
+		    filename,
+		    next_imports_record_slot_to_fill,
+		    picklehash_to_exports_tree( &picklehash_naming_previously_loaded_compiled_file )
+		);
 	}
     }
 
@@ -977,12 +972,14 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
     // just so the cleaner won't go bananas if it
     // looks at that slot:
     //
-    set_slot_in_nascent_heapchunk( task, import_record_slot_count, HEAP_NIL );
+    set_slot_in_nascent_heapchunk( task, imports_record_slot_count, HEAP_NIL );
 
     // Complete the above by actually allocating
     // the 'import record' on the Mythryl heap:
     //
-    Val import_record =  commit_nascent_heapchunk( task, import_record_slot_count );			// Contains all the values we import from other compiled_files.
+    Val import_record =  commit_nascent_heapchunk( task, imports_record_slot_count );			// Contains all the values we import from other compiled_files.
+
+    Roots roots1 = { &import_record, extra_roots };
 
     // Get the export picklehash for this compiledfile.
     // This is the name by which other compiled_files will
@@ -1083,46 +1080,36 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
     }
 
 
-    Val	    mythryl_result;
+    Val	    mythryl_result = HEAP_VOID;
 
-    if (segment_bytesize <= 0) {
-        //
-	mythryl_result = HEAP_VOID;
 
-    } else {
-
+    if (segment_bytesize > 0) {
+	//
 	Unt8* data_chunk =  MALLOC_VEC( Unt8, segment_bytesize );
 
 	read_n_bytes_from_file( file, data_chunk, segment_bytesize, filename );
-											// save_c_state		is from   src/c/main/runtime-state.c
-	save_c_state (task, &compiled_file_list__local, &import_record, NULL);		// <============ use of import_record
 
-	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, extra_roots);
+	mythryl_result = make_package_literals_via_bytecode_interpreter__may_heapclean (task, data_chunk, segment_bytesize, &roots1);
 
 	FREE(data_chunk);
-// printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): SSS\n", filename);
-
-	restore_c_state( task, &compiled_file_list__local, &import_record, NULL );	// <============ use of import_record
     }
-// printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): TTT\n", filename);
 
     // Do a functional update of the last element of the import_record:
     //
-    for (i = 0;  i < import_record_slot_count;  i++) {
+    for (i = 0;  i < imports_record_slot_count;  i++) {
+	//
 	set_slot_in_nascent_heapchunk(task, i, PTR_CAST(Val*, import_record)[i-1]);	// <============ last use of import_record
     }
-    set_slot_in_nascent_heapchunk( task, import_record_slot_count, mythryl_result );
-    mythryl_result = commit_nascent_heapchunk( task, import_record_slot_count );
+    set_slot_in_nascent_heapchunk( task, imports_record_slot_count, mythryl_result );
+    mythryl_result = commit_nascent_heapchunk( task, imports_record_slot_count );
+
+    Roots roots2 = { &mythryl_result, extra_roots };					// 'extra_roots' not '&roots1' because import_record is dead here.
 
     // Do a garbage collection, if necessary:
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
         //
-	{   Roots roots1 =  { &compiled_file_list__local, extra_roots	};
-	    Roots roots2 =  { &mythryl_result,     &roots1	};
-	    //
-	    call_heapcleaner_with_extra_roots (task, 0, &roots2 );
-	}
+	call_heapcleaner_with_extra_roots (task, 0, &roots2 );
     }
 
     while (bytes_of_code_remaining > 0) {						// In practice, we always execute this loop exactly once.
@@ -1182,18 +1169,14 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
 	    // constructs and returns the tree of exports from
 	    // our compiledfile.
 	    //
-	    save_c_state                                          (task, &compiled_file_list__local, NULL);
+	    save_c_state                                          (task, extra_roots);				// We do NOT want mythryl_result on the extra_roots list here.
 	    mythryl_result =  run_mythryl_function__may_heapclean (task, closure, mythryl_result, TRUE, NULL); 	// run_mythryl_function__may_heapclean		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-	    restore_c_state					  (task, &compiled_file_list__local, NULL);
+	    restore_c_state					  (task, extra_roots);
 	}
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-	    {   Roots roots1 = { &compiled_file_list__local, extra_roots	};
-		Roots roots2 = { &mythryl_result,           &roots1		};
-		//
-		call_heapcleaner_with_extra_roots (task, 0, &roots2 );
-	    }
+	    call_heapcleaner_with_extra_roots (task, 0, &roots2 );
         }
     }
 
@@ -1210,8 +1193,7 @@ printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean(%s): 
         );
     }
 
-    fclose (file);
-printf("src/c/main/load-compiledfiles.c: load_compiled_file__may_heapclean: bottom\n");
+    fclose( file );
 }                                   // load_compiled_file__may_heapclean
 
 
