@@ -323,6 +323,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		} else {
 
+#ifdef OLD_CODE
 		    Val result; 	
 
 		    {	int  len_in_hostwords
@@ -338,7 +339,9 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 			set_slot_in_nascent_heapchunk     (task, len_in_hostwords, 0);					// Make sure any left-over bytes are zeroed, so word-by-word string equality works.
 			result = commit_nascent_heapchunk (task, len_in_hostwords);
 		    }	
-
+#else
+		    Val result =  allocate_headerless_nonempty_ascii_string__may_heapclean(task,  len_in_bytes,  &roots2);
+#endif
 		    memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], len_in_bytes);	pc += len_in_bytes;
 
 		    result = make_vector_header(task, STRING_TAGWORD, result, len_in_bytes);				// Allocate the header chunk.
