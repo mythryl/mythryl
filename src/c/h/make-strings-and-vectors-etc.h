@@ -322,7 +322,7 @@ extern Val  allocate_headerless_ascii_string__may_heapclean	(Task* task,  int le
 extern Val  allocate_nonempty_code_chunk				(Task* task,  int len);			// allocate_nonempty_code_chunk					def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
 extern Val  allocate_headerless_rw_vector__may_heapclean		(Task* task,  int len, Bool,Roots*);	// allocate_headerless_rw_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_headerless_ro_pointers_chunk__may_heapclean	(Task* task,  int len,      Roots*);	// allocate_headerless_ro_pointers_chunk__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_headerless_ro_pointers_chunk__may_heapclean	(Task* task,  int len, int, Roots*);	// allocate_headerless_ro_pointers_chunk__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  make_nonempty_rw_vector__may_heapclean			(Task* task,  int len, Val, Roots*);	// make_nonempty_rw_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  make_nonempty_ro_vector__may_heapclean			(Task* task,  int len, Val, Roots*);	// make_nonempty_ro_vector__may_heapclean			def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_nonempty_wordslots_vector__may_heapclean		(Task* task,  int len,      Roots*);	// allocate_nonempty_wordslots_vector__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c

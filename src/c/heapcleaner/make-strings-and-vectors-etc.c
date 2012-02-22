@@ -558,16 +558,17 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 }											// fun make_nonempty_rw_vector__may_heapclean
 
 //
-Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
-    //=====================================================
+Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int len,  int btag,  Roots* extra_roots)   {
+    //====================================================
     // 
     // Allocate a Mythryl vector.
     // Assume that len > 0.
     //
+    // 'tag' will be RO_VECTOR_DATA_BTAG or PAIRS_AND_RECORDS_BTAG.
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
 
-    Val	tagword = MAKE_TAGWORD(len, RO_VECTOR_DATA_BTAG);
+    Val	tagword = MAKE_TAGWORD(len, btag);									// btag will be RO_VECTOR_DATA_BTAG or PAIRS_AND_RECORDS_BTAG.
     Val	result;
 
     if (len <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
@@ -650,7 +651,14 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
     Roots roots1 = { &initializers, extra_roots };
 
-    Val	result =  allocate_headerless_ro_pointers_chunk__may_heapclean( task,  len,  &roots1);
+    Val	result
+	=
+	allocate_headerless_ro_pointers_chunk__may_heapclean
+	  ( task,
+	    len,
+	    RO_VECTOR_DATA_BTAG,
+	    &roots1
+	  );
 
     for (
         Val* p = PTR_CAST(Val*, result);

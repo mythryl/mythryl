@@ -362,7 +362,14 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 		    //
-		    Val result =  allocate_headerless_ro_pointers_chunk__may_heapclean(task, len_in_slots, &roots2);
+		    Val result
+			=
+			allocate_headerless_ro_pointers_chunk__may_heapclean
+			  ( task,
+			    len_in_slots,
+			    RO_VECTOR_DATA_BTAG,
+			    &roots2
+			  );
 
 		    {   Val* vec = (Val*) result;
 
