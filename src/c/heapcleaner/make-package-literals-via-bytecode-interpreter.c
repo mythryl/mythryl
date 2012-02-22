@@ -100,8 +100,6 @@
     | (p[pc+3] <<  0)	\
     )
 
-#define LIST_CONS_CELL_BYTESIZE	(WORD_BYTESIZE*3)		// Size of a list cons cell in bytes.
-
 
 
 static double   get_double   (Unt8* p)   {
