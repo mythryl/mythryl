@@ -362,20 +362,18 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 		    //
-// ///////////////////////
-		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, RO_VECTOR_DATA_BTAG));		// Do tagword for vector.		// 64-bit issue?
+		    Val result =  allocate_headerless_nonempty_ro_vector__may_heapclean(task, len_in_slots, &roots2);
 
-		    // Over all slots in vector:
-		    //
-		    for (int i = len_in_slots;  i > 0;  --i) {								// Iterate in reverse order because top of stack is last element in record.
+		    {   Val* vec = (Val*) result;
+
+			// Over all slots in vector:
 			//
-			set_slot_in_nascent_heapchunk(task, i, LIST_HEAD(stack));					// Initialize i-th slot of vector.
-
-			stack = LIST_TAIL( stack );									// Pop slot initializer from stack.
+			for (int i = len_in_slots;  i --> 0;  ) {							// Iterate in reverse order because top of stack is last element in record.
+			    //
+			    vec[i] =  LIST_HEAD( stack );								// Initialize i-th slot of vector.
+			    stack  =  LIST_TAIL( stack );								// Pop slot initializer from stack.
+			}
 		    }
-
-		    Val result =  commit_nascent_heapchunk(task, len_in_slots );					// Allocate the data chunk.
-// ///////////////////////
 
 		    result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len_in_slots );		// Allocate the silly indirect-reference-to-vector record.
 
