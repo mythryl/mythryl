@@ -139,14 +139,14 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
 }
 
 //
-Val   allocate_headerless_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
+Val   allocate_headerless_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
     //========================================================
     // 
     // Allocate an uninitialized Mythryl string of length > 0.
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_headerless_nonempty_ascii_string__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_headerless_ascii_string__may_heapclean");
 
     int		nwords = BYTES_TO_WORDS( len +1 );					// '+1' is probably to allow for a terminal nul ('\0'), mostly to promote interoperability with C.
 
@@ -171,7 +171,7 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Ro
     // and to be 0 terminated.
 									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string__may_heapclean");
 
-    Val result = allocate_headerless_nonempty_ascii_string__may_heapclean( task, len, extra_roots );
+    Val result = allocate_headerless_ascii_string__may_heapclean( task, len, extra_roots );
 
     return  make_vector_header(task,  STRING_TAGWORD, result, len);
 }
@@ -427,7 +427,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task
 }
 
 //
-Val   allocate_headerless_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Bool has_pointers, Roots* extra_roots)   {
+Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Bool has_pointers, Roots* extra_roots)   {
     //=====================================================
     // 
     // Allocate a Mythryl rw_vector using init_val
@@ -545,7 +545,7 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 
     Roots roots1 = { &init_val, extra_roots };
 
-    Val	result = allocate_headerless_nonempty_rw_vector__may_heapclean(task, len, IS_POINTER(init_val), &roots1 );
+    Val	result = allocate_headerless_rw_vector__may_heapclean(task, len, IS_POINTER(init_val), &roots1 );
 
     Val* p = PTR_CAST(Val*, result);
     //
@@ -558,7 +558,7 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 }											// fun make_nonempty_rw_vector__may_heapclean
 
 //
-Val   allocate_headerless_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
+Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
     //=====================================================
     // 
     // Allocate a Mythryl vector.
@@ -635,7 +635,7 @@ Val   allocate_headerless_nonempty_ro_vector__may_heapclean   (Task* task,  int 
     }
 
     return  result;
-}													 // fun allocate_headerless_nonempty_ro_vector__may_heapclean
+}													 // fun allocate_headerless_ro_pointers_chunk__may_heapclean
 
 //
 Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers,  Roots* extra_roots)   {
@@ -650,7 +650,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
     Roots roots1 = { &initializers, extra_roots };
 
-    Val	result =  allocate_headerless_nonempty_ro_vector__may_heapclean( task,  len,  &roots1);
+    Val	result =  allocate_headerless_ro_pointers_chunk__may_heapclean( task,  len,  &roots1);
 
     for (
         Val* p = PTR_CAST(Val*, result);

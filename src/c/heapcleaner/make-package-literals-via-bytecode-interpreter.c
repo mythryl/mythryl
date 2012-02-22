@@ -323,7 +323,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		} else {
 
-		    Val result =  allocate_headerless_nonempty_ascii_string__may_heapclean(task,  len_in_bytes,  &roots2);
+		    Val result =  allocate_headerless_ascii_string__may_heapclean(task,  len_in_bytes,  &roots2);
 
 		    memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], len_in_bytes);	pc += len_in_bytes;
 
@@ -362,7 +362,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 		    //
-		    Val result =  allocate_headerless_nonempty_ro_vector__may_heapclean(task, len_in_slots, &roots2);
+		    Val result =  allocate_headerless_ro_pointers_chunk__may_heapclean(task, len_in_slots, &roots2);
 
 		    {   Val* vec = (Val*) result;
 
@@ -393,7 +393,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 
-		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, PAIRS_AND_RECORDS_BTAG));		// Set up tagword for vector.		// 64-bit issue?
+		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, PAIRS_AND_RECORDS_BTAG));		// Set up tagword for record.		// 64-bit issue?
 
 		    // Over all slots in record:
 		    //
