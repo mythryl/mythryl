@@ -960,7 +960,6 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we verify that it is all zeros:
     //
-#ifdef SOON
     Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
@@ -973,7 +972,6 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
 	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
 	}
     }
-#endif
 }
 
 //////////////////////////////////////////////////////////////////////////
