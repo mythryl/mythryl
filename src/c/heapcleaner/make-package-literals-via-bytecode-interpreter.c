@@ -323,25 +323,8 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		} else {
 
-#ifdef OLD_CODE
-		    Val result; 	
-
-		    {	int  len_in_hostwords
-			    =
-			    BYTES_TO_WORDS( len_in_bytes +1 );								// '+1' to include space for '\0'.
-
-			set_slot_in_nascent_heapchunk									// Write the bytevector tagword.
-			  ( task,
-			    0,
-			    MAKE_TAGWORD( len_in_hostwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-			);
-
-			set_slot_in_nascent_heapchunk     (task, len_in_hostwords, 0);					// Make sure any left-over bytes are zeroed, so word-by-word string equality works.
-			result = commit_nascent_heapchunk (task, len_in_hostwords);
-		    }	
-#else
 		    Val result =  allocate_headerless_nonempty_ascii_string__may_heapclean(task,  len_in_bytes,  &roots2);
-#endif
+
 		    memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], len_in_bytes);	pc += len_in_bytes;
 
 		    result = make_vector_header(task, STRING_TAGWORD, result, len_in_bytes);				// Allocate the header chunk.
@@ -379,6 +362,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 		    //
+// ///////////////////////
 		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, RO_VECTOR_DATA_BTAG));		// Do tagword for vector.		// 64-bit issue?
 
 		    // Over all slots in vector:
@@ -391,6 +375,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    }
 
 		    Val result =  commit_nascent_heapchunk(task, len_in_slots );					// Allocate the data chunk.
+// ///////////////////////
 
 		    result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len_in_slots );		// Allocate the silly indirect-reference-to-vector record.
 

@@ -427,16 +427,19 @@ Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task
 }
 
 //
-Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_val,  Roots* extra_roots)   {
-    //======================================
+Val   allocate_headerless_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Bool has_pointers, Roots* extra_roots)   {
+    //=====================================================
     // 
     // Allocate a Mythryl rw_vector using init_val
     // as the initial value for vector slots.
     // Assume that len > 0.
+    //
+    // 'has_pointers' should be TRUE if the vector
+    // might contain pointers (as opposed to Int31
+    // immediate values.  (It is always safe to set
+    // this to TRUE -- do so when in doubt.)
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
-
-    Roots roots1 = { &init_val, extra_roots };
 
     Val	result;
 
@@ -454,8 +457,22 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
         //
 	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ RW_POINTERS_SIB ];
 
-	int	gc_level = (IS_POINTER(init_val) ? 0 : -1);
-
+	// We have an issue here in that we cannot blithely
+        // create pointers from agegroup1 to agegroup0 without
+	// fouling up the heapcleaner ("garbage collector").
+	//
+	// We have to worry about this here because we are
+	// creating this vector in agegroup1, but the pointer(s)
+	// to be placed in it may point into agegroup0.
+	//
+	// We could do bookkeeping to track these (potential)
+	// inter-agegroup pointers.  Here we instead adopt the
+	// simpler solution of simply emptying agegroup0, thus
+	// eliminating the problem. :-)
+	//
+	int gc_level = (has_pointers ? 0 : -1);				// gc_level == -1 means "Do not do a garbage collection."
+									// gc_level ==  0 means "Empty (only) agegroup0".
+									// gc_level ==  1 means "Empty agegroup0 and heapclean agegroup1 too."
 	bytesize = WORD_BYTESIZE*(len + 1);
 
 	pthread_mutex_lock( &pth__mutex );
@@ -464,6 +481,11 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 		clean_check: ;	// The pthread version jumps to here to recheck for heapcleaning.
 	    #endif
 
+	    // If the agegroup1 sib we want to allocate in
+	    // has not been created or does not have enough
+	    // free space, we'll have to call the heapcleaner
+	    // to establish it:
+	    //	
 	    if (! sib_is_active(ap)									// sib_is_active		def in    src/c/h/heap.h
 		||
 	        sib_freespace_in_bytes(ap) <= bytesize							// sib_freespace_in_bytes	def in    src/c/h/heap.h
@@ -475,12 +497,12 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 
 	    if (gc_level >= 0) {
 		//
-	        // Clean heap -- but preserve init_val:
+	        // Clean heap:
                 //
 		ap->requested_extra_free_bytes += bytesize;
 		pthread_mutex_unlock( &pth__mutex );
 		    //
-		    call_heapcleaner_with_extra_roots (task, gc_level, &roots1 );
+		    call_heapcleaner_with_extra_roots (task, gc_level, extra_roots );
 		    //
 		pthread_mutex_lock( &pth__mutex );
 		ap->requested_extra_free_bytes = 0;
@@ -493,9 +515,12 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 		}
 		#endif
 	    }
+
 	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
 	    *(ap->tospace.used_end++) = tagword;
+
 	    result = PTR_CAST( Val, ap->tospace.used_end);
+
 	    ap->tospace.used_end += len;
 	    ap->tospace.swept_end = ap->tospace.used_end;
 	    //
@@ -504,6 +529,23 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 	COUNT_ALLOC(task, bytesize);
 
     }
+
+    return  result;
+}											// fun make_nonempty_rw_vector__may_heapclean
+
+//
+Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_val,  Roots* extra_roots)   {
+    //======================================
+    // 
+    // Allocate a Mythryl rw_vector using init_val
+    // as the initial value for vector slots.
+    // Assume that len > 0.
+
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
+
+    Roots roots1 = { &init_val, extra_roots };
+
+    Val	result = allocate_headerless_nonempty_rw_vector__may_heapclean(task, len, IS_POINTER(init_val), &roots1 );
 
     Val* p = PTR_CAST(Val*, result);
     //
