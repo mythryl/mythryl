@@ -252,8 +252,9 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		// Allocate space for the vector.  Small vectors
 		// (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
-		// go in the agegroup0 buffer, larger ones go in
-		// agegroup1, requiring appropriate locking:
+		// go in our local agegroup0 buffer, larger ones
+		// go in the shared agegroup1 buffer, requiring
+		// appropriate locking:
 		//
 		Val  result =  allocate_nonempty_wordslots_vector__may_heapclean(task, len_in_slots, &roots2 );		// allocate_nonempty_wordslots_vector__may_heapclean	is from   src/c/heapcleaner/make-strings-and-vectors-etc.c
 															// 64-bit issue? words-vs-bytes is problematic all through here; we don't have a clear policy set.
@@ -284,7 +285,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	    }
 	    break;
 
-	case MAKE_EIGHT_BYTE_VALS_VECTOR:											// Make vector of biword-length (8byte?) nonpointer values. We'll use one tagword + N words for the values.
+	case MAKE_EIGHT_BYTE_VALS_VECTOR:										// Make vector of biword-length (8byte?) nonpointer values. We'll use one tagword + N words for the values.
 	    {														// Currently this will (almost?) always be float64s.
 		int len_in_slots = GET32(bytecode_vector,pc);								// Get of 64-bit slots for vector.  (Why HALF??)
 		pc += 4;												// 64-bit issue -- on 64-bit machines should probably be 8 bytes.
@@ -293,8 +294,9 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		// Allocate space for the vector.  Small vectors
 		// (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
-		// go in the agegroup0 buffer, larger ones go in
-		// agegroup1, requiring appropriate locking:
+		// go in our local agegroup0 buffer, larger ones
+		// go in the shared agegroup1 buffer, requiring
+		// appropriate locking:
 		//
 		Val result =  allocate_biwordslots_vector__may_heapclean(task, len_in_slots, &roots2 );
 
@@ -323,8 +325,16 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 
 		} else {
 
+		    // Allocate space for the string.  Small strings
+		    // (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
+		    // go in our locald agegroup0 buffer, larger ones
+		    // go in the shared agegroup1 buffer, requiring
+		    // appropriate locking:
+		    //
 		    Val result =  allocate_headerless_ascii_string__may_heapclean(task,  len_in_bytes,  &roots2);
 
+		    // Fill in contents of the string:
+		    //
 		    memcpy (PTR_CAST(void*, result), &bytecode_vector[pc], len_in_bytes);	pc += len_in_bytes;
 
 		    result = make_vector_header(task, STRING_TAGWORD, result, len_in_bytes);				// Allocate the header chunk.
@@ -362,6 +372,12 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 		    //
+		    // Allocate space for the vector.  Small vectors
+		    // (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
+		    // go in our local agegroup0 buffer, larger ones
+		    // go in the shared agegroup1 buffer, requiring
+		    // appropriate locking:
+		    //
 		    Val result
 			=
 			allocate_headerless_ro_pointers_chunk__may_heapclean
@@ -371,6 +387,8 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 			    &roots2
 			  );
 
+		    // Fill in values in vector:
+		    //
 		    {   Val* vec = (Val*) result;
 
 			// Over all slots in vector:
@@ -400,18 +418,34 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		    //
 		} else {
 
-		    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(len_in_slots, PAIRS_AND_RECORDS_BTAG));		// Set up tagword for record.		// 64-bit issue?
-
-		    // Over all slots in record:
+		    // Allocate space for the record.  Small records
+		    // (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
+		    // go in our local agegroup0 buffer, larger ones
+		    // go in the shared agegroup1 buffer, requiring
+		    // appropriate locking:
 		    //
-		    for (int i = len_in_slots;  i > 0;  i--) {								// Iterate in reverse order because top of stack is last element in record.
+		    Val result
+			=
+			allocate_headerless_ro_pointers_chunk__may_heapclean
+			  ( task,
+			    len_in_slots,
+			    PAIRS_AND_RECORDS_BTAG,
+			    &roots2
+			  );
+
+
+		    // Fill in values in record:
+		    //
+		    {   Val* record = (Val*) result;
+
+			// Over all slots in record:
 			//
-			set_slot_in_nascent_heapchunk(task,  i,  LIST_HEAD(stack));					// Set up i-th slot in vector.
-
-			stack = LIST_TAIL(stack);									// Pop slot initializer from stack.
+			for (int i = len_in_slots;  i --> 0;  ) {							// Iterate in reverse order because top of stack is last element in record.
+			    //
+			    record[i] =  LIST_HEAD( stack );								// Set up i-th slot in record.
+			    stack     =  LIST_TAIL( stack );								// Pop slot initializer from stack.
+			}
 		    }
-
-		    Val result = commit_nascent_heapchunk(task, len_in_slots );						// Allocate the vector by bumping end-of-buffer pointer.
 
 		    stack = LIST_CONS(task, result, stack);								// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
 		}
