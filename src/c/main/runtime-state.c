@@ -201,9 +201,6 @@ void   save_c_state   (Task* task, Roots* extra_roots)   {
     //
     //     src/c/main/load-compiledfiles.c
 
-
-    Val*    vp;
-
     int  n = 0;
 
     Roots* r;

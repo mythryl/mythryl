@@ -248,24 +248,8 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	    {
 		int len_in_slots = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
 
-		ASSERT(n > 0);
+		ASSERT(len_in_slots > 0);
 
-#ifdef OLD_CODE
-		set_slot_in_nascent_heapchunk
-		  ( task,
-                    0,
-                    MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)						// 64-bit issue.
-		);
-
-		for (int i = 1;  i <= len_in_slots;  ++i) {
-		    //
-		    int val = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
-
-		    set_slot_in_nascent_heapchunk (task, i, (Val)val);
-		}
-
-		Val result =  commit_nascent_heapchunk(task, len_in_slots );
-#else
 		// Allocate space for the vector.  Small vectors
 		// (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
 		// go in the agegroup0 buffer, larger ones go in
@@ -284,7 +268,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 			vec[i]  =  val;
 		    }
 		}
-#endif
+
 		stack = LIST_CONS(task, result, stack);
 	    }
 	    break;
@@ -305,30 +289,23 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 		int len_in_slots = GET32(bytecode_vector,pc);								// Get of 64-bit slots for vector.  (Why HALF??)
 		pc += 4;												// 64-bit issue -- on 64-bit machines should probably be 8 bytes.
 
-		ASSERT(n > 0);
+		ASSERT(len_in_slots > 0);
 
-		#ifdef ALIGN_FLOAT64S
-		    // Force FLOAT64_BYTESIZE alignment (descriptor is off by one word)
+		// Allocate space for the vector.  Small vectors
+		// (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
+		// go in the agegroup0 buffer, larger ones go in
+		// agegroup1, requiring appropriate locking:
+		//
+		Val result =  allocate_biwordslots_vector__may_heapclean(task, len_in_slots, &roots2 );
+
+		// Fill in values for all slots in vector:
+		//		
+		{   double* vec = (double*) result;
 		    //
-		    task->heap_allocation_pointer = (Val*)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
-		#endif
-
-		Val result;
-
-		{   int len_in_hostwords = 2 * len_in_slots;								// Compute length for tagword -- tagword length is in hostwords not 64-bit words.	// 64-bit issue.
-
-		    set_slot_in_nascent_heapchunk
-		      ( task,
-			0,
-			MAKE_TAGWORD( len_in_hostwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-		      );
-
-		    result =  commit_nascent_heapchunk(task, len_in_hostwords );
-		}
-
-		for (int i = 0;  i < len_in_slots;  i++) {
-		    //
-		    PTR_CAST(double*, result)[i] = get_double(&(bytecode_vector[pc]));	pc += 8;			// 64-bit issue.
+		    for (int i = 0;  i < len_in_slots;  ++i) {
+			//
+			vec[i] = get_double(&(bytecode_vector[pc]));	pc += 8;					// 64-bit issue?
+		    }
 		}
 
 		stack = LIST_CONS(task, result, stack);									// Add 'result' to 'stack'.  This will consume three words -- tagword plus the head and tail pointers.
