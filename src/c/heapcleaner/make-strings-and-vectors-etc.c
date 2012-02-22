@@ -558,20 +558,16 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 }											// fun make_nonempty_rw_vector__may_heapclean
 
 //
-Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers,  Roots* extra_roots)   {
-    //======================================
+Val   allocate_headerless_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
+    //=====================================================
     // 
-    // Allocate a Mythryl vector, using the
-    // list initializers as an initializer.
+    // Allocate a Mythryl vector.
     // Assume that len > 0.
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
 
-    Roots roots1 = { &initializers, extra_roots };
-
     Val	tagword = MAKE_TAGWORD(len, RO_VECTOR_DATA_BTAG);
-    Val* p;
     Val	result;
 
     if (len <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
@@ -588,11 +584,11 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
 	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTERS_SIB ];
 
-	int	clean_level = 0;
+	int	clean_level = 0;										// Heapclean agegroup0 only.
 
 	Val_Sized_Unt  bytesize
 	    =
-	    WORD_BYTESIZE * (len+1);
+	    WORD_BYTESIZE * (len+1);										// '+1' for tagword.
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
@@ -602,7 +598,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
                                               +
                                               task->heap_allocation_buffer_bytesize
 	    ){
-		clean_level = 1;
+		clean_level = 1;										// Heapclean agegroup0 and agegroup1 too.
 	    }
 
 	    #if NEED_PTHREAD_SUPPORT
@@ -612,7 +608,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 	    ap->requested_extra_free_bytes += bytesize;
 	    pthread_mutex_unlock( &pth__mutex );
 		//
-		call_heapcleaner_with_extra_roots (task, clean_level, &roots1 );
+		call_heapcleaner_with_extra_roots (task, clean_level, extra_roots );
 		//
 	    pthread_mutex_lock( &pth__mutex );
 
@@ -627,7 +623,9 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 
 	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
 	    *(ap->tospace.used_end++) = tagword;
+
 	    result = PTR_CAST( Val,  ap->tospace.used_end );
+
 	    ap->tospace.used_end += len;
 	    ap->tospace.swept_end = ap->tospace.used_end;
 	    //
@@ -636,10 +634,28 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 	COUNT_ALLOC(task, bytesize);
     }
 
+    return  result;
+}													 // fun allocate_headerless_nonempty_ro_vector__may_heapclean
+
+//
+Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initializers,  Roots* extra_roots)   {
+    //======================================
+    // 
+    // Allocate a Mythryl vector, using the
+    // list initializers as an initializer.
+    // Assume that len > 0.
+    //
+
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
+
+    Roots roots1 = { &initializers, extra_roots };
+
+    Val	result =  allocate_headerless_nonempty_ro_vector__may_heapclean( task,  len,  &roots1);
+
     for (
-	p = PTR_CAST(Val*, result);
+        Val* p = PTR_CAST(Val*, result);
 	initializers != LIST_NIL;
-	initializers = LIST_TAIL( initializers )
+	initializers  = LIST_TAIL( initializers )
     ){
 	*p++ = LIST_HEAD( initializers );
     }
