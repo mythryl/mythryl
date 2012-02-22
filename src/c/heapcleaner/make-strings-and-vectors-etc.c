@@ -292,12 +292,10 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Ro
 
 	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
-	bytesize =  WORD_BYTESIZE*(nwords + 2);
+	bytesize =  WORD_BYTESIZE*(nwords + 2);			// NOTE: we use nwords+2 to allow for the alignment padding.	// 64-bit issue.
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
-	    // NOTE: we use nwords+2 to allow for the alignment padding.
-
 	    WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytesize+task->heap_allocation_buffer_bytesize) {
 		//
 	        // We need to do a garbage collection:

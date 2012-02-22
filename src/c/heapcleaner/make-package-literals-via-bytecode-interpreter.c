@@ -244,27 +244,47 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	    }
 	    break;
 
-	case MAKE_FOUR_BYTE_VALS_VECTOR:											// Make vector of word-length (4byte?) nonpointer values. We'll use one tagword + N words for the values.
+	case MAKE_FOUR_BYTE_VALS_VECTOR:										// Make vector of word-length (4byte?) nonpointer values. We'll use one tagword + N words for the values.
 	    {
-		int n = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
+		int len_in_slots = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
 
 		ASSERT(n > 0);
 
+#ifdef OLD_CODE
 		set_slot_in_nascent_heapchunk
 		  ( task,
                     0,
                     MAKE_TAGWORD(n, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)						// 64-bit issue.
 		);
 
-		for (int j = 1;  j <= n;  j++) {
+		for (int i = 1;  i <= len_in_slots;  ++i) {
 		    //
-		    int i = GET32(bytecode_vector,pc);	pc += 4;							// 64-bit issue.
+		    int val = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.
 
-		    set_slot_in_nascent_heapchunk (task, j, (Val)i);
+		    set_slot_in_nascent_heapchunk (task, i, (Val)val);
 		}
 
-		Val result =  commit_nascent_heapchunk(task, n );
+		Val result =  commit_nascent_heapchunk(task, len_in_slots );
+#else
+		// Allocate space for the vector.  Small vectors
+		// (size < MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS)
+		// go in the agegroup0 buffer, larger ones go in
+		// agegroup1, requiring appropriate locking:
+		//
+		Val  result =  allocate_nonempty_wordslots_vector__may_heapclean(task, len_in_slots, &roots2 );		// allocate_nonempty_wordslots_vector__may_heapclean	is from   src/c/heapcleaner/make-strings-and-vectors-etc.c
+															// 64-bit issue? words-vs-bytes is problematic all through here; we don't have a clear policy set.
+		// Fill in values for all slots in vector:
+		//		
+		{   Val* vec   = (Val*) result;
 
+		    for (int i = 0;  i < len_in_slots;  ++i) {
+			//
+			Val val =  (Val) GET32(bytecode_vector,pc);		pc += 4;					// 64-bit issue.
+			//	
+			vec[i]  =  val;
+		    }
+		}
+#endif
 		stack = LIST_CONS(task, result, stack);
 	    }
 	    break;
