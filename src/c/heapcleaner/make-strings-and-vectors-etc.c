@@ -139,16 +139,16 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
 }
 
 //
-Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
-    //=============================================
+Val   allocate_headerless_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
+    //========================================================
     // 
     // Allocate an uninitialized Mythryl string of length > 0.
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_headerless_nonempty_ascii_string__may_heapclean");
 
-    int		nwords = BYTES_TO_WORDS(len+1);
+    int		nwords = BYTES_TO_WORDS( len +1 );					// '+1' is probably to allow for a terminal nul ('\0'), mostly to promote interoperability with C.
 
     ASSERT(len > 0);
 
@@ -158,6 +158,20 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Ro
     // and to guarantee 0 termination:
     //
     PTR_CAST(Val_Sized_Unt*, result)[nwords-1] = 0;
+
+    return  result;
+}
+
+//
+Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Roots* extra_roots)   {
+    //=============================================
+    // 
+    // Allocate an uninitialized Mythryl string of length > 0.
+    // This string is guaranteed to be padded to word size with 0 bytes,
+    // and to be 0 terminated.
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string__may_heapclean");
+
+    Val result = allocate_headerless_nonempty_ascii_string__may_heapclean( task, len, extra_roots );
 
     return  make_vector_header(task,  STRING_TAGWORD, result, len);
 }

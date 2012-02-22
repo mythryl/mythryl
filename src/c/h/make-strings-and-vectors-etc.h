@@ -311,8 +311,13 @@ inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
 //
 extern Val  make_ascii_string_from_c_string__may_heapclean		(Task* task,  const char*, Roots*);	// make_ascii_string_from_c_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  make_ascii_strings_from_vector_of_c_strings__may_heapclean	(Task* task,  char**,      Roots*);	// make_ascii_strings_from_vector_of_c_strings__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_ascii_string__may_heapclean		(Task* task,  int len,     Roots*);	// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_nonempty_vector_of_one_byte_unts__may_heapclean	(Task* task,  int len,	   Roots*);	// allocate_nonempty_vector_of_one_byte_unts__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+
+extern Val  allocate_nonempty_ascii_string__may_heapclean		(Task* task,  int len,     Roots*);	// allocate_nonempty_ascii_string__may_heapclean		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_headerless_nonempty_ascii_string__may_heapclean	(Task* task,  int len,     Roots*);	// allocate_headerless_nonempty_ascii_string__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+		//
+		// The 'headerless' version is just for special
+		// internal use -- you usually want the other one.
 //
 extern Val  allocate_nonempty_code_chunk			(Task* task,  int len);				// allocate_nonempty_code_chunk					def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 //
