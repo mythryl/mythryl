@@ -48,18 +48,17 @@ fun eof ( { comment_nesting_depth, err, stringlist, stringstart, line_number_db,
                            line_number_db::last_change line_number_db
                        );
 
-        if   (*comment_nesting_depth > 0)
-            
-	     err (*stringstart,pos) ERROR "unclosed comment" null_error_body;
-        else 
-             if   (*stringlist != [])
-                 
-                  err
-                      (*stringstart, pos)
-                      ERROR
-                      "unclosed string, character, or quotation"
-                      null_error_body;
-             fi;
+        if (*comment_nesting_depth > 0)
+	    #
+	    err (*stringstart,pos) ERROR "unclosed comment" null_error_body;
+	    #
+        elif (*stringlist != [])
+	    #
+	    err
+		(*stringstart, pos)
+		ERROR
+		"unclosed string, character, or quotation"
+		null_error_body;
         fi;
 
         tokens::eof(pos,pos);
@@ -227,7 +226,8 @@ fun dec (ri as REF i)   =   (ri := i - 1);
 #           <initial>"#PRE_{uppercase_id}{ws}	=> (yybegin postcompile_code;  continue());
 #           <initial>"#POST"{uppercase_id}{ws}	=> (yybegin postcompile_code;  continue());
 #	also produced a segfault. :-(	XXX BUGGO FIXME -- 2011-09-11 CrT
-#
+#       2012-02-22 CrT: The above was probably the Great Heisenbug, which is now fixed.
+#                       It would be worth trying this again.
 #       In the meantime, I switched to just #DO for #PRE_COMPILE_CODE and dropped #POSTCOMPILE_CODE entirely.
 
 
