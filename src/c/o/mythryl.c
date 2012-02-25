@@ -891,9 +891,9 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
         if (!eof_on_childs_stdout) {   FD_SET( subprocess_pipes.stdout.read_fd, &readable_file_descriptors ); }
         if (!eof_on_childs_stderr) {   FD_SET( subprocess_pipes.stderr.read_fd, &readable_file_descriptors ); }
 
-	FD_SET( STDOUT_FILENO,                   &writable_file_descriptors );
-	FD_SET( STDERR_FILENO,                   &writable_file_descriptors );
-        FD_SET( subprocess_pipes.stdin.write_fd, &writable_file_descriptors );
+	{			       FD_SET( STDOUT_FILENO,                   &writable_file_descriptors ); }
+	{			       FD_SET( STDERR_FILENO,                   &writable_file_descriptors ); }
+	if (!eof_on_childs_stdin)  {   FD_SET( subprocess_pipes.stdin.write_fd, &writable_file_descriptors ); }
 
         int bytes_copied  = 0;
 
@@ -1000,16 +1000,16 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	}
 
 
-//	if (!*remaining_text_for_compiler						// When we've sent all text-to-compile to compiler,
-//	    &&										// send an EOF by closing the fd.  I originally forgot
-//	    !child_is_dead								// to do this, which worked fine except it would just
-//	    &&										// hang when sent a script like
-//	    !eof_on_childs_stdin							//
-//	){										//     #!/usr/bin/mythryl
-//	    close( subprocess_pipes.stdin.write_fd );					//     (
-//	    //										//
-//	    eof_on_childs_stdin = TRUE;							// -- the Mythryl parser would hang forever waiting
-//	}										// for the missing close paren.
+	if (!*remaining_text_for_compiler						// When we've sent all text-to-compile to compiler,
+	    &&										// send an EOF by closing the fd.  I originally forgot
+	    !child_is_dead								// to do this, which worked fine except it would just
+	    &&										// hang when sent a script like
+	    !eof_on_childs_stdin							//
+	){										//     #!/usr/bin/mythryl
+	    close( subprocess_pipes.stdin.write_fd );					//     (
+	    //										//
+	    eof_on_childs_stdin = TRUE;							// -- the Mythryl parser would hang forever waiting
+	}										// for the missing close paren.
 
 	// Don't busy-wait:
 	//
@@ -1017,9 +1017,6 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	    //
 	    sleep_10ms ();
 	} 
-
-
-	// XXX BUGGO FIXME  We need logic to gracefully handle EOF from user or from compiler.
     }
 }
 
