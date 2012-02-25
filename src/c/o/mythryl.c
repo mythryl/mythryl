@@ -124,9 +124,6 @@ static int   child_is_dead     = FALSE;
 static int   child_exit_status = 0;
 static pid_t child_pid         = 0;
 //
-static int   eof_on_childs_stdout = FALSE;
-static int   eof_on_childs_stderr = FALSE;
-//
 static void   usage   (void)    {
     //
     fprintf( stderr, "%s should only be invoked via ''#!...'' line in a script!\n", our_name );
@@ -857,6 +854,9 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
     // one byte, since select() doesn't say how much
     // we can write without blocking. [1]
 
+    int eof_on_childs_stdout = FALSE;
+    int eof_on_childs_stderr = FALSE;
+
     int max_fd = 0;
 
     if (max_fd <= STDIN_FILENO) {
@@ -896,7 +896,7 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 
         int bytes_copied  = 0;
 
-	// XXX BUGGO FIXME The Linux select() manpage explains why pselect() is better than select().
+	// XXX SUCKO FIXME The Linux select() manpage explains why pselect() is better than select().
 	//                 Should probably recode to use it, and also analyse to see if the
 	//                 Mythryl POSIX interface should be recoded to use it or offer access to
 	//                 it. (It is POSIX-standard.). Same manpage warns that Linux is slightly nonstandard.
