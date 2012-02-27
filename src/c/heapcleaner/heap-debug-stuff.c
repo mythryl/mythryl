@@ -955,14 +955,14 @@ void   zero_agegroup0_overrun_tripwire_buffer   (Task* task) {
 void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     // =======================================
     //
-    // To detect allocation buffer overrun, we maintain
+    // To detect agegroup-0 buffer overrun we maintain
     // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we verify that it is all zeros:
     //
     Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
-    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
+    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {								// AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS	is from   src/c/h/runtime-base.h
 	//
 	if (p[i] != 0) {
 	    //

@@ -202,7 +202,7 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 #define CALLEE_SAVED_REGISTERS_COUNT	3
 
 
-#define AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS  (64)									// Was (10*1024) for awhile, but that appears to roughly double heapcleaning CPU time.
+#define AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS  (16)									// Was (10*1024) for awhile, but that appears to roughly double heapcleaning CPU time.
 #define AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES  (sizeof(Val) * AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS)
     //
     // Added these on suspicion that a Heisenbug I've been seeing
