@@ -389,7 +389,7 @@ ENTRY(asm_run_mythryl_task)
 	//
 	MOV_L (ESP,EBX)
 	OR_L  (CONST(4), ESP)		
-	SUB_L (CONST(4), ESP)				// Stack grows from high to low.
+	SUB_L (CONST(4), ESP)				// Stack grows toward address zero -- a push decreases the stack pointers.
 	SUB_L (CONST(LIB7_FRAME_SIZE), ESP)
 	MOV_L (EBX,espsave)
 #endif
@@ -422,7 +422,7 @@ ENTRY(asm_run_mythryl_task)
 	MOV_L(REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
 	MOV_L(REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L(ESP,CSYM(LIB7_intel32Frame))						// Frame ptr for signal handler.
+	MOV_L(ESP,CSYM(LIB7_intel32Frame))					// Frame pointer for signal handler.
 
 	PUSH_L(misc2)								// Free up a register.
 	PUSH_L(temp)								// Save task temporarily.
@@ -443,11 +443,11 @@ ENTRY(asm_run_mythryl_task)
 #undef  tmpreg
 	JNE(pending)
 
-restore_and_jmp_lib7:
+restore_and_jump_to_mythryl:
 	POP_L(temp)								// Restore temp to task.
 	POP_L(misc2)
 	
-jmp_lib7:
+jump_to_mythryl:
 	CMP_L(heap_allocation_limit, heap_allocation_pointer)
 	JMP(CODEPTR(REGOFF(program_counter_byte_offset_in_task_struct,temp)))	// Jump to Mythryl code.
 
@@ -456,7 +456,7 @@ pending:
 										// Currently handling signal?
 
 	CMP_L(CONST(0), REGOFF( mythryl_handler_for_posix_signal_is_running_byte_offset_in_pthread_struct, pthread ))   
-	JNE( restore_and_jmp_lib7 )
+	JNE( restore_and_jump_to_mythryl )
 										// Handler trap is now pending.
 	movl	IMMED(1), posix_signal_pending_byte_offset_in_pthread_struct( pthread ) 
 
@@ -466,7 +466,7 @@ pending:
 	POP_L(misc2)
 
 	MOV_L(heap_allocation_pointer,heap_allocation_limit)
-	JMP(jmp_lib7)								// Jump to Mythryl code.
+	JMP(jump_to_mythryl)								// Jump to Mythryl code.
 #undef  pthread
 
 // ----------------------------------------------------------------------

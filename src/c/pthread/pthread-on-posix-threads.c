@@ -88,8 +88,8 @@
 		    //
 		    //     src/c/heapcleaner/make-strings-and-vectors-etc.c
 		    //
-		    // to serialize access to the shared (non-generation0)
-		    // heap generations.
+		    // to serialize access to the shared (non-agegroup0)
+		    // heap agegroups.
 
         Condvar	 pth__condvar	= PTHREAD_COND_INITIALIZER;						char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
 		    //
@@ -256,9 +256,9 @@ if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//
 	// I presume this call must be intended to sweep all live
-	// values from this thread's private generation-zero buffer
-	// into the shared generation-1 buffer, so that nothing
-	// will be lost if re-initializing the generation-zero
+	// values from this thread's private agegroup-zero buffer
+	// into the shared agegroup-1 buffer, so that nothing
+	// will be lost if re-initializing the agegroup-zero
 	// buffer for a new thread.   -- 2011-11-10 CrT
 
 
@@ -883,13 +883,13 @@ void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
 //
 // The matching solutions Morrisett and Tolmach adopted were:
 //
-//   1) Most heap allocation is done in generation zero;
+//   1) Most heap allocation is done in agegroup zero;
 //      by giving each kernel thread its own independent
-//      generation zero, each can allocate at full speed
+//      agegroup zero, each can allocate at full speed
 //      without locking overhead.
 //
 //      Allocation is also done directly into later heap
-//      generations, but this happens too seldom to be
+//      agegroups, but this happens too seldom to be
 //      performance critical, so conventional mutex locking
 //      can be used without problem.
 //      
@@ -910,7 +910,7 @@ void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
 // have done so.
 //
 // Furthermore, each pthread must be brought to a halt with
-// its private generation-zero buffer in a consistent state
+// its private agegroup-zero buffer in a consistent state
 // intelligible to the heapcleaner; in particular there can
 // be no allocated but uninitialized pointers in the heap
 // containing nonsense values which might make the heapcleaner
