@@ -256,7 +256,7 @@ if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//
 	// I presume this call must be intended to sweep all live
-	// values from this thread's private agegroup-zero buffer
+	// values from this thread's private agegroup-0 buffer
 	// into the shared agegroup-1 buffer, so that nothing
 	// will be lost if re-initializing the agegroup-zero
 	// buffer for a new thread.   -- 2011-11-10 CrT
@@ -283,7 +283,7 @@ char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengrou
     // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
     //////////////////////////////////////////////////////////////////////////////
-    // POTENTIAL RACE CONDITION
+    // POTENTIAL RACE CONDITION		XXX BUGGO FIXME
     //
     // There is actually a fairly nasty race condition here:
     // The 'arg' sub-pthread could exit, be marked PTHREAD_IS_VOID,
@@ -311,33 +311,33 @@ char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengrou
     //////////////////////////////////////////////////////////////////////////////
 
 if (running_script) log_if("pth__pthread_join: TOP...");
-    int pthread_to_join =  TAGGED_INT_TO_C_INT( arg );
+    int pthread_to_join_id =  TAGGED_INT_TO_C_INT( arg );
 
-    // 'pthread_to_join' should have been returned by
+    // 'pthread_to_join_id' should have been returned by
     // pth__pthread_create  (above) and should be an index into
     // pthread_table__global[], but let's sanity-check it: 
     //
-    if (pthread_to_join < 0
-    ||  pthread_to_join >= MAX_PTHREADS
+    if (pthread_to_join_id < 0
+    ||  pthread_to_join_id >= MAX_PTHREADS
     ){
 if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
-	return "pth__pthread_join: Bogus value for pthread_to_join.";
+	return "pth__pthread_join: Bogus value for pthread_to_join_id.";
     }
 
-    Pthread* pthread =  pthread_table__global[ pthread_to_join ];			// pthread_table__global	def in   src/c/main/runtime-state.c
+    Pthread* pthread_to_join =  pthread_table__global[ pthread_to_join_id ];		// pthread_table__global	def in   src/c/main/runtime-state.c
 
-    // The following check is incorrect because
-    // the subthread might well complete and exit
-    // before we get to this point:    (*BLUSH*! -- 2011-12-05 CrT)
-    //
-//  if (pthread->mode == PTHREAD_IS_VOID)  {
-//	//
-//	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
-//  }
+											// The following check is incorrect because
+											// the subthread might well complete and exit
+											// before we get to this point:    (*BLUSH*! -- 2011-12-05 CrT)
+											//
+											//  if (pthread_to_join->mode == PTHREAD_IS_VOID)  {
+											//	//
+											//	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
+											//  }
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", NULL );			// Enter BLOCKED mode.
 	//
-        int err =  pthread_join( pthread->tid, NULL );					// NULL is a void** arg that can return result of joined thread. We ignore it
+        int err =  pthread_join( pthread_to_join->tid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
 	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
@@ -349,7 +349,7 @@ if (running_script) log_if("pth__pthread_join: BOTTOM.");
 	case 0:										// Success.
 	    {   pthread_mutex_lock(   &pth__mutex  );
 		    //
-		    pthread->mode = PTHREAD_IS_VOID;					// Remember that the thread joining us is dead.
+		    pthread_to_join->mode = PTHREAD_IS_VOID;				// Remember that the thread joining us is dead.
 		    --pth__running_pthreads_count;					// It must have been RUNNING to join us, and is now no longer RUNNING, so decrement count of RUNNING pthreads.
 		    pthread_cond_broadcast( &pth__condvar );				// Let other pthreads know state has changed.
 		    //
