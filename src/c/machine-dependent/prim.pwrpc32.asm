@@ -515,7 +515,7 @@ CENTRY(asm_run_mythryl_task)
 	bne	pending_sigs								  // If not equal, then pending signals.
 
 
-ENTRY(jump_to_mythryl) 
+ENTRY(run_mythryl_code) 
 	cmpl	CR0,heap_allocation_pointer,heap_allocation_limit
 	mtfsfi  3,0			// Ensure that no exceptions are set.
 	mtfsfi  2,0
@@ -529,12 +529,12 @@ pending_sigs:				// There are pending signals.
 					// Check if currently handling a signal.
 	lwz	atmp1,mythryl_handler_for_posix_signal_is_running_byte_offset_in_pthread_struct(atmp2)
 	cmpi	CR0,atmp1,0
-	bf	CR0_EQ,CSYM(jump_to_mythryl)
+	bf	CR0_EQ,CSYM(run_mythryl_code)
 
 	li	r0,1
 	stw	r0,posix_signal_pending_byte_offset_in_pthread_struct(atmp2)
 	addi	heap_allocation_limit,heap_allocation_pointer,0
-	b	CSYM(jump_to_mythryl)
+	b	CSYM(run_mythryl_code)
 
 // make_typeagnostic_rw_vector : (Int, X) -> Rw_Vector(X)
 // Allocate and initialize a new array.	 This can trigger cleaning.

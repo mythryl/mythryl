@@ -443,11 +443,11 @@ ENTRY(asm_run_mythryl_task)
 #undef  tmpreg
 	JNE(pending)
 
-restore_and_jump_to_mythryl:
+restore_and_run_mythryl_code:
 	POP_L(temp)								// Restore temp to task.
 	POP_L(misc2)
 	
-jump_to_mythryl:
+run_mythryl_code:
 	CMP_L(heap_allocation_limit, heap_allocation_pointer)
 	JMP(CODEPTR(REGOFF(program_counter_byte_offset_in_task_struct,temp)))	// Jump to Mythryl code.
 
@@ -456,7 +456,7 @@ pending:
 										// Currently handling signal?
 
 	CMP_L(CONST(0), REGOFF( mythryl_handler_for_posix_signal_is_running_byte_offset_in_pthread_struct, pthread ))   
-	JNE( restore_and_jump_to_mythryl )
+	JNE( restore_and_run_mythryl_code )
 										// Handler trap is now pending.
 	movl	IMMED(1), posix_signal_pending_byte_offset_in_pthread_struct( pthread ) 
 
@@ -466,7 +466,7 @@ pending:
 	POP_L(misc2)
 
 	MOV_L(heap_allocation_pointer,heap_allocation_limit)
-	JMP(jump_to_mythryl)								// Jump to Mythryl code.
+	JMP(run_mythryl_code)								// Jump to Mythryl code.
 #undef  pthread
 
 // ----------------------------------------------------------------------

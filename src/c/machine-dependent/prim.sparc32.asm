@@ -352,7 +352,7 @@ ENTRY(asm_run_mythryl_task)
 	subcc	TMPREG2,TMPREG3,%g0
 	bne	pending_sigs
 	nop
-CSYM(jump_to_mythryl):					// Invoke the Mythryl code.
+CSYM(run_mythryl_code):					// Invoke the Mythryl code.
 	jmp	PROGRAM_COUNTER
 	subcc	HEAP_ALLOCATION_POINTER,HEAP_ALLOCATION_LIMIT,%g0		// Heap limit test (delay slot)
 
@@ -360,11 +360,11 @@ pending_sigs:					// There are pending signals.
 						// Check if we are currently handling a signal.
 	ld	[ pthreadPtr + mythryl_handler_for_posix_signal_is_running_byte_offset_in_pthread_struct ], TMPREG2
 	tst	TMPREG2
-	bne	jump_to_mythryl
+	bne	run_mythryl_code
 	set	1,TMPREG2			// (delay slot)
 						// Note that a handler trap is pending.
 	st	TMPREG2,[ pthreadPtr + posix_signal_pending_byte_offset_in_pthread_struct ]
-	ba	jump_to_mythryl
+	ba	run_mythryl_code
 	mov	HEAP_ALLOCATION_POINTER,HEAP_ALLOCATION_LIMIT		// (delay slot)
 
 
