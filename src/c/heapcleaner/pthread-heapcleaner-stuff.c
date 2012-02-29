@@ -179,6 +179,9 @@ void    pth__validate_running_pthreads_count   (void)   {
     // !! CALLER MUST BE HOLDING pth__mutex !!
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     // 
+    // (Otherwise pth__running_pthreads_count and/or
+    // the 'mode' fields might change in the middle
+    // of the below loop, invalidating the computation.)	 
 
     int running_pthreads = 0;
 
