@@ -65,7 +65,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
     Task* task;
     Task* task0 =  pthread_table[ 0 ]->task;
 
-    int per_thread_agegroup0_buffer_bytesize
+    int per_pthread_agegroup0_buffer_bytesize
 	=
 	task0->heap->agegroup0_master_buffer_bytesize
         /
@@ -77,7 +77,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
 static int first_call = TRUE;
 								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_master_buffer_bytesize x=%x", task0->heap->agegroup0_master_buffer_bytesize );
-								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize   x=%x", per_thread_agegroup0_buffer_bytesize);
+								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: per_pthread_agegroup0_buffer_bytesize   x=%x", per_pthread_agegroup0_buffer_bytesize);
 								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_master_buffer   x=%x", task0->heap->agegroup0_master_buffer);
 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
@@ -91,12 +91,12 @@ static int first_call = TRUE;
 													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
 
 	task->heap                            =  task0->heap;
-	task->heap_allocation_buffer_bytesize =  per_thread_agegroup0_buffer_bytesize;
+	task->heap_allocation_buffer_bytesize =  per_pthread_agegroup0_buffer_bytesize;
 	task->heap_allocation_buffer          =  start_of_agegroup0_buffer_for_next_pthread;
 	task->heap_allocation_pointer         =  start_of_agegroup0_buffer_for_next_pthread;
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->hap now x=%x",pthread, task->heap_allocation_pointer);
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize x=%x",per_thread_agegroup0_buffer_bytesize );
-	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: per_pthread_agegroup0_buffer_bytesize x=%x",per_pthread_agegroup0_buffer_bytesize );
+	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );				// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->rhal now x=%x",pthread, task->real_heap_allocation_limit);
 
         zero_agegroup0_overrun_tripwire_buffer( task );							// zero_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
@@ -113,7 +113,7 @@ if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->r
 	    } else {
 		//
 		// In order to generate software events at (approximately)
-		// the desired frequency, we (may) here artificially decrease
+		// the desired frequency, we here artificially decrease
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
@@ -148,28 +148,66 @@ pthread, task->real_heap_allocation_limit,
 	    =
 	    (Val*) ( ((Punt) start_of_agegroup0_buffer_for_next_pthread)
                      +
-                     per_thread_agegroup0_buffer_bytesize
+                     per_pthread_agegroup0_buffer_bytesize
                    );
     }												// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
 first_call = FALSE;
 }												// fun partition_agegroup0_buffer_between_pthreads
 
 
-static volatile int	pthreads_ready_to_clean__local = 0;					// Number of processors that are ready to clean.
-static volatile Tid	heapcleaner_pthread_tid__local;						// The tid (p-thread id) of the pthread that will do the actual heapcleaning work. (The rest sit and watch.)
-static volatile int	barrier_needs_to_be_initialized__local;					// Not sure if these last two need to be 'volatile', but better safe than sorry.
+ static volatile int	pthreads_ready_to_clean__local = 0;					// Number of processors that are ready to clean.
+ static volatile Tid	heapcleaner_pthread_tid__local;						// The tid (p-thread id) of the pthread that will do the actual heapcleaning work. (The rest sit and watch.)
+ static volatile int	barrier_needs_to_be_initialized__local;					// Not sure if these last two need to be 'volatile', but better safe than sorry.
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
-Val*         pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS * MAX_PTHREADS ];
-
+#define MAX_EXTRA_HEAPCLEANER_ROOTS	(MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD * MAX_PTHREADS)
+//
+Val* pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS ];
+//
 static Val** extra_heapcleaner_roots__local;
 
+//
+static void    pth__validate_running_pthreads_count   ()   {
+    //         ====================================
+    //
+    // Check that
+    //
+    //     pth__running_pthreads_count
+    //
+    // looping over
+    //
+    //     and counting.									// pthread_table__global	def in   src/c/main/runtime-state.c
+    // 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // !! CALLER MUST BE HOLDING pth__mutex !!
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // 
 
+    int running_pthreads = 0;
+
+    for (int i = 0;  i < MAX_PTHREADS;  ++i) {
+	//
+	if (pthread_table__global[i]->mode != PTHREAD_IS_VOID) {
+	    //
+	    ++ running_pthreads;
+	}
+    }
+
+    if (running_pthreads != pth__running_pthreads_count) {
+	//
+	die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: pth__validate_running_pthreads_count: pth__running_pthreads_count d=%d but running_pthreads d=%d!",
+	    pth__running_pthreads_count,
+	    running_pthreads
+	);
+    }
+}
+
+//
 int   pth__start_heapcleaning   (Task *task) {
     //=======================
     //
-    // This fn is called only from
+    // This fn is called only from   call_heapcleaner   in
     //
     //     src/c/heapcleaner/call-heapcleaner.c
     //
@@ -220,7 +258,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	    --pth__running_pthreads_count;							// Decrement count of PTHREAD_IS_RUNNING mode pthreads.
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
-		pthread_cond_wait(&pth__condvar,&pth__mutex);
+		pthread_cond_wait(&pth__condvar,&pth__mutex);					// (pth__mutex is released while waiting and returned to us before waking.)
 	    }
 	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 	    ++pth__running_pthreads_count;
@@ -232,6 +270,8 @@ int   pth__start_heapcleaning   (Task *task) {
 	/////////////////////////////////////////////////////////////
 	// We're the primary heapcleaner -- we'll do the actual work:
 	/////////////////////////////////////////////////////////////
+												pth__validate_running_pthreads_count();
+
 	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER
 												// mode until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
 	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of RUNNING pthreads.
@@ -257,11 +297,11 @@ int   pth__start_heapcleaning   (Task *task) {
 
 }							// fun pth__start_heapcleaning
 
-
+//
 int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_roots) {
     //========================================
     //
-    // This fn is called (only) from:
+    // This fn is called (only) from   call_heapcleaner_with_extra_roots   in
     //
     //     src/c/heapcleaner/call-heapcleaner.c
     //
@@ -286,6 +326,10 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	    }
 	    *extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
 
+												if (extra_heapcleaner_roots__local >=  &pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS ]) {
+												    die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: pth__extra_heapcleaner_roots__global[] overflow.");
+												} 
+
 	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
 	    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
 
@@ -309,6 +353,8 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	/////////////////////////////////////////////////////////////
 	// We're the primary heapcleaner -- we'll do the actual work:
 	/////////////////////////////////////////////////////////////
+												pth__validate_running_pthreads_count();
+
 	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER mode
 												// until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
 	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
@@ -322,6 +368,10 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	    *extra_heapcleaner_roots__local++ =  x->root;					// Append our args to the  extra-roots buffer.
 	}
 	*extra_heapcleaner_roots__local = NULL;							// Terminate extra-roots buffer with a NULL pointer.
+
+												if (extra_heapcleaner_roots__local >=  &pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS ]) {
+												    die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: pth__extra_heapcleaner_roots__global[] overflow.");
+												} 
 
 	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    //
@@ -337,7 +387,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
     return TRUE;										// Return and run heapcleaner code.
 }												// fun pth__start_heapcleaning_with_extra_roots
 
-
+//
 void    pth__finish_heapcleaning   (Task*  task)   {
     //  ========================
     //
@@ -362,6 +412,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 												PTHREAD_LOG_IF ("%d finished heapcleaning\n", task->pthread->tid);
 // log_if("pth__finish_heapcleaning: BOTTOM.");
 }
+
 
 
 

@@ -125,7 +125,7 @@ void   set_up_fault_handlers   (Task* task)   {
 	    die ("exiting due to bogus fault not in Mythryl: sig = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
         }
 
-        // Map the signal to the appropriate Lib7 exception.
+        // Map the signal to the appropriate Mythryl exception:
         //
 	if (INT_OVFLW(signal, code)) {
 	    //

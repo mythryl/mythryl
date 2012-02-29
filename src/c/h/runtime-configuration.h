@@ -92,7 +92,7 @@
 
 #define  MAX_C_HEAPCLEANER_ROOTS	16							// Maximum number of global C variables that can be heapcleaner ("garbage collector") roots.
 
-#define  MAX_EXTRA_HEAPCLEANER_ROOTS	16							// Maximum number of additional roots that can be passed to heapcleaner.
+#define  MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD	16							// Maximum number of additional roots that can be passed to heapcleaner.
 
 // Number of potential cleaner roots.
 // This includes space for C global roots,
@@ -107,18 +107,18 @@
  #if NEED_PTHREAD_SUPPORT
     // 
     // We must assume that all other pthreads
-    // are supplying MAX_EXTRA_HEAPCLEANER_ROOTS
+    // are supplying MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD
     // in addition to the standard roots.
     //
     // This #define is referenced only in:
     //
-    //     src/c/heapcleaner/call-heapcleaner.c   	
+    //     src/c/heapcleaner/call-heapcleaner.c   						// NROOTS	is from   src/c/h/system-dependent-root-register-indices.h
     //
     #define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO(   MAX_PTHREADS    * (MAX_C_HEAPCLEANER_ROOTS + NROOTS + N_PSEUDO_ROOTS) +	\
-						       (MAX_PTHREADS-1) * MAX_EXTRA_HEAPCLEANER_ROOTS +1,				\
+						       (MAX_PTHREADS-1) * MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD +1,				\
 						     8 )
  #else
-     #define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO( MAX_PTHREADS * (MAX_C_HEAPCLEANER_ROOTS + NROOTS + N_PSEUDO_ROOTS) +1, 8)
+     #define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO( MAX_PTHREADS * (MAX_C_HEAPCLEANER_ROOTS + NROOTS + N_PSEUDO_ROOTS) +1, 8)	// '+1' is probably for the terminating NULL pointer.
  #endif
 
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS  

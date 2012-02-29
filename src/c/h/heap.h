@@ -101,7 +101,7 @@ struct heap {
 
 
 // This macro answers the question:
-// wWhat value should we set the heap_allocation_limit
+// What value should we set the heap_allocation_limit
 // to for a given heap allocation buffer?
 //
 #define HEAP_ALLOCATION_LIMIT(task)			\

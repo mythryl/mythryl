@@ -197,28 +197,28 @@ void   load_resume_state   (Task* task) {						// Called exactly once, from   sr
     // Load the Mythryl state with the state preserved
     // in resumption fate made by make_resumption_fate.
     //
-    Val* contClosure;
+    Val* current_closure;
 
     #ifdef SIGNAL_DEBUG
         debug_say ("load_resume_state:\n");
     #endif
 
-    contClosure = PTR_CAST(Val*, task->current_closure);
+    current_closure = PTR_CAST(Val*, task->current_closure);
 
-    task->argument		= contClosure[1];
-    task->fate			= contClosure[2];
-    task->current_closure	= contClosure[3];
-    task->link_register		= contClosure[4];
-    task->program_counter	= contClosure[5];
-    task->exception_fate	= contClosure[6];
+    task->argument		= current_closure[1];
+    task->fate			= current_closure[2];
+    task->current_closure	= current_closure[3];
+    task->link_register		= current_closure[4];
+    task->program_counter	= current_closure[5];
+    task->exception_fate	= current_closure[6];
 
     // John (Reppy) says current_thread
     // should not be included here...
-    //    task->current_thread	= contClosure[7];
+    //    task->current_thread	= current_closure[7];
 
-    task->callee_saved_registers[0]	= contClosure[7];
-    task->callee_saved_registers[1]	= contClosure[8];
-    task->callee_saved_registers[2]	= contClosure[9];
+    task->callee_saved_registers[0]	= current_closure[7];
+    task->callee_saved_registers[1]	= current_closure[8];
+    task->callee_saved_registers[2]	= current_closure[9];
 }
 
 

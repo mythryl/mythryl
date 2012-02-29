@@ -94,27 +94,31 @@ typedef struct {
 
 // Image of a Mythryl Pthread.
 // The live registers are those specified
-// by RET_MASK plus the current_thread,
+// by RET_MASK plus current_thread,
 // exception_fate and pc:
 //
 typedef struct {
     //
-    Val	posix_interprocess_signal_handler;	// The contents of POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL.
-    Val	stdArg;
-    Val	stdCont;
-    Val	stdClos;
-    Val	pc;
+    Val	posix_interprocess_signal_handler;				// The contents of POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL.
+    Val	stdArg;								// argument	    (should rename)
+    Val	stdCont;							// fate		    (should rename)	
+    Val	stdClos;							// current_closure  (should rename)
+    Val	pc;								// program_counter. (should rename)
     Val	exception_fate;
     Val	current_thread;
-    Val	calleeSave[ CALLEE_SAVED_REGISTERS_COUNT ];
+    Val	calleeSave[ CALLEE_SAVED_REGISTERS_COUNT ];			// callee_saved_registers (should rename)
     //
 } Pthread_Image;
 
 
 // The heap header consists of 'active_agegroups' agegroup descriptions,
-// each of which consists of (smallchunk_sibs_count+hugechunk_sibs_count) Sib_Header records.
-// After the agegroup descriptors, there are hugechunk_quire_count Hugechunk_Quire_Header
-// records.  The page aligned heap image follows the heap header.
+// each of which consists of (smallchunk_sibs_count+hugechunk_sibs_count)
+// Sib_Header records.
+//
+// After the agegroup descriptors, there are hugechunk_quire_count
+// Hugechunk_Quire_Header records.
+//
+// The page aligned heap image follows the heap header.
 //
 
 // A sib header.  Agegroups use this for both
@@ -134,7 +138,7 @@ typedef struct {
 	struct {					// Info for the hugechunk sib buffer.
 	    int   hugechunk_count;			// Number of hugechunks in this agegroup.
 	    int	  hugechunk_quanta_count;		// Number of hugechunk pages required.
-	}  bo;						// "bo" == "big object" (old name for hugechunk -- should rename, maybe to "hc". XXX BUGGO FIXME)
+	}  bo;						// "bo" == "big object" (old name for hugechunk -- should rename, maybe to "hc". XXX SUCKO FIXME)
     }		info;
 } Sib_Header;
 
@@ -143,10 +147,10 @@ typedef struct {
 // hugechunk region in the exporting address space.
 //
 typedef struct {
-    Punt	base_address;		// Base address of this hugechunk region in the exporting address space.
-					// Note that this is the address of the header, not of the first page.
-    Punt	first_ram_quantum;	// Address of the first ram quantum of the region in the exporting address space.
-    Punt	bytesize;		// Total size of this hugechunk region, including the header.
+    Punt	base_address;				// Base address of this hugechunk region in the exporting address space.
+							// Note that this is the address of the header, not of the first page.
+    Punt	first_ram_quantum;			// Address of the first ram quantum of the region in the exporting address space.
+    Punt	bytesize;				// Total size of this hugechunk region, including the header.
     //
 } Hugechunk_Quire_Header;
 
@@ -154,11 +158,11 @@ typedef struct {
 //
 typedef struct {
     //
-    int		age;			// The agegroup of this hugechunk.
-    int		huge_ilk;		// Ilk of this hugechunk. Currently always CODE__HUGE_SIB		def in    src/c/h/sibid.h
+    int		age;					// The agegroup of this hugechunk.
+    int		huge_ilk;				// Ilk of this hugechunk. Currently always CODE__HUGE_SIB		def in    src/c/h/sibid.h
     //
-    Punt	base_address;		// Base address of this hugechunk in the exporting address space.
-    Punt	bytesize;		// Size of this hugechunk.
+    Punt	base_address;				// Base address of this hugechunk in the exporting address space.
+    Punt	bytesize;				// Size of this hugechunk.
     //
 } Hugechunk_Header;
 

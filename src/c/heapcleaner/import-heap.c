@@ -15,7 +15,7 @@
 #include "runtime-globals.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
-#include "runtime-heap-image.h"
+#include "runtime-heap-image.h"						// src/c/heapcleaner/runtime-heap-image.h
 #include "mythryl-callable-cfun-hashtable.h"
 #include "address-hashtable.h"
 #include "import-heap-stuff.h"
@@ -166,15 +166,17 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
     #endif
 
 
-    externs = heapio__read_externs_table (&inbuf);		// Read the externals table.
+    externs = heapio__read_externs_table (&inbuf);				// Read the externals table.
 
-    READ(&inbuf, image);				// Read and initialize the Mythryl state info.
+    READ(&inbuf, image);							// Read and initialize the Mythryl state info.
     //
     if (image_header.kind == EXPORT_HEAP_IMAGE) {
 
         // Load the live registers:
         //
-	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
+	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
+                image.posix_interprocess_signal_handler
+              );
 	//
 	task->argument		= image.stdArg;
 	task->fate		= image.stdCont;
@@ -189,9 +191,9 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 
 	read_heap (&inbuf, &heap_header, task, externs);			// Read the Mythryl heap.
 
-	/* heapcleaner_messages_are_enabled__global = TRUE; */					// Cleaning messages are on by default for interactive images.
+	/* heapcleaner_messages_are_enabled__global = TRUE; */			// Heapcleaning messages are on by default for interactive images.
 
-    } else { 								// EXPORT_FN_IMAGE
+    } else { 									// EXPORT_FN_IMAGE
 
         // Restore the signal handler:
         //
@@ -833,7 +835,7 @@ static Val   repair_word   (
 
 
 static Hugechunk_Relocation_Info*   address_to_relocation_info   (
-    //                             ========================== 
+    //                              ========================== 
     //
     Sibid*            oldBOOK2SIBID, 
     Addresstable*     hugechunk_region_table, 
@@ -841,9 +843,11 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (
     Punt oldchunk
 ) {
     int  index;
-    for (index = GET_BOOK_CONTAINING_POINTEE(oldchunk);
-        !SIBID_ID_IS_BIGCHUNK_RECORD(id);
-        id = oldBOOK2SIBID[--index]
+    for (index = GET_BOOK_CONTAINING_POINTEE( oldchunk );
+	 //
+         !SIBID_ID_IS_BIGCHUNK_RECORD( id );
+	 //
+         id = oldBOOK2SIBID[ --index ]
     );
 
     Hugechunk_Quire_Relocation_Info* region

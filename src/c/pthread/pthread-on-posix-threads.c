@@ -156,7 +156,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     Pthread* pthread;
     int      i;
 
-if (running_script) log_if("pth__pthread_create: TOP...");
+ if (running_script) log_if("pth__pthread_create: TOP...");
 													PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
     pthread_mutex_lock( &pth__mutex );									// Always first step before reading/writing pthread_table__global.
@@ -172,7 +172,7 @@ if (running_script) log_if("pth__pthread_create: TOP...");
 
     if (i == MAX_PTHREADS) {
 	//
-if (running_script) log_if("pth__pthread_create: BOTTOM (failure).");
+ if (running_script) log_if("pth__pthread_create: BOTTOM (failure).");
 	pthread_mutex_unlock( &pth__mutex );
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
@@ -196,42 +196,42 @@ if (running_script) log_if("pth__pthread_create: BOTTOM (failure).");
     task->current_closure	=  closure_arg;
     //
     task->program_counter	= 
-    task->link_register		=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
+    task->link_register		=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );		// GET_CODE_ADDRESS_FROM_CLOSURE				is from   src/c/h/runtime-values.h
     //
     task->current_thread	=  current_thread;
   
 
 
-    pthread->mode = PTHREAD_IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
-    ++pth__running_pthreads_count;						// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
-    pthread_cond_broadcast( &pth__condvar );					// Let other pthreads know state has changed.
+    pthread->mode = PTHREAD_IS_RUNNING;								// Moved this above pthread_create() because that seems safer,
+    ++pth__running_pthreads_count;								// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
+    pthread_cond_broadcast( &pth__condvar );							// Let other pthreads know state has changed.
 
     int err =   pthread_create(
 		    //
-		    &task->pthread->tid,					// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
-										//         valid as seen by both parent and child threads, without using spinlocks or such.
-										//	   Passing the pointer is safe (only) because 'tid' is of type pthread_t from <pthread.h>
-										//	   -- we define field 'tid' as 'Tid' in src/c/h/pthread.h
-										//	   and   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
+		    &task->pthread->tid,							// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
+												//         valid as seen by both parent and child threads, without using spinlocks or such.
+												//	   Passing the pointer is safe (only) because 'tid' is of type pthread_t from <pthread.h>
+												//	   -- we define field 'tid' as 'Tid' in src/c/h/pthread.h
+												//	   and   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
 
-		    NULL,							// Provision for attributes -- API futureproofing.
+		    NULL,									// Provision for attributes -- API futureproofing.
 
-		    pthread_main,  (void*) task					// Function + argument to run in new kernel thread.
+		    pthread_main,  (void*) task							// Function + argument to run in new kernel thread.
 		);
 
-    if (!err) {									// Successfully spawned new kernel thread.
+    if (!err) {											// Successfully spawned new kernel thread.
 	//
-if (running_script) log_if("pth__pthread_create: BOTTOM.");
-	return NULL;								// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pth__mutex  for us.
+ if (running_script) log_if("pth__pthread_create: BOTTOM.");
+	return NULL;										// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pth__mutex  for us.
 
-    } else {									// Failed to spawn new kernel thread.
+    } else {											// Failed to spawn new kernel thread.
 
-	pthread->mode = PTHREAD_IS_VOID;					// Note pthread record (still) has no associated kernel thread.
-	--pth__running_pthreads_count;						// Restore running-threads count to its original value, since we failed to start it.
+	pthread->mode = PTHREAD_IS_VOID;							// Note pthread record (still) has no associated kernel thread.
+	--pth__running_pthreads_count;								// Restore running-threads count to its original value, since we failed to start it.
 
 	pthread_mutex_unlock( &pth__mutex );
 
-if (running_script) log_if("pth__pthread_create: BOTTOM (error).");
+ if (running_script) log_if("pth__pthread_create: BOTTOM (error).");
 	switch (err) {
 	    //
 	    case EAGAIN:	return "pth__pthread_create: Insufficient resources to create posix thread: May have reached PTHREAD_THREADS_MAX.";
@@ -252,7 +252,7 @@ void   pth__pthread_exit   (Task* task)   {
     //
 											PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
-if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
+ if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//
 	// I presume this call must be intended to sweep all live
@@ -262,7 +262,7 @@ if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
 	// buffer for a new thread.   -- 2011-11-10 CrT
 
 
-if (running_script) log_if("pth__pthread_exit/MID: Updating state.");
+ if (running_script) log_if("pth__pthread_exit/MID: Updating state.");
     pthread_mutex_lock(    &pth__mutex );
 	//
 	task->pthread->mode = PTHREAD_IS_VOID;
@@ -271,13 +271,13 @@ if (running_script) log_if("pth__pthread_exit/MID: Updating state.");
 	//
     pthread_mutex_unlock(  &pth__mutex );
 
-if (running_script) log_if("pth__pthread_exit/BOTTOM: Done.");
+ if (running_script) log_if("pth__pthread_exit/BOTTOM: Done.");
     pthread_exit( NULL );								// "The pthread_exit() function cannot return to its caller."   -- http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 }
 
 
 
-char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
+char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
     //   =================
     //
     // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
@@ -310,7 +310,7 @@ char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengrou
     // I'm going to punt on this problem for the time being. -- 2011-12-05 CrT
     //////////////////////////////////////////////////////////////////////////////
 
-if (running_script) log_if("pth__pthread_join: TOP...");
+ if (running_script) log_if("pth__pthread_join: TOP...");
     int pthread_to_join_id =  TAGGED_INT_TO_C_INT( arg );
 
     // 'pthread_to_join_id' should have been returned by
@@ -320,7 +320,7 @@ if (running_script) log_if("pth__pthread_join: TOP...");
     if (pthread_to_join_id < 0
     ||  pthread_to_join_id >= MAX_PTHREADS
     ){
-if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
+ if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
 	return "pth__pthread_join: Bogus value for pthread_to_join_id.";
     }
 
@@ -343,17 +343,24 @@ if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
 
 
-if (running_script) log_if("pth__pthread_join: BOTTOM.");
+ if (running_script) log_if("pth__pthread_join: BOTTOM.");
     switch (err) {
 	//
 	case 0:										// Success.
-	    {   pthread_mutex_lock(   &pth__mutex  );
-		    //
-		    pthread_to_join->mode = PTHREAD_IS_VOID;				// Remember that the thread joining us is dead.
-		    --pth__running_pthreads_count;					// It must have been RUNNING to join us, and is now no longer RUNNING, so decrement count of RUNNING pthreads.
-		    pthread_cond_broadcast( &pth__condvar );				// Let other pthreads know state has changed.
-		    //
-		pthread_mutex_unlock(  &pth__mutex  );
+	    {
+// XXX BUGGO FIXME!
+// !!! Following paragraph is REDUNDANT WITH SAME LOGIC IN pth__pthread_exit !!! 
+// NB: Should probably have a sanity-check fn
+// run once per gc which manually verifies pth__running_pthreads_count.
+
+//		pthread_mutex_lock(   &pth__mutex  );
+//		    //
+//
+//		    pthread_to_join->mode = PTHREAD_IS_VOID;				// Remember that the thread joining us is dead.
+//		    --pth__running_pthreads_count;					// It must have been RUNNING to join us, and is now no longer RUNNING, so decrement count of RUNNING pthreads.
+//		    pthread_cond_broadcast( &pth__condvar );				// Let other pthreads know state has changed.
+//		    //
+//		pthread_mutex_unlock(  &pth__mutex  );
 		//
 		return NULL;
 	    }
@@ -395,7 +402,7 @@ void   pth__shut_down (void) {
 										// NB: All the error returns in this file should interpret the error number;
 										// I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
 //
-char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_init", NULL );
@@ -417,7 +424,7 @@ char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {		// http://pubs
 }
 
 //
-char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy", NULL );
@@ -435,20 +442,20 @@ char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {		// http:/
     }
 }
 //
-char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     //
-if (running_script) log_if("pth__mutex_lock: TOP...");
+ if (running_script) log_if("pth__mutex_lock: TOP...");
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock", NULL );
-if (running_script) log_if("pth__mutex_lock: RELEASED...");
+ if (running_script) log_if("pth__mutex_lock: RELEASED...");
 	//
 	int err =  pthread_mutex_lock( mutex );
-if (running_script) log_if("pth__mutex_lock: BACK...");
+ if (running_script) log_if("pth__mutex_lock: BACK...");
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock" );
 
-if (running_script) log_if("pth__mutex_lock: BOTTOM.");
+ if (running_script) log_if("pth__mutex_lock: BOTTOM.");
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
@@ -460,7 +467,7 @@ if (running_script) log_if("pth__mutex_lock: BOTTOM.");
     }
 }
 //
-char*  pth__mutex_trylock   (Task* task, Val arg, Mutex* mutex, Bool* result) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Task* task, Val arg, Mutex* mutex, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", NULL );
@@ -482,16 +489,16 @@ char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pu
     // =================
     //
     //
-if (running_script) log_if("pth__mutex_unlock: TOP...");
+ if (running_script) log_if("pth__mutex_unlock: TOP...");
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock", NULL );
-if (running_script) log_if("pth__mutex_unlock: RELEASED...");
+ if (running_script) log_if("pth__mutex_unlock: RELEASED...");
 	//
 	int err =  pthread_mutex_unlock( mutex );						// pthread_mutex_unlock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
-if (running_script) log_if("pth__mutex_unlock: BACK...");
+ if (running_script) log_if("pth__mutex_unlock: BACK...");
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock" );
     //
-if (running_script) log_if("pth__mutex_unlock: BOTTOM.");
+ if (running_script) log_if("pth__mutex_unlock: BOTTOM.");
     switch (err) {
 	//
 	case 0: 				return NULL;					// Successfully released lock.
@@ -539,14 +546,14 @@ char*  pth__condvar_destroy (Task* task, Val arg, Condvar* condvar) {				// http
 char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
-if (running_script) log_if("pth__condvar_wait: TOP...");
+ if (running_script) log_if("pth__condvar_wait: TOP...");
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait", NULL );
 	//
 	int result = pthread_cond_wait( condvar, mutex );
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait" );
 
-if (running_script) log_if("pth__condvar_wait: BOTTOM.");
+ if (running_script) log_if("pth__condvar_wait: BOTTOM.");
     if (result)   return "pth__condvar_wait: Unable to wait on condition variable.";
     else	  return NULL;
 }
@@ -554,14 +561,14 @@ if (running_script) log_if("pth__condvar_wait: BOTTOM.");
 char*  pth__condvar_signal   (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
-if (running_script) log_if("pth__condvar_signal: TOP...");
+ if (running_script) log_if("pth__condvar_signal: TOP...");
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal", NULL );
 	//
 	int result = pthread_cond_signal( condvar );						// pthread_cond_signal probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal" );
 
-if (running_script) log_if("pth__condvar_signal: BOTTOM.");
+ if (running_script) log_if("pth__condvar_signal: BOTTOM.");
     if (result)		return "pth__condvar_signal: Unable to signal on condition variable.";
     else		return NULL;
 }
@@ -569,14 +576,14 @@ if (running_script) log_if("pth__condvar_signal: BOTTOM.");
 char*  pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
-if (running_script) log_if("pth__condvar_broadcast: TOP...");
+ if (running_script) log_if("pth__condvar_broadcast: TOP...");
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast", NULL );
 	//
 	int result = pthread_cond_broadcast( condvar );						// pthread_cond_broadcast probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast" );
 
-if (running_script) log_if("pth__condvar_broadcast: BOTTOM.");
+ if (running_script) log_if("pth__condvar_broadcast: BOTTOM.");
     if (result)	  return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
     else	  return NULL;
 }

@@ -431,7 +431,7 @@ extern void   set_up_fault_handlers ();										// set_up_fault_handlers				def
 // is that while we are doing a slow syscall (or just a
 // slow C op, like compressing a largish string) we cannot
 // respond to a request to enter heapcleaner mode,
-// and consequently all other pthreads coult wind up blocked
+// and consequently all other pthreads could wind up blocked
 // waiting for us to join them in heapcleaner mode -- thus
 // defeating much of the point of having multiple kernel threads
 // running. (Minor heapcleanings happen about 200 times per second.)
@@ -444,7 +444,7 @@ extern void   set_up_fault_handlers ();										// set_up_fault_handlers				def
 //
 // Our solution creates the problem that any Mythryl heap values
 // used by the slow system call or C function must therefor be
-// copied our of the Mythryl heap, since heapcleaning may move
+// copied out of the Mythryl heap, since heapcleaning may move
 // them around arbitrarily without warning so long as we have
 // PTHREAD_IS_BLOCKED set.
 //
