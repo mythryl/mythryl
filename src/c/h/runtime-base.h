@@ -510,6 +510,9 @@ extern int                pth__running_pthreads_count;			// Grab pth__mutex befo
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
 
+extern void   pth__validate_running_pthreads_count (void);		// Explicitly verify that pth__running_pthreads_count is correct by looping over pthread_table__global[].
+
+
 // log_if declaration.
 //
 // Conditional tracing to a logfile

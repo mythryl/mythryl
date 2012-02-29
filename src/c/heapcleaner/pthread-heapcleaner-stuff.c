@@ -168,16 +168,12 @@ Val* pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS ];
 static Val** extra_heapcleaner_roots__local;
 
 //
-static void    pth__validate_running_pthreads_count   ()   {
-    //         ====================================
+void    pth__validate_running_pthreads_count   (void)   {
+    //  ====================================
     //
-    // Check that
-    //
-    //     pth__running_pthreads_count
-    //
-    // looping over
-    //
-    //     and counting.									// pthread_table__global	def in   src/c/main/runtime-state.c
+    // Check that		    pth__running_pthreads_count
+    // is correct by looping over   pthread_table__global[]					// pthread_table__global	def in   src/c/main/runtime-state.c
+    // and counting.
     // 
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     // !! CALLER MUST BE HOLDING pth__mutex !!
@@ -188,7 +184,7 @@ static void    pth__validate_running_pthreads_count   ()   {
 
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table__global[i]->mode != PTHREAD_IS_VOID) {
+	if (pthread_table__global[i]->mode == PTHREAD_IS_RUNNING) {
 	    //
 	    ++ running_pthreads;
 	}
@@ -196,7 +192,7 @@ static void    pth__validate_running_pthreads_count   ()   {
 
     if (running_pthreads != pth__running_pthreads_count) {
 	//
-	die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: pth__validate_running_pthreads_count: pth__running_pthreads_count d=%d but running_pthreads d=%d!",
+	die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: validate_running_pthreads_count: pth__running_pthreads_count d=%d but running_pthreads d=%d!",
 	    pth__running_pthreads_count,
 	    running_pthreads
 	);
