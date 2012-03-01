@@ -27,6 +27,7 @@
 #include "../mythryl-config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <pthread.h>
 
@@ -105,6 +106,182 @@
 
 
 
+/////////////////////////////////////////////////////////////////////////
+// Dynamically allocated mutexes
+//
+// Major design considerations and
+// constraints here include:
+//
+//   o We need to have Mythryl-level mutex values in
+//         src/lib/std/src/pthread.pkg
+//     It is ok if they are proxies for actual C-level mutexes,
+//     so long as Mythryl-level semantics stay clean and natural.
+//
+//   o We cannot (trivially) allocate C mutexes structs
+//     on the Mythryl heap because the Linux mutex struct
+//     includes pointers, and is thus position-dependent,
+//     whereas Mythryl heap values typically move around.
+//
+//   o We build the Mythryl compiler (etc) by saving out
+//     Mythryl heap images to disk and later reloading them.
+//     We would like to have static global mutexes
+//     in packages like   src/lib/std/src/io/file-g.pkg
+//     so mutexes must be implemented in a way which will
+//     survive such heap save/load cycles.
+//
+//   o We don't want to have any fixed limit on allowed
+//     number of mutexes.
+//
+// Our design solution here:
+//
+//   o We use Int31 values as Mythryl-level mutex proxies.
+//     These are small-int vector indices, much in the spirit
+//     of C small-int file handles.
+//
+//   o Whenever we handle an Int31 mutex proxy value,
+//     we create the required mutex if it does not already
+//     exist, in order to transparently handle saved-and-reloaded
+//     heap images without special logic in the heap save/load code.
+//
+//   o We maintain a C-level vector of mutexes.
+//
+//   o We malloc() this vector so that we can realloc()
+//     as necessary to expand it.
+//
+//   o When we expand this vector we double it in size, so as to
+//     stay within a factor of two of optimal space and time cost.
+//
+//   o We keep this vector's length a power of two, so as to
+//     facilitate circular traversal via simple masking.
+//
+//   o We keep unused vector slots set to NULL, and allocate
+//     mutexes by simply rotating a clock-hand circularly around
+//     the vector looking for NULL slots.
+//
+//
+static Mutex**        mutex_vector__local                       =  NULL;		// This will be allocated in allocate_and_initialize_mutex_vector__local(), sized per next.
+static unsigned int   last_valid_mutex_vector_slot_index__local =  (1 << 8) -1;		// Keep this one less than a power of two.
+static unsigned int   mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
+
+
+//
+static char*   initialize_mutex   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    //         ================
+    //
+    int err =  pthread_mutex_init( mutex, NULL );					// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+
+    switch (err) {
+	//
+	case 0:				return NULL;					// Success.
+	case ENOMEM:			return "Insufficient ram to initialize mutex";
+	case EAGAIN:			return "Insufficient (non-ram) resources to initialize mutex";
+	case EPERM:			return "Caller lacks privilege to initialize mutex";
+	case EBUSY:			return "Attempt to reinitialize the object referenced by mutex, a previously initialized, but not yet destroyed, mutex.";
+	case EINVAL:			return "Invalid attribute";
+	default:			return "Undocumented error return from pthread_mutex_init()";
+    }
+}
+
+//
+static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below.
+    //        =================
+    //
+    mutex_vector__local
+	=
+	(Mutex**) malloc(   (last_valid_mutex_vector_slot_index__local +1) * sizeof (Mutex*)   );
+
+    for (int i = 0;  i <= last_valid_mutex_vector_slot_index__local;  ++i) {
+	//
+	mutex_vector__local[ i ] =  NULL;
+    }
+}
+
+
+//
+static void   double_size_of_mutex_vector   (void)   {
+    //        ===========================
+    //
+    pthread_mutex_lock( &pth__mutex );
+	//
+	unsigned int  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
+	//
+	mutex_vector__local
+	    =
+	    (Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
+
+	for (int i =  last_valid_mutex_vector_slot_index__local + 1;
+                 i <  new_size_in_slots;
+                 i ++
+        ){
+	    mutex_vector__local[ i ] =  NULL;
+	}
+
+	last_valid_mutex_vector_slot_index__local
+	    =
+	    new_size_in_slots - 1;
+	    
+	if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
+	//
+    pthread_mutex_unlock( &pth__mutex );
+}
+
+//
+static Mutex*   make_mutex_record   (void) {
+    //          =================
+    //
+    Mutex* mutex =   (Mutex*)  malloc( sizeof( Mutex ) );	if (!mutex)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_mutex_record: Unable to allocate mutex record");
+
+    char* err =  initialize_mutex( mutex );			if (err)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_mutex_record: %s", err);
+
+    return mutex;
+}
+//
+static void   validate_mutex_id   (unsigned int  id) {
+    //        =================
+    //
+    while (id > last_valid_mutex_vector_slot_index__local) {
+	//
+	double_size_of_mutex_vector ();
+    }
+
+    if (!mutex_vector__local[ id ]) {
+	//
+	pthread_mutex_lock(   &pth__mutex );
+	    //
+	    if(!mutex_vector__local[ id ]) {								// Avoid race condition -- some other pthread might have done it already.
+		mutex_vector__local[ id ] =  make_mutex_record();					// We do this so that stale mutex ids due to heap save/load sequences will work.
+	    }
+	    //
+	pthread_mutex_unlock( &pth__mutex );
+    }
+}
+
+//
+static unsigned int   make_mutex   (unsigned int  id) {
+    //                ==========
+    //
+    for (;;) {
+	//
+	pthread_mutex_lock( &pth__mutex );
+	    //
+	    for (int i  =  0;
+		     i <=  last_valid_mutex_vector_slot_index__local;
+		     i ++
+	    ){
+		if(!mutex_vector__local[ mutex_vector_cursor__local ]) {
+		    mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record();
+		    return               mutex_vector_cursor__local; 
+		}
+
+		mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
+					   & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
+	    }
+	    //
+	pthread_mutex_unlock( &pth__mutex );
+
+	double_size_of_mutex_vector ();									// Yah, race condition might result in us doubling the vector twice here.  Big deal.
+    }	
+}
 
 
 //
@@ -388,6 +565,7 @@ void   pth__start_up   (void)   {
     //
     ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );						// Make sure this refcell has a defined value, even though we don't want or use it.
 
+    make_mutex_vector();
 }
 //
 void   pth__shut_down (void) {
@@ -405,22 +583,7 @@ void   pth__shut_down (void) {
 char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_init", NULL );
-	//
-        int err =  pthread_mutex_init( mutex, NULL );				// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_init" );
-
-    switch (err) {
-	//
-	case 0:				return NULL;				// Success.
-	case ENOMEM:			return "pth__mutex_init: Insufficient ram to initialize mutex";
-	case EAGAIN:			return "pth__mutex_init: Insufficient (non-ram) resources to initialize mutex";
-	case EPERM:			return "pth__mutex_init: Caller lacks privilege to initialize mutex";
-	case EBUSY:			return "pth__mutex_init: Attempt to reinitialize the object referenced by mutex, a previously initialized, but not yet destroyed, mutex.";
-	case EINVAL:			return "pth__mutex_init: Invalid attribute";
-	default:			return "pth__mutex_init: Undocumented error return from pthread_mutex_init()";
-    }
+    return  initialize_mutex( mutex );
 }
 
 //

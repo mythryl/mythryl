@@ -450,7 +450,7 @@ if (running_script) log_if("do_mutex_unlock: DDD...");
 	    case UNINITIALIZED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex before setting it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex before setting it.", NULL);
 	    case       CLEARED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex after clearing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after clearing it.", NULL);
 	    case         FREED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex after freeing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after freeing it.", NULL);
-	    default:			log_if("do_mutex_unlock: Attempt to release bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN(task,"do_mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)", NULL);
+	    default:			log_if("do_mutex_unlock: Attempt to release bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN(task,"do_mutex_unlock: Attempt to mutext_release bogus value.", NULL);
 	}
 if (running_script) log_if("do_mutex_unlock: YYY...");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
