@@ -160,7 +160,7 @@
 //
 //
 static Mutex**        mutex_vector__local                       =  NULL;		// This will be allocated in allocate_and_initialize_mutex_vector__local(), sized per next.
-static unsigned int   last_valid_mutex_vector_slot_index__local =  (1 << 8) -1;		// Keep this one less than a power of two.
+static unsigned int   last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
 static unsigned int   mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
 
 
@@ -198,31 +198,27 @@ static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below
 
 
 //
-static void   double_size_of_mutex_vector   (void)   {
-    //        ===========================
+static void   double_size_of_mutex_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
+    //        =======================================
     //
-    pthread_mutex_lock( &pth__mutex );
-	//
-	unsigned int  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
-	//
-	mutex_vector__local
-	    =
-	    (Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
+    unsigned int  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
+    //
+    mutex_vector__local
+	=
+	(Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
 
-	for (int i =  last_valid_mutex_vector_slot_index__local + 1;
-                 i <  new_size_in_slots;
-                 i ++
-        ){
-	    mutex_vector__local[ i ] =  NULL;
-	}
+    for (int i =  last_valid_mutex_vector_slot_index__local + 1;
+	     i <  new_size_in_slots;
+	     i ++
+    ){
+	mutex_vector__local[ i ] =  NULL;
+    }
 
-	last_valid_mutex_vector_slot_index__local
-	    =
-	    new_size_in_slots - 1;
-	    
-	if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
-	//
-    pthread_mutex_unlock( &pth__mutex );
+    last_valid_mutex_vector_slot_index__local
+	=
+	new_size_in_slots - 1;
+
+    if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
 }
 
 //
@@ -236,51 +232,54 @@ static Mutex*   make_mutex_record   (void) {
     return mutex;
 }
 //
-static void   validate_mutex_id   (unsigned int  id) {
-    //        =================
+static Mutex*   find_mutex_by_id__need_mutex   (unsigned int  id) {				// Caller MUST BE HOLDING pth__mutex.
+    //          ============================
     //
     while (id > last_valid_mutex_vector_slot_index__local) {
 	//
-	double_size_of_mutex_vector ();
+	double_size_of_mutex_vector__need_mutex ();
     }
 
-    if (!mutex_vector__local[ id ]) {
-	//
-	pthread_mutex_lock(   &pth__mutex );
-	    //
-	    if(!mutex_vector__local[ id ]) {								// Avoid race condition -- some other pthread might have done it already.
-		mutex_vector__local[ id ] =  make_mutex_record();					// We do this so that stale mutex ids due to heap save/load sequences will work.
-	    }
-	    //
-	pthread_mutex_unlock( &pth__mutex );
+    if(!mutex_vector__local[ id ]) {
+	mutex_vector__local[ id ] =  make_mutex_record();						// We do this so that stale mutex ids due to heap save/load sequences will work.
     }
+
+    return mutex_vector__local[ id ];
 }
 
 //
-static unsigned int   make_mutex   (unsigned int  id) {
+static unsigned int   make_mutex   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
     //                ==========
     //
-    for (;;) {
+    pthread_mutex_lock( &pth__mutex );
 	//
-	pthread_mutex_lock( &pth__mutex );
+	for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+	    //
+	    // Search for an empty slot in mutex_vector__local[].
+	    //
+	    // We start where last search stopped, to avoid
+	    // wasting time searching start of vector over and over:
 	    //
 	    for (int i  =  0;
 		     i <=  last_valid_mutex_vector_slot_index__local;
 		     i ++
 	    ){
 		if(!mutex_vector__local[ mutex_vector_cursor__local ]) {
-		    mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record();
+		    mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record();		// Found an empty slot -- fill it and return its index.
 		    return               mutex_vector_cursor__local; 
 		}
 
 		mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
 					   & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
 	    }
-	    //
-	pthread_mutex_unlock( &pth__mutex );
 
-	double_size_of_mutex_vector ();									// Yah, race condition might result in us doubling the vector twice here.  Big deal.
-    }	
+	    // If we arrive here, there are no
+	    // empty slots in mutex_vector__local[]
+	    // so we double its size to create some:
+	    //
+	    double_size_of_mutex_vector__need_mutex ();
+	}	
+    pthread_mutex_unlock( &pth__mutex );
 }
 
 
