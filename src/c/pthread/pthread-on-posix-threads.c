@@ -359,7 +359,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
-											PTHREAD_LOG_IF ("[using pthread_table__global slot %d]\n", i);
+													PTHREAD_LOG_IF ("[using pthread_table__global slot %d]\n", i);
 
     // Use pthread at index i:
     //

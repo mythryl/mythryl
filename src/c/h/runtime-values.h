@@ -45,6 +45,10 @@
     #define TAGGED_INT_TO_C_INT(n)		(((Val_Sized_Int)(n)) >> 1)
     #define TAGGED_INT_FROM_C_INT(n)		((Val)(((n) << 1) + 1))
 
+    // See also:
+    //
+    // IS_TAGGED_INT	def in   src/c/h/heap-tags.h
+
 #endif // _ASM_
 
 

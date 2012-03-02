@@ -229,7 +229,7 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
 	// garbage collector moving mutexes around in
 	// memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
 	//
-	return make_one_word_unt(task,  pth__mutex_make() );
+	return TAGGED_INT_FROM_C_INT( pth__mutex_make() );
 
     #else
 
@@ -253,7 +253,7 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
 	// Per Mythryl convention, 'arg' will point to the second word,
 	// so all we have to do is cast it appropriately:
 	//
-	{    char* err =  pth__mutex_destroy( task, arg, *(Val_Sized_Unt*) arg );
+	{    char* err =  pth__mutex_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	    //
 	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 	}
@@ -273,7 +273,7 @@ static Val   do_mutex_lock   (Task* task,  Val arg)   {
 
     #if NEED_PTHREAD_SUPPORT
 
-	{   char* err =  pth__mutex_lock( task, arg, *(Val_Sized_Unt*) arg );
+	{   char* err =  pth__mutex_lock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	    //
 	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 	    else       return HEAP_VOID;
@@ -294,7 +294,7 @@ static Val   do_mutex_unlock   (Task* task,  Val arg)   {
 
     #if NEED_PTHREAD_SUPPORT
 
-	{   char* err =  pth__mutex_unlock( task, arg, *(Val_Sized_Unt*) arg );
+	{   char* err =  pth__mutex_unlock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	    //
 	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 	    else       return HEAP_VOID;
@@ -316,7 +316,7 @@ static Val   do_mutex_trylock   (Task* task,  Val arg)   {
     #if NEED_PTHREAD_SUPPORT
 
 	{   Bool  result;
-	    char* err = pth__mutex_trylock( task, arg, *(Val_Sized_Unt*) arg, &result );
+	    char* err = pth__mutex_trylock( task, arg, TAGGED_INT_TO_C_INT( arg ), &result );
 	    //
 	    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 	    //
@@ -343,7 +343,7 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
 	//
 	// We allocate the condvar_struct on the C
 	// heap rather than the Mythryl heap because
-	// having the garbage collector moving mutexes
+	// having the garbage collector moving condvars
 	// around in memory seems like a really, really
 	// bad idea:
 	//
@@ -688,7 +688,7 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
 	    default:				log_if("do_condvar_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_wait: Attempt to wait on bogus value.", NULL);
 	}
 
-	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, *(Val_Sized_Unt*) mutex_arg );
+	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, TAGGED_INT_TO_C_INT( mutex_arg ) );
 	    //
 	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 	    else		{														 return HEAP_VOID;			}

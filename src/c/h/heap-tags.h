@@ -45,11 +45,11 @@
 // A-tag definitions
 // =================
 //
-#define  POINTER_ATAG	HEXLIT(0)	//   00 - Pointers.
-#define  TAGWORD_ATAG	HEXLIT(2)	//   10 - Tagwords.
-#define    TAGGED_INT_ATAG	HEXLIT(1)	//   01, 11 - 31-bit immediate integers.
+#define  POINTER_ATAG		HEXLIT(0)	//   00 - Pointers.
+#define  TAGWORD_ATAG		HEXLIT(2)	//   10 - Tagwords.
+#define  TAGGED_INT_ATAG	HEXLIT(1)	//   01, 11 - 31-bit immediate integers.
 
-#define ATAG_MASK	HEXLIT(3)	// Bits 0-1 are the A-tag.
+#define ATAG_MASK		HEXLIT(3)	// Bits 0-1 are the A-tag.
 
 // Clear/set the low bit of a Mythryl pointer
 // to make it look like a 31-bit immediate integer.
@@ -124,12 +124,12 @@
 // We use these tags in our typeagnostic equality
 // and pretty-printing code.
 //
-#define TYPEAGNOSTIC_VECTOR_CTAG	HEXLIT( 0 )
-#define VECTOR_OF_ONE_BYTE_UNTS_CTAG	HEXLIT( 1 )
-#define UNT16_VECTOR_CTAG	HEXLIT( 2 )
-#define TAGGED_INT_VECTOR_CTAG	HEXLIT( 3 )
-#define INT1_VECTOR_CTAG	HEXLIT( 4 )	// Never used.
-#define VECTOR_OF_FOUR_BYTE_FLOATS_CTAG	HEXLIT( 5 )
+#define TYPEAGNOSTIC_VECTOR_CTAG		HEXLIT( 0 )
+#define VECTOR_OF_ONE_BYTE_UNTS_CTAG		HEXLIT( 1 )
+#define UNT16_VECTOR_CTAG			HEXLIT( 2 )
+#define TAGGED_INT_VECTOR_CTAG			HEXLIT( 3 )
+#define INT1_VECTOR_CTAG			HEXLIT( 4 )	// Never used.
+#define VECTOR_OF_FOUR_BYTE_FLOATS_CTAG		HEXLIT( 5 )
 #define VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG	HEXLIT( 6 )
     //
     // WARNING: Thes above must track the
@@ -225,10 +225,15 @@
 #define IS_TAGGED_INT(W)	(((Val_Sized_Unt)(W) &         1) == TAGGED_INT_ATAG)
 #define IS_TAGWORD(W)		(((Val_Sized_Unt)(W) & ATAG_MASK) ==    TAGWORD_ATAG)
 
+// See also:
+//
+// TAGGED_INT_TO_C_INT		def in	src/c/h/runtime-values.h
+// TAGGED_INT_FROM_C_INT	def in	src/c/h/runtime-values.h
+
 // Extract tagword fields:
 //
 #define GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)	 (((Val_Sized_Unt)(tagword)) >> TAGWORD_LENGTH_FIELD_SHIFT)				// Length excludes tagword itself.
-#define   GET_BTAG_FROM_TAGWORD(tagword)	((((Val_Sized_Unt)(tagword)) ANDOP BTAG_MASK) >> BTAG_SHIFT_IN_BITS)
+#define GET_BTAG_FROM_TAGWORD(tagword)			((((Val_Sized_Unt)(tagword)) ANDOP BTAG_MASK) >> BTAG_SHIFT_IN_BITS)
     //
     // WARNING: There is a hardwired GET_BATAG_FROM_TAGWORD in
     //     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
