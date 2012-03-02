@@ -159,9 +159,9 @@
 //     the vector looking for NULL slots.
 //
 //
-static Mutex**        mutex_vector__local                       =  NULL;		// This will be allocated in allocate_and_initialize_mutex_vector__local(), sized per next.
-static unsigned int   last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
-static unsigned int   mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
+static Mutex**		mutex_vector__local                       =  NULL;		// This will be allocated in allocate_and_initialize_mutex_vector__local(), sized per next.
+static Val_Sized_Unt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
+static Val_Sized_Unt	mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
 
 
 //
@@ -186,13 +186,19 @@ static char*   initialize_mutex   (Mutex* mutex) {					// http://pubs.opengroup.
 static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below.
     //        =================
     //
+											//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
+											//
+											//	-- http://linux.derkeiler.com/Newsgroups/comp.os.linux.development.apps/2005-07/0323.html
     mutex_vector__local
 	=
 	(Mutex**) malloc(   (last_valid_mutex_vector_slot_index__local +1) * sizeof (Mutex*)   );
 
-    for (int i = 0;  i <= last_valid_mutex_vector_slot_index__local;  ++i) {
+    for (Val_Sized_Unt u = 0;
+                       u <= last_valid_mutex_vector_slot_index__local;
+                       u ++
+    ){
 	//
-	mutex_vector__local[ i ] =  NULL;
+	mutex_vector__local[ u ] =  NULL;
     }
 }
 
@@ -201,24 +207,22 @@ static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below
 static void   double_size_of_mutex_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
     //        =======================================
     //
-    unsigned int  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
+    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
     //
     mutex_vector__local
 	=
 	(Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
-
-    for (int i =  last_valid_mutex_vector_slot_index__local + 1;
-	     i <  new_size_in_slots;
-	     i ++
+											if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
+    for (Val_Sized_Unt u =  last_valid_mutex_vector_slot_index__local + 1;
+	               u <  new_size_in_slots;
+	               u ++
     ){
-	mutex_vector__local[ i ] =  NULL;
+	mutex_vector__local[ u ] =  NULL;
     }
 
     last_valid_mutex_vector_slot_index__local
 	=
 	new_size_in_slots - 1;
-
-    if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
 }
 
 //
@@ -232,54 +236,58 @@ static Mutex*   make_mutex_record   (void) {
     return mutex;
 }
 //
-static Mutex*   find_mutex_by_id__need_mutex   (unsigned int  id) {				// Caller MUST BE HOLDING pth__mutex.
-    //          ============================
+Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+    //   ============================
     //
     while (id > last_valid_mutex_vector_slot_index__local) {
 	//
 	double_size_of_mutex_vector__need_mutex ();
     }
 
-    if(!mutex_vector__local[ id ]) {
-	mutex_vector__local[ id ] =  make_mutex_record();						// We do this so that stale mutex ids due to heap save/load sequences will work.
+    if (mutex_vector__local[ id ] == NULL) {
+	mutex_vector__local[ id ] =  make_mutex_record ();						// We do this so that stale mutex ids due to heap save/load sequences will work.
     }
 
     return mutex_vector__local[ id ];
 }
 
 //
-static unsigned int   make_mutex   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
-    //                ==========
+Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
+    //         ===============
     //
     pthread_mutex_lock( &pth__mutex );
+    //
+    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
 	//
-	for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
-	    //
-	    // Search for an empty slot in mutex_vector__local[].
-	    //
-	    // We start where last search stopped, to avoid
-	    // wasting time searching start of vector over and over:
-	    //
-	    for (int i  =  0;
-		     i <=  last_valid_mutex_vector_slot_index__local;
-		     i ++
-	    ){
-		if(!mutex_vector__local[ mutex_vector_cursor__local ]) {
-		    mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record();		// Found an empty slot -- fill it and return its index.
-		    return               mutex_vector_cursor__local; 
-		}
+	// Search for an empty slot in mutex_vector__local[].
+	//
+	// We start where last search stopped, to avoid
+	// wasting time searching start of vector over and over:
+	//
+	for (Val_Sized_Unt u  =  0;
+			   u <=  last_valid_mutex_vector_slot_index__local;
+			   u ++
+	){
+	    mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
+				       & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
 
-		mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
-					   & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
+	    if (mutex_vector__local[ mutex_vector_cursor__local ] == NULL) {
+		mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record ();		// Found an empty slot -- fill it and return its index.
+
+		Val_Sized_Unt result = mutex_vector_cursor__local;
+
+		pthread_mutex_unlock( &pth__mutex );
+
+		return result;
 	    }
+	}
 
-	    // If we arrive here, there are no
-	    // empty slots in mutex_vector__local[]
-	    // so we double its size to create some:
-	    //
-	    double_size_of_mutex_vector__need_mutex ();
-	}	
-    pthread_mutex_unlock( &pth__mutex );
+	// If we arrive here, there are no
+	// empty slots in mutex_vector__local[]
+	// so we double its size to create some:
+	//
+	double_size_of_mutex_vector__need_mutex ();
+    }	
 }
 
 
@@ -332,7 +340,6 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     Pthread* pthread;
     int      i;
 
- if (running_script) log_if("pth__pthread_create: TOP...");
 													PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
     pthread_mutex_lock( &pth__mutex );									// Always first step before reading/writing pthread_table__global.
@@ -348,7 +355,6 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     if (i == MAX_PTHREADS) {
 	//
- if (running_script) log_if("pth__pthread_create: BOTTOM (failure).");
 	pthread_mutex_unlock( &pth__mutex );
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
@@ -397,7 +403,6 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     if (!err) {											// Successfully spawned new kernel thread.
 	//
- if (running_script) log_if("pth__pthread_create: BOTTOM.");
 	return NULL;										// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pth__mutex  for us.
 
     } else {											// Failed to spawn new kernel thread.
@@ -522,24 +527,8 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
  if (running_script) log_if("pth__pthread_join: BOTTOM.");
     switch (err) {
 	//
-	case 0:										// Success.
-	    {
-// XXX BUGGO FIXME!
-// !!! Following paragraph is REDUNDANT WITH SAME LOGIC IN pth__pthread_exit !!! 
-// NB: Should probably have a sanity-check fn
-// run once per gc which manually verifies pth__running_pthreads_count.
-
-//		pthread_mutex_lock(   &pth__mutex  );
-//		    //
-//
-//		    pthread_to_join->mode = PTHREAD_IS_VOID;				// Remember that the thread joining us is dead.
-//		    --pth__running_pthreads_count;					// It must have been RUNNING to join us, and is now no longer RUNNING, so decrement count of RUNNING pthreads.
-//		    pthread_cond_broadcast( &pth__condvar );				// Let other pthreads know state has changed.
-//		    //
-//		pthread_mutex_unlock(  &pth__mutex  );
-		//
-		return NULL;
-	    }
+	case 0:		return NULL;							// Success.
+	//		
 	case ESRCH:	return "pth__pthread_join: No such thread.";
 	case EDEADLK:	return "pth__pthread_join: Attempt to join self (or other deadlock).";
 	case EINVAL:	return "pth__pthread_join: Not a joinable thread.";
@@ -579,45 +568,53 @@ void   pth__shut_down (void) {
 										// NB: All the error returns in this file should interpret the error number;
 										// I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
 //
-char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
-    //   ===============
-    //
-    return  initialize_mutex( mutex );
-}
+// char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+//    //   ===============
+//    //
+//    return  initialize_mutex( mutex );
+// }
 
 //
-char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Task* task, Val arg, Val_Sized_Unt mutex_id)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
 	//
 	int err =  pthread_mutex_destroy( mutex );				// pthread_mutex_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy" );
+	free( mutex );
+	//
+	mutex_vector__local[ mutex_id ] = NULL;
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
 
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
-	case EBUSY:			return "pth__mutex_destroy: attempt to destroy the object referenced by mutex while it is locked or referenced (eg, while being used in a pthread_cond_timedwait() or pthread_cond_wait()) by another thread.";
+	case EBUSY:			return "pth__mutex_destroy: attempt to destroy the object referenced by mutex while it is locked or referenced (eg, while used in a pthread_cond_timedwait() or pthread_cond_wait()) by a thread.";
 	case EINVAL:			return "pth__mutex_destroy: invalid mutex.";
 	default:			return "pth__mutex_destroy: Undocumented error return from pthread_mutex_destroy()";
     }
 }
 //
-char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Task* task, Val arg, Val_Sized_Unt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     //
- if (running_script) log_if("pth__mutex_lock: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock", NULL );
- if (running_script) log_if("pth__mutex_lock: RELEASED...");
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", NULL );
 	//
 	int err =  pthread_mutex_lock( mutex );
- if (running_script) log_if("pth__mutex_lock: BACK...");
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock" );
 
- if (running_script) log_if("pth__mutex_lock: BOTTOM.");
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
@@ -629,38 +626,42 @@ char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {					// http://pubs
     }
 }
 //
-char*  pth__mutex_trylock   (Task* task, Val arg, Mutex* mutex, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Task* task, Val arg, Val_Sized_Unt mutex_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int err =  pthread_mutex_trylock( mutex );						// pthread_mutex_trylock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock" );
+    pthread_mutex_unlock(  &pth__mutex  );
+
+    int err =  pthread_mutex_trylock( mutex );							// pthread_mutex_trylock probably cannot block, so we presumably do not need RELEASE/RECOVER wrappers.
 
     switch (err) {
 	//
-	case 0: 	*result = FALSE;	return NULL;					// Successfully acquired lock.
-	case EBUSY:	*result = TRUE;		return NULL;					// Lock was already taken.
+	case 0: 	*result = FALSE;	return NULL;					// Successfully acquired mutex.
+	case EBUSY:	*result = TRUE;		return NULL;					// Mutex was already taken.
 	//
-	default:				return "pth__mutex_trylock: Error while attempting to test lock.";
+	default:				return "pth__mutex_trylock: Error while attempting to test mutex.";
     }
 }
 //
-char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_unlock   (Task* task, Val arg, Val_Sized_Unt mutex_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
     //
- if (running_script) log_if("pth__mutex_unlock: TOP...");
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock", NULL );
- if (running_script) log_if("pth__mutex_unlock: RELEASED...");
 	//
 	int err =  pthread_mutex_unlock( mutex );						// pthread_mutex_unlock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
- if (running_script) log_if("pth__mutex_unlock: BACK...");
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock" );
-    //
- if (running_script) log_if("pth__mutex_unlock: BOTTOM.");
+
     switch (err) {
 	//
 	case 0: 				return NULL;					// Successfully released lock.
@@ -670,6 +671,8 @@ char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pu
 	default:				return "pth__mutex_unlock: Undocumented error returned by pthread_mutex_unlock().";
     }
 }
+
+
 
 // Here's a little tutorial on posix condition variables:
 //
@@ -705,17 +708,21 @@ char*  pth__condvar_destroy (Task* task, Val arg, Condvar* condvar) {				// http
     else	  return NULL;
 }
 //
-char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Val_Sized_Unt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
- if (running_script) log_if("pth__condvar_wait: TOP...");
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait", NULL );
 	//
 	int result = pthread_cond_wait( condvar, mutex );
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait" );
 
- if (running_script) log_if("pth__condvar_wait: BOTTOM.");
     if (result)   return "pth__condvar_wait: Unable to wait on condition variable.";
     else	  return NULL;
 }

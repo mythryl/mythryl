@@ -56,14 +56,6 @@
 
 #include "../raise-error.h"
 
-struct mutex_struct {
-    //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];		// See comment below.
-    int      state;										// Track state: Uninitialized/initialized/cleared/free()d -- see below #defines.
-    Mutex    mutex;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-};
-
 struct condvar_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
@@ -109,12 +101,6 @@ struct barrier_struct {
 #define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_CONDVAR	0xDEADDEAD
 
-// Values for mutex_struct.state:
-//
-#define UNINITIALIZED_MUTEX	0xDEADBEEF
-#define   INITIALIZED_MUTEX	0xBEEFFEED
-#define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_MUTEX	0xDEADDEAD
 
 
 // Probably should be using this in this file:    XXX SUCKO FIXME
@@ -237,36 +223,16 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
     #if NEED_PTHREAD_SUPPORT
-	//
-	// We allocate the mutex_struct on the C
-	// heap rather than the Mythryl heap because
-	// having the garbage collector moving mutexes
-	// around in memory seems like a really, really
-	// bad idea:								// In particular, the Linux implementation contain linklist pointers.
-	//
-	struct mutex_struct*  mutex
-	    =
-	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
-		//
-		//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
-		//
-		//	-- http://linux.derkeiler.com/Newsgroups/comp.os.linux.development.apps/2005-07/0323.html
 
-
-log_if("do_mutex_make malloc'd mutex %x", mutex);
-	mutex->state = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
-
-	char* err = pth__mutex_init( task, arg, &mutex->mutex );
+	// We allocate the mutex on the C heap rather
+	// than the Mythryl heap because having the
+	// garbage collector moving mutexes around in
+	// memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
 	//
-	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-	else       mutex->state = INITIALIZED_MUTEX;
-
-	// We return the address of the mutex_struct
-	// to the Mythryl level encoded as a word value:
-	//
-        return  make_one_word_unt(task,  (Val_Sized_Unt)mutex  );
+	return make_one_word_unt(task,  pth__mutex_make() );
 
     #else
+
 	die ("do_mutex_make: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
     #endif
@@ -279,37 +245,20 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
 
     #if NEED_PTHREAD_SUPPORT
+
 	// 'arg' should be something returned by barrier_make() above,
 	// so it should be a Mythryl boxed word -- a two-word heap record
 	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-	// followed by the C address of our   struct barrier_struct.
+	// followed by the mutex_vector__local index of our   Mutex.
 	// Per Mythryl convention, 'arg' will point to the second word,
 	// so all we have to do is cast it appropriately:
 	//
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-	switch (mutex->state) {
+	{    char* err =  pth__mutex_destroy( task, arg, *(Val_Sized_Unt*) arg );
 	    //
-	    case UNINITIALIZED_MUTEX:
-	    case   INITIALIZED_MUTEX:
-	    case       CLEARED_MUTEX:
-		//
-		mutex->state =  FREED_MUTEX;
-log_if("do_mutex_free freeing %x", mutex);
-		free( mutex );
-		break;
-
-	    case         FREED_MUTEX:
-		log_if("Attempt to free already-freed mutex instance.");
-		die(   "Attempt to free already-freed mutex instance.");
-
-	    default:
-		log_if("do_mutex_free: Attempt to free bogus value. (Already-freed mutex? Junk?)");
-		die(   "do_mutex_free: Attempt to free bogus value. (Already-freed mutex? Junk?)");
+	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+
+        return HEAP_VOID;
 	//
     #else
 	die ("do_mutex_free: unimplemented\n");
@@ -322,32 +271,14 @@ static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_lock");
 
-if (running_script) log_if("do_mutex_lock: TOP...");
     #if NEED_PTHREAD_SUPPORT
 
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-if (running_script) log_if("do_mutex_lock: AAA...");
-	switch (mutex->state) {
+	{   char* err =  pth__mutex_lock( task, arg, *(Val_Sized_Unt*) arg );
 	    //
-	    case   INITIALIZED_MUTEX:
-if (running_script) log_if("do_mutex_lock: BBB...");
-		{    char* err =  pth__mutex_lock( task, arg, &mutex->mutex );
-		    //
-if (running_script) log_if("do_mutex_lock: CCC...");
-		    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-		    else       return HEAP_VOID;
-		}
-		break;
-
-	    case UNINITIALIZED_MUTEX:	log_if("do_mutex_lock: Attempt to acquire mutex before setting it."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex before setting it.", NULL);
-	    case       CLEARED_MUTEX:	log_if("do_mutex_lock: Attempt to acquire mutex after clearing it."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex after clearing it.", NULL);
-	    case         FREED_MUTEX:	log_if("do_mutex_lock: Attempt to acquire mutex after freeing it.");  return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to acquire mutex after freeing it.", NULL);
-	    default:			log_if("do_mutex_lock: do_mutex_lock: Attempt to acquire bogus value."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)", NULL);
+	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+	    else       return HEAP_VOID;
 	}
-if (running_script) log_if("do_mutex_lock: YYY..."); 
+
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
     #else
@@ -361,32 +292,14 @@ static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_unlock");
 
-if (running_script) log_if("do_mutex_unlock: AAA...");
     #if NEED_PTHREAD_SUPPORT
 
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-if (running_script) log_if("do_mutex_unlock: BBB...");
-	switch (mutex->state) {
+	{   char* err =  pth__mutex_unlock( task, arg, *(Val_Sized_Unt*) arg );
 	    //
-	    case   INITIALIZED_MUTEX:
-if (running_script) log_if("do_mutex_unlock: CCC...");
-		{   char* err =  pth__mutex_unlock( task, arg, &mutex->mutex );
-if (running_script) log_if("do_mutex_unlock: DDD...");
-		    //
-		    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-		    else       return HEAP_VOID;
-		}
-		break;
-
-	    case UNINITIALIZED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex before setting it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex before setting it.", NULL);
-	    case       CLEARED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex after clearing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after clearing it.", NULL);
-	    case         FREED_MUTEX:	log_if("do_mutex_unlock: Attempt to release mutex after freeing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to release mutex after freeing it.", NULL);
-	    default:			log_if("do_mutex_unlock: Attempt to release bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN(task,"do_mutex_unlock: Attempt to mutext_release bogus value.", NULL);
+	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+	    else       return HEAP_VOID;
 	}
-if (running_script) log_if("do_mutex_unlock: YYY...");
+
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
     #else
@@ -402,33 +315,16 @@ static Val   do_mutex_trylock   (Task* task,  Val arg)   {
 
     #if NEED_PTHREAD_SUPPORT
 
-log_if("src/c/lib/pthread/libmythryl-pthread.c: do_mutex_trylock/AAA");
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-log_if("src/c/lib/pthread/libmythryl-pthread.c: do_mutex_trylock/BBB");
-	switch (mutex->state) {
+	{   Bool  result;
+	    char* err = pth__mutex_trylock( task, arg, *(Val_Sized_Unt*) arg, &result );
 	    //
-	    case   INITIALIZED_MUTEX:
-		{   Bool  result;
-log_if("src/c/lib/pthread/libmythryl-pthread.c: do_mutex_trylock/CCC");
-		    char* err = pth__mutex_trylock( task, arg, &mutex->mutex, &result );
-log_if("src/c/lib/pthread/libmythryl-pthread.c: do_mutex_trylock/DDD");
-		    //
-		    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    //
-		    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
-		    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
-		};
-		break;
+	    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+	    //
+	    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
+	    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
+	};
 
-	    case UNINITIALIZED_MUTEX:	log_if("do_mutex_trylock: Attempt to try mutex before setting it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex before setting it.", NULL);
-	    case       CLEARED_MUTEX:	log_if("do_mutex_trylock: Attempt to try mutex after clearing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex after clearing it.", NULL);
-	    case         FREED_MUTEX:	log_if("do_mutex_trylock: Attempt to try mutex after freeing it.");	return RAISE_ERROR__MAY_HEAPCLEAN(task,"Attempt to try mutex after freeing it.", NULL) ;
-	    default:			log_if("do_mutex_trylock: Attempt to try bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN(task,"do_mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)", NULL );
-	}
-        return HEAP_VOID;							// Cannot execute.
+        return HEAP_TRUE;							// Cannot execute.
 
     #else
 	die ("do_mutex_trylock: unimplemented\n");
@@ -775,17 +671,13 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_wait");
 
-if (running_script) log_if("do_condvar_wait: TOP...");
     #if NEED_PTHREAD_SUPPORT
 
 	Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 	Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
-if (running_script) log_if("do_condvar_wait: AAA...");
 	struct condvar_struct*  condvar =   *((struct condvar_struct**) condvar_arg);
-	struct   mutex_struct*  mutex   =   *((struct   mutex_struct**)   mutex_arg);
 
-if (running_script) log_if("do_condvar_wait: BBB...");
 	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:		break;
@@ -796,22 +688,11 @@ if (running_script) log_if("do_condvar_wait: BBB...");
 	    default:				log_if("do_condvar_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_wait: Attempt to wait on bogus value.", NULL);
 	}
 
-	switch (mutex->state) {
-	    //
-	    case   INITIALIZED_MUTEX:		break;
-	    //
-	    case UNINITIALIZED_MUTEX:		log_if("do_condvar_wait: Attempt to condvar_wait on uninitialized mutex."); return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on uninitialized mutex.", NULL);
-	    case       CLEARED_MUTEX:		log_if("do_condvar_wait: Attempt to condvar_wait on cleared mutex.");	    return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on cleared mutex.", NULL);
-	    case         FREED_MUTEX:		log_if("do_condvar_wait: Attempt to condvar_wait on freed condvar.");	    return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on freed condvar.", NULL);
-	    default:				log_if("do_condvar_wait: Attempt to convar_wait on bogus mutex value.");    return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to condvar_wait on bogus mutex value.", NULL);
-	}
-
-	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, &mutex->mutex );
+	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, *(Val_Sized_Unt*) mutex_arg );
 	    //
 	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 	    else		{														 return HEAP_VOID;			}
 	}
-
 
 
     #else

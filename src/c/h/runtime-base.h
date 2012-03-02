@@ -667,22 +667,23 @@ extern Val*  pth__extra_heapcleaner_roots__global [];
 ////////////////////////////////////////////////////////////////////////////
 //                   MUTEX LOCKS
 //
-// We use our "locks" to perform mutual exclusion,
+// We use our "mutex" locks to perform mutual exclusion,
 // ensuring consistency of shared mutable datastructures
 // by ensuring that at most one pthread at a time is
 // updating that datastructure.  Typically we allocate
-// one such lock for each major shared mutable datastructure,
+// one such mutex for each major shared mutable datastructure,
 // which persists for as long as that datastructure.
 //
 // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#Mutexes
 //
-extern char* pth__mutex_init	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
-extern char* pth__mutex_destroy	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+
+extern Val_Sized_Unt	pth__mutex_make    (void);
 //
-extern char* pth__mutex_lock	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-extern char* pth__mutex_unlock	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-extern char* pth__mutex_trylock	(Task* task, Val arg, Mutex* mutex, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-//												// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
+extern char*		pth__mutex_destroy	(Task* task, Val arg, Val_Sized_Unt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+extern char*		pth__mutex_lock		(Task* task, Val arg, Val_Sized_Unt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+extern char*		pth__mutex_unlock	(Task* task, Val arg, Val_Sized_Unt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+extern char*		pth__mutex_trylock	(Task* task, Val arg, Val_Sized_Unt mutex_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+//														// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
 
 ////////////////////////////////////////////////////////////////////////////
 //                   CONDITIONAL VARIABLES
@@ -715,7 +716,7 @@ extern char*   pth__condvar_destroy		(Task* task, Val arg, Condvar* condvar);			
     //  o Behavior is undefined if pth__condvar_destroy()
     //    is called when a pthread is blocked on the condition variable.
 
-extern char*   pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+extern char*   pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Val_Sized_Unt mutex_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     //
     // Atomically release mutex and block on the condition variable.
     // Upon return we will again hold the mutex.  (Return is triggered
