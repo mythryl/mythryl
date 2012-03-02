@@ -235,16 +235,14 @@ static Val   do_join_pthread   (Task* task,  Val pthread_to_join)   {		// Name i
 static Val do_mutex_make   (Task* task,  Val arg)   {
     //     =============
     //
-
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
-
     #if NEED_PTHREAD_SUPPORT
 	//
 	// We allocate the mutex_struct on the C
 	// heap rather than the Mythryl heap because
 	// having the garbage collector moving mutexes
 	// around in memory seems like a really, really
-	// bad idea:
+	// bad idea:								// In particular, the Linux implementation contain linklist pointers.
 	//
 	struct mutex_struct*  mutex
 	    =
@@ -257,6 +255,11 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
 
 log_if("do_mutex_make malloc'd mutex %x", mutex);
 	mutex->state = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
+
+	char* err = pth__mutex_init( task, arg, &mutex->mutex );
+	//
+	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+	else       mutex->state = INITIALIZED_MUTEX;
 
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
@@ -310,75 +313,6 @@ log_if("do_mutex_free freeing %x", mutex);
 	//
     #else
 	die ("do_mutex_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
-}
-
-static Val   do_mutex_init   (Task* task,  Val arg)   {
-    //       =============
-    //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_init");
-
-    #if NEED_PTHREAD_SUPPORT
-
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-	switch (mutex->state) {
-	    //
-	    case UNINITIALIZED_MUTEX:
-	    case       CLEARED_MUTEX:
-		{   char* err = pth__mutex_init( task, arg, &mutex->mutex );
-		    //
-		    if (err)   {                                     return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );  }
-		    else       { mutex->state = INITIALIZED_MUTEX;   return HEAP_VOID;                 }
-		}
-		break;
-
-	    case   INITIALIZED_MUTEX:	log_if("Attempt to set already-set mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set mutex.", NULL);
-	    case         FREED_MUTEX:	log_if("Attempt to set freed mutex.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed mutex.", NULL);
-	    default:			log_if("do_mutex_init: Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)", NULL);
-	}
-
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_mutex_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
-}
-
-static Val   do_mutex_destroy   (Task* task,  Val arg)   {
-    //       ================
-    //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_destroy");
-
-    #if NEED_PTHREAD_SUPPORT
-
-	struct mutex_struct*  mutex
-	    =
-	    *((struct mutex_struct**) arg);
-
-	switch (mutex->state) {
-	    //
-	    case   INITIALIZED_MUTEX:
-		{   char* err = pth__mutex_destroy( task, arg, &mutex->mutex );
-		    //
-		    if (err)   { log_if("do_mutex_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);	}
-		    else       { mutex->state = CLEARED_MUTEX;			return HEAP_VOID;			}
-		}
-		break;
-
-	    case UNINITIALIZED_MUTEX:	log_if("Attempt to clear uninitialized mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized mutex.", NULL);
-	    case       CLEARED_MUTEX:	log_if("Attempt to clear already-cleared mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared mutex.", NULL);
-	    case         FREED_MUTEX:	log_if("Attempt to clear already-freed mutex.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed mutex.", NULL);
-	    default:			log_if("do_mutex_destroy: Attempt to clear bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_mutex_destroy: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
     #endif
 }
@@ -971,8 +905,6 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "mutex_make","mutex_make",		do_mutex_make,		""},
     { "mutex_free","mutex_free",		do_mutex_free,		""},
-    { "mutex_init","mutex_init",		do_mutex_init,		""},
-    { "mutex_destroy","mutex_destroy",		do_mutex_destroy,	""},
     { "mutex_lock","mutex_lock",		do_mutex_lock,		""},
     { "mutex_unlock","mutex_unlock",		do_mutex_unlock,	""},
     { "mutex_trylock","mutex_trylock",		do_mutex_trylock,	""},
