@@ -785,6 +785,9 @@ void   pth__start_up   (void)   {
     //
     ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );						// Make sure this refcell has a defined value, even though we don't want or use it.
 
+    // malloc() and initialize our
+    // dynamic-allocation vectors:
+    //
     make_mutex_vector();
     make_condvar_vector();
     make_barrier_vector();
