@@ -161,7 +161,6 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
     // memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
     //
     return TAGGED_INT_FROM_C_INT( pth__mutex_make() );
-
 }
 
 static Val   do_mutex_free   (Task* task,  Val arg)   {
@@ -170,10 +169,9 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
 										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
     // 'arg' should be something returned by do_mutex_make():
     //
-    {    char* err =  pth__mutex_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
-	//
-	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-    }
+    char* err =  pth__mutex_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 
     return HEAP_VOID;
 }
@@ -186,9 +184,6 @@ static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //
     if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       return HEAP_VOID;
-
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_mutex_unlock   (Task* task,  Val arg)   {
@@ -199,8 +194,6 @@ static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //
     if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       return HEAP_VOID;
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_mutex_trylock   (Task* task,  Val arg)   {
@@ -214,9 +207,6 @@ static Val   do_mutex_trylock   (Task* task,  Val arg)   {
     //
     if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
     else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
-
-
-    return HEAP_TRUE;							// Cannot execute.
 }
 
 
@@ -244,8 +234,7 @@ static Val   do_barrier_free   (Task* task,  Val arg)   {
     //
     if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    return HEAP_VOID;
 }
 
 static Val   do_barrier_init   (Task* task,  Val arg)   {
@@ -260,20 +249,6 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
     //
     if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
     else		{ 						return HEAP_VOID;			}
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-}
-
-static Val   do_barrier_destroy   (Task* task,  Val arg)   {
-    //       ==================
-    //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_destroy");
-    char* err =   pth__barrier_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
-    //
-    if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    else	{ 							return HEAP_VOID;			}
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_barrier_wait   (Task* task,  Val arg)   {
@@ -286,8 +261,6 @@ static Val   do_barrier_wait   (Task* task,  Val arg)   {
     if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
     if (result)							return HEAP_TRUE;
     else							return HEAP_FALSE;
-
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 
@@ -311,12 +284,11 @@ static Val   do_condvar_free   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_free");
     // 'arg' should be something returned by do_condvar_make():
     //
-    {   char* err =  pth__condvar_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
-	//
-	if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
-	else		{ 						return HEAP_VOID;	  			}
-    }
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    char* err =  pth__condvar_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
+    else		{ 						return HEAP_VOID;	  			}
+
 }
 
 static Val   do_condvar_wait   (Task* task,  Val arg)   {
@@ -356,7 +328,6 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     //
     if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
     else			{							return HEAP_VOID;			}
-
 }
 
 
@@ -376,8 +347,6 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "condvar_make","condvar_make",		do_condvar_make,	""},
     { "condvar_free","condvar_free",		do_condvar_free,	""},
-//    { "condvar_init","condvar_init",		do_condvar_init,	""},
-//    { "condvar_destroy","condvar_destroy",	do_condvar_destroy,	""},
     { "condvar_wait","condvar_wait",		do_condvar_wait,	""},
     { "condvar_signal","condvar_signal",	do_condvar_signal,	""},
     { "condvar_broadcast","condvar_broadcast",	do_condvar_broadcast,	""},
@@ -385,7 +354,6 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     { "barrier_make","barrier_make",		do_barrier_make,	""},
     { "barrier_free","barrier_free",		do_barrier_free,	""},
     { "barrier_init","barrier_init",		do_barrier_init,	""},
-    { "barrier_destroy","barrier_destroy",	do_barrier_destroy,	""},
     { "barrier_wait","barrier_wait",		do_barrier_wait,	""},
     //
     CFUNC_NULL_BIND

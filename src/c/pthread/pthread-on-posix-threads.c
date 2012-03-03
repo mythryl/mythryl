@@ -162,7 +162,7 @@
 //
 //
 static Mutex**	mutex_vector__local                       =  NULL;			// This will be allocated in make_mutex_vector(), sized per next.
-static Vunt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
+static Vunt	last_valid_mutex_vector_slot_index__local =  (1 << 12) -1;		// Must be power of two minus one.  We start with large vector to reduce potential race condition problems involving stale ids.
 static Vunt	mutex_vector_cursor__local                =  0;				// Rotates circularly around mutex_vector__local
 
 
@@ -310,7 +310,7 @@ Vunt   pth__mutex_make   (void) {								// Create a new mutex, return its slot 
 //
 //
 static Condvar** condvar_vector__local                       =  NULL;			// This will be allocated in make_condvar_vector(), sized per next.
-static Vunt	 last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
+static Vunt	 last_valid_condvar_vector_slot_index__local =  (1 << 12) -1;		// Must be power of two minus one.  We start with large vector to reduce potential race condition problems involving stale ids.
 static Vunt	 condvar_vector_cursor__local                =  0;			// Rotates circularly around condvar_vector__local
 
 
@@ -458,7 +458,7 @@ Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its 
 //
 //
 static Barrier** barrier_vector__local                       =  NULL;				// This will be allocated in make_barrier_vector(), sized per next.
-static Vunt	 last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;			// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
+static Vunt	 last_valid_barrier_vector_slot_index__local =  (1 << 12) -1;			// Must be power of two minus one.  We start with large vector to reduce potential race condition problems involving stale ids.
 static Vunt	 barrier_vector_cursor__local                =  0;				// Rotates circularly around barrier_vector__local
 
 
@@ -1093,20 +1093,33 @@ char*  pth__barrier_init   (Task* task, Vunt barrier_id, int threads) {				// ht
     else	  return NULL;
 }
 //
-char*  pth__barrier_destroy   (Task* task, Vunt barrier_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
-    // ====================
+static char*  barrier_destroy   (Task* task, Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    //        ===============
     //
-    pthread_mutex_lock(   &pth__mutex  );
-	//
-	Barrier* barrier =  find_barrier_by_id__need_mutex( barrier_id );
-	//
-    pthread_mutex_unlock(  &pth__mutex  );
-
     int result = pthread_barrier_destroy( barrier );						// pthread_barrier_destroy probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)   return "pth__barrier_destroy: Unable to clear barrier.";
     else	  return NULL;
 }
+// static char*    barrier_destroy(Task* task, Barrier* barrier);
+    //
+    // Undo the effects of   pth__barrier_init ()   on the barrier.
+    // ("Destroy" is poor nomenclature; "reset" would be better.)
+    //
+    //  o Calling pth__barrier_destroy() immediately after a
+    //    pth__barrier_wait() call is safe and typical.
+    //    To ensure it is done exactly once, it is convenient
+    //    to call pth__barrier_destroy() iff pth__barrier_wait()
+    //    returns TRUE.
+    //
+    //  o Behavior is undefined if pth__barrier_destroy()
+    //    is called on an uninitialized barrier.
+    //    (In particular, behavior is undefined if
+    //    pth__barrier_destroy() is called twice in a
+    //    row on a barrier.)
+    //
+    //  o Behavior is undefined if pth__barrier_destroy()
+    //    is called when a pthread is blocked on the barrier.
 
 //
 char*  pth__barrier_free   (Task* task, Vunt barrier_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
@@ -1143,7 +1156,7 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 
     switch (err) {
 	//
-	case PTHREAD_BARRIER_SERIAL_THREAD:	*result = TRUE;		return NULL;								// Exactly one pthread gets this return value when released from barrier.
+	case PTHREAD_BARRIER_SERIAL_THREAD:	*result = TRUE;		return barrier_destroy(task, barrier );					// Exactly one pthread gets TRUE result when released from barrier.
 	case 0:					*result = FALSE;	return NULL;								// All other threads at barrier get this.
 	default:							return "pth__barrier_wait: Fatal error while blocked at barrier.";
     }
@@ -1190,10 +1203,7 @@ Pthread*  pth__get_pthread   ()   {
 void   release_mythryl_heap   (Pthread* pthread,  const char* fn_name,  Val* arg)   {
     // ====================
     //
-// if (running_script) log_if("release_mythryl_heap: acquiring pth__mutex...");
-    //
     pthread_mutex_lock(  &pth__mutex  );
-// if (running_script) log_if("release_mythryl_heap: acquired  pth__mutex...");
 	//
 	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
 	--pth__running_pthreads_count;
@@ -1207,12 +1217,9 @@ void   release_mythryl_heap   (Pthread* pthread,  const char* fn_name,  Val* arg
 	//										//		    Another use is in src/c/lib/socket/recvbuf.c
 	//										//		    Another use is in src/c/lib/socket/recvbuffrom.c	
 	//										//		    Another use is in src/c/lib/socket/sendbufto.c
-// if (running_script) log_if("release_mythryl_heap: broadcasting on  pth__condvar...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-// if (running_script) log_if("release_mythryl_heap: unlocking pth__mutex...");
     pthread_mutex_unlock(  &pth__mutex  );
-// if (running_script) log_if("release_mythryl_heap: unlocked pth__mutex -- done.");
 }
 
 
@@ -1224,29 +1231,21 @@ void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
     // ====================
     //
     //
-// if (running_script) log_if("recover_mythryl_heap: acquiring pth__mutex...");
     pthread_mutex_lock(   &pth__mutex  );
-// if (running_script) log_if("recover_mythryl_heap: acquired  pth__mutex...");
 	//
 	while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Don't re-enter RUNNING mode while a heapcleaning is in progress.
 	    //
-// if (running_script) log_if("recover_mythryl_heap: waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
 	    pthread_cond_wait( &pth__condvar, &pth__mutex );
-// if (running_script) log_if("recover_mythryl_heap: back from waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
 	}
-// if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
 	//
 	pthread->mode = PTHREAD_IS_RUNNING;						// Return us to the set of RUNNING pthreads.
 	++pth__running_pthreads_count;
 	//
 	pthread->task->protected_c_arg = &pthread->task->heapvoid;			// Make 'arg' no longer be a heapcleaner root.
 	//
-// if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-// if (running_script) log_if("recover_mythryl_heap: unlocking pth__mutex...");
     pthread_mutex_unlock(   &pth__mutex   );
-// if (running_script) log_if("recover_mythryl_heap: unlocked  pth__mutex -- done.");
 }
 
 

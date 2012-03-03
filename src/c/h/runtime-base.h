@@ -804,25 +804,6 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
     //      * pth__barrier_init() has not been called on it since the last
     //        pth__barrier_destroy() call on it.
 
-extern char*    pth__barrier_destroy(Task* task, Vunt barrier_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
-    //
-    // Undo the effects of   pth__barrier_init ()   on the barrier.
-    // ("Destroy" is poor nomenclature; "reset" would be better.)
-    //
-    //  o Calling pth__barrier_destroy() immediately after a
-    //    pth__barrier_wait() call is safe and typical.
-    //    To ensure it is done exactly once, it is convenient
-    //    to call pth__barrier_destroy() iff pth__barrier_wait()
-    //    returns TRUE.
-    //
-    //  o Behavior is undefined if pth__barrier_destroy()
-    //    is called on an uninitialized barrier.
-    //    (In particular, behavior is undefined if
-    //    pth__barrier_destroy() is called twice in a
-    //    row on a barrier.)
-    //
-    //  o Behavior is undefined if pth__barrier_destroy()
-    //    is called when a pthread is blocked on the barrier.
 
 
 
