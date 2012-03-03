@@ -254,8 +254,8 @@ Mutex*   find_mutex_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDIN
 }
 
 //
-Vunt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
-    //         ===============
+Vunt   pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
+    // ===============
     //
     pthread_mutex_lock( &pth__mutex );
     //
@@ -333,7 +333,7 @@ static char*   initialize_condvar   (Condvar* condvar) {				// http://pubs.openg
 }
 
 //
-static void   make_condvar_vector   (void) {			// Called by pth__start_up(), below.
+static void   make_condvar_vector   (void) {						// Called by pth__start_up(), below.
     //        ===================
     //
 											//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
@@ -354,7 +354,7 @@ static void   make_condvar_vector   (void) {			// Called by pth__start_up(), bel
 
 
 //
-static void   double_size_of_condvar_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
+static void   double_size_of_condvar_vector__need_mutex   (void)   {			// Caller MUST BE HOLDING pth__mutex.
     //        =========================================
     //
     Vunt  new_size_in_slots =   2 * (last_valid_condvar_vector_slot_index__local + 1);
@@ -481,7 +481,7 @@ static Vunt	 barrier_vector_cursor__local                =  0;				// Rotates cir
 // }
 
 //
-static void   make_barrier_vector   (void) {			// Called by pth__start_up(), below.
+static void   make_barrier_vector   (void) {						// Called by pth__start_up(), below.
     //        ===================
     //
 											//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
@@ -502,7 +502,7 @@ static void   make_barrier_vector   (void) {			// Called by pth__start_up(), bel
 
 
 //
-static void   double_size_of_barrier_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
+static void   double_size_of_barrier_vector__need_mutex   (void)   {			// Caller MUST BE HOLDING pth__mutex.
     //        =========================================
     //
     Vunt  new_size_in_slots =   2 * (last_valid_barrier_vector_slot_index__local + 1);
@@ -535,7 +535,7 @@ static Barrier*   make_barrier_record   (void) {
 }
 
 //
-Barrier*   find_barrier_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDING pth__mutex.
+Barrier*   find_barrier_by_id__need_mutex   (Vunt  id) {					// Caller MUST BE HOLDING pth__mutex.
     //     ==============================
     //
     while (id > last_valid_barrier_vector_slot_index__local) {
@@ -878,14 +878,14 @@ void   pth__shut_down (void) {
 										// NB: All the error returns in this file should interpret the error number;
 										// I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
 //
-// char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+// char*    pth__mutex_init   (Task* task, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
 //    //   ===============
 //    //
 //    return  initialize_mutex( mutex );
 // }
 
 //
-char*    pth__mutex_destroy   (Task* task, Val arg, Vunt mutex_id)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Task* task, Vunt mutex_id)   {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -910,7 +910,7 @@ char*    pth__mutex_destroy   (Task* task, Val arg, Vunt mutex_id)   {				// htt
 }
 
 //
-char*  pth__mutex_lock  (Task* task, Val arg, Vunt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Task* task, Vunt mutex_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     //
@@ -937,7 +937,7 @@ char*  pth__mutex_lock  (Task* task, Val arg, Vunt mutex_id) {					// http://pub
     }
 }
 //
-char*  pth__mutex_trylock   (Task* task, Val arg, Vunt mutex_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Task* task, Vunt mutex_id, Bool* result) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -957,7 +957,7 @@ char*  pth__mutex_trylock   (Task* task, Val arg, Vunt mutex_id, Bool* result) {
     }
 }
 //
-char*  pth__mutex_unlock   (Task* task, Val arg, Vunt mutex_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_unlock   (Task* task, Vunt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
     //
@@ -993,7 +993,7 @@ char*  pth__mutex_unlock   (Task* task, Val arg, Vunt mutex_id) {				// http://p
 //
 //     http://learning.infocollections.com/ebook%202/Computer/Operating%20Systems/Linux%20&%20UNIX/Unix.Systems.Programming.Second.Edition/0130424110_ch13lev1sec4.html
 //
-char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*    pth__condvar_init (Task* task, Condvar* condvar) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_init", NULL );
@@ -1006,14 +1006,14 @@ char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http:
     else	  return NULL;
 }
 //
-char*  pth__condvar_destroy (Task* task, Val arg, Vunt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*  pth__condvar_destroy (Task* task, Vunt condvar_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
     pthread_mutex_lock(   &pth__mutex  );
 	//
 	Condvar* condvar =  find_condvar_by_id__need_mutex( condvar_id );
 	//
-	int result =  pthread_cond_destroy( condvar );							// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers.
+	int result =  pthread_cond_destroy( condvar );						// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers.
 	//
 	free( condvar );
 	//
@@ -1025,7 +1025,7 @@ char*  pth__condvar_destroy (Task* task, Val arg, Vunt condvar_id) {				// http:
     else	  return NULL;
 }
 //
-char*  pth__condvar_wait   (Task* task, Val arg, Vunt condvar_id, Vunt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1045,7 +1045,7 @@ char*  pth__condvar_wait   (Task* task, Val arg, Vunt condvar_id, Vunt mutex_id)
     else	  return NULL;
 }
 //
-char*  pth__condvar_signal   (Task* task, Val arg, Vunt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_signal   (Task* task, Vunt condvar_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1054,13 +1054,13 @@ char*  pth__condvar_signal   (Task* task, Val arg, Vunt condvar_id) {				// http
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    int result = pthread_cond_signal( condvar );							// pthread_cond_signal probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+    int result = pthread_cond_signal( condvar );						// pthread_cond_signal probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)		return "pth__condvar_signal: Unable to signal on condition variable.";
     else		return NULL;
 }
 //
-char*  pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_broadcast   (Task* task, Vunt condvar_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1069,7 +1069,7 @@ char*  pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id) {			// ht
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    int result = pthread_cond_broadcast( condvar );							// pthread_cond_broadcast probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+    int result = pthread_cond_broadcast( condvar );						// pthread_cond_broadcast probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)	  return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
     else	  return NULL;
@@ -1078,7 +1078,7 @@ char*  pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id) {			// ht
 
 
 //
-char*  pth__barrier_init   (Task* task, Val arg, Vunt barrier_id, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_init   (Task* task, Vunt barrier_id, int threads) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1093,7 +1093,7 @@ char*  pth__barrier_init   (Task* task, Val arg, Vunt barrier_id, int threads) {
     else	  return NULL;
 }
 //
-char*  pth__barrier_destroy   (Task* task, Val arg, Vunt barrier_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_destroy   (Task* task, Vunt barrier_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1109,7 +1109,7 @@ char*  pth__barrier_destroy   (Task* task, Val arg, Vunt barrier_id) {				// htt
 }
 
 //
-char*  pth__barrier_free   (Task* task, Val arg, Vunt barrier_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_free   (Task* task, Vunt barrier_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1126,7 +1126,7 @@ char*  pth__barrier_free   (Task* task, Val arg, Vunt barrier_id) {				// http:/
 }
 
 //
-char*  pth__barrier_wait   (Task* task, Val arg, Vunt barrier_id, Bool* result) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );

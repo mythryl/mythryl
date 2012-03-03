@@ -680,10 +680,10 @@ extern Val*  pth__extra_heapcleaner_roots__global [];
 
 extern Vunt	pth__mutex_make    (void);
 //
-extern char*		pth__mutex_destroy	(Task* task, Val arg, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
-extern char*		pth__mutex_lock		(Task* task, Val arg, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-extern char*		pth__mutex_unlock	(Task* task, Val arg, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-extern char*		pth__mutex_trylock	(Task* task, Val arg, Vunt mutex_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+extern char*		pth__mutex_destroy	(Task* task, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+extern char*		pth__mutex_lock		(Task* task, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+extern char*		pth__mutex_unlock	(Task* task, Vunt mutex_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+extern char*		pth__mutex_trylock	(Task* task, Vunt mutex_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
 //														// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
 
 ////////////////////////////////////////////////////////////////////////////
@@ -698,7 +698,7 @@ extern char*		pth__mutex_trylock	(Task* task, Val arg, Vunt mutex_id, Bool* resu
 //
 extern Vunt	pth__condvar_make    (void);
 
-extern char*   pth__condvar_init		(Task* task, Val arg, Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+extern char*   pth__condvar_init		(Task* task, Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //
     // Prepare the condition variable for use.
     // This may allocate resources or such internally.
@@ -708,7 +708,7 @@ extern char*   pth__condvar_init		(Task* task, Val arg, Condvar* condvar);			// 
     //   is called on an already-initialized condition variable.
     //   (Call pth__condvar_destroy first.)
 
-extern char*   pth__condvar_destroy		(Task* task, Val arg, Vunt condvar_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+extern char*   pth__condvar_destroy		(Task* task, Vunt condvar_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //
     // Undo the effects of   pth__condvar_init ()   on the condition variable.
     // ("Destroy" is poor nomenclature; "reset" would be better.)
@@ -719,13 +719,13 @@ extern char*   pth__condvar_destroy		(Task* task, Val arg, Vunt condvar_id);		//
     //  o Behavior is undefined if pth__condvar_destroy()
     //    is called when a pthread is blocked on the condition variable.
 
-extern char*   pth__condvar_wait   (Task* task, Val arg, Vunt condvar_id, Vunt mutex_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+extern char*   pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     //
     // Atomically release mutex and block on the condition variable.
     // Upon return we will again hold the mutex.  (Return is triggered
     // by a call to   pth__condvar_signal or pth__condvar_broadcast.)
 
-extern char*   pth__condvar_signal   (Task* task, Val arg, Vunt condvar_id);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+extern char*   pth__condvar_signal   (Task* task, Vunt condvar_id);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     //
     // Unblock at least one pthread waiting on condvar,
     // except no effect if no pthreads are blocked on condvar,
@@ -736,7 +736,7 @@ extern char*   pth__condvar_signal   (Task* task, Val arg, Vunt condvar_id);				
     // If multiple pthreads are unblocked, they compete for the
     // associated mutex as though they had call called pth__mutex_lock().
 
-extern char*   pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+extern char*   pth__condvar_broadcast   (Task* task, Vunt condvar_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     //
     // Unblock all pthreads waiting on condvar, which might be none.
     //
@@ -766,9 +766,9 @@ extern char*   pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id);	
 //    while pthreads are blocked on the barrier.
 //
 extern Vunt	pth__barrier_make    (void);
-extern char*	pth__barrier_free    (Task* task, Val arg, Vunt barrier_id);
+extern char*	pth__barrier_free    (Task* task, Vunt barrier_id);
 
-extern char*    pth__barrier_init 	(Task* task, Val arg, Vunt barrier_id, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+extern char*    pth__barrier_init 	(Task* task, Vunt barrier_id, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
     // Tell the barrier how many threads must be
     // present at it before they can pass. This
@@ -784,7 +784,7 @@ extern char*    pth__barrier_init 	(Task* task, Val arg, Vunt barrier_id, int th
     //    (That is, if some pthread has not returned from
     //    pth__barrier_wait)
 
-extern char*    pth__barrier_wait (Task* task, Val arg, Vunt barrier_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     //
     // Block currently executing pthread until the proper
     // number of pthreads are waiting at the barrier.
@@ -804,7 +804,7 @@ extern char*    pth__barrier_wait (Task* task, Val arg, Vunt barrier_id, Bool* r
     //      * pth__barrier_init() has not been called on it since the last
     //        pth__barrier_destroy() call on it.
 
-extern char*    pth__barrier_destroy(Task* task, Val arg, Vunt barrier_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+extern char*    pth__barrier_destroy(Task* task, Vunt barrier_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
     // Undo the effects of   pth__barrier_init ()   on the barrier.
     // ("Destroy" is poor nomenclature; "reset" would be better.)
