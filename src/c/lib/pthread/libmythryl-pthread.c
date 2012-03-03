@@ -221,7 +221,7 @@ static Val   do_join_pthread   (Task* task,  Val pthread_to_join)   {		// Name i
 static Val do_mutex_make   (Task* task,  Val arg)   {
     //     =============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
+										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
     #if NEED_PTHREAD_SUPPORT
 
 	// We allocate the mutex on the C heap rather
@@ -242,7 +242,7 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
     //       =============
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
+										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -534,17 +534,20 @@ static Val   do_condvar_make   (Task* task,  Val arg)   {
 	// around in memory seems like a really, really
 	// bad idea:
 	//
+#ifdef OLD
 	struct condvar_struct*  condvar
 	    =
 	    (struct condvar_struct*)  MALLOC( sizeof(struct condvar_struct) );	if (!condvar) die("Unable to malloc condvar_struct"); 
 
-log_if("do_condvar_make: malloc()d condvar %x", condvar);
 	condvar->state = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
 
 	// We return the address of the condvar_struct
 	// to the Mythryl level encoded as a word value:
 	//
         return  make_one_word_unt(task,  (Val_Sized_Unt)condvar  );
+#else
+	return TAGGED_INT_FROM_C_INT( pth__condvar_make() );
+#endif
 
     #else
 	die ("do_condvar_make: unimplemented\n");
@@ -565,6 +568,7 @@ static Val   do_condvar_free   (Task* task,  Val arg)   {
 	// Per Mythryl convention, 'arg' will point to the second word,
 	// so all we have to do is cast it appropriately:
 	//
+#ifdef OLD
 	struct condvar_struct*  condvar
 	    =
 	    *((struct condvar_struct**) arg);
@@ -588,6 +592,13 @@ log_if("do_condvar_free: free()d condvar %x", condvar);
 		log_if("do_condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
 		die(   "do_condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
 	}
+#else
+	{   char* err =  pth__condvar_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+	    //
+	    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
+	    else		{ 						return HEAP_VOID;	  			}
+	}
+#endif
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
     #else
@@ -676,6 +687,7 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
 	Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 	Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
+#ifdef OLD
 	struct condvar_struct*  condvar =   *((struct condvar_struct**) condvar_arg);
 
 	switch (condvar->state) {
@@ -693,7 +705,13 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
 	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 	    else		{														 return HEAP_VOID;			}
 	}
-
+#else
+	{   char* err =  pth__condvar_wait( task, arg, TAGGED_INT_TO_C_INT( condvar_arg ), TAGGED_INT_TO_C_INT( mutex_arg ) );
+	    //
+	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+	    else		{														 return HEAP_VOID;			}
+	}
+#endif
 
     #else
 	die ("do_condvar_wait: unimplemented\n");
@@ -706,9 +724,9 @@ static Val   do_condvar_signal   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_signal");
 
-if (running_script) log_if("do_condvar_signal: TOP...");
     #if NEED_PTHREAD_SUPPORT
 
+#ifdef OLD
 	struct condvar_struct*  condvar
 	    =
 	    *((struct condvar_struct**) arg);
@@ -729,6 +747,13 @@ if (running_script) log_if("do_condvar_signal: TOP...");
 	    case         FREED_CONDVAR:	log_if("do_condvar_signal: Attempt to signal via freed condvar.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via freed condvar.", NULL);
 	    default:			log_if("do_condvar_signal: Attempt to signal via bogus value.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via bogus condvar value.", NULL);
 	}
+#else
+	{   char* err =  pth__condvar_signal( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+	    //
+	    if (err)	{ log_if("do_condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+	    else								return HEAP_VOID;
+	}
+#endif
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
     #else
@@ -742,21 +767,18 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_broadcast");
 
-if (running_script) log_if("do_condvar_broadcast: TOP...");
     #if NEED_PTHREAD_SUPPORT
 
+#ifdef OLD
 	struct condvar_struct*  condvar
 	    =
 	    *((struct condvar_struct**) arg);
 
-if (running_script) log_if("do_condvar_broadcast: AAA...");
 	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		{
-if (running_script) log_if("do_condvar_broadcast: BBB...");
 		    char* err =  pth__condvar_broadcast( task, arg, &condvar->condvar );
-if (running_script) log_if("do_condvar_broadcast: CCC...");
 		    //
 		    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
 		    else			{							return HEAP_VOID;			}
@@ -768,6 +790,13 @@ if (running_script) log_if("do_condvar_broadcast: CCC...");
 	    case         FREED_CONDVAR:		log_if("do_condvar_broadcast: Attempt to broadcast via freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via freed condvar.", NULL);
 	    default:				log_if("do_condvar_broadcast: Attempt to broadcast via bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via bogus condvar value.", NULL);
 	}
+#else
+	{   char* err =  pth__condvar_broadcast( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+	    //
+	    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+	    else			{							return HEAP_VOID;			}
+	}
+#endif
 
     #else
 	die ("do_condvar_broadcast: unimplemented\n");

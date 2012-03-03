@@ -255,6 +255,45 @@ Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST 
 }
 
 //
+Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
+    //         ===============
+    //
+    pthread_mutex_lock( &pth__mutex );
+    //
+    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+	//
+	// Search for an empty slot in mutex_vector__local[].
+	//
+	// We start where last search stopped, to avoid
+	// wasting time searching start of vector over and over:
+	//
+	for (Val_Sized_Unt u  =  0;
+			   u <=  last_valid_mutex_vector_slot_index__local;
+			   u ++
+	){
+	    mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
+				       & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
+
+	    if (mutex_vector__local[ mutex_vector_cursor__local ] == NULL) {
+		mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record ();		// Found an empty slot -- fill it and return its index.
+
+		Val_Sized_Unt result = mutex_vector_cursor__local;
+
+		pthread_mutex_unlock( &pth__mutex );
+
+		return result;
+	    }
+	}
+
+	// If we arrive here, there are no
+	// empty slots in mutex_vector__local[]
+	// so we double its size to create some:
+	//
+	double_size_of_mutex_vector__need_mutex ();
+    }	
+}
+
+//
 // Dynamically allocated mutexes                       END OF SECTION
 /////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////
@@ -362,6 +401,45 @@ Condvar*   find_condvar_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller M
     }
 
     return condvar_vector__local[ id ];
+}
+
+//
+Val_Sized_Unt  pth__condvar_make   (void) {							// Create a new condvar, return its slot number in condvar_vector__local[].
+    //         =================
+    //
+    pthread_mutex_lock( &pth__mutex );
+    //
+    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+	//
+	// Search for an empty slot in condvar_vector__local[].
+	//
+	// We start where last search stopped, to avoid
+	// wasting time searching start of vector over and over:
+	//
+	for (Val_Sized_Unt u  =  0;
+			   u <=  last_valid_condvar_vector_slot_index__local;
+			   u ++
+	){
+	    condvar_vector_cursor__local = (condvar_vector_cursor__local +1)				// Bump cursor.
+				         & last_valid_condvar_vector_slot_index__local;			// Wrap around at end of vector.
+
+	    if (condvar_vector__local[ condvar_vector_cursor__local ] == NULL) {
+		condvar_vector__local[ condvar_vector_cursor__local ] =  make_condvar_record ();	// Found an empty slot -- fill it and return its index.
+
+		Val_Sized_Unt result = condvar_vector_cursor__local;
+
+		pthread_mutex_unlock( &pth__mutex );
+
+		return result;
+	    }
+	}
+
+	// If we arrive here, there are no
+	// empty slots in condvar_vector__local[]
+	// so we double its size to create some:
+	//
+	double_size_of_condvar_vector__need_mutex ();
+    }	
 }
 
 //
@@ -483,44 +561,6 @@ Barrier*   find_barrier_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller M
 
 
 
-//
-Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
-    //         ===============
-    //
-    pthread_mutex_lock( &pth__mutex );
-    //
-    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
-	//
-	// Search for an empty slot in mutex_vector__local[].
-	//
-	// We start where last search stopped, to avoid
-	// wasting time searching start of vector over and over:
-	//
-	for (Val_Sized_Unt u  =  0;
-			   u <=  last_valid_mutex_vector_slot_index__local;
-			   u ++
-	){
-	    mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
-				       & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
-
-	    if (mutex_vector__local[ mutex_vector_cursor__local ] == NULL) {
-		mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record ();		// Found an empty slot -- fill it and return its index.
-
-		Val_Sized_Unt result = mutex_vector_cursor__local;
-
-		pthread_mutex_unlock( &pth__mutex );
-
-		return result;
-	    }
-	}
-
-	// If we arrive here, there are no
-	// empty slots in mutex_vector__local[]
-	// so we double its size to create some:
-	//
-	double_size_of_mutex_vector__need_mutex ();
-    }	
-}
 
 
 //
@@ -932,25 +972,32 @@ char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http:
     else	  return NULL;
 }
 //
-char*  pth__condvar_destroy (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*  pth__condvar_destroy (Task* task, Val arg, Val_Sized_Unt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int result =  pthread_cond_destroy( condvar );						// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Condvar* condvar =  find_condvar_by_id__need_mutex( condvar_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy" );
+	int result =  pthread_cond_destroy( condvar );							// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers.
+	//
+	free( condvar );
+	//
+	condvar_vector__local[ condvar_id ] = NULL;
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
 
     if (result)	  return "pth__condvar_destroy: Unable to destroy condition variable.";
     else	  return NULL;
 }
 //
-char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Val_Sized_Unt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Task* task, Val arg, Val_Sized_Unt condvar_id, Val_Sized_Unt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );
 	//
-	Mutex* mutex =  find_mutex_by_id__need_mutex( mutex_id );
+	Condvar* condvar =  find_condvar_by_id__need_mutex( condvar_id );
+	Mutex*   mutex   =  find_mutex_by_id__need_mutex(   mutex_id   );
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
@@ -964,35 +1011,37 @@ char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Val_Sized_Unt
     else	  return NULL;
 }
 //
-char*  pth__condvar_signal   (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_signal   (Task* task, Val arg, Val_Sized_Unt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
- if (running_script) log_if("pth__condvar_signal: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int result = pthread_cond_signal( condvar );						// pthread_cond_signal probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Condvar* condvar =  find_condvar_by_id__need_mutex( condvar_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal" );
+    pthread_mutex_unlock(  &pth__mutex  );
 
- if (running_script) log_if("pth__condvar_signal: BOTTOM.");
+    int result = pthread_cond_signal( condvar );							// pthread_cond_signal probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+
     if (result)		return "pth__condvar_signal: Unable to signal on condition variable.";
     else		return NULL;
 }
 //
-char*  pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_broadcast   (Task* task, Val arg, Val_Sized_Unt condvar_id) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
- if (running_script) log_if("pth__condvar_broadcast: TOP...");
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int result = pthread_cond_broadcast( condvar );						// pthread_cond_broadcast probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Condvar* condvar =  find_condvar_by_id__need_mutex( condvar_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast" );
+    pthread_mutex_unlock(  &pth__mutex  );
 
- if (running_script) log_if("pth__condvar_broadcast: BOTTOM.");
+    int result = pthread_cond_broadcast( condvar );							// pthread_cond_broadcast probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+
     if (result)	  return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
     else	  return NULL;
 }
+
+
 
 //
 char*  pth__barrier_init   (Task* task, Val arg, Barrier* barrier, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
