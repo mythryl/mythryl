@@ -908,6 +908,7 @@ char*    pth__mutex_destroy   (Task* task, Val arg, Vunt mutex_id)   {				// htt
 	default:			return "pth__mutex_destroy: Undocumented error return from pthread_mutex_destroy()";
     }
 }
+
 //
 char*  pth__mutex_lock  (Task* task, Val arg, Vunt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
@@ -1105,6 +1106,23 @@ char*  pth__barrier_destroy   (Task* task, Val arg, Vunt barrier_id) {				// htt
 
     if (result)   return "pth__barrier_destroy: Unable to clear barrier.";
     else	  return NULL;
+}
+
+//
+char*  pth__barrier_free   (Task* task, Val arg, Vunt barrier_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    // =================
+    //
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Barrier* barrier =  find_barrier_by_id__need_mutex( barrier_id );
+	//
+	free( barrier );
+	//
+	barrier_vector__local[ barrier_id ] = NULL;
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
+
+    return NULL;
 }
 
 //

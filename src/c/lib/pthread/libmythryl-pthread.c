@@ -225,26 +225,13 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_make");
-    // We allocate the barrier_struct on the C
-    // heap rather than the Mythryl heap because
+    // We allocate the barrier on the C heap
+    // rather than the Mythryl heap because
     // having the garbage collector moving condvars
     // around in memory seems like a really, really
     // bad idea:
     //
-#ifdef OLD
-    struct barrier_struct*  barrier
-	=
-	(struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
-
-    barrier->state = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
-
-    // We return the address of the barrier_struct
-    // to the Mythryl level encoded as a word value:
-    //
-    return  make_one_word_unt(task, (Vunt)barrier );
-#else
     return TAGGED_INT_FROM_C_INT( pth__barrier_make() );
-#endif
 }
 
 static Val   do_barrier_free   (Task* task,  Val arg)   {
@@ -252,35 +239,11 @@ static Val   do_barrier_free   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_free");
     // 'arg' should be something returned by do_barrier_make():
-#ifdef OLD
-    struct barrier_struct*  barrier
-	=
-	*((struct barrier_struct**) arg);
+    //
+    char* err =  pth__barrier_free( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
 
-    switch (barrier->state) {
-	//
-	case UNINITIALIZED_BARRIER:
-	case   INITIALIZED_BARRIER:
-	case       CLEARED_BARRIER:
-	    //
-	    barrier->state = FREED_BARRIER;
-	    free( barrier );
-	    break;
-
-	case         FREED_BARRIER:
-	    log_if("Attempt to free already-freed barrier instance.");
-	    die(   "Attempt to free already-freed barrier instance.");
-
-	default:
-	    log_if("do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
-	    die(   "do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
-    }
-#else
-    {    char* err =  pth__barrier_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	//
-	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-    }
-#endif
 
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
@@ -293,34 +256,11 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
     Vunt barrier_id =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int  threads    =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-#ifdef OLD
-    struct barrier_struct*  barrier
-	=
-	*((struct barrier_struct**) barrier_arg);
-
-    switch (barrier->state) {
-	//
-	case UNINITIALIZED_BARRIER:
-	case       CLEARED_BARRIER:
-	    //
-	    {   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
-		//
-		if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
-		else		{ barrier->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
-	    }
-	    break;
-
-	case   INITIALIZED_BARRIER:	log_if("do_barrier_init:  Attempt to set already-set barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init already-set barrier.", NULL);
-	case         FREED_BARRIER:	log_if("do_barrier_init:  Attempt to set freed barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init freed barrier.", NULL);
-	default:			log_if("do_barrier_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init bogus varrier value. (Already-freed barrier? Junk?)", NULL);
-    }
-#else
     char* err =   pth__barrier_init( task, arg, barrier_id, threads );
     //
     if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
     else		{ 						return HEAP_VOID;			}
 
-#endif
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
@@ -328,33 +268,11 @@ static Val   do_barrier_destroy   (Task* task,  Val arg)   {
     //       ==================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_destroy");
-#ifdef OLD
-    struct barrier_struct*  barrier
-	=
-	*((struct barrier_struct**) arg);
-
-    switch (barrier->state) {
-	//
-	case   INITIALIZED_BARRIER:
-	    {
-		char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
-		//
-		if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		else	{ barrier->state = CLEARED_BARRIER;			return HEAP_VOID;			}
-	    }
-	    break;
-
-	case UNINITIALIZED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear uninitialized barrier");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy uninitialized barrier.", NULL);
-	case       CLEARED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-cleared barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-cleared barrier.", NULL);
-	case         FREED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-freed barrier.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-freed barrier.", NULL);
-	default:			log_if("do_barrier_destroy:  Attempt to clear bogus value.");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy bogus barrier value. (Already-freed barrier? Junk?)", NULL);
-    }
-#else
     char* err =   pth__barrier_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
     //
     if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
     else	{ 							return HEAP_VOID;			}
-#endif
+
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
@@ -362,36 +280,13 @@ static Val   do_barrier_wait   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_wait");
-#ifdef OLD
-    struct barrier_struct*  barrier
-	=
-	*((struct barrier_struct**) arg);
-
-    switch (barrier->state) {
-	//
-	case   INITIALIZED_BARRIER:
-	    {   Bool result;
-		char* err =   pth__barrier_wait( task, arg, &barrier->barrier, &result );
-		//
-		if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		if (result)							return HEAP_TRUE;
-		else							return HEAP_FALSE;
-	    }
-	    break;
-
-	case UNINITIALIZED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on uninitialized barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized barrier.", NULL);
-	case       CLEARED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on cleared barrier."); 	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on cleared barrier.", NULL);
-	case         FREED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on freed barrier.", NULL);
-	default:			log_if("do_barrier_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on bogus barrier value. (Already-freed barrier?)", NULL);
-    }
-#else
     Bool result;
     char* err =   pth__barrier_wait( task, arg, TAGGED_INT_TO_C_INT( arg ), &result );
     //
     if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
     if (result)							return HEAP_TRUE;
     else							return HEAP_FALSE;
-#endif
+
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 

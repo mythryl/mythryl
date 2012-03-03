@@ -766,6 +766,7 @@ extern char*   pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id);	
 //    while pthreads are blocked on the barrier.
 //
 extern Vunt	pth__barrier_make    (void);
+extern char*	pth__barrier_free    (Task* task, Val arg, Vunt barrier_id);
 
 extern char*    pth__barrier_init 	(Task* task, Val arg, Vunt barrier_id, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
