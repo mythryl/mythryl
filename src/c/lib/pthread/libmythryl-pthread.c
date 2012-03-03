@@ -435,12 +435,7 @@ static Val   do_condvar_free   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_free");
-    // 'arg' should be something returned by do_barrier_make() above,
-    // so it should be a Mythryl boxed word -- a two-word heap record
-    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-    // followed by the C address of our   struct barrier_struct.
-    // Per Mythryl convention, 'arg' will point to the second word,
-    // so all we have to do is cast it appropriately:
+    // 'arg' should be something returned by do_condvar_make():
     //
     {   char* err =  pth__condvar_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	//
@@ -457,7 +452,11 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
     Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
-    char* err =  pth__condvar_wait( task, arg, TAGGED_INT_TO_C_INT( condvar_arg ), TAGGED_INT_TO_C_INT( mutex_arg ) );
+    char* err =  pth__condvar_wait( task,
+                                    arg,
+                                    TAGGED_INT_TO_C_INT( condvar_arg ),
+                                    TAGGED_INT_TO_C_INT(   mutex_arg )
+                                  );
     //
     if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
     else		{														 return HEAP_VOID;			}

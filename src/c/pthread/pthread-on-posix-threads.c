@@ -161,9 +161,9 @@
 //     the vector looking for NULL slots.
 //
 //
-static Mutex**		mutex_vector__local                       =  NULL;		// This will be allocated in make_mutex_vector(), sized per next.
-static Vunt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
-static Vunt	mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
+static Mutex**	mutex_vector__local                       =  NULL;			// This will be allocated in make_mutex_vector(), sized per next.
+static Vunt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
+static Vunt	mutex_vector_cursor__local                =  0;				// Rotates circularly around mutex_vector__local
 
 
 //
@@ -195,11 +195,10 @@ static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below
 	=
 	(Mutex**) malloc(   (last_valid_mutex_vector_slot_index__local +1) * sizeof (Mutex*)   );
 
-    for (Vunt u = 0;
-                       u <= last_valid_mutex_vector_slot_index__local;
-                       u ++
+    for (Vunt	u  =  0;
+		u <=  last_valid_mutex_vector_slot_index__local;
+		u ++
     ){
-	//
 	mutex_vector__local[ u ] =  NULL;
     }
 }
@@ -215,9 +214,9 @@ static void   double_size_of_mutex_vector__need_mutex   (void)   {	// Caller MUS
 	=
 	(Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
 											if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
-    for (Vunt u =  last_valid_mutex_vector_slot_index__local + 1;
-	               u <  new_size_in_slots;
-	               u ++
+    for (Vunt	u =  last_valid_mutex_vector_slot_index__local + 1;
+		u <  new_size_in_slots;
+		u ++
     ){
 	mutex_vector__local[ u ] =  NULL;
     }
@@ -310,9 +309,9 @@ Vunt  pth__mutex_make   (void) {								// Create a new mutex, return its slot n
 // This is just a clone of the above dynamically-allocated mutex section.
 //
 //
-static Condvar**	condvar_vector__local                       =  NULL;		// This will be allocated in make_condvar_vector(), sized per next.
-static Vunt	last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
-static Vunt	condvar_vector_cursor__local                =  0;		// Rotates circularly around condvar_vector__local
+static Condvar** condvar_vector__local                       =  NULL;			// This will be allocated in make_condvar_vector(), sized per next.
+static Vunt	 last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;		// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
+static Vunt	 condvar_vector_cursor__local                =  0;			// Rotates circularly around condvar_vector__local
 
 
 //
@@ -344,9 +343,9 @@ static void   make_condvar_vector   (void) {			// Called by pth__start_up(), bel
 	=
 	(Condvar**) malloc(   (last_valid_condvar_vector_slot_index__local +1) * sizeof (Condvar*)   );
 
-    for (Vunt u = 0;
-                       u <= last_valid_condvar_vector_slot_index__local;
-                       u ++
+    for (Vunt	u = 0;
+		u <= last_valid_condvar_vector_slot_index__local;
+		u ++
     ){
 	//
 	condvar_vector__local[ u ] =  NULL;
@@ -364,9 +363,9 @@ static void   double_size_of_condvar_vector__need_mutex   (void)   {	// Caller M
 	=
 	(Condvar**) realloc( condvar_vector__local, new_size_in_slots * sizeof(Condvar*) );
 											if (!condvar_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand condvar_vector__local to %d slots", new_size_in_slots );
-    for (Vunt u =  last_valid_condvar_vector_slot_index__local + 1;
-	               u <  new_size_in_slots;
-	               u ++
+    for (Vunt	u =  last_valid_condvar_vector_slot_index__local + 1;
+		u <  new_size_in_slots;
+		u ++
     ){
 	condvar_vector__local[ u ] =  NULL;
     }
@@ -397,36 +396,35 @@ Condvar*   find_condvar_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HO
     }
 
     if (condvar_vector__local[ id ] == NULL) {
-	condvar_vector__local[ id ] =  make_condvar_record ();					// We do this so that stale condvar ids due to heap save/load sequences will work.
+	condvar_vector__local[ id ] =  make_condvar_record ();						// We do this so that stale condvar ids due to heap save/load sequences will work.
     }
 
     return condvar_vector__local[ id ];
 }
 
 //
-Vunt  pth__condvar_make   (void) {							// Create a new condvar, return its slot number in condvar_vector__local[].
-    //         =================
+Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its slot number in condvar_vector__local[].
+    // =================
     //
     pthread_mutex_lock( &pth__mutex );
     //
-    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+    for (;;) {												// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
 	//
 	// Search for an empty slot in condvar_vector__local[].
 	//
 	// We start where last search stopped, to avoid
 	// wasting time searching start of vector over and over:
 	//
-	for (Vunt u  =  0;
-			   u <=  last_valid_condvar_vector_slot_index__local;
-			   u ++
+	for (Vunt   u  =  0;
+		    u <=  last_valid_condvar_vector_slot_index__local;
+		    u ++
 	){
-	    condvar_vector_cursor__local = (condvar_vector_cursor__local +1)				// Bump cursor.
-				         & last_valid_condvar_vector_slot_index__local;			// Wrap around at end of vector.
+	    condvar_vector_cursor__local =  (condvar_vector_cursor__local +1)				// Bump cursor.
+				         &  last_valid_condvar_vector_slot_index__local;		// Wrap around at end of vector.
 
 	    if (condvar_vector__local[ condvar_vector_cursor__local ] == NULL) {
 		condvar_vector__local[ condvar_vector_cursor__local ] =  make_condvar_record ();	// Found an empty slot -- fill it and return its index.
-
-		Vunt result = condvar_vector_cursor__local;
+		Vunt result =          condvar_vector_cursor__local;
 
 		pthread_mutex_unlock( &pth__mutex );
 
