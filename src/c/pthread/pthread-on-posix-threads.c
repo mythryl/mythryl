@@ -107,7 +107,9 @@
 
 
 /////////////////////////////////////////////////////////////////////////
-// Dynamically allocated mutexes
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+// Dynamically allocated mutexes                     START OF SECTION
 //
 // Major design considerations and
 // constraints here include:
@@ -159,7 +161,7 @@
 //     the vector looking for NULL slots.
 //
 //
-static Mutex**		mutex_vector__local                       =  NULL;		// This will be allocated in allocate_and_initialize_mutex_vector__local(), sized per next.
+static Mutex**		mutex_vector__local                       =  NULL;		// This will be allocated in make_mutex_vector(), sized per next.
 static Val_Sized_Unt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
 static Val_Sized_Unt	mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
 
@@ -168,7 +170,7 @@ static Val_Sized_Unt	mutex_vector_cursor__local                =  0;			// Rotate
 static char*   initialize_mutex   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //         ================
     //
-    int err =  pthread_mutex_init( mutex, NULL );					// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+    int err =  pthread_mutex_init( mutex, NULL );					// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers.
 
     switch (err) {
 	//
@@ -235,6 +237,7 @@ static Mutex*   make_mutex_record   (void) {
 
     return mutex;
 }
+
 //
 Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
     //   ============================
@@ -250,6 +253,125 @@ Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST 
 
     return mutex_vector__local[ id ];
 }
+
+//
+// Dynamically allocated mutexes                       END OF SECTION
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+// Dynamically allocated condvars                     START OF SECTION
+//
+// This is just a clone of the above dynamically-allocated mutex section.
+//
+//
+static Condvar**	condvar_vector__local                       =  NULL;		// This will be allocated in make_condvar_vector(), sized per next.
+static Val_Sized_Unt	last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
+static Val_Sized_Unt	condvar_vector_cursor__local                =  0;		// Rotates circularly around condvar_vector__local
+
+
+//
+static char*   initialize_condvar   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    //         ==================
+    //
+    int err =  pthread_cond_init( condvar, NULL );					// pthread_cond_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+
+    switch (err) {
+	//
+	case 0:				return NULL;					// Success.
+	case ENOMEM:			return "Insufficient ram to initialize condvar";
+	case EAGAIN:			return "Insufficient (non-ram) resources to initialize condvar";
+	case EPERM:			return "Caller lacks privilege to initialize condvar";
+	case EBUSY:			return "Attempt to reinitialize the object referenced by condvar, a previously initialized, but not yet destroyed, condvar.";
+	case EINVAL:			return "Invalid attribute";
+	default:			return "Undocumented error return from pthread_condvar_init()";
+    }
+}
+
+//
+static void   make_condvar_vector   (void) {			// Called by pth__start_up(), below.
+    //        ===================
+    //
+											//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
+											//
+											//	-- http://linux.derkeiler.com/Newsgroups/comp.os.linux.development.apps/2005-07/0323.html
+    condvar_vector__local
+	=
+	(Condvar**) malloc(   (last_valid_condvar_vector_slot_index__local +1) * sizeof (Condvar*)   );
+
+    for (Val_Sized_Unt u = 0;
+                       u <= last_valid_condvar_vector_slot_index__local;
+                       u ++
+    ){
+	//
+	condvar_vector__local[ u ] =  NULL;
+    }
+}
+
+
+//
+static void   double_size_of_condvar_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
+    //        =========================================
+    //
+    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_condvar_vector_slot_index__local + 1);
+    //
+    condvar_vector__local
+	=
+	(Condvar**) realloc( condvar_vector__local, new_size_in_slots * sizeof(Condvar*) );
+											if (!condvar_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand condvar_vector__local to %d slots", new_size_in_slots );
+    for (Val_Sized_Unt u =  last_valid_condvar_vector_slot_index__local + 1;
+	               u <  new_size_in_slots;
+	               u ++
+    ){
+	condvar_vector__local[ u ] =  NULL;
+    }
+
+    last_valid_condvar_vector_slot_index__local
+	=
+	new_size_in_slots - 1;
+}
+
+//
+static Condvar*   make_condvar_record   (void) {
+    //            ===================
+    //
+    Condvar* condvar =   (Condvar*)  malloc( sizeof( Condvar ) );	if (!condvar)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_condvar_record: Unable to allocate condvar record");
+
+    char* err =  initialize_condvar( condvar );				if (err)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_condvar_record: %s", err);
+
+    return condvar;
+}
+
+//
+Condvar*   find_condvar_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+    //     ==============================
+    //
+    while (id > last_valid_condvar_vector_slot_index__local) {
+	//
+	double_size_of_condvar_vector__need_mutex ();
+    }
+
+    if (condvar_vector__local[ id ] == NULL) {
+	condvar_vector__local[ id ] =  make_condvar_record ();					// We do this so that stale condvar ids due to heap save/load sequences will work.
+    }
+
+    return condvar_vector__local[ id ];
+}
+
+//
+// Dynamically allocated condvars                       END OF SECTION
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+
+
 
 //
 Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
