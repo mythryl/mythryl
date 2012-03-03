@@ -533,7 +533,7 @@ static Barrierx*  make_barrier_record   (void) {
     //
     Barrierx* barrier =   (Barrierx*)  malloc( sizeof( Barrierx ) );	if (!barrier)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_barrier_record: Unable to allocate barrier record");
 
-//  char* err =  initialize_barrier( barrier );				if (err)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_barrier_record: %s", err);
+    barrier->initialized = FALSE;
 
     return barrier;
 }
@@ -1094,7 +1094,10 @@ char*  pth__barrier_init   (Task* task, Vunt barrier_id, int threads) {				// ht
     int result = pthread_barrier_init( &barrier->barrier, NULL, (unsigned) threads);		// pthread_barrier_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)	  return "pth__barrier_init: Unable to set barrier.";
-    else	  return NULL;
+
+    barrier->initialized = TRUE;
+
+    return NULL;
 }
 //
 static char*  barrier_destroy   (Task* task, Barrierx* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
@@ -1103,8 +1106,12 @@ static char*  barrier_destroy   (Task* task, Barrierx* barrier) {				// http://p
     int result = pthread_barrier_destroy( &barrier->barrier );					// pthread_barrier_destroy probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)   return "pth__barrier_destroy: Unable to clear barrier.";
-    else	  return NULL;
+
+    barrier->initialized = FALSE;
+
+    return NULL;
 }
+
 // static char*    barrier_destroy(Task* task, Barrierx* barrier);
     //
     // Undo the effects of   pth__barrier_init ()   on the barrier.
@@ -1146,6 +1153,9 @@ char*  pth__barrier_free   (Task* task, Vunt barrier_id) {					// http://pubs.op
 char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
+
+    *result = FALSE;										// Make sure a well-defined value is always returned.
+
     pthread_mutex_lock(   &pth__mutex  );
 	//
 	Barrierx* barrier =  find_barrier_by_id__need_mutex( barrier_id );
@@ -1161,7 +1171,7 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
     switch (err) {
 	//
 	case PTHREAD_BARRIER_SERIAL_THREAD:	*result = TRUE;		return barrier_destroy(task, barrier );					// Exactly one pthread gets TRUE result when released from barrier.
-	case 0:					*result = FALSE;	return NULL;								// All other threads at barrier get this.
+	case 0:								return NULL;								// All other threads at barrier get this.
 	default:							return "pth__barrier_wait: Fatal error while blocked at barrier.";
     }
 }
