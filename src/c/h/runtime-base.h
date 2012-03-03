@@ -141,8 +141,9 @@ typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 #include <pthread.h>						// Posix threads:			https://computing.llnl.gov/tutorials/pthreads/
 
 typedef pthread_mutex_t			Mutex;			// A mutual-exclusion lock:		https://computing.llnl.gov/tutorials/pthreads/#Mutexes
-typedef pthread_barrier_t		Barrier;		// A barrier.
 typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
+typedef pthread_barrier_t		Barrier;		// A barrier.
+
 typedef pthread_t 			Tid;			// A pthread id.
     //
     // NB; Tid MUST be pthread_t from <pthread.h> because in
