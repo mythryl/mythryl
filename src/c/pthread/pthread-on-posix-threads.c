@@ -290,7 +290,7 @@ static char*   initialize_condvar   (Condvar* condvar) {				// http://pubs.openg
 	case EPERM:			return "Caller lacks privilege to initialize condvar";
 	case EBUSY:			return "Attempt to reinitialize the object referenced by condvar, a previously initialized, but not yet destroyed, condvar.";
 	case EINVAL:			return "Invalid attribute";
-	default:			return "Undocumented error return from pthread_condvar_init()";
+	default:			return "Undocumented error return from pthread_cond_init()";
     }
 }
 
@@ -366,6 +366,116 @@ Condvar*   find_condvar_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller M
 
 //
 // Dynamically allocated condvars                       END OF SECTION
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+// Dynamically allocated barriers                     START OF SECTION
+//
+// This is just a clone of the above dynamically-allocated mutex section.
+//
+//
+static Barrier**	barrier_vector__local                       =  NULL;		// This will be allocated in make_barrier_vector(), sized per next.
+static Val_Sized_Unt	last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
+static Val_Sized_Unt	barrier_vector_cursor__local                =  0;		// Rotates circularly around barrier_vector__local
+
+
+//
+static char*   initialize_barrier   (Barrier* barrier, int threads) {
+    //         ==================
+    //
+    int err =  pthread_barrier_init( barrier, NULL, (unsigned) threads );					// pthread_barrier_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+
+    switch (err) {
+	//
+	case 0:				return NULL;					// Success.
+	case ENOMEM:			return "Insufficient ram to initialize barrier";
+	case EAGAIN:			return "Insufficient (non-ram) resources to initialize barrier";
+	case EPERM:			return "Caller lacks privilege to initialize barrier";
+	case EBUSY:			return "Attempt to reinitialize the object referenced by barrier, a previously initialized, but not yet destroyed, barrier.";
+	case EINVAL:			return "Invalid attribute";
+	default:			return "Undocumented error return from pthread_barrier_init()";
+    }
+}
+
+//
+static void   make_barrier_vector   (void) {			// Called by pth__start_up(), below.
+    //        ===================
+    //
+											//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
+											//
+											//	-- http://linux.derkeiler.com/Newsgroups/comp.os.linux.development.apps/2005-07/0323.html
+    barrier_vector__local
+	=
+	(Barrier**) malloc(   (last_valid_barrier_vector_slot_index__local +1) * sizeof (Barrier*)   );
+
+    for (Val_Sized_Unt u = 0;
+                       u <= last_valid_barrier_vector_slot_index__local;
+                       u ++
+    ){
+	//
+	barrier_vector__local[ u ] =  NULL;
+    }
+}
+
+
+//
+static void   double_size_of_barrier_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
+    //        =========================================
+    //
+    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_barrier_vector_slot_index__local + 1);
+    //
+    barrier_vector__local
+	=
+	(Barrier**) realloc( barrier_vector__local, new_size_in_slots * sizeof(Barrier*) );
+											if (!barrier_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand barrier_vector__local to %d slots", new_size_in_slots );
+    for (Val_Sized_Unt u =  last_valid_barrier_vector_slot_index__local + 1;
+	               u <  new_size_in_slots;
+	               u ++
+    ){
+	barrier_vector__local[ u ] =  NULL;
+    }
+
+    last_valid_barrier_vector_slot_index__local
+	=
+	new_size_in_slots - 1;
+}
+
+//
+static Barrier*   make_barrier_record   (void) {
+    //            ===================
+    //
+    Barrier* barrier =   (Barrier*)  malloc( sizeof( Barrier ) );	if (!barrier)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_barrier_record: Unable to allocate barrier record");
+
+//  char* err =  initialize_barrier( barrier );				if (err)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_barrier_record: %s", err);
+
+    return barrier;
+}
+
+//
+Barrier*   find_barrier_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+    //     ==============================
+    //
+    while (id > last_valid_barrier_vector_slot_index__local) {
+	//
+	double_size_of_barrier_vector__need_mutex ();
+    }
+
+    if (barrier_vector__local[ id ] == NULL) {
+	barrier_vector__local[ id ] =  make_barrier_record ();					// We do this so that stale barrier ids due to heap save/load sequences will work.
+    }
+
+    return barrier_vector__local[ id ];
+}
+
+//
+// Dynamically allocated barriers                       END OF SECTION
 /////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////
@@ -676,6 +786,8 @@ void   pth__start_up   (void)   {
     ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );						// Make sure this refcell has a defined value, even though we don't want or use it.
 
     make_mutex_vector();
+    make_condvar_vector();
+    make_barrier_vector();
 }
 //
 void   pth__shut_down (void) {
