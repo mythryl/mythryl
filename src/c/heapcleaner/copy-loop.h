@@ -12,8 +12,8 @@
 #define COPY_LOOP_H
 
 #define COPYLOOP(SRC,DST,LEN)	{				\
-	Val_Sized_Unt	*__src = (Val_Sized_Unt *)(SRC);	\
-	Val_Sized_Unt	*__dst = (Val_Sized_Unt *)(DST);	\
+	Vunt	*__src = (Vunt *)(SRC);	\
+	Vunt	*__dst = (Vunt *)(DST);	\
 	int	__len = (LEN);					\
 	int	__m;						\
 	switch (__len & 0x3) {					\

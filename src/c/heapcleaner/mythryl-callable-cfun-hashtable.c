@@ -143,7 +143,7 @@ struct heapfile_cfun_table {						// We do   'typedef struct heapfile_cfun_table
 // the hashword down to size of bucket-vector.
 //
 #define COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH(h, bucketvector_size_in_slots)	((h)                       & ((bucketvector_size_in_slots)-1))
-#define COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS(  a, bucketvector_size_in_slots)	(((Val_Sized_Unt)(a) >> 3) & ((bucketvector_size_in_slots)-1))		// '>> 3' to drop uninteresting lower bits.
+#define COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS(  a, bucketvector_size_in_slots)	(((Vunt)(a) >> 3) & ((bucketvector_size_in_slots)-1))		// '>> 3' to drop uninteresting lower bits.
 
 // The following five variables hold the
 // state of our anonymous hashtable.  Client
@@ -188,7 +188,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 
     Hashtable_Entry*	item;
 
-    ASSERT ((((Val_Sized_Unt)addr & ~POINTER_ATAG) & TAGWORD_ATAG) == 0);
+    ASSERT ((((Vunt)addr & ~POINTER_ATAG) & TAGWORD_ATAG) == 0);
 
     // To keep lookup fast, we store only as many
     // items in the hashtable as there are buckets.

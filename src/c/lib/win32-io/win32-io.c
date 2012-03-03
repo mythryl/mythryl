@@ -25,13 +25,13 @@
  */
 Val _lib7_win32_IO_get_std_handle(Task *task, Val arg)
 {
-  Val_Sized_Unt w = WORD_LIB7toC(arg);
+  Vunt w = WORD_LIB7toC(arg);
   HANDLE h = GetStdHandle(w);
 
 #ifdef WIN32_DEBUG
   debug_say("getting std handle for %x as %x\n", w, (unsigned int) h);
 #endif
-  return  make_one_word_unt(task, (Val_Sized_Unt) h );
+  return  make_one_word_unt(task, (Vunt) h );
 }
 
 /* _lib7_win32_IO_close: one_word_unt -> Void
@@ -61,7 +61,7 @@ Val _lib7_win32_IO_set_file_pointer(Task *task, Val arg)
   HANDLE h = (HANDLE) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,0));
   LONG dist = (LONG) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,1));
   DWORD how = (DWORD) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,2));
-  Val_Sized_Unt w;
+  Vunt w;
 
   w = SetFilePointer(h,dist,NULL,how);
   return make_one_word_unt(task,  w  );
@@ -338,7 +338,7 @@ Val _lib7_win32_IO_create_file(Task *task, Val arg)
   if (h == INVALID_HANDLE_VALUE)
     debug_say("_lib7_win32_IO_create_file: failing\n");
 #endif
-  return  make_one_word_unt(task,  (Val_Sized_Unt) h  );
+  return  make_one_word_unt(task,  (Vunt) h  );
 }
 
 /* _lib7_win32_IO_write_buf : (one_word_unt*word8vector.Vector*int*int) -> int

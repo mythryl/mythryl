@@ -13,7 +13,7 @@
 #  define SEEK_SET	0
 #endif
 
-static void Put (Writer* wr, Val_Sized_Unt w);
+static void Put (Writer* wr, Vunt w);
 static void Write (Writer* wr, const void *data, Punt nbytes);
 static void Flush (Writer* wr);
 static long Tell (Writer* wr);
@@ -46,7 +46,7 @@ Writer*   WR_OpenFile   (FILE* f)   {
 
 
 
-static void   Put   (Writer* wr,  Val_Sized_Unt w)   {
+static void   Put   (Writer* wr,  Vunt w)   {
     //
     FILE* f =  FileOf( wr );
 

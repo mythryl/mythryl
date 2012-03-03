@@ -26,7 +26,7 @@ typedef struct {
 extern Punt  grabPC ();
 extern Punt  grabPCend ();
 
-Val_Sized_Unt*	last_entry;		// Points to the beginning of the last c-entry
+Vunt*	last_entry;		// Points to the beginning of the last c-entry
 					// executed set by grabPC in c-entry.asm 
 
 static Code_Header*   last_code_header_used__local   = NULL;  // Last code header used.
@@ -86,7 +86,7 @@ static Val   save_state   (
     // Compute space for save record:
     //
     int      n = 0;
-    {   Val_Sized_Unt mask = task -> lib7_liveRegMask;       // Should also be mask from REQUEST_CALL_CFUN
+    {   Vunt mask = task -> lib7_liveRegMask;       // Should also be mask from REQUEST_CALL_CFUN
 	for (int i = 0;  mask != 0;  i++, mask >>= 1) {
 	    if ((mask & 1))	  ++n;
 	}
@@ -135,7 +135,7 @@ static Val   save_state   (
 #ifdef BASE_INDEX
     set_slot_in_nascent_heapchunk( task, index++,               task -> lib7_baseReg                );
 #endif
-    {   Val_Sized_Unt mask = task -> lib7_liveRegMask;
+    {   Vunt mask = task -> lib7_liveRegMask;
 	int  i;
 	for (i = 0;  mask != 0;  i++, mask >>= 1) {
 	    if ((mask & 1)) {
@@ -181,7 +181,7 @@ static void   restore_state   (
 	task -> lib7_baseReg                = GET_TUPLE_SLOT_AS_VAL(    state, index++ );
     #endif
 
-    Val_Sized_Unt mask =  task->lib7_liveRegMask;
+    Vunt mask =  task->lib7_liveRegMask;
 
     for (int i = 0;    mask;    i++, mask >>= 1) {
 	//
@@ -242,17 +242,17 @@ static void   restore_task   (Task* task)   {
     #endif
 }
 
-static   Val_Sized_Unt   convert_result_to_c   (Task* task,  Code_Header* chp,  Val val)   {
+static   Vunt   convert_result_to_c   (Task* task,  Code_Header* chp,  Val val)   {
     //                   ===================
     //
-    Val_Sized_Unt  p;
-    Val_Sized_Unt* q = &p;
+    Vunt  p;
+    Vunt* q = &p;
 
     char* t = chp->rettype;
     int err;
 
     // frontend of interface guarantees that ret is a valid 
-    // return value for a C function: Val_Sized_Unt or some pointer
+    // return value for a C function: Vunt or some pointer
     //
     err = convert_mythryl_value_to_c(task,&t,&q,val);							// convert_mythryl_value_to_c		def in    c/lib/ccalls/ccalls.c
     //
@@ -302,7 +302,7 @@ int   no_args_entry   (void)   {
 
 
 
-int   some_args_entry   (Val_Sized_Unt first, ... )   {
+int   some_args_entry   (Vunt first, ... )   {
     //===============
     //
     va_list  ap;
@@ -310,7 +310,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
     Val   lp   = LIST_NIL;
     Val   result;
 
-    Val_Sized_Unt        next;
+    Vunt        next;
     int           i;
     Val   args   [N_ARGS];
 
@@ -326,7 +326,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
     lp = LIST_CONS(visible_task__local, result, lp);
     va_start(ap,first);
     for (i = 1; i < last_code_header_used__local->nargs; i++) {
-	next = va_arg(ap,Val_Sized_Unt);
+	next = va_arg(ap,Vunt);
 #ifdef DEBUG_C_CALLS
 	printf("arg %d: %x\n",i,next);
 #endif
@@ -381,7 +381,7 @@ static void*   build_entry   (									// Called only from make_c_function(), be
 
     ASSERT((sizeof(Code_Header) & 0x3) == 0);
 
-    p = (Unt8*)  memalign( sizeof(Val_Sized_Unt), szb + sizeof(Code_Header) );
+    p = (Unt8*)  memalign( sizeof(Vunt), szb + sizeof(Code_Header) );
 
     *(Code_Header*) p = h;
 
@@ -401,7 +401,7 @@ static void*   build_entry   (									// Called only from make_c_function(), be
 
 
 
-Val_Sized_Unt   make_c_function   (
+Vunt   make_c_function   (
     //          ===============
     //
     Task*   task,
@@ -431,7 +431,7 @@ Val_Sized_Unt   make_c_function   (
 
     // Build and return a C entry for f:
     //
-    return (Val_Sized_Unt) build_entry( task, ch );
+    return (Vunt) build_entry( task, ch );
 }
 
 

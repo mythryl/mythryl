@@ -15,7 +15,7 @@ typedef struct writer {
     //
     Bool	seen_error;
     void*	data;
-    void	(*put_word)(struct writer*, Val_Sized_Unt);
+    void	(*put_word)(struct writer*, Vunt);
     void	(*write)(struct writer*, const void *, Punt);
     void	(*flush)(struct writer*);
     long	(*tell)(struct writer*);

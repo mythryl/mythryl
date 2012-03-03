@@ -72,20 +72,20 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
 	ftype = buf->st_mode & 0xF000;
     #endif
 
-    mode  =  make_one_word_unt(task,  (Val_Sized_Unt) (buf->st_mode & MODE_BITS)	);
-    ino   =  make_one_word_unt(task,  (Val_Sized_Unt)  buf->st_ino			);
-    dev   =  make_one_word_unt(task,  (Val_Sized_Unt)  buf->st_dev			);
-    nlink =  make_one_word_unt(task,  (Val_Sized_Unt)  buf->st_nlink			);
-    uid   =  make_one_word_unt(task,  (Val_Sized_Unt)  buf->st_uid			);
-    gid   =  make_one_word_unt(task,  (Val_Sized_Unt)  buf->st_gid			);
+    mode  =  make_one_word_unt(task,  (Vunt) (buf->st_mode & MODE_BITS)	);
+    ino   =  make_one_word_unt(task,  (Vunt)  buf->st_ino			);
+    dev   =  make_one_word_unt(task,  (Vunt)  buf->st_dev			);
+    nlink =  make_one_word_unt(task,  (Vunt)  buf->st_nlink			);
+    uid   =  make_one_word_unt(task,  (Vunt)  buf->st_uid			);
+    gid   =  make_one_word_unt(task,  (Vunt)  buf->st_gid			);
 
     #if (SIZEOF_STRUCT_STAT_ST_SIZE > 4)						// i.e., if (sizeof(buf->st_size) > 4) -- see  src/c/config/generate-sizes-of-some-c-types-h.c
-        high_32_bits_of_size =  make_one_word_unt(task, (Val_Sized_Unt)(buf->st_size >> 32));	// 64-bit issue.
+        high_32_bits_of_size =  make_one_word_unt(task, (Vunt)(buf->st_size >> 32));	// 64-bit issue.
     #else
-        high_32_bits_of_size =  make_one_word_unt(task, (Val_Sized_Unt) 0                  );
+        high_32_bits_of_size =  make_one_word_unt(task, (Vunt) 0                  );
     #endif
 
-    low_32_bits_of_size =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_size)   );
+    low_32_bits_of_size =  make_one_word_unt(task,  (Vunt)(buf->st_size)   );
     atime               =  make_one_word_int(task,                  buf->st_atime   );
     mtime               =  make_one_word_int(task,                  buf->st_mtime   );
     ctime               =  make_one_word_int(task,                  buf->st_ctime   );

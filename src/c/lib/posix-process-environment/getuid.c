@@ -42,7 +42,7 @@ Val   _lib7_P_ProcEnv_getuid   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getuid" );
 
-    return  make_one_word_unt(task,  (Val_Sized_Unt) uid  );
+    return  make_one_word_unt(task,  (Vunt) uid  );
 }
 
 

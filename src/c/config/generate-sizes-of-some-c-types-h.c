@@ -145,22 +145,22 @@ int   main   (void)   {
     fprintf (fd, "\n");
     fprintf (fd, "typedef unsigned char Unt8;\n");
 
-    #if defined(SIZES_C_64_MYTHRYL_32)								// Are we ever going to actually use this?  (No existing file #defines this symbol.)  If not, Punt and Val_Sized_Unt can be combined. XXX BUGGO FIXME.
+    #if defined(SIZES_C_64_MYTHRYL_32)								// Are we ever going to actually use this?  (No existing file #defines this symbol.)  If not, Punt and Vunt can be combined. XXX BUGGO FIXME.
 	//
-	fprintf(fd, "typedef Unt1 Val_Sized_Unt;\n");
-	fprintf(fd, "typedef Int1      Val_Sized_Int;\n");
+	fprintf(fd, "typedef Unt1 Vunt;\n");
+	fprintf(fd, "typedef Int1      Vint;\n");
 	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
 	//
     #elif defined(SIZES_C_64_MYTHRYL_64)
 	//
-	fprintf(fd, "typedef Unt2 Val_Sized_Unt;\n");
-	fprintf(fd, "typedef Int2      Val_Sized_Int;\n");
+	fprintf(fd, "typedef Unt2 Vunt;\n");
+	fprintf(fd, "typedef Int2      Vint;\n");
 	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
 	//
     #else	// SIZES_C_32_MYTHRYL_32
 	//
-	fprintf(fd, "typedef Unt1 Val_Sized_Unt;\n");
-	fprintf(fd, "typedef Int1      Val_Sized_Int;\n");
+	fprintf(fd, "typedef Unt1 Vunt;\n");
+	fprintf(fd, "typedef Int1      Vint;\n");
 	fprintf(fd, "typedef Unt1 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
     #endif
 

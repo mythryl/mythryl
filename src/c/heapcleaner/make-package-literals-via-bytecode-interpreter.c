@@ -202,18 +202,18 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 
     if (bytecode_vector_bytesize <= 8)   return HEAP_NIL;								// bytecode_vector has an 8-byte header, so length <= 8 means nothing to do.
 
-    Val_Sized_Unt  magic
+    Vunt  magic
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
-    Val_Sized_Unt  max_depth												/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
+    Vunt  max_depth												/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
 	=
 	GET32(bytecode_vector,pc);   pc += 4;
 
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
 
-Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 
     for (;;) {
 	int free_bytes													/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))

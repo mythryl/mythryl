@@ -51,8 +51,8 @@ Val   _lib7_P_SysDB_getpwuid   (Task* task,  Val arg)   {
     if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   
     Val pw_name  =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_name,  NULL		);		Roots roots1 = { &pw_name, NULL };
-    Val pw_uid   =  make_one_word_unt(					task,  (Val_Sized_Unt) (info->pw_uid)			);		Roots roots2 = { &pw_uid,  &roots1 };
-    Val pw_gid   =  make_one_word_unt(					task,  (Val_Sized_Unt) (info->pw_gid)			);		Roots roots3 = { &pw_gid,  &roots2 };
+    Val pw_uid   =  make_one_word_unt(					task,  (Vunt) (info->pw_uid)			);		Roots roots2 = { &pw_uid,  &roots1 };
+    Val pw_gid   =  make_one_word_unt(					task,  (Vunt) (info->pw_gid)			);		Roots roots3 = { &pw_gid,  &roots2 };
     Val pw_dir   =  make_ascii_string_from_c_string__may_heapclean(	task,                   info->pw_dir,   &roots3	);			Roots roots4 = { &pw_dir,  &roots3 };
     Val pw_shell =  make_ascii_string_from_c_string__may_heapclean(	task,                   info->pw_shell, &roots4	);
 

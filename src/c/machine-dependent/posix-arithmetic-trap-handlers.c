@@ -58,7 +58,7 @@ void   set_up_fault_handlers   (Task* task)   {
 
 	Task*  task =   SELF_PTHREAD->task;
 
-	extern Val_Sized_Unt   request_fault[]; 
+	extern Vunt   request_fault[]; 
 
 	int code =  GET_SIGNAL_CODE( si, scp );
 
@@ -79,12 +79,12 @@ void   set_up_fault_handlers   (Task* task)   {
 	if (INT_OVFLW(signal, code)) {								// INT_OVFLW	is from   src/c/h/system-dependent-signal-get-set-etc.h 
 
 	    task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;					// OVERFLOW_EXCEPTION__GLOBAL	is from   src/c/h/runtime-globals.h
-	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
+	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else if (INT_DIVZERO(signal, code)) {
 
 	    task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
-	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
+	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else {
 	    die ("unexpected fault, signal = %d, code = %#x", signal, code);
@@ -110,7 +110,7 @@ void   set_up_fault_handlers   (Task* task)   {
     ){
 	Task* task =  SELF_PTHREAD->task;
 
-	extern Val_Sized_Unt   request_fault[]; 
+	extern Vunt   request_fault[]; 
 
 	int code =  GET_SIGNAL_CODE( info, scp );
 
@@ -130,12 +130,12 @@ void   set_up_fault_handlers   (Task* task)   {
 	if (INT_OVFLW(signal, code)) {
 	    //
 	    task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;
-	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER( scp );
+	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER( scp );
 	    //
 	} else if (INT_DIVZERO(signal, code)) {
 	    //
 	    task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
-	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
+	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 	    //
 	} else {
 	    die ("unexpected fault, signal = %d, code = %#x", signal, code);

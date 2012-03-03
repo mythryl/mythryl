@@ -18,10 +18,10 @@
 
 // Assumptions:
 //
-//     Val_Sized_Unt fits in a machine word
+//     Vunt fits in a machine word
 //
 // Restrictions:
-//	C function args must fit in Val_Sized_Unt
+//	C function args must fit in Vunt
 //      C's double is the largest return value from a function 
 //
 
@@ -129,36 +129,36 @@ static char*   mk_strcpy   (char* s)   {
     return strcpy(p,s);
 }
 
-Val_Sized_Unt*   checked_memalign   (int n, int align)   {
+Vunt*   checked_memalign   (int n, int align)   {
     //
-    Val_Sized_Unt* p;
+    Vunt* p;
 
-    if (align < sizeof(Val_Sized_Unt)) {
-	align = sizeof(Val_Sized_Unt);
+    if (align < sizeof(Vunt)) {
+	align = sizeof(Vunt);
     }
 
-    if ((p = (Val_Sized_Unt *)MALLOC(n)) == NULL)   die("couldn't alloc memory for C call\n");
+    if ((p = (Vunt *)MALLOC(n)) == NULL)   die("couldn't alloc memory for C call\n");
 
-    ASSERT(((Val_Sized_Unt)p & (Val_Sized_Unt)(align-1)) != 0);
+    ASSERT(((Vunt)p & (Vunt)(align-1)) != 0);
 
     return p;
 }
 
-static Val   mkWord32   (Task* task, Val_Sized_Unt p)   {
+static Val   mkWord32   (Task* task, Vunt p)   {
     //
-    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(sizeof(Val_Sized_Unt), DTAG_string));
+    set_slot_in_nascent_heapchunk(task, 0, MAKE_TAGWORD(sizeof(Vunt), DTAG_string));
     set_slot_in_nascent_heapchunk(task, 1, (Val)p);
     //
-    return commit_nascent_heapchunk(task, sizeof(Val_Sized_Unt));
+    return commit_nascent_heapchunk(task, sizeof(Vunt));
 }
 
-static Val_Sized_Unt   getWord32   (Val v)   {
+static Vunt   getWord32   (Val v)   {
     //
-    return (Val_Sized_Unt) GET_TUPLE_SLOT_AS_VAL(v,0);
+    return (Vunt) GET_TUPLE_SLOT_AS_VAL(v,0);
 }
 
-#define MK_CADDR(task,p) mkWord32(task,(Val_Sized_Unt) (p))
-#define GET_CADDR(v)    (Val_Sized_Unt *)getWord32(v)
+#define MK_CADDR(task,p) mkWord32(task,(Vunt) (p))
+#define GET_CADDR(v)    (Vunt *)getWord32(v)
 
 static Val   double_CtoLib7   (Task* task, double g)   {
     //
@@ -182,7 +182,7 @@ static Val   double_CtoLib7   (Task* task, double g)   {
 */
 typedef struct ptr_desc {
     //
-    Val_Sized_Unt* ptr;
+    Vunt* ptr;
     struct ptr_desc *next;
 } Pointerlist;
 
@@ -203,7 +203,7 @@ static int pointerlist_len()
 #endif
     
     
-static void keep_ptr(Val_Sized_Unt *p)
+static void keep_ptr(Vunt *p)
 {
     Pointerlist *q = (Pointerlist *) checked_alloc(sizeof(Pointerlist));
 
@@ -341,12 +341,12 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 
 static char*   too_many_args   = "ccalls with more than 15 args not supported\n";
 
-static Val_Sized_Unt   call_word_g   (Val_Sized_Unt (*f)(),int n,Val_Sized_Unt *args)   {
+static Vunt   call_word_g   (Vunt (*f)(),int n,Vunt *args)   {
     //                 ===========
     //
-    // Used when the return type fits into a machine word (Val_Sized_Unt):
+    // Used when the return type fits into a machine word (Vunt):
     //
-    Val_Sized_Unt result = 0;
+    Vunt result = 0;
 
     switch(n) {
 	//
@@ -427,7 +427,7 @@ static Val_Sized_Unt   call_word_g   (Val_Sized_Unt (*f)(),int n,Val_Sized_Unt *
 
 
 
-static double   call_double_g   (double (*f)(),int n,Val_Sized_Unt *args)   {
+static double   call_double_g   (double (*f)(),int n,Vunt *args)   {
     //          =============
     //
     double result;
@@ -487,7 +487,7 @@ static double   call_double_g   (double (*f)(),int n,Val_Sized_Unt *args)   {
 
 
 
-static float   call_float_g   (float (*f)(),int n,Val_Sized_Unt *args)   {
+static float   call_float_g   (float (*f)(),int n,Vunt *args)   {
     //         ============
     //
     float result;
@@ -634,7 +634,7 @@ static char*   nextdatum   (char* t)   {
     return t;
 }
 
-static void   mkCint   (Val_Sized_Unt src,  Val_Sized_Unt** dst,  int bytes) {
+static void   mkCint   (Vunt src,  Vunt** dst,  int bytes) {
     //        =====
     //
     #ifdef DEBUG_C_CALLS
@@ -642,14 +642,14 @@ static void   mkCint   (Val_Sized_Unt src,  Val_Sized_Unt** dst,  int bytes) {
     #endif
 
     #ifdef BYTE_ORDER_BIG
-	src <<= (sizeof(Val_Sized_Unt) - bytes)*8;
+	src <<= (sizeof(Vunt) - bytes)*8;
     #endif
 
     memcpy (*dst, &src, bytes);
     (*(Unt8 **)dst) += bytes;
 }
 
-static void   mkLIB7int   (Val_Sized_Unt** src,  Val_Sized_Unt* dst,  int bytes) {
+static void   mkLIB7int   (Vunt** src,  Vunt* dst,  int bytes) {
     //        =========
     //
     #ifdef DEBUG_C_CALLS
@@ -659,7 +659,7 @@ static void   mkLIB7int   (Val_Sized_Unt** src,  Val_Sized_Unt* dst,  int bytes)
     memcpy (dst, *src, bytes);
 
     #ifdef BYTE_ORDER_BIG
-	*dst >>= (sizeof(Val_Sized_Unt) - bytes)*8;
+	*dst >>= (sizeof(Vunt) - bytes)*8;
     #endif
 
     *(Unt8 **)src += bytes;
@@ -669,7 +669,7 @@ static void   mkLIB7int   (Val_Sized_Unt** src,  Val_Sized_Unt* dst,  int bytes)
 #define DO_PAD(p,t)         (*(Unt8 **)(p) += extract_unsigned((unsigned char **)(t),1))
 #define IF_PAD_DO_PAD(p,t)  {if (**t == LIB7PAD_CODE) {++(*t); DO_PAD(p,t);}}
 
-int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  Val datum) {
+int   convert_mythryl_value_to_c   (Task* task,  char** t,  Vunt** p,  Val datum) {
     //==========================
     //
     // Called many times in this file and once in   
@@ -762,7 +762,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
     case LIB7PTR_CODE:
 	{
 	    int szb, align;
-	    Val_Sized_Unt *q;
+	    Vunt *q;
 
 	    szb = extract_unsigned((unsigned char **)t,4);
 	    align = extract_unsigned((unsigned char **)t,1);
@@ -773,7 +773,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 
 	    q = checked_memalign(szb,align);
 	    keep_ptr(q);
-	    *(*p)++ = (Val_Sized_Unt) q;
+	    *(*p)++ = (Vunt) q;
 
             #ifdef DEBUG_C_CALLS
 	        debug_say("convert_mythryl_value_to_c: ptr substructure at %x\n", q);
@@ -803,7 +803,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 		size = sizeof(double);
 	    }
 
-	    memcpy (&g, (Val_Sized_Unt *)val, sizeof(double));
+	    memcpy (&g, (Vunt *)val, sizeof(double));
 
 	    #ifdef DEBUG_C_CALLS
 		debug_say("convert_mythryl_value_to_c: Lib7 real %l.15f:%l.15f %.15f\n", *(double *)val, g, (float) g);
@@ -827,7 +827,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 	#ifdef DEBUG_C_CALLS
             debug_say("convert_mythryl_value_to_c: addr %x\n", GET_CADDR(val));
 	#endif
-	*(*p)++ = (Val_Sized_Unt) GET_CADDR(val);
+	*(*p)++ = (Vunt) GET_CADDR(val);
 	break;
 
     case LIB7STRING_CODE:
@@ -841,8 +841,8 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 
 	    r = (char*) checked_alloc( strlen(s)+1 );
 	    strcpy(r,s);
-	    keep_ptr((Val_Sized_Unt*) r);
-	    *(*p)++ =  (Val_Sized_Unt) r;
+	    keep_ptr((Vunt*) r);
+	    *(*p)++ =  (Vunt) r;
 
 	    #ifdef DEBUG_C_CALLS
 	        debug_say("convert_mythryl_value_to_c: copied string \"%s\"=%x\n",r,r);
@@ -898,7 +898,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 		}
 		next_try = nextdatum( *t );
 		//
-		*p = (Val_Sized_Unt*) init_p;
+		*p = (Vunt*) init_p;
 	    }
 
 	    if (err)   return err;
@@ -907,7 +907,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 		*t = nextdatum(*t);
             }
 	    (*t)++;					// Advance past LIB7CLOSEUNION_CODE
-	    *p = (Val_Sized_Unt *) (init_p + size);
+	    *p = (Vunt *) (init_p + size);
         }
 	break;
 
@@ -975,8 +975,8 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 
     int err = 0;
 
-    Val_Sized_Unt  p;
-    Val_Sized_Unt* q = &p;
+    Vunt  p;
+    Vunt* q = &p;
 
     Val lp;
 
@@ -999,12 +999,12 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 
     restore_pointerlist( saved_pl );
 
-    Val result =  MK_CADDR(task,(Val_Sized_Unt *)p);
+    Val result =  MK_CADDR(task,(Vunt *)p);
     //
     return make_two_slot_record( task, result, lp);
 }
 
-static Val   word_c_to_mythryl   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* root)   {
+static Val   word_c_to_mythryl   (Task* task,  char** t,  Vunt** p,  Val* root)   {
     //       ============
     //
     Val result =  HEAP_VOID;
@@ -1036,9 +1036,9 @@ static Val   word_c_to_mythryl   (Task* task,  char** t,  Val_Sized_Unt** p,  Va
 
     case LIB7PTR_CODE:
 	{
-	    Val_Sized_Unt q;
+	    Vunt q;
 	    #ifdef DEBUG_C_CALLS
-		debug_say("word_c_to_mythryl: ptr %x\n", **(Val_Sized_Unt ****)p);
+		debug_say("word_c_to_mythryl: ptr %x\n", **(Vunt ****)p);
 	    #endif
 	    tag = LIB7PTR_TAG;
 	    #ifdef DEBUG_C_CALLS
@@ -1048,7 +1048,7 @@ static Val   word_c_to_mythryl   (Task* task,  char** t,  Val_Sized_Unt** p,  Va
 		*t += 5;  // 5 bytes of size.
 	    #endif
 	    q = **p;
-	    mlval = word_c_to_mythryl(task,t,(Val_Sized_Unt **) &q,root);
+	    mlval = word_c_to_mythryl(task,t,(Vunt **) &q,root);
 	    (*p)++;
         }
 	break;
@@ -1064,7 +1064,7 @@ static Val   word_c_to_mythryl   (Task* task,  char** t,  Val_Sized_Unt** p,  Va
     case LIB7LONG_CODE:
 	tag = LIB7LONG_TAG;
 handle_int:
-	{   Val_Sized_Unt w;
+	{   Vunt w;
 	    //
 	    mkLIB7int(p,&w,extract_unsigned((unsigned char **)t,1));
 	    mlval = mkWord32(task,w);
@@ -1073,7 +1073,7 @@ handle_int:
 
     case LIB7ADDR_CODE:
 	{
-	    Val_Sized_Unt *cp = ** (Val_Sized_Unt ***) p;
+	    Vunt *cp = ** (Vunt ***) p;
 	
 	    #ifdef DEBUG_C_CALLS
 		debug_say("word_c_to_mythryl:  C addr %x\n", cp);
@@ -1151,7 +1151,7 @@ handle_int:
     case LIB7ARRAY_CODE: 
     case LIB7VECTOR_CODE:
 	{
-	    Val_Sized_Unt dtag;
+	    Vunt dtag;
 
 	    tag  = (code == LIB7ARRAY_CODE) ? LIB7ARRAY_TAG : LIB7VECTOR_TAG;
 	    dtag = (code == LIB7ARRAY_CODE) ? DTAG_array : DTAG_vector;
@@ -1208,7 +1208,7 @@ handle_int:
 }
 
 
-Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,   Val* root) {
+Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Vunt p,   Val* root) {
     //==========================
 
     // NB:  ccalls-fns.c needs to see this fn.
@@ -1237,7 +1237,7 @@ Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,
 	break;
 
     default:
-	{   Val_Sized_Unt *q = &p;
+	{   Vunt *q = &p;
 	    result = word_CtoLib7(task,&type,&q,root);
         }
         break;
@@ -1263,9 +1263,9 @@ Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
     // Make copies of things that cleaning may move:
     //
     char*          type  =  mk_strcpy( GET_TUPLE_SLOT_AS_PTR( char*, arg, 0 ));
-    Val_Sized_Unt* caddr =  GET_CADDR( GET_TUPLE_SLOT_AS_VAL(        arg, 1 ));
+    Vunt* caddr =  GET_CADDR( GET_TUPLE_SLOT_AS_VAL(        arg, 1 ));
 
-    Val result =  convert_c_value_to_mythryl (task,type,(Val_Sized_Unt) caddr,&arg);
+    Val result =  convert_c_value_to_mythryl (task,type,(Vunt) caddr,&arg);
     FREE(type);
     return result;
 }
@@ -1281,9 +1281,9 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_c_call");
 
     #if !defined(INDIRECT_CFUNC)
-	Val_Sized_Unt (*f)() = (Val_Sized_Unt (*)())   GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, arg, 0 );
+	Vunt (*f)() = (Vunt (*)())   GET_TUPLE_SLOT_AS_PTR( Vunt*, arg, 0 );
     #else
-	Val_Sized_Unt (*f)() = (Val_Sized_Unt (*)())   ((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, arg, 0 ))->cfunc;
+	Vunt (*f)() = (Vunt (*)())   ((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Vunt*, arg, 0 ))->cfunc;
     #endif
 
     int   n_cargs    =  GET_TUPLE_SLOT_AS_INT(        arg, 1 );
@@ -1297,8 +1297,8 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     Val p,q;
     Val result;
     int i;
-    Val_Sized_Unt vals[N_ARGS];
-    Val_Sized_Unt w;
+    Vunt vals[N_ARGS];
+    Vunt w;
     int err = NO_ERR;
 
     if (n_cargs > N_ARGS) {
@@ -1316,7 +1316,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     while (p != LIST_NIL && q != LIST_NIL) {
 	//
 	char* carg_type = PTR_CAST(char*,LIST_HEAD(p));
-	Val_Sized_Unt *vp;
+	Vunt *vp;
 
 	#ifdef DEBUG_C_CALLS
 	    debug_say("lib7_c_call: arg %d:\"%s\"\n",i,carg_type);
@@ -1371,14 +1371,14 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 	    Unt8 b = (Unt8) call_word_g(f,n_cargs,vals);
 	    Unt8 *bp = &b;
 	    //
-	    result = word_CtoLib7(task,&cret_type,(Val_Sized_Unt **)&bp,&dummy_root__local);
+	    result = word_CtoLib7(task,&cret_type,(Vunt **)&bp,&dummy_root__local);
         }
 	break;
 
       default:
 	{
-	    Val_Sized_Unt w = call_word_g(f,n_cargs,vals);
-	    Val_Sized_Unt *wp = &w;
+	    Vunt w = call_word_g(f,n_cargs,vals);
+	    Vunt *wp = &w;
 	    //
 	    result = word_CtoLib7(task,&cret_type,&wp,&dummy_root__local);
 	}

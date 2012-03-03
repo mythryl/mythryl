@@ -102,7 +102,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
 	//
-	PTR_CAST( Val_Sized_Unt*, result) [n-1] = 0;
+	PTR_CAST( Vunt*, result) [n-1] = 0;
 	strcpy (PTR_CAST(char*, result), v);
 
 	return  make_vector_header(task, STRING_TAGWORD, result, len);
@@ -154,7 +154,7 @@ Val   allocate_headerless_ascii_string__may_heapclean   (Task* task,  int len,  
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
     //
-    PTR_CAST(Val_Sized_Unt*, result)[nwords-1] = 0;
+    PTR_CAST(Vunt*, result)[nwords-1] = 0;
 
     return  result;
 }
@@ -184,7 +184,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
-    Val_Sized_Unt  bytesize;
+    Vunt  bytesize;
 
     ASSERT(nwords > 0);
 
@@ -286,7 +286,7 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Ro
     int	nwords  =  DOUBLES_TO_WORDS(nelems);
     Val	tagword =  MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
-    Val_Sized_Unt  bytesize;
+    Vunt  bytesize;
 
     if (nwords <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
 	//
@@ -401,7 +401,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  i
     // string comparisons, and to guarantee 0
     // termination:
     //
-    PTR_CAST(Val_Sized_Unt*, result)[nwords-1] = 0;
+    PTR_CAST(Vunt*, result)[nwords-1] = 0;
 
     return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, result, len);
 }
@@ -443,7 +443,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
     Val	tagword = MAKE_TAGWORD(len, RW_VECTOR_DATA_BTAG);
 
 
-    Val_Sized_Unt	bytesize;
+    Vunt	bytesize;
 
     if (len <= MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
@@ -579,7 +579,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 
 	int	clean_level = 0;										// Heapclean agegroup0 only.
 
-	Val_Sized_Unt  bytesize
+	Vunt  bytesize
 	    =
 	    WORD_BYTESIZE * (len+1);										// '+1' for tagword.
 

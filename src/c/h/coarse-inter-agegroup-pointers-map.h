@@ -17,7 +17,7 @@
 typedef struct {
     //
     Val*	   base_address;			// The base address of the ram-region covered by the cardmap.
-    Val_Sized_Unt  card_count;				// The number of cards covered by the cardmap.
+    Vunt  card_count;				// The number of cards covered by the cardmap.
     int	           map_bytesize;			// The number of bytes allocated for this cardmap.
     Unt8	   min_age[ WORD_BYTESIZE ];	// The card map proper -- one min-age value per card.
     //

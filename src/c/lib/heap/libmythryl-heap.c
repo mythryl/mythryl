@@ -683,7 +683,7 @@ static Val   do_make_codechunk_executable   (Task* task,  Val arg)   {
 
     char* code =  GET_VECTOR_DATACHUNK_AS( char*, seq );
 
-    Val_Sized_Unt nbytes		/* This variable is unused on some platforms, so suppress 'unused var' compiler warning: */   __attribute__((unused))
+    Vunt nbytes		/* This variable is unused on some platforms, so suppress 'unused var' compiler warning: */   __attribute__((unused))
         =
         GET_VECTOR_LENGTH( seq );
 

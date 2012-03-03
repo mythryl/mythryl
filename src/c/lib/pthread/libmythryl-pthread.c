@@ -290,7 +290,7 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     // We return the address of the barrier_struct
     // to the Mythryl level encoded as a word value:
     //
-    return  make_one_word_unt(task, (Val_Sized_Unt)barrier );
+    return  make_one_word_unt(task, (Vunt)barrier );
 }
 
 static Val   do_barrier_free   (Task* task,  Val arg)   {

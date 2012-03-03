@@ -153,9 +153,9 @@ void   set_up_fault_handlers   (Task* task)   {
 }
 
 
-static Bool   fault_handler   (int code, Val_Sized_Unt pc)   {
+static Bool   fault_handler   (int code, Vunt pc)   {
     //
-    extern Val_Sized_Unt request_fault[];
+    extern Vunt request_fault[];
 
     Task*  task =  SELF_PTHREAD->task;
 
@@ -191,7 +191,7 @@ int   asm_run_mythryl_task   (Task* task)   {
     // On most platforms this fn is assembly code;
     // here it is a C wrapper to the actual assembly code.
 
-    extern Val_Sized_Unt request_fault[];
+    extern Vunt request_fault[];
 
     caught_cntrl_c = FALSE;
 
@@ -201,9 +201,9 @@ int   asm_run_mythryl_task   (Task* task)   {
     request = true_asm_run_mythryl_task( task );					// true_asm_run_mythryl_task	def in   src/c/machine-dependent/prim.intel32.masm
     return request;
 
-  } __except(fault_handler(GetExceptionCode(), (Val_Sized_Unt *)(GetExceptionInformation())->ContextRecord->Eip) ?
+  } __except(fault_handler(GetExceptionCode(), (Vunt *)(GetExceptionInformation())->ContextRecord->Eip) ?
 #ifdef HOST_INTEL32
-	     ((Val_Sized_Unt *)(GetExceptionInformation())->ContextRecord->Eip = request_fault,
+	     ((Vunt *)(GetExceptionInformation())->ContextRecord->Eip = request_fault,
               EXCEPTION_CONTINUE_EXECUTION) :
 	      EXCEPTION_CONTINUE_SEARCH)
 #else

@@ -25,15 +25,15 @@
 
 #include <string.h>
 
-extern Val_Sized_Unt *checked_memalign(int n,int align);
+extern Vunt *checked_memalign(int n,int align);
 #define checked_alloc(n) checked_memalign((n),(1))
 
-extern Val_Sized_Unt mk_C_function(Task *task,
+extern Vunt mk_C_function(Task *task,
 			    Val f,
 			    int nargs,char *argtypes[],char *rettype);
 
-extern Val convert_c_value_to_mythryl(Task *task,char *type,Val_Sized_Unt p,Val *root);
-extern int convert_mythryl_value_to_c(Task *task,char **t,Val_Sized_Unt **p,Val ret);
+extern Val convert_c_value_to_mythryl(Task *task,char *type,Vunt p,Val *root);
+extern int convert_mythryl_value_to_c(Task *task,char **t,Vunt **p,Val ret);
 extern Val revLib7List(Val l,Val acc);
 
 extern void   set_visible_task   (Task* visible_task);

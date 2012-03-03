@@ -381,7 +381,7 @@ Hugechunk*   address_to_hugechunk   (Val addr) {
 
 
 //
-Unt8*        codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_counter)   {
+Unt8*        codechunk_comment_string_for_program_counter   (Vunt  program_counter)   {
     //       ============================================
     //
     // Return the comment string of the codechunk

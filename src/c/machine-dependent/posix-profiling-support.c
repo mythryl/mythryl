@@ -57,7 +57,7 @@ static void   sigvtalrm_handler   () {
     //
     //                    -- http://en.wikipedia.org/wiki/SIGVTALRM   
 
-    Val_Sized_Unt*	rw_vector = GET_VECTOR_DATACHUNK_AS( Val_Sized_Unt*, time_profiling_rw_vector__global );		// A vector with one slot for each Mythryl function being profiled.
+    Vunt*	rw_vector = GET_VECTOR_DATACHUNK_AS( Vunt*, time_profiling_rw_vector__global );		// A vector with one slot for each Mythryl function being profiled.
 
     int			fn_index = TAGGED_INT_TO_C_INT( DEREF( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL ) );			// 0..N-1 index of the currently executing Mythryl function.
 

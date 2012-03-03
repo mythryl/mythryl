@@ -241,9 +241,9 @@ inline Val   make_vector_header   (Task* task,  Val tagword, Val vectordata, int
 
 // Boxed word values
 //
-#define WORD_LIB7toC(w)		(*PTR_CAST(Val_Sized_Unt*, w))
+#define WORD_LIB7toC(w)		(*PTR_CAST(Vunt*, w))
 
-inline Val   make_one_word_unt   (Task* task, Val_Sized_Unt u) {
+inline Val   make_one_word_unt   (Task* task, Vunt u) {
     //
     Val* p =  task->heap_allocation_pointer;
     //
@@ -255,7 +255,7 @@ inline Val   make_one_word_unt   (Task* task, Val_Sized_Unt u) {
     return  result;
 }
 
-inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
+inline Val   make_one_word_int   (Task* task, Vint i) {
     //
     Val* p =  task->heap_allocation_pointer;
     //
@@ -268,7 +268,7 @@ inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
 }
 
 
-#define TUPLE_GETWORD(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Val_Sized_Unt*, p, i))
+#define TUPLE_GETWORD(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Vunt*, p, i))
 #define INT1_LIB7toC(i)		(*PTR_CAST(Int1*, i))
 #define TUPLE_GET_INT1(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Int1*, p, i))
 

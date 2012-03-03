@@ -36,9 +36,9 @@ Val _lib7_win32_PS_create_process(Task *task, Val arg)
   if (fSuccess) {
     HANDLE hProcess = pi.hProcess;
     CloseHandle (pi.hThread);
-    return  make_one_word_unt(task,  (Val_Sized_Unt) hProcess  );
+    return  make_one_word_unt(task,  (Vunt) hProcess  );
   }
-  return  make_one_word_unt(task,  (Val_Sized_Unt) 0  );
+  return  make_one_word_unt(task,  (Vunt) 0  );
 }
 
 Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
@@ -56,7 +56,7 @@ Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
       /* get info and return THE(exit_status) */
       GetExitCodeProcess (hProcess,&exit_code);
       CloseHandle (hProcess);						/* decrease ref count */
-      p =  make_one_word_unt(task,  (Val_Sized_Unt) exit_code  );
+      p =  make_one_word_unt(task,  (Vunt) exit_code  );
       return OPTION_THE( task, p );
   }
 }  
@@ -70,7 +70,7 @@ Val _lib7_win32_PS_system(Task *task, Val arg)
 {
   int ret = system(HEAP_STRING_AS_C_STRING(arg));
   //
-  return make_one_word_unt(task,  (Val_Sized_Unt) ret  );
+  return make_one_word_unt(task,  (Vunt) ret  );
 }
 
 /* _lib7_win32_PS_exit_process : one_word_unt -> 'a

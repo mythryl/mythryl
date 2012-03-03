@@ -69,7 +69,7 @@ Val   _lib7_P_SysDB_getgrnam   (Task* task,  Val arg)   {
     if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   
     Val gr_name =  make_ascii_string_from_c_string__may_heapclean(		task,                  info->gr_name, NULL	);		Roots roots1 = { &gr_name, NULL };
-    Val gr_gid  =  make_one_word_unt(						task, (Val_Sized_Unt) (info->gr_gid)		);		Roots roots2 = { &gr_name, &roots1 };
+    Val gr_gid  =  make_one_word_unt(						task, (Vunt) (info->gr_gid)		);		Roots roots2 = { &gr_name, &roots1 };
     Val gr_mem  =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,                  info->gr_mem, &roots2	);
 
     return   make_three_slot_record(task,  gr_name, gr_gid, gr_mem  );

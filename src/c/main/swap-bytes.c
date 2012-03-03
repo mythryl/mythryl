@@ -8,7 +8,7 @@
 
 #if (WORD_BYTESIZE == 8)			  // 64-bit Lib7 words
     //
-    Val_Sized_Unt   swap_word_bytes   (Val_Sized_Unt x)   {
+    Vunt   swap_word_bytes   (Vunt x)   {
 	//          ===============
 	//
 	unsigned int	b0 = x & 0x00000000000000FF;

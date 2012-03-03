@@ -331,14 +331,14 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 			call_heapcleaner (task, 0);
 		    }
 #ifdef INDIRECT_CFUNC
-		    f = ((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, task->argument, 0 ))->cfunc;
+		    f = ((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Vunt*, task->argument, 0 ))->cfunc;
 #  ifdef DEBUG_TRACE_CCALL
 		    debug_say("CALLC: %s (%#x)\n",
-			((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, task->argument, 0 ))->name,
+			((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Vunt*, task->argument, 0 ))->name,
 			GET_TUPLE_SLOT_AS_VAL(task->argument, 1));
 #  endif
 #else
-		    f = (Mythryl_Callable_C_Function) GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, task->argument, 0 );
+		    f = (Mythryl_Callable_C_Function) GET_TUPLE_SLOT_AS_PTR( Vunt*, task->argument, 0 );
 #  ifdef DEBUG_TRACE_CCALL
 		    debug_say("CALLC: %#x (%#x)\n", f, GET_TUPLE_SLOT_AS_VAL(task->argument, 1));
 #  endif

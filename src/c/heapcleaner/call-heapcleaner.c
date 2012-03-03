@@ -205,7 +205,7 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
+	Vunt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
@@ -378,7 +378,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
+	Vunt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
@@ -413,7 +413,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
 
 
-Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt bytes_needed)   {
+Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
     // ========================
     //
     // This fun is called various places to guarantee that there are 'bytes_needed'

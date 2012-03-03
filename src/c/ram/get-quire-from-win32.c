@@ -35,9 +35,9 @@
 //
 struct quire {
     //
-    Val_Sized_Unt*	base;			// Base address of the chunk.	SEE ABOVE WARNING!
-    Val_Sized_Unt	bytesize;		// Chunk's size (in bytes).	SEE ABOVE WARNING!
-    Val_Sized_Unt*	mapBase;		// Base address of the mapped region containing the chunk.
+    Vunt*	base;			// Base address of the chunk.	SEE ABOVE WARNING!
+    Vunt	bytesize;		// Chunk's size (in bytes).	SEE ABOVE WARNING!
+    Vunt*	mapBase;		// Base address of the mapped region containing the chunk.
     Punt	mapSizeB;		// size of the mapped region containing the chunk.
 };
 

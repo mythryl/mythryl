@@ -50,7 +50,7 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask" );
 
-    return  make_one_word_unt(task, (Val_Sized_Unt) omask  );
+    return  make_one_word_unt(task, (Vunt) omask  );
 }
 
 

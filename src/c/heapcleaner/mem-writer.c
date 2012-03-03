@@ -28,7 +28,7 @@ typedef struct buffer {
     Unt8	*top;
 } wr_buffer_t;
 
-static void Put   (Writer *wr, Val_Sized_Unt w);
+static void Put   (Writer *wr, Vunt w);
 static void Write (Writer *wr, const void *data, Punt nbytes);
 static void Flush (Writer *wr);
 static long Tell  (Writer *wr);
@@ -64,14 +64,14 @@ Writer*   WR_OpenMem   (Unt8* data,  Punt len)   {
 }							// fun WR_OpenMem
 
 
-static void   Put   (Writer* wr,  Val_Sized_Unt w)   {
+static void   Put   (Writer* wr,  Vunt w)   {
     //        ===
     // 
     wr_buffer_t*  bp =   BufOf( wr );
 
     ASSERT(bp->next+WORD_BYTESIZE <= bp->top);
 
-    *((Val_Sized_Unt *)(bp->next)) = w;
+    *((Vunt *)(bp->next)) = w;
 
     bp->next += WORD_BYTESIZE;
 }

@@ -178,7 +178,7 @@ struct sib {
 
     struct fromspace {
 	Val*		start;					// Base address of from-space.
-	Val_Sized_Unt	bytesize;				// Size of from-space.
+	Vunt	bytesize;				// Size of from-space.
 	Val*		used_end;				// The end of the used portion of from-space.
 
 	Val*		seniorchunks_end;				// We require that a chunk survive two heapcleans in a
@@ -195,12 +195,12 @@ struct sib {
 
     // Heap sizing parameters:
     //
-    Val_Sized_Unt	requested_extra_free_bytes;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
+    Vunt	requested_extra_free_bytes;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
 								// Normally zero.  This is used to reserve sufficient extra space for vectors (etc) being created by fns in
 								//     src/c/heapcleaner/make-strings-and-vectors-etc.c
 								// This is essentially a hidden extra parameter to call_heapcleaner() from these fns.
 
-    Val_Sized_Unt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
+    Vunt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
 
 
 
@@ -515,7 +515,7 @@ extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegro
 //
 extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    set_book2sibid_entries_for_range
-	           (Sibid* book2sibid,  Val* base,  Val_Sized_Unt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
+	           (Sibid* book2sibid,  Val* base,  Vunt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    null_out_newly_dead_weakrefs	(Heap* heap);							// null_out_newly_dead_weakrefs					def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern Hugechunk*   allocate_hugechunk_quire (Heap* heap,  Punt bytesize);					// allocate_hugechunk_quire					def in   src/c/heapcleaner/hugechunk.c

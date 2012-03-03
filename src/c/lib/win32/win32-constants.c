@@ -22,7 +22,7 @@ typedef struct {
 
 /* general table */
 static name_val_t general_tab[] = {
-  {"INVALID_HANDLE_VALUE",  (Val_Sized_Unt)INVALID_HANDLE_VALUE}
+  {"INVALID_HANDLE_VALUE",  (Vunt)INVALID_HANDLE_VALUE}
 };
 
 /* FILE_ table */

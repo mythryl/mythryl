@@ -75,7 +75,7 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
       fname_opt = OPTION_NULL;
     }
 
-    w =  make_one_word_unt(task,  (Val_Sized_Unt) h  );
+    w =  make_one_word_unt(task,  (Vunt) h  );
 
     return  make_two_slot_record(task,  w, fname_opt  );
 }

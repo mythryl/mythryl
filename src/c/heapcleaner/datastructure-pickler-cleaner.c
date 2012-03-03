@@ -78,8 +78,8 @@ struct repair {
 //
 struct assignlits_clos {
     //
-    Val_Sized_Unt  id;		  			// The heap image chunk index for embedded literals.
-    Val_Sized_Unt  offset;				// The offset of the next literal.
+    Vunt  id;		  			// The heap image chunk index for embedded literals.
+    Vunt  offset;				// The offset of the next literal.
 };
 
 // The closure for extract_literals_from_codechunks:
@@ -87,7 +87,7 @@ struct assignlits_clos {
 struct extractlits_clos {
     //
     Writer*	   wr;
-    Val_Sized_Unt  offset;				// The offset of the next literal; this is used to align reals.
+    Vunt  offset;				// The offset of the next literal; this is used to align reals.
 };
 
 
@@ -692,7 +692,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
     Val* new_chunk;
 
     Val	          tagword  =  HEAP_NIL;		// Initialized only to quiet "possibly unused" gcc warning.
-    Val_Sized_Unt len   =  0;			// Initialized only to quiet "possibly unused" gcc warning.
+    Vunt len   =  0;			// Initialized only to quiet "possibly unused" gcc warning.
     Sib*          sib   =  NULL;		// Initialized only to quiet "possibly unused" gcc warning.
 
     if (! finishing_cleaning__local)   CHECK_AGEGROUP(task, gen);

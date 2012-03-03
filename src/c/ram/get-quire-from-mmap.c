@@ -59,14 +59,14 @@
 //
 struct quire {
     //
-    Val_Sized_Unt*	base;					// The base address of the region.	SEE ABOVE WARNING!
+    Vunt*	base;					// The base address of the region.	SEE ABOVE WARNING!
     Punt	bytesize;					// The region's size.			SEE ABOVE WARNING!
 
     #ifdef HAS_PARTIAL_MUNMAP
         #define	mapBase		base
         #define	mapSizeB	bytesize
     #else
-	Val_Sized_Unt*		mapBase;			// Base address of the mapped region containing the chunk.
+	Vunt*		mapBase;			// Base address of the mapped region containing the chunk.
 	Punt	mapSizeB;					// The size of the mapped region containing     the chunk.
     #endif
 };
@@ -155,7 +155,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     //
     #ifndef HAS_PARTIAL_MUNMAP
 	//
-	chunk->mapBase  =  (Val_Sized_Unt*) addr;
+	chunk->mapBase  =  (Vunt*) addr;
 	chunk->mapSizeB =  bytesize + BOOK_BYTESIZE;
 	addr += offset;
     #else
@@ -173,7 +173,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 	}
     #endif
 
-    chunk->base = (Val_Sized_Unt *)addr;
+    chunk->base = (Vunt *)addr;
     chunk->bytesize = bytesize;
 
     return TRUE;

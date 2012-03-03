@@ -34,10 +34,10 @@
 // in-sync with the first two fields here!
 //
 struct quire {
-    Val_Sized_Unt*  base;	 		// Base address of the chunk.	SEE ABOVE WARNING!
-    Val_Sized_Unt   bytesize;	 		// Chunk's size (in bytes).	SEE ABOVE WARNING!
-    Val_Sized_Unt*  mapBase; 			// Base address of the mapped region containing the chunk.
-    Val_Sized_Unt   mapSizeB;			// The size of the mapped region containing the chunk.
+    Vunt*  base;	 		// Base address of the chunk.	SEE ABOVE WARNING!
+    Vunt   bytesize;	 		// Chunk's size (in bytes).	SEE ABOVE WARNING!
+    Vunt*  mapBase; 			// Base address of the mapped region containing the chunk.
+    Vunt   mapSizeB;			// The size of the mapped region containing the chunk.
 };
 
 #define ALLOC_HEAPCHUNK()		MALLOC_CHUNK( Quire )
@@ -89,7 +89,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 	vm_deallocate (task_self(), addr+bytesize, BOOK_BYTESIZE-offset);
     }
 
-    chunk->base = (Val_Sized_Unt *)addr;
+    chunk->base = (Vunt *)addr;
     chunk->bytesize = bytesize;
 
     return TRUE;

@@ -213,7 +213,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 }
 
 //
-void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address,  Val_Sized_Unt bytesize,  Sibid sibid) {
+void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address,  Vunt bytesize,  Sibid sibid) {
     // =================================
     //
     // Mark the book_to_sibid__global entries corresponding to the range [ base_address, base_address+bytesize )

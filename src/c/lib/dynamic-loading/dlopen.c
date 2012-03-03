@@ -72,7 +72,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
     if (libname)  unbuffer_mythryl_heap_value( &libname_buf );
 
-    return  make_one_word_unt(task,  (Val_Sized_Unt) handle  );
+    return  make_one_word_unt(task,  (Vunt) handle  );
 }
 
 

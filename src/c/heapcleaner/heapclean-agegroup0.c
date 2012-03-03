@@ -195,7 +195,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 									    //
-									    int bytes = (Val_Sized_Unt) age1->sib[ i ]->tospace.used_end - age1_tospace_top[ i ];
+									    int bytes = (Vunt) age1->sib[ i ]->tospace.used_end - age1_tospace_top[ i ];
 
 									    bytes_copied += bytes;
 
@@ -419,7 +419,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     //   o Returning a pointer to the duplicate.
 
     Val*           new_chunk;
-    Val_Sized_Unt  len_in_words;
+    Vunt  len_in_words;
     Sib*           sib;
 
     Val*  chunk =   PTR_CAST(Val*, v);

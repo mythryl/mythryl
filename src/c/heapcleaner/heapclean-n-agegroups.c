@@ -96,7 +96,7 @@ Cleaner statistics stuff:
  static int	   establish_all_required_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request										);
 //
 #ifdef  BO_DEBUG
- static void       scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk								);
+ static void       scan_memory_for_bogus_pointers			(Vunt* start,  Vunt* stop,                  int    age,                 int chunk_ilk								);
 #endif
 //
  static void       forward_all_root_chunks				(Task*          task,   Heap*          heap,                  Val**  roots,               int                                   max_cleaned_agegroup		);
@@ -290,9 +290,9 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
         //
 	Agegroup*	ag =  heap->agegroup[age];
         //
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace.used_end, age+1, RO_POINTERS_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace.used_end, age+1, RO_CONSCELL_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace.used_end, age+1,  RW_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Vunt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Vunt*) ag->sib[ RO_POINTERS_SIB ]->tospace.used_end, age+1, RO_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Vunt*) ag->sib[ RO_CONSCELL_SIB ]->tospace, (Vunt*) ag->sib[ RO_CONSCELL_SIB ]->tospace.used_end, age+1, RO_CONSCELL_SIB);
+	scan_memory_for_bogus_pointers( (Vunt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Vunt*) ag->sib[ RW_POINTERS_SIB ]->tospace.used_end, age+1,  RW_POINTERS_SIB);
     }
     // DEBUG
     #endif
@@ -580,7 +580,7 @@ void                heapclean_n_agegroups   (Task* task,  Val** roots,  int leve
 // DEBUG
 #ifdef  BO_DEBUG
 //
-static void         scan_memory_for_bogus_pointers                        (Val_Sized_Unt* start,  Val_Sized_Unt* stop,  int age,  int chunk_ilk)   {
+static void         scan_memory_for_bogus_pointers                        (Vunt* start,  Vunt* stop,  int age,  int chunk_ilk)   {
     //              ==============================
     //
     // A debug support fn.
@@ -590,7 +590,7 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 
     for ( ;   start < stop;  ++start) {
 	//
-	Val_Sized_Unt w = *start;
+	Vunt w = *start;
 	//
 	if (IS_POINTER( w )) {
 	    //
@@ -1160,7 +1160,7 @@ static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag, 
 
     Sibid	   max_sibid   =  MAKE_MAX_SIBID(oldest_agegroup_to_clean);
 
-    Val_Sized_Unt  cardmask =  ~(CARD_BYTESIZE - 1);
+    Vunt  cardmask =  ~(CARD_BYTESIZE - 1);
 
     Val	 w;
 
@@ -1355,7 +1355,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 
     Val		   tagword;		// Tagword of 'v'.
-    Val_Sized_Unt  size_in_words;	// Number of words in 'v', not counting tagword.
+    Vunt  size_in_words;	// Number of words in 'v', not counting tagword.
 
     Sib*	   to_sib;		// We'll copy 'v' into to_sib's to-space.
     Val*  	   new_chunk;		// Newly-created to-space copy of 'v'.
@@ -1844,8 +1844,8 @@ static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 												// unlimited_heap_is_enabled__global defaults to FALSE in	src/c/main/runtime-main.c 
     if (unlimited_heap_is_enabled__global)   return;						// unlimited_heap_is_enabled__global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
 												// unlimited_heap_is_enabled__global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
-    Val_Sized_Unt   min_bytesize;
-    Val_Sized_Unt   new_bytesize;
+    Vunt   min_bytesize;
+    Vunt   new_bytesize;
 
     for (int a = 0;  a < oldest_agegroup_to_clean;  a++) {
 	//

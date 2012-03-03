@@ -434,7 +434,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 				w = HIO_TAG_PTR( kind, addr );
 			    }
 			}								// if (IS_POINTER(w))
-			WR_PUT(wr, (Val_Sized_Unt)w);
+			WR_PUT(wr, (Vunt)w);
 		    }									// for
 		}
 	    }

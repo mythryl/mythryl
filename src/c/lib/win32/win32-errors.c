@@ -15,7 +15,7 @@
  */
 Val _lib7_win32_get_last_error(Task *task, Val arg)
 {
-    Val_Sized_Unt	err = (Val_Sized_Unt)GetLastError();
+    Vunt	err = (Vunt)GetLastError();
 
     return make_one_word_unt(task,  err  );
 }

@@ -162,8 +162,8 @@
 //
 //
 static Mutex**		mutex_vector__local                       =  NULL;		// This will be allocated in make_mutex_vector(), sized per next.
-static Val_Sized_Unt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
-static Val_Sized_Unt	mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
+static Vunt	last_valid_mutex_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_mutex_vector()
+static Vunt	mutex_vector_cursor__local                =  0;			// Rotates circularly around mutex_vector__local
 
 
 //
@@ -195,7 +195,7 @@ static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below
 	=
 	(Mutex**) malloc(   (last_valid_mutex_vector_slot_index__local +1) * sizeof (Mutex*)   );
 
-    for (Val_Sized_Unt u = 0;
+    for (Vunt u = 0;
                        u <= last_valid_mutex_vector_slot_index__local;
                        u ++
     ){
@@ -209,13 +209,13 @@ static void   make_mutex_vector   (void) {			// Called by pth__start_up(), below
 static void   double_size_of_mutex_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
     //        =======================================
     //
-    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
+    Vunt  new_size_in_slots =   2 * (last_valid_mutex_vector_slot_index__local + 1);
     //
     mutex_vector__local
 	=
 	(Mutex**) realloc( mutex_vector__local, new_size_in_slots * sizeof(Mutex*) );
 											if (!mutex_vector__local)   die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand mutex_vector__local to %d slots", new_size_in_slots );
-    for (Val_Sized_Unt u =  last_valid_mutex_vector_slot_index__local + 1;
+    for (Vunt u =  last_valid_mutex_vector_slot_index__local + 1;
 	               u <  new_size_in_slots;
 	               u ++
     ){
@@ -239,7 +239,7 @@ static Mutex*   make_mutex_record   (void) {
 }
 
 //
-Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+Mutex*   find_mutex_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDING pth__mutex.
     //   ============================
     //
     while (id > last_valid_mutex_vector_slot_index__local) {
@@ -255,7 +255,7 @@ Mutex*   find_mutex_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST 
 }
 
 //
-Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
+Vunt  pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
     //         ===============
     //
     pthread_mutex_lock( &pth__mutex );
@@ -267,7 +267,7 @@ Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return i
 	// We start where last search stopped, to avoid
 	// wasting time searching start of vector over and over:
 	//
-	for (Val_Sized_Unt u  =  0;
+	for (Vunt u  =  0;
 			   u <=  last_valid_mutex_vector_slot_index__local;
 			   u ++
 	){
@@ -277,7 +277,7 @@ Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return i
 	    if (mutex_vector__local[ mutex_vector_cursor__local ] == NULL) {
 		mutex_vector__local[ mutex_vector_cursor__local ] =  make_mutex_record ();		// Found an empty slot -- fill it and return its index.
 
-		Val_Sized_Unt result = mutex_vector_cursor__local;
+		Vunt result = mutex_vector_cursor__local;
 
 		pthread_mutex_unlock( &pth__mutex );
 
@@ -311,8 +311,8 @@ Val_Sized_Unt  pth__mutex_make   (void) {								// Create a new mutex, return i
 //
 //
 static Condvar**	condvar_vector__local                       =  NULL;		// This will be allocated in make_condvar_vector(), sized per next.
-static Val_Sized_Unt	last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
-static Val_Sized_Unt	condvar_vector_cursor__local                =  0;		// Rotates circularly around condvar_vector__local
+static Vunt	last_valid_condvar_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_condvar_vector()
+static Vunt	condvar_vector_cursor__local                =  0;		// Rotates circularly around condvar_vector__local
 
 
 //
@@ -344,7 +344,7 @@ static void   make_condvar_vector   (void) {			// Called by pth__start_up(), bel
 	=
 	(Condvar**) malloc(   (last_valid_condvar_vector_slot_index__local +1) * sizeof (Condvar*)   );
 
-    for (Val_Sized_Unt u = 0;
+    for (Vunt u = 0;
                        u <= last_valid_condvar_vector_slot_index__local;
                        u ++
     ){
@@ -358,13 +358,13 @@ static void   make_condvar_vector   (void) {			// Called by pth__start_up(), bel
 static void   double_size_of_condvar_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
     //        =========================================
     //
-    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_condvar_vector_slot_index__local + 1);
+    Vunt  new_size_in_slots =   2 * (last_valid_condvar_vector_slot_index__local + 1);
     //
     condvar_vector__local
 	=
 	(Condvar**) realloc( condvar_vector__local, new_size_in_slots * sizeof(Condvar*) );
 											if (!condvar_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand condvar_vector__local to %d slots", new_size_in_slots );
-    for (Val_Sized_Unt u =  last_valid_condvar_vector_slot_index__local + 1;
+    for (Vunt u =  last_valid_condvar_vector_slot_index__local + 1;
 	               u <  new_size_in_slots;
 	               u ++
     ){
@@ -388,7 +388,7 @@ static Condvar*   make_condvar_record   (void) {
 }
 
 //
-Condvar*   find_condvar_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+Condvar*   find_condvar_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDING pth__mutex.
     //     ==============================
     //
     while (id > last_valid_condvar_vector_slot_index__local) {
@@ -404,7 +404,7 @@ Condvar*   find_condvar_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller M
 }
 
 //
-Val_Sized_Unt  pth__condvar_make   (void) {							// Create a new condvar, return its slot number in condvar_vector__local[].
+Vunt  pth__condvar_make   (void) {							// Create a new condvar, return its slot number in condvar_vector__local[].
     //         =================
     //
     pthread_mutex_lock( &pth__mutex );
@@ -416,7 +416,7 @@ Val_Sized_Unt  pth__condvar_make   (void) {							// Create a new condvar, retur
 	// We start where last search stopped, to avoid
 	// wasting time searching start of vector over and over:
 	//
-	for (Val_Sized_Unt u  =  0;
+	for (Vunt u  =  0;
 			   u <=  last_valid_condvar_vector_slot_index__local;
 			   u ++
 	){
@@ -426,7 +426,7 @@ Val_Sized_Unt  pth__condvar_make   (void) {							// Create a new condvar, retur
 	    if (condvar_vector__local[ condvar_vector_cursor__local ] == NULL) {
 		condvar_vector__local[ condvar_vector_cursor__local ] =  make_condvar_record ();	// Found an empty slot -- fill it and return its index.
 
-		Val_Sized_Unt result = condvar_vector_cursor__local;
+		Vunt result = condvar_vector_cursor__local;
 
 		pthread_mutex_unlock( &pth__mutex );
 
@@ -460,8 +460,8 @@ Val_Sized_Unt  pth__condvar_make   (void) {							// Create a new condvar, retur
 //
 //
 static Barrier**	barrier_vector__local                       =  NULL;		// This will be allocated in make_barrier_vector(), sized per next.
-static Val_Sized_Unt	last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
-static Val_Sized_Unt	barrier_vector_cursor__local                =  0;		// Rotates circularly around barrier_vector__local
+static Vunt	last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
+static Vunt	barrier_vector_cursor__local                =  0;		// Rotates circularly around barrier_vector__local
 
 
 //
@@ -493,7 +493,7 @@ static void   make_barrier_vector   (void) {			// Called by pth__start_up(), bel
 	=
 	(Barrier**) malloc(   (last_valid_barrier_vector_slot_index__local +1) * sizeof (Barrier*)   );
 
-    for (Val_Sized_Unt u = 0;
+    for (Vunt u = 0;
                        u <= last_valid_barrier_vector_slot_index__local;
                        u ++
     ){
@@ -507,13 +507,13 @@ static void   make_barrier_vector   (void) {			// Called by pth__start_up(), bel
 static void   double_size_of_barrier_vector__need_mutex   (void)   {	// Caller MUST BE HOLDING pth__mutex.
     //        =========================================
     //
-    Val_Sized_Unt  new_size_in_slots =   2 * (last_valid_barrier_vector_slot_index__local + 1);
+    Vunt  new_size_in_slots =   2 * (last_valid_barrier_vector_slot_index__local + 1);
     //
     barrier_vector__local
 	=
 	(Barrier**) realloc( barrier_vector__local, new_size_in_slots * sizeof(Barrier*) );
 											if (!barrier_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand barrier_vector__local to %d slots", new_size_in_slots );
-    for (Val_Sized_Unt u =  last_valid_barrier_vector_slot_index__local + 1;
+    for (Vunt u =  last_valid_barrier_vector_slot_index__local + 1;
 	               u <  new_size_in_slots;
 	               u ++
     ){
@@ -537,7 +537,7 @@ static Barrier*   make_barrier_record   (void) {
 }
 
 //
-Barrier*   find_barrier_by_id__need_mutex   (Val_Sized_Unt  id) {				// Caller MUST BE HOLDING pth__mutex.
+Barrier*   find_barrier_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDING pth__mutex.
     //     ==============================
     //
     while (id > last_valid_barrier_vector_slot_index__local) {
@@ -852,7 +852,7 @@ void   pth__shut_down (void) {
 // }
 
 //
-char*    pth__mutex_destroy   (Task* task, Val arg, Val_Sized_Unt mutex_id)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Task* task, Val arg, Vunt mutex_id)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -876,7 +876,7 @@ char*    pth__mutex_destroy   (Task* task, Val arg, Val_Sized_Unt mutex_id)   {	
     }
 }
 //
-char*  pth__mutex_lock  (Task* task, Val arg, Val_Sized_Unt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Task* task, Val arg, Vunt mutex_id) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     //
@@ -903,7 +903,7 @@ char*  pth__mutex_lock  (Task* task, Val arg, Val_Sized_Unt mutex_id) {					// h
     }
 }
 //
-char*  pth__mutex_trylock   (Task* task, Val arg, Val_Sized_Unt mutex_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Task* task, Val arg, Vunt mutex_id, Bool* result) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -923,7 +923,7 @@ char*  pth__mutex_trylock   (Task* task, Val arg, Val_Sized_Unt mutex_id, Bool* 
     }
 }
 //
-char*  pth__mutex_unlock   (Task* task, Val arg, Val_Sized_Unt mutex_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_unlock   (Task* task, Val arg, Vunt mutex_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
     //
@@ -972,7 +972,7 @@ char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http:
     else	  return NULL;
 }
 //
-char*  pth__condvar_destroy (Task* task, Val arg, Val_Sized_Unt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*  pth__condvar_destroy (Task* task, Val arg, Vunt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -991,7 +991,7 @@ char*  pth__condvar_destroy (Task* task, Val arg, Val_Sized_Unt condvar_id) {			
     else	  return NULL;
 }
 //
-char*  pth__condvar_wait   (Task* task, Val arg, Val_Sized_Unt condvar_id, Val_Sized_Unt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Task* task, Val arg, Vunt condvar_id, Vunt mutex_id) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1011,7 +1011,7 @@ char*  pth__condvar_wait   (Task* task, Val arg, Val_Sized_Unt condvar_id, Val_S
     else	  return NULL;
 }
 //
-char*  pth__condvar_signal   (Task* task, Val arg, Val_Sized_Unt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_signal   (Task* task, Val arg, Vunt condvar_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
     pthread_mutex_lock(   &pth__mutex  );
@@ -1026,7 +1026,7 @@ char*  pth__condvar_signal   (Task* task, Val arg, Val_Sized_Unt condvar_id) {		
     else		return NULL;
 }
 //
-char*  pth__condvar_broadcast   (Task* task, Val arg, Val_Sized_Unt condvar_id) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
     pthread_mutex_lock(   &pth__mutex  );

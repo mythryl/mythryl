@@ -42,13 +42,13 @@ int          ramlog_next_entry_to_write = 0;
 
 
 //
-static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
+static char*  val_sized_unt_as_ascii(  char* buf,  Vunt u ) {
     //        ======================
     //
     char* p = buf;
     //
     for (int i = 0;
-             i < sizeof(Val_Sized_Unt);
+             i < sizeof(Vunt);
              i++
     ){
 	//
@@ -139,7 +139,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
     fprintf(fd,"                  current_thread x=%x\n",  v2u( task->current_thread ));
     fprintf(fd,"                  heap_changelog x=%x\n",  v2u( task->heap_changelog ));
     fprintf(fd,"                 fault_exception x=%x\n",  v2u( task->fault_exception ));
-    fprintf(fd,"        faulting_program_counter x=%x\n",  (unsigned int) task->faulting_program_counter);	// Val_Sized_Unt.
+    fprintf(fd,"        faulting_program_counter x=%x\n",  (unsigned int) task->faulting_program_counter);	// Vunt.
     fprintf(fd,"                 protected_c_arg p=%p\n",  task->protected_c_arg);
     fprintf(fd,"                       &heapvoid p=%p\n", &task->heapvoid);
     fprintf(fd," Following stuff is in task->heap:\n");
@@ -178,7 +178,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
 	    fprintf(fd,"          a->sib[%d].tospace.limit      p=%p\n",  s, a->sib[s]->tospace.limit);
 	    fprintf(fd,"\n");
 	    fprintf(fd,"          a->sib[%d].fromspace.start    p=%p\n",  s, a->sib[s]->fromspace.start);
-	    fprintf(fd,"          a->sib[%d].fromspace.bytesize x=%x\n",  s, (unsigned int) a->sib[s]->fromspace.bytesize);	// Val_Sized_Unt
+	    fprintf(fd,"          a->sib[%d].fromspace.bytesize x=%x\n",  s, (unsigned int) a->sib[s]->fromspace.bytesize);	// Vunt
 	    fprintf(fd,"          a->sib[%d].fromspace.used_end p=%p\n",  s, a->sib[s]->fromspace.used_end);
 	    fprintf(fd,"\n");
 	    fprintf(fd,"          a->sib[%d].tospace.used_end p=%p\n",  s, a->sib[s]->tospace.used_end);
@@ -215,13 +215,13 @@ static void   dump_gen0_tripwire_buffers__guts   (FILE* fd, Task* task, char* ca
         task =  pthread_table__global[ t ]->task;
         //
 	unsigned char* buf_as_ucharptr  =  (((unsigned char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
-	Val_Sized_Int* buf_as_valintptr =  (Val_Sized_Int*) buf_as_ucharptr;
+	Vint* buf_as_valintptr =  (Vint*) buf_as_ucharptr;
 
         fprintf(fd,"\n"																);
 	fprintf(fd,"--------------------------------------\n"											);
 	fprintf(fd,"Hexdump of overrun buffer for pthread %d -- should be all zeros:\n\n", t );
 	//
-	hexdump_to_file  (fd, "", buf_as_ucharptr, AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS * sizeof(Val_Sized_Int));
+	hexdump_to_file  (fd, "", buf_as_ucharptr, AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS * sizeof(Vint));
 
 	fprintf(fd,"Same buffer listed as hex words:\n\n" );
 	//
@@ -262,7 +262,7 @@ static void   dump_records   (FILE* fd, Val* start, Val* stop) {
 	    if (!words_left_in_record)   fprintf(fd,"\n");
 	    //
 	    char buf[ 132 ];
-	    char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	    char* as_ascii = val_sized_unt_as_ascii(buf,(Vunt)(*p));
 	    fprintf(fd," %8p: %08x  %s",  p, v2u(*p), as_ascii);
 	    //
 	    if (!words_left_in_record
@@ -464,7 +464,7 @@ static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
 	      p++
     ){
 	char buf[ 132 ];
-	char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	char* as_ascii = val_sized_unt_as_ascii(buf,(Vunt)(*p));
 	fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
     }    
 }
@@ -951,7 +951,7 @@ void   zero_agegroup0_overrun_tripwire_buffer   (Task* task) {
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we zero that out:
     //
-    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    Vint* p = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = 0;
              i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
@@ -976,7 +976,7 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     //
     //     src/c/heapcleaner/call-heapcleaner.c 
     //
-    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    Vint* p = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {								// AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS	is from   src/c/h/runtime-base.h
 	//

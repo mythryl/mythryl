@@ -52,7 +52,7 @@ static void   InitMemory   ()   {
     PageShift = j;
 }
 
-Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
+Quire*   obtain_quire_from_os   (Vunt bytesize) {
     //   ====================	
     //
     // Get a new memory chunk from the OS.
@@ -64,7 +64,7 @@ Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
     //    src/c/heapcleaner/heapcleaner-initialization.c
     //    src/c/heapcleaner/hugechunk.c
 
-    Val_Sized_Unt alloc_bytesize;
+    Vunt alloc_bytesize;
 
     Quire*	chunk;
 

@@ -221,9 +221,9 @@
 //   IS_TAGGED_INT(W)	-- TRUE iff lower bit is 1.
 //   IS_TAGWORD(W)	-- TRUE iff lower two bits are binary 10
 //
-#define IS_POINTER(W)		(((Val_Sized_Unt)(W) & ATAG_MASK) ==    POINTER_ATAG)
-#define IS_TAGGED_INT(W)	(((Val_Sized_Unt)(W) &         1) == TAGGED_INT_ATAG)
-#define IS_TAGWORD(W)		(((Val_Sized_Unt)(W) & ATAG_MASK) ==    TAGWORD_ATAG)
+#define IS_POINTER(W)		(((Vunt)(W) & ATAG_MASK) ==    POINTER_ATAG)
+#define IS_TAGGED_INT(W)	(((Vunt)(W) &         1) == TAGGED_INT_ATAG)
+#define IS_TAGWORD(W)		(((Vunt)(W) & ATAG_MASK) ==    TAGWORD_ATAG)
 
 // See also:
 //
@@ -232,8 +232,8 @@
 
 // Extract tagword fields:
 //
-#define GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)	 (((Val_Sized_Unt)(tagword)) >> TAGWORD_LENGTH_FIELD_SHIFT)				// Length excludes tagword itself.
-#define GET_BTAG_FROM_TAGWORD(tagword)			((((Val_Sized_Unt)(tagword)) ANDOP BTAG_MASK) >> BTAG_SHIFT_IN_BITS)
+#define GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)	 (((Vunt)(tagword)) >> TAGWORD_LENGTH_FIELD_SHIFT)				// Length excludes tagword itself.
+#define GET_BTAG_FROM_TAGWORD(tagword)			((((Vunt)(tagword)) ANDOP BTAG_MASK) >> BTAG_SHIFT_IN_BITS)
     //
     // WARNING: There is a hardwired GET_BATAG_FROM_TAGWORD in
     //     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg

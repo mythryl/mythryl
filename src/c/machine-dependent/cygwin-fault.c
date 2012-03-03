@@ -89,7 +89,7 @@ static int  page_fault_handler   (EXCEPTION_RECORD* exn,  void* foo,  CONTEXT* c
     //
     // This filter catches all exceptions. 
     //
-    extern Val_Sized_Unt request_fault [];
+    extern Vunt request_fault [];
 
     Task* task = SELF_PTHREAD->task;
 

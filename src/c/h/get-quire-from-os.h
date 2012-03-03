@@ -41,7 +41,7 @@ typedef   struct quire   Quire;										// Depending on host OS, struct quire d
 
 // This API defines three client-accessible functions:
 //
-extern Quire*   obtain_quire_from_os   (Val_Sized_Unt  bytesize);					//     obtain_quire_from_os		def in   src/c/ram/get-quire-from-os-stuff.c
+extern Quire*   obtain_quire_from_os   (Vunt  bytesize);					//     obtain_quire_from_os		def in   src/c/ram/get-quire-from-os-stuff.c
 extern void		       return_quire_to_os     (Quire*  region);					//     return_quire_to_os		def in   src/c/ram/get-quire-from-os-stuff.c
 
 extern void                    set_up_quire_os_interface        (void);					// set_up_quire_os_interface		def in   src/c/ram/get-quire-from-mach.c
