@@ -56,51 +56,6 @@
 
 #include "../raise-error.h"
 
-struct condvar_struct {
-    //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-    int      state;
-    Condvar  condvar;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-};
-
-struct barrier_struct {
-    //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-    int      state;
-    Barrier  barrier;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-};
-
-    ////////////////////////////////////////////////////////////////
-    // Why the padding[] arrays?
-    //
-    // We do not expect to have vast number of mutex, barrier
-    // or condition variable, but obviously we do expect them
-    // to be points of contention between cores.  In general
-    // each core likes to lock down the relevant cache line
-    // before doing any synchronization operations, so it pays
-    // to make sure that each mutex, barrier and condition variable
-    // is in its own cache line -- if we had multiple mutexes in the
-    // same cacheline then separate cores operating on separate
-    // mutexes, which should logically have no contention, might
-    // wind up fighting for control of the shared cacheline.
-    ////////////////////////////////////////////////////////////////
-
-// Values for barrier_struct.state:
-//
-#define UNINITIALIZED_BARRIER	0xDEADBEEF
-#define   INITIALIZED_BARRIER	0xBEEFFEED
-#define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_BARRIER	0xDEADDEAD
-
-// Values for condvar_struct.state:
-//
-#define UNINITIALIZED_CONDVAR	0xDEADBEEF
-#define   INITIALIZED_CONDVAR	0xBEEFFEED
-#define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_CONDVAR	0xDEADDEAD
-
 
 
 // Probably should be using this in this file:    XXX SUCKO FIXME
@@ -213,12 +168,7 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
     //       =============
     //
 										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
-    // 'arg' should be something returned by barrier_make() above,
-    // so it should be a Mythryl boxed word -- a two-word heap record
-    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-    // followed by the mutex_vector__local index of our   Mutex.
-    // Per Mythryl convention, 'arg' will point to the second word,
-    // so all we have to do is cast it appropriately:
+    // 'arg' should be something returned by do_mutex_make():
     //
     {    char* err =  pth__mutex_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	//
@@ -281,6 +231,7 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     // around in memory seems like a really, really
     // bad idea:
     //
+#ifdef OLD
     struct barrier_struct*  barrier
 	=
 	(struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
@@ -291,19 +242,17 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     // to the Mythryl level encoded as a word value:
     //
     return  make_one_word_unt(task, (Vunt)barrier );
+#else
+    return TAGGED_INT_FROM_C_INT( pth__barrier_make() );
+#endif
 }
 
 static Val   do_barrier_free   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_free");
-    // 'arg' should be something returned by do_barrier_make() above,
-    // so it should be a Mythryl boxed word -- a two-word heap record
-    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-    // followed by the C address of our   struct barrier_struct.
-    // Per Mythryl convention, 'arg' will point to the second word,
-    // so all we have to do is cast it appropriately:
-    //
+    // 'arg' should be something returned by do_barrier_make():
+#ifdef OLD
     struct barrier_struct*  barrier
 	=
 	*((struct barrier_struct**) arg);
@@ -326,6 +275,12 @@ static Val   do_barrier_free   (Task* task,  Val arg)   {
 	    log_if("do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
 	    die(   "do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
     }
+#else
+    {    char* err =  pth__barrier_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+	//
+	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    }
+#endif
 
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
@@ -335,9 +290,10 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_init");
-    Val barrier_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-    int threads	= GET_TUPLE_SLOT_AS_INT(arg, 1);
+    Vunt barrier_id =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int  threads    =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
+#ifdef OLD
     struct barrier_struct*  barrier
 	=
 	*((struct barrier_struct**) barrier_arg);
@@ -358,6 +314,13 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
 	case         FREED_BARRIER:	log_if("do_barrier_init:  Attempt to set freed barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init freed barrier.", NULL);
 	default:			log_if("do_barrier_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init bogus varrier value. (Already-freed barrier? Junk?)", NULL);
     }
+#else
+    char* err =   pth__barrier_init( task, arg, barrier_id, threads );
+    //
+    if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
+    else		{ 						return HEAP_VOID;			}
+
+#endif
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
@@ -365,6 +328,7 @@ static Val   do_barrier_destroy   (Task* task,  Val arg)   {
     //       ==================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_destroy");
+#ifdef OLD
     struct barrier_struct*  barrier
 	=
 	*((struct barrier_struct**) arg);
@@ -385,6 +349,12 @@ static Val   do_barrier_destroy   (Task* task,  Val arg)   {
 	case         FREED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-freed barrier.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-freed barrier.", NULL);
 	default:			log_if("do_barrier_destroy:  Attempt to clear bogus value.");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy bogus barrier value. (Already-freed barrier? Junk?)", NULL);
     }
+#else
+    char* err =   pth__barrier_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else	{ 							return HEAP_VOID;			}
+#endif
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
@@ -392,6 +362,7 @@ static Val   do_barrier_wait   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_wait");
+#ifdef OLD
     struct barrier_struct*  barrier
 	=
 	*((struct barrier_struct**) arg);
@@ -413,6 +384,14 @@ static Val   do_barrier_wait   (Task* task,  Val arg)   {
 	case         FREED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on freed barrier.", NULL);
 	default:			log_if("do_barrier_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on bogus barrier value. (Already-freed barrier?)", NULL);
     }
+#else
+    Bool result;
+    char* err =   pth__barrier_wait( task, arg, TAGGED_INT_TO_C_INT( arg ), &result );
+    //
+    if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    if (result)							return HEAP_TRUE;
+    else							return HEAP_FALSE;
+#endif
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 

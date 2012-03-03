@@ -765,7 +765,9 @@ extern char*   pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id);	
 //  o Never call  pth__barrier_init() or pth__barrier_detroy()
 //    while pthreads are blocked on the barrier.
 //
-extern char*    pth__barrier_init 	(Task* task, Val arg, Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+extern Vunt	pth__barrier_make    (void);
+
+extern char*    pth__barrier_init 	(Task* task, Val arg, Vunt barrier_id, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
     // Tell the barrier how many threads must be
     // present at it before they can pass. This
@@ -781,7 +783,7 @@ extern char*    pth__barrier_init 	(Task* task, Val arg, Barrier* barrier, int t
     //    (That is, if some pthread has not returned from
     //    pth__barrier_wait)
 
-extern char*    pth__barrier_wait (Task* task, Val arg, Barrier* barrierp, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+extern char*    pth__barrier_wait (Task* task, Val arg, Vunt barrier_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     //
     // Block currently executing pthread until the proper
     // number of pthreads are waiting at the barrier.
@@ -801,7 +803,7 @@ extern char*    pth__barrier_wait (Task* task, Val arg, Barrier* barrierp, Bool*
     //      * pth__barrier_init() has not been called on it since the last
     //        pth__barrier_destroy() call on it.
 
-extern char*    pth__barrier_destroy(Task* task, Val arg, Barrier* barrierp);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+extern char*    pth__barrier_destroy(Task* task, Val arg, Vunt barrier_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
     // Undo the effects of   pth__barrier_init ()   on the barrier.
     // ("Destroy" is poor nomenclature; "reset" would be better.)

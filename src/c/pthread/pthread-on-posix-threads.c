@@ -457,28 +457,28 @@ Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its 
 // This is just a clone of the above dynamically-allocated mutex section.
 //
 //
-static Barrier**	barrier_vector__local                       =  NULL;		// This will be allocated in make_barrier_vector(), sized per next.
-static Vunt	last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;	// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
-static Vunt	barrier_vector_cursor__local                =  0;		// Rotates circularly around barrier_vector__local
+static Barrier** barrier_vector__local                       =  NULL;				// This will be allocated in make_barrier_vector(), sized per next.
+static Vunt	 last_valid_barrier_vector_slot_index__local =  (1 << 1) -1;			// Must be power of two minus one.  We start with a ridiculously small vector to make sure we exercise double_size_of_barrier_vector()
+static Vunt	 barrier_vector_cursor__local                =  0;				// Rotates circularly around barrier_vector__local
 
 
 //
-static char*   initialize_barrier   (Barrier* barrier, int threads) {
-    //         ==================
-    //
-    int err =  pthread_barrier_init( barrier, NULL, (unsigned) threads );					// pthread_barrier_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
-
-    switch (err) {
-	//
-	case 0:				return NULL;					// Success.
-	case ENOMEM:			return "Insufficient ram to initialize barrier";
-	case EAGAIN:			return "Insufficient (non-ram) resources to initialize barrier";
-	case EPERM:			return "Caller lacks privilege to initialize barrier";
-	case EBUSY:			return "Attempt to reinitialize the object referenced by barrier, a previously initialized, but not yet destroyed, barrier.";
-	case EINVAL:			return "Invalid attribute";
-	default:			return "Undocumented error return from pthread_barrier_init()";
-    }
-}
+// static char*   initialize_barrier   (Barrier* barrier, int threads) {
+//     //         ==================
+//     //
+//     int err =  pthread_barrier_init( barrier, NULL, (unsigned) threads );			// pthread_barrier_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+// 
+//     switch (err) {
+// 	//
+// 	case 0:				return NULL;					// Success.
+// 	case ENOMEM:			return "Insufficient ram to initialize barrier";
+// 	case EAGAIN:			return "Insufficient (non-ram) resources to initialize barrier";
+// 	case EPERM:			return "Caller lacks privilege to initialize barrier";
+// 	case EBUSY:			return "Attempt to reinitialize the object referenced by barrier, a previously initialized, but not yet destroyed, barrier.";
+// 	case EINVAL:			return "Invalid attribute";
+// 	default:			return "Undocumented error return from pthread_barrier_init()";
+//     }
+// }
 
 //
 static void   make_barrier_vector   (void) {			// Called by pth__start_up(), below.
@@ -491,9 +491,9 @@ static void   make_barrier_vector   (void) {			// Called by pth__start_up(), bel
 	=
 	(Barrier**) malloc(   (last_valid_barrier_vector_slot_index__local +1) * sizeof (Barrier*)   );
 
-    for (Vunt u = 0;
-                       u <= last_valid_barrier_vector_slot_index__local;
-                       u ++
+    for (Vunt	u  =  0;
+		u <=  last_valid_barrier_vector_slot_index__local;
+		u ++
     ){
 	//
 	barrier_vector__local[ u ] =  NULL;
@@ -511,9 +511,9 @@ static void   double_size_of_barrier_vector__need_mutex   (void)   {	// Caller M
 	=
 	(Barrier**) realloc( barrier_vector__local, new_size_in_slots * sizeof(Barrier*) );
 											if (!barrier_vector__local) die("src/c/pthread/pthread-on-posix-threads.c: Unable to expand barrier_vector__local to %d slots", new_size_in_slots );
-    for (Vunt u =  last_valid_barrier_vector_slot_index__local + 1;
-	               u <  new_size_in_slots;
-	               u ++
+    for (Vunt	u =  last_valid_barrier_vector_slot_index__local + 1;
+		u <  new_size_in_slots;
+		u ++
     ){
 	barrier_vector__local[ u ] =  NULL;
     }
@@ -548,6 +548,44 @@ Barrier*   find_barrier_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HO
     }
 
     return barrier_vector__local[ id ];
+}
+
+//
+Vunt   pth__barrier_make   (void) {									// Create a new barrier, return its slot number in barrier_vector__local[].
+    // =================
+    //
+    pthread_mutex_lock( &pth__mutex );
+    //
+    for (;;) {												// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+	//
+	// Search for an empty slot in barrier_vector__local[].
+	//
+	// We start where last search stopped, to avoid
+	// wasting time searching start of vector over and over:
+	//
+	for (Vunt   u  =  0;
+		    u <=  last_valid_barrier_vector_slot_index__local;
+		    u ++
+	){
+	    barrier_vector_cursor__local =  (barrier_vector_cursor__local +1)				// Bump cursor.
+				         &  last_valid_barrier_vector_slot_index__local;		// Wrap around at end of vector.
+
+	    if (barrier_vector__local[ barrier_vector_cursor__local ] == NULL) {
+		barrier_vector__local[ barrier_vector_cursor__local ] =  make_barrier_record ();	// Found an empty slot -- fill it and return its index.
+		Vunt result =          barrier_vector_cursor__local;
+
+		pthread_mutex_unlock( &pth__mutex );
+
+		return result;
+	    }
+	}
+
+	// If we arrive here, there are no
+	// empty slots in barrier_vector__local[]
+	// so we double its size to create some:
+	//
+	double_size_of_barrier_vector__need_mutex ();
+    }	
 }
 
 //
@@ -761,7 +799,6 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
     // I'm going to punt on this problem for the time being. -- 2011-12-05 CrT
     //////////////////////////////////////////////////////////////////////////////
 
- if (running_script) log_if("pth__pthread_join: TOP...");
     int pthread_to_join_id =  TAGGED_INT_TO_C_INT( arg );
 
     // 'pthread_to_join_id' should have been returned by
@@ -771,7 +808,6 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
     if (pthread_to_join_id < 0
     ||  pthread_to_join_id >= MAX_PTHREADS
     ){
- if (running_script) log_if("pth__pthread_join: BOTTOM (failed).");
 	return "pth__pthread_join: Bogus value for pthread_to_join_id.";
     }
 
@@ -794,7 +830,6 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
 
 
- if (running_script) log_if("pth__pthread_join: BOTTOM.");
     switch (err) {
 	//
 	case 0:		return NULL;							// Success.
@@ -1042,36 +1077,46 @@ char*  pth__condvar_broadcast   (Task* task, Val arg, Vunt condvar_id) {			// ht
 
 
 //
-char*  pth__barrier_init   (Task* task, Val arg, Barrier* barrier, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_init   (Task* task, Val arg, Vunt barrier_id, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_init", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int result = pthread_barrier_init( barrier, NULL, (unsigned) threads);			// pthread_barrier_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Barrier* barrier =  find_barrier_by_id__need_mutex( barrier_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__barrier_init" );
+    pthread_mutex_unlock(  &pth__mutex  );
+
+    int result = pthread_barrier_init( barrier, NULL, (unsigned) threads);			// pthread_barrier_init probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
 
     if (result)	  return "pth__barrier_init: Unable to set barrier.";
     else	  return NULL;
 }
 //
-char*  pth__barrier_destroy   (Task* task, Val arg, Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_destroy   (Task* task, Val arg, Vunt barrier_id) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy", NULL );
+    pthread_mutex_lock(   &pth__mutex  );
 	//
-	int result = pthread_barrier_destroy( barrier );					// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	Barrier* barrier =  find_barrier_by_id__need_mutex( barrier_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy" );
+    pthread_mutex_unlock(  &pth__mutex  );
 
-    if (result)   return "pth__barrier_init: Unable to clear barrier.";
+    int result = pthread_barrier_destroy( barrier );						// pthread_barrier_destroy probably cannot block, so we probably do not need RELEASE/RECOVER wrappers.
+
+    if (result)   return "pth__barrier_destroy: Unable to clear barrier.";
     else	  return NULL;
 }
 
 //
-char*  pth__barrier_wait   (Task* task, Val arg, Barrier* barrier, Bool* result) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+char*  pth__barrier_wait   (Task* task, Val arg, Vunt barrier_id, Bool* result) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
+    pthread_mutex_lock(   &pth__mutex  );
+	//
+	Barrier* barrier =  find_barrier_by_id__need_mutex( barrier_id );
+	//
+    pthread_mutex_unlock(  &pth__mutex  );
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", NULL );
 	//
 	int err =  pthread_barrier_wait( barrier );
