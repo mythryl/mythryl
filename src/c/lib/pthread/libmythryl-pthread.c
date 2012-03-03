@@ -596,75 +596,75 @@ log_if("do_condvar_free: free()d condvar %x", condvar);
     #endif
 }
 
-static Val   do_condvar_init   (Task* task,  Val arg)   {
-    //       ===============
-    //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_init");
+// static Val   do_condvar_init   (Task* task,  Val arg)   {
+//     //       ===============
+//     //
+// 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_init");
+// 
+//     #if NEED_PTHREAD_SUPPORT
+// 
+// 	struct condvar_struct*  condvar
+// 	    =
+// 	    *((struct condvar_struct**) arg);
+// 
+// 	switch (condvar->state) {
+// 	    //
+// 	    case UNINITIALIZED_CONDVAR:
+// 	    case       CLEARED_CONDVAR:
+// 		{
+// 		    char* err = pth__condvar_init( task, arg, &condvar->condvar );
+// 		    //
+// 		    if (err)		{ log_if("pth__condvar_init returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+// 		    else		{ condvar->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
+// 		}
+// 		break;
+// 
+// 	    case   INITIALIZED_CONDVAR:	log_if("do_condvar_init:  Attempt to set already-set condvar.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set condvar.", NULL);
+// 	    case         FREED_CONDVAR:	log_if("do_condvar_init:  Attempt to set freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed condvar.", NULL);
+// 	    default:			log_if("do_condvar_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)", NULL);
+// 	}
+//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+// 
+//     #else
+// 	die ("do_condvar_init: unimplemented\n");
+//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//     #endif
+// }
 
-    #if NEED_PTHREAD_SUPPORT
-
-	struct condvar_struct*  condvar
-	    =
-	    *((struct condvar_struct**) arg);
-
-	switch (condvar->state) {
-	    //
-	    case UNINITIALIZED_CONDVAR:
-	    case       CLEARED_CONDVAR:
-		{
-		    char* err = pth__condvar_init( task, arg, &condvar->condvar );
-		    //
-		    if (err)		{ log_if("pth__condvar_init returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    else		{ condvar->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
-		}
-		break;
-
-	    case   INITIALIZED_CONDVAR:	log_if("do_condvar_init:  Attempt to set already-set condvar.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set condvar.", NULL);
-	    case         FREED_CONDVAR:	log_if("do_condvar_init:  Attempt to set freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed condvar.", NULL);
-	    default:			log_if("do_condvar_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_condvar_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
-}
-
-static Val   do_condvar_destroy   (Task* task,  Val arg)   {
-    //       ==================
-    //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_destroy");
-
-    #if NEED_PTHREAD_SUPPORT
-
-	struct condvar_struct*  condvar
-	    =
-	    *((struct condvar_struct**) arg);
-
-	switch (condvar->state) {
-	    //
-	    case   INITIALIZED_CONDVAR:
-		{
-		    char* err =  pth__condvar_destroy( task, arg, &condvar->condvar );
-		    //
-		    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
-		    else		{ condvar->state = CLEARED_CONDVAR;		return HEAP_VOID;	  			}
-		}
-		break;
-
-	    case UNINITIALIZED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear uninitialized condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized condvar.", NULL);
-	    case       CLEARED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared condvar.", NULL);
-	    case         FREED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-freed condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed condvar.", NULL);
-	    default:			log_if("do_condvar_destroy:  Attempt to clear bogus value.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_destroy: Attempt to clear bogus value.", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_condvar_destroy: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
-}
+// static Val   do_condvar_destroy   (Task* task,  Val arg)   {
+//     //       ==================
+//     //
+// 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_destroy");
+// 
+//     #if NEED_PTHREAD_SUPPORT
+// 
+// 	struct condvar_struct*  condvar
+// 	    =
+// 	    *((struct condvar_struct**) arg);
+// 
+// 	switch (condvar->state) {
+// 	    //
+// 	    case   INITIALIZED_CONDVAR:
+// 		{
+// 		    char* err =  pth__condvar_destroy( task, arg, &condvar->condvar );
+// 		    //
+// 		    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
+// 		    else		{ condvar->state = CLEARED_CONDVAR;		return HEAP_VOID;	  			}
+// 		}
+// 		break;
+// 
+// 	    case UNINITIALIZED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear uninitialized condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized condvar.", NULL);
+// 	    case       CLEARED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared condvar.", NULL);
+// 	    case         FREED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-freed condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed condvar.", NULL);
+// 	    default:			log_if("do_condvar_destroy:  Attempt to clear bogus value.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_destroy: Attempt to clear bogus value.", NULL);
+// 	}
+//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+// 
+//     #else
+// 	die ("do_condvar_destroy: unimplemented\n");
+//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//     #endif
+// }
 
 static Val   do_condvar_wait   (Task* task,  Val arg)   {
     //       ===============
@@ -792,8 +792,8 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "condvar_make","condvar_make",		do_condvar_make,	""},
     { "condvar_free","condvar_free",		do_condvar_free,	""},
-    { "condvar_init","condvar_init",		do_condvar_init,	""},
-    { "condvar_destroy","condvar_destroy",	do_condvar_destroy,	""},
+//    { "condvar_init","condvar_init",		do_condvar_init,	""},
+//    { "condvar_destroy","condvar_destroy",	do_condvar_destroy,	""},
     { "condvar_wait","condvar_wait",		do_condvar_wait,	""},
     { "condvar_signal","condvar_signal",	do_condvar_signal,	""},
     { "condvar_broadcast","condvar_broadcast",	do_condvar_broadcast,	""},
