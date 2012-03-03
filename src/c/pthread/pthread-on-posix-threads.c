@@ -458,8 +458,9 @@ Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its 
 //
 //
 typedef struct { Barrier barrier;
-                 Bool initialized;
-               } Barrierx; 									// "x" for "extended" (with "initialized" flag).
+                 Bool    is_set;
+               }
+        Barrierx; 										// "x" for "extended" (with "is_set" flag).
 
 static Barrierx** barrier_vector__local                       =  NULL;				// This will be allocated in make_barrier_vector(), sized per next.
 static Vunt	  last_valid_barrier_vector_slot_index__local =  (1 << 12) -1;			// Must be power of two minus one.  We start with large vector to reduce potential race condition problems involving stale ids.
@@ -533,7 +534,7 @@ static Barrierx*  make_barrier_record   (void) {
     //
     Barrierx* barrier =   (Barrierx*)  malloc( sizeof( Barrierx ) );	if (!barrier)  die("src/c/pthread/pthread-on-posix-threads.c: allocate_barrier_record: Unable to allocate barrier record");
 
-    barrier->initialized = FALSE;
+    barrier->is_set   = FALSE;
 
     return barrier;
 }
@@ -1095,7 +1096,7 @@ char*  pth__barrier_init   (Task* task, Vunt barrier_id, int threads) {				// ht
 
     if (result)	  return "pth__barrier_init: Unable to set barrier.";
 
-    barrier->initialized = TRUE;
+    barrier->is_set = TRUE;
 
     return NULL;
 }
@@ -1107,7 +1108,7 @@ static char*  barrier_destroy   (Task* task, Barrierx* barrier) {				// http://p
 
     if (result)   return "pth__barrier_destroy: Unable to clear barrier.";
 
-    barrier->initialized = FALSE;
+    barrier->is_set = FALSE;
 
     return NULL;
 }
@@ -1139,9 +1140,16 @@ char*  pth__barrier_free   (Task* task, Vunt barrier_id) {					// http://pubs.op
     pthread_mutex_lock(   &pth__mutex  );
 	//
 	Barrierx* barrier =  find_barrier_by_id__need_mutex( barrier_id );
-	//
+
+        if (barrier->is_set) {
+	    //
+	    pthread_mutex_unlock(  &pth__mutex  );
+	    //
+	    return "pth__barrier_wait:  Cannot free barrier while it is set.";
+	}
+	
 	free( barrier );
-	//
+
 	barrier_vector__local[ barrier_id ] = NULL;
 	//
     pthread_mutex_unlock(  &pth__mutex  );
@@ -1162,7 +1170,7 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    if (!barrier->initialized)  return "pth__barrier_wait:  Must set barrier before waiting on it.";
+    if (!barrier->is_set)  return "pth__barrier_wait:  Must set barrier before waiting on it.";
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", NULL );
 	//
