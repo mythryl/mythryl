@@ -156,9 +156,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // pointers into agegroup0 from other agegroups
     // we need to know about them now:	
     //
-    #if NEED_PTHREAD_SUPPORT
-    {
-	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
+    {    for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table__global[ i ];
 	    //
@@ -170,9 +168,6 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    }
 	}
     }
-    #else
-	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
-    #endif
 
     copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1( age1, task );
 								    ++heap->agegroup0_heapcleanings_count;

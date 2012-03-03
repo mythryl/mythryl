@@ -15,11 +15,7 @@
 
 #include "win32-sigtable.c"
 
-#if NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	(pth__get_pthread())
-#else
-    #define SELF_PTHREAD	(pthread_table__global[ 0 ])
-#endif
+#define SELF_PTHREAD	(pth__get_pthread())
 
 Val   list_signals__may_heapclean  (Task* task, Roots* extra_roots)   {
     //===========================

@@ -75,8 +75,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined	in   src/c/h/runtime-globals.h
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-    #if NEED_PTHREAD_SUPPORT											// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
-    {
+    {														// Pthread support -- for background see the "Overview" comments in    src/lib/std/src/pthread.api
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a PRIMARY_HEAPCLEANER pthread to do the heapcleaning work.
@@ -124,7 +123,6 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
     }
-    #endif
 
     note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -132,9 +130,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-    #if NEED_PTHREAD_SUPPORT
-    {
-	// Get extra roots from pthreads that entered
+    {   // Get extra roots from pthreads that entered
 	// through call_heapcleaner_with_extra_roots
 	//
 	for (int i = 0;   pth__extra_heapcleaner_roots__global[i] != NULL;   i++) {
@@ -142,7 +138,6 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[i];
 	}
     }
-    #endif
 
     // Note a few C-level pointers into the Mythryl heap --
     // low-level special-case stuff like the signal handler,
@@ -156,10 +151,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // Note heapcleaner roots from the register set(s)
     // of the live Mythryl pthread task(s):
     //
-    #if NEED_PTHREAD_SUPPORT
-    {
-	//
-	for (int j = 0;  j < MAX_PTHREADS;  j++) {
+    {   for (int j = 0;  j < MAX_PTHREADS;  j++) {
 	    //
 	    Pthread* pthread =  pthread_table__global[ j ];
 	    Task*    task    =  pthread->task;
@@ -179,7 +171,6 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    }
 	}
     }
-    #endif													// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 														if (roots_ptr >= &roots[ MAX_TOTAL_CLEANING_ROOTS ]) {
@@ -239,23 +230,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
 
     // Reset the agegroup0 allocation pointers:
-    //
-    #if NEED_PTHREAD_SUPPORT											// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
+    //														// NB: Currently this code requires that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS be TRUE.
     pth__finish_heapcleaning( task );										// Multiple pthreads, so we must reset the agegroup-0 heap allocation pointers in each of them.
-    #else
-    {
-	task->heap_allocation_pointer	= heap->agegroup0_buffer;
-
-	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	task->heap_allocation_limit
-	    =
-	    HEAP_ALLOCATION_LIMIT( task );
-	#else
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );				// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
-	#endif
-    }
-    #endif
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/bottom" );
 
@@ -296,9 +272,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (agegroup-0 pass).
 
-    #if NEED_PTHREAD_SUPPORT
-    {														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
-
+    {														// Pthread support.
+														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
 	int we_are_the_primary_heapcleaner_pthread
 	    =
 	    pth__start_heapcleaning_with_extra_roots (task, extra_roots);					// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
@@ -327,7 +302,6 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
     }
-    #endif
 
     note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -335,8 +309,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-    #if NEED_PTHREAD_SUPPORT
-    {
+    {														// Pthread support.
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global
         // by pth__start_heapcleaning_with_extra_roots.
@@ -346,16 +319,6 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[ i ];
 	}
     }
-    #else
-    {
-        // Note extra_roots from argument list:
-	//
-	for (Roots* x = extra_roots;  x;  x = x->next) {
-	    //
-	    *roots_ptr++ =  x->root;
-	}
-    }
-    #endif													// NEED_PTHREAD_SUPPORT
 
     // Note a few C-level pointers into the Mythryl heap --
     // low-level special-case stuff like the signal handler,
@@ -369,10 +332,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     // Note heapcleaner roots from the register set(s)
     // of the live Mythryl pthread task(s):
     //
-    #if NEED_PTHREAD_SUPPORT
-    {
-	//
-	Task*     task;
+    {   Task*     task;
 	Pthread*  pthread;
 
 	for (int j = 0;  j < MAX_PTHREADS;  j++) {
@@ -396,19 +356,6 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	    }
 	}
     }
-    #else
-	//
-	*roots_ptr++ =  &task->link_register;
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->current_closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->current_thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
-    #endif													// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
@@ -455,20 +402,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
     // Reset agegroup0 buffer:
     //
-    #if NEED_PTHREAD_SUPPORT
-    pth__finish_heapcleaning( task );
-    #else
-	task->heap_allocation_pointer = task->heap_allocation_buffer;
-
-	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
-	#else
-	    task->heap_allocation_limit
-		=
-	        HEAP_ALLOCATION_LIMIT( task );
-	#endif
-    #endif
+    pth__finish_heapcleaning( task );										// Pthread support.
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
 
@@ -499,8 +433,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt bytes_needed)   {
     // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
 
-// There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
-    {
+    {														// Pthread support.
         if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -513,7 +446,6 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt bytes_needed)   {
 	return   ((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT(task);	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
     #endif
     }
-//    #endif
 }
 
 

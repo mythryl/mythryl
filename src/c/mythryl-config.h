@@ -47,23 +47,12 @@
 
 
 
-#define NEED_PTHREAD_SUPPORT 1
-    //
-    // Define this as 1 (i.e. TRUE) to compile in support
-    // for multiple posix threads running Mythryl code in
-    // parallel in the same address space.  For background
-    // see    src/A.PTHREAD-SUPPORT.OVERVIEW
-
-
-
 #define NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
     //
     // Define this as 1 (i.e. TRUE) to compile in support.
     //
-    // Currently this must be TRUE whenever NEED_PTHREAD_SUPPORT
-    // is TRUE.  (I have a feeling this would be a good switch
-    // to get rid of.  -- 2011-01-02 CrT) 
-    //
+    // Currently this must be TRUE for pthread support to function.	(Is this actually true? -- 2012-03-02 CrT)
+    //									(I have a feeling this would be a good switch to get rid of.  -- 2011-01-02 CrT) 
     // This switch affects the files:
     // 
     //     src/c/h/runtime-base.h				// pthread section.
@@ -72,19 +61,15 @@
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 
-#if NEED_PTHREAD_SUPPORT
+//
+#define MAX_PTHREADS	8
     //
-    #define MAX_PTHREADS	8
-	//
-	// Max number of posix threads running Mythryl.
-	// Don't be profligatehere :  We statically
-	// dedicate about 256K of memory to each one --
-	// see DEFAULT_AGEGROUP0_BUFFER_BYTESIZE in
-	//
-	//     src/c/h/runtime-configuration.h
-#else
-    #define MAX_PTHREADS	1
-#endif
+    // Max number of posix threads running Mythryl.
+    // Don't be profligatehere :  We statically
+    // dedicate about 256K of memory to each one --
+    // see DEFAULT_AGEGROUP0_BUFFER_BYTESIZE in
+    //
+    //     src/c/h/runtime-configuration.h
 
 #define NEED_PTHREAD_DEBUG_SUPPORT 0
     //

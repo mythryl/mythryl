@@ -80,9 +80,7 @@ static char*	heap_image_to_run_filename = DEFAULT_IMAGE;	// The path name of the
 		   
 static char*	compiled_files_to_load_filename = NULL;
 
- #if NEED_PTHREAD_SUPPORT
-    static int num_procs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
- #endif
+static int num_procs = 1;					// Pthread support.  Set by --runtime-nprocs=12, not otherwise used.
 
 static void   process_environment_options (Heapcleaner_Args** heapcleaner_args);
 static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** heapcleaner_args);
@@ -138,11 +136,8 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
-    #if NEED_PTHREAD_SUPPORT
-	//
-        pth__start_up();												// pth__start_up					def in    src/c/pthread/pthread-on-posix-threads.c
-    #endif														// pth__start_up					def in    src/c/pthread/pthread-on-solaris.c
-															// pth__start_up					def in    src/c/pthread/pthread-on-sgi.c
+    pth__start_up();													// pth__start_up					def in    src/c/pthread/pthread-on-posix-threads.c
+
     return heapcleaner_args;
 }
 
@@ -369,12 +364,12 @@ static void   process_commandline_options   (
                 if (verbosity > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);
                 }
-#if NEED_PTHREAD_SUPPORT
+
 	    } else if (MATCH("nprocs")) {
 
 		CHECK("nprocs");
 
-		num_procs =  atoi( option_arg );
+		num_procs =  atoi( option_arg );			// This value is nowhere used, probably we should just eliminate this code paragraph. XXX SUCKO FIXME
 
                 // Clamp NumProcs to a sane range:
 		//
@@ -382,7 +377,7 @@ static void   process_commandline_options   (
 		         num_procs = 0;
 		else if (num_procs > MAX_PTHREADS)
 		         num_procs = MAX_PTHREADS;
-#endif
+
 	    } else if (MATCH("verbosity")) {
 
 		CHECK("verbosity");

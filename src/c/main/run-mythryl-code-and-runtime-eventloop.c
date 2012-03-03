@@ -216,10 +216,11 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
                  ){ 
 	      // This is a software-generated periodic event:
               //
-#if NEED_PTHREAD_SUPPORT && NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	      //
-	      // Note: under NEED_PTHREAD_SUPPORT, software generated periodic
-              // events are used only for garbage collection.
+	      // Note: Under current pthread support design,
+	      //       software generated periodic
+              //       events are used only for garbage collection.
               //
     #ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS_DEBUG
 	debug_say ("run-mythryl-code-and-runtime-eventloop: software generated periodic event\n");
@@ -247,7 +248,8 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		task->in_software_generated_periodic_event_handler =  TRUE;
 		task->software_generated_periodic_event_is_pending =  FALSE;
-#endif // NEED_PTHREAD_SUPPORT
+
+#endif // NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    } 
 #endif // NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else

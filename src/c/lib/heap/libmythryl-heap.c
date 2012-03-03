@@ -399,13 +399,6 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
 #else
 	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE, NULL);
 #endif
-    else if (SAME_STRING("HAS_MP", name))
-
-#if NEED_PTHREAD_SUPPORT
-	result = make_ascii_string_from_c_string__may_heapclean(task, TRUE_VALUE, NULL);
-#else
-	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE, NULL);
-#endif
     else
 	return OPTION_NULL;
 

@@ -24,11 +24,7 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"
 
-#if NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	(pth__get_pthread())
-#else
-    #define SELF_PTHREAD	(pthread_table__global[0])
-#endif
+#define SELF_PTHREAD	(pth__get_pthread())
 
 static struct _timeb start_timeb;				// For computing times.
 

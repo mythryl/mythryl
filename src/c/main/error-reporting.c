@@ -70,13 +70,10 @@ void   die   (char *fmt, ...)   {
     fprintf (stderr, "\n");
     va_end(ap);
 
-    #if NEED_PTHREAD_SUPPORT
-	// Release any platform-specific multicore-support
-	// resources such as kernel locks or mmapped segments:
-	//
-	pth__shut_down ();				// pth__shut_down		defined in   src/c/pthread/pthread-on-posix-threads.c
-							// pth__shut_down		defined in   src/c/pthread/pthread-on-sgi.c
-    #endif						// pth__shut_down		defined in   src/c/pthread/pthread-on-solaris.c
+    // Release any platform-specific multicore-support
+    // resources such as kernel locks or mmapped segments:
+    //
+    pth__shut_down ();								// pth__shut_down		defined in   src/c/pthread/pthread-on-posix-threads.c
 
     print_stats_and_exit( 1 );
 }
@@ -91,9 +88,7 @@ void   assert_fail   (const char* a,  const char* file,  int line)    {		// Used
 
 	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name__global, a, file, line);
 
-	#if NEED_PTHREAD_SUPPORT
-	    pth__shut_down ();
-	#endif
+	pth__shut_down ();
 
 	print_stats_and_exit( 2 );
     }

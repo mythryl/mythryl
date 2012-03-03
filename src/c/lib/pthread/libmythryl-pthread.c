@@ -144,14 +144,7 @@ static Val   do_get_pthread_id         (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("get_pthread_id");
 
-    #if NEED_PTHREAD_SUPPORT
-	//
-        return TAGGED_INT_FROM_C_INT( pth__get_pthread_id());			// pth__get_pthread_id	def in    src/c/pthread/pthread-on-posix-threads.c
-        //
-    #else
-	die ("get_pthread_id: no mp support\n");
-        return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.
-    #endif
+    return TAGGED_INT_FROM_C_INT( pth__get_pthread_id());			// pth__get_pthread_id	def in    src/c/pthread/pthread-on-posix-threads.c
 }
 
 static Val   do_spawn_pthread   (Task* task,  Val closure)   {			// Apparently never called.
@@ -160,22 +153,17 @@ static Val   do_spawn_pthread   (Task* task,  Val closure)   {			// Apparently n
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("spawn_pthread");
 
-  #if NEED_PTHREAD_SUPPORT
-	//
-//      Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
-//      Val closure        =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
+    //
+//  Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
+//  Val closure        =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
 
-	int pthread_table_slot;							// An index into the   pthread_table__global[]   defined in   src/c/main/runtime-state.c
-	char* err = pth__pthread_create( &pthread_table_slot, task->current_thread, closure );
+    int pthread_table_slot;							// An index into the   pthread_table__global[]   defined in   src/c/main/runtime-state.c
+    char* err = pth__pthread_create( &pthread_table_slot, task->current_thread, closure );
 
-	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);
-	else	   return TAGGED_INT_FROM_C_INT( pthread_table_slot );
-										// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
-        //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
-    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
-	die ("spawn_pthread: no mp support\n");
-        return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
-    #endif
+    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);
+    else	   return TAGGED_INT_FROM_C_INT( pthread_table_slot );
+									    // pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
+    //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
 }
 
 
@@ -185,16 +173,11 @@ static Val   do_pthread_exit   (Task* task,  Val arg)   {			// Name issues: The 
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("pthread_exit_fn");
+    pth__pthread_exit(task);  	// Should not return.
+    log_if("pthread_exit_fn: call unexpectedly returned\n");
+    die(   "pthread_exit_fn: call unexpectedly returned\n");
 
-    #if NEED_PTHREAD_SUPPORT
-	pth__pthread_exit(task);  	// Should not return.
-	log_if("pthread_exit_fn: call unexpectedly returned\n");
-	die(   "pthread_exit_fn: call unexpectedly returned\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #else
-	die ("pthread_exit_fn: no mp support\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 
@@ -204,16 +187,10 @@ static Val   do_join_pthread   (Task* task,  Val pthread_to_join)   {		// Name i
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("join_pthread");
 
-    #if NEED_PTHREAD_SUPPORT
-    {   char* err = pth__pthread_join( task, pthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
-	    //
-	    if (err) {  log_if("join_pthread failed!");		return RAISE_ERROR__MAY_HEAPCLEAN(task, err,NULL );	}
-	    else     {						return HEAP_VOID;			}
-	}
-    #else
-	die ("join_pthread: no mp support\n");
-      return HEAP_VOID;								// Cannot execute; only present to quiet gcc.
-    #endif
+    char* err = pth__pthread_join( task, pthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
+	//
+    if (err) {  log_if("join_pthread failed!");		return RAISE_ERROR__MAY_HEAPCLEAN(task, err,NULL );	}
+    else     {						return HEAP_VOID;			}
 }
 
 
@@ -222,114 +199,74 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
     //     =============
     //
 										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
-    #if NEED_PTHREAD_SUPPORT
 
-	// We allocate the mutex on the C heap rather
-	// than the Mythryl heap because having the
-	// garbage collector moving mutexes around in
-	// memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
-	//
-	return TAGGED_INT_FROM_C_INT( pth__mutex_make() );
+    // We allocate the mutex on the C heap rather
+    // than the Mythryl heap because having the
+    // garbage collector moving mutexes around in
+    // memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
+    //
+    return TAGGED_INT_FROM_C_INT( pth__mutex_make() );
 
-    #else
-
-	die ("do_mutex_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
 }
 
 static Val   do_mutex_free   (Task* task,  Val arg)   {
     //       =============
     //
-
 										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
-
-    #if NEED_PTHREAD_SUPPORT
-
-	// 'arg' should be something returned by barrier_make() above,
-	// so it should be a Mythryl boxed word -- a two-word heap record
-	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-	// followed by the mutex_vector__local index of our   Mutex.
-	// Per Mythryl convention, 'arg' will point to the second word,
-	// so all we have to do is cast it appropriately:
+    // 'arg' should be something returned by barrier_make() above,
+    // so it should be a Mythryl boxed word -- a two-word heap record
+    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+    // followed by the mutex_vector__local index of our   Mutex.
+    // Per Mythryl convention, 'arg' will point to the second word,
+    // so all we have to do is cast it appropriately:
+    //
+    {    char* err =  pth__mutex_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	//
-	{    char* err =  pth__mutex_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-	}
+	if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    }
 
-        return HEAP_VOID;
-	//
-    #else
-	die ("do_mutex_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_VOID;
 }
 
 static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //       =============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_lock");
+    char* err =  pth__mutex_lock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    else       return HEAP_VOID;
 
-    #if NEED_PTHREAD_SUPPORT
 
-	{   char* err =  pth__mutex_lock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-	    else       return HEAP_VOID;
-	}
-
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_mutex_lock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_unlock");
+    char* err =  pth__mutex_unlock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    else       return HEAP_VOID;
 
-    #if NEED_PTHREAD_SUPPORT
-
-	{   char* err =  pth__mutex_unlock( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-	    else       return HEAP_VOID;
-	}
-
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_mutex_unlock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_mutex_trylock   (Task* task,  Val arg)   {
     //       ================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_trylock");
+    Bool  result;
+    char* err = pth__mutex_trylock( task, arg, TAGGED_INT_TO_C_INT( arg ), &result );
+    //
+    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    //
+    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
+    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
 
-    #if NEED_PTHREAD_SUPPORT
 
-	{   Bool  result;
-	    char* err = pth__mutex_trylock( task, arg, TAGGED_INT_TO_C_INT( arg ), &result );
-	    //
-	    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-	    //
-	    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
-	    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
-	};
-
-        return HEAP_TRUE;							// Cannot execute.
-
-    #else
-	die ("do_mutex_trylock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_TRUE;							// Cannot execute.
 }
 
 
@@ -338,75 +275,59 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_make");
+    // We allocate the barrier_struct on the C
+    // heap rather than the Mythryl heap because
+    // having the garbage collector moving condvars
+    // around in memory seems like a really, really
+    // bad idea:
+    //
+    struct barrier_struct*  barrier
+	=
+	(struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
 
-    #if NEED_PTHREAD_SUPPORT
-	//
-	// We allocate the condvar_struct on the C
-	// heap rather than the Mythryl heap because
-	// having the garbage collector moving condvars
-	// around in memory seems like a really, really
-	// bad idea:
-	//
-	struct barrier_struct*  barrier
-	    =
-	    (struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
+    barrier->state = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
 
-log_if("do_barrier_make malloc()'d barrier %x", barrier);
-	barrier->state = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
-
-	// We return the address of the barrier_struct
-	// to the Mythryl level encoded as a word value:
-	//
-        return  make_one_word_unt(task, (Val_Sized_Unt)barrier );
-
-    #else
-	die ("do_barrier_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    // We return the address of the barrier_struct
+    // to the Mythryl level encoded as a word value:
+    //
+    return  make_one_word_unt(task, (Val_Sized_Unt)barrier );
 }
 
 static Val   do_barrier_free   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_free");
+    // 'arg' should be something returned by do_barrier_make() above,
+    // so it should be a Mythryl boxed word -- a two-word heap record
+    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+    // followed by the C address of our   struct barrier_struct.
+    // Per Mythryl convention, 'arg' will point to the second word,
+    // so all we have to do is cast it appropriately:
+    //
+    struct barrier_struct*  barrier
+	=
+	*((struct barrier_struct**) arg);
 
-   #if NEED_PTHREAD_SUPPORT
-	// 'arg' should be something returned by do_barrier_make() above,
-	// so it should be a Mythryl boxed word -- a two-word heap record
-	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-	// followed by the C address of our   struct barrier_struct.
-	// Per Mythryl convention, 'arg' will point to the second word,
-	// so all we have to do is cast it appropriately:
+    switch (barrier->state) {
 	//
-	struct barrier_struct*  barrier
-	    =
-	    *((struct barrier_struct**) arg);
-
-	switch (barrier->state) {
+	case UNINITIALIZED_BARRIER:
+	case   INITIALIZED_BARRIER:
+	case       CLEARED_BARRIER:
 	    //
-	    case UNINITIALIZED_BARRIER:
-	    case   INITIALIZED_BARRIER:
-	    case       CLEARED_BARRIER:
-		//
-		barrier->state = FREED_BARRIER;
-log_if("do_barrier_free free()'d barrier %x", barrier);
-		free( barrier );
-		break;
+	    barrier->state = FREED_BARRIER;
+	    free( barrier );
+	    break;
 
-	    case         FREED_BARRIER:
-		log_if("Attempt to free already-freed barrier instance.");
-		die(   "Attempt to free already-freed barrier instance.");
+	case         FREED_BARRIER:
+	    log_if("Attempt to free already-freed barrier instance.");
+	    die(   "Attempt to free already-freed barrier instance.");
 
-	    default:
-		log_if("do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
-		die(   "do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-	//
-    #else
-	die ("do_barrier_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+	default:
+	    log_if("do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
+	    die(   "do_barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
+    }
+
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_barrier_init   (Task* task,  Val arg)   {
@@ -414,109 +335,85 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_init");
+    Val barrier_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
+    int threads	= GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-    #if NEED_PTHREAD_SUPPORT
+    struct barrier_struct*  barrier
+	=
+	*((struct barrier_struct**) barrier_arg);
 
-	Val barrier_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-	int threads	= GET_TUPLE_SLOT_AS_INT(arg, 1);
-
-	struct barrier_struct*  barrier
-	    =
-	    *((struct barrier_struct**) barrier_arg);
-
-	switch (barrier->state) {
+    switch (barrier->state) {
+	//
+	case UNINITIALIZED_BARRIER:
+	case       CLEARED_BARRIER:
 	    //
-	    case UNINITIALIZED_BARRIER:
-	    case       CLEARED_BARRIER:
+	    {   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
 		//
-		{   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
-		    //
-		    if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
-		    else		{ barrier->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
-		}
-		break;
+		if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
+		else		{ barrier->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
+	    }
+	    break;
 
-	    case   INITIALIZED_BARRIER:	log_if("do_barrier_init:  Attempt to set already-set barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init already-set barrier.", NULL);
-	    case         FREED_BARRIER:	log_if("do_barrier_init:  Attempt to set freed barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init freed barrier.", NULL);
-	    default:			log_if("do_barrier_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init bogus varrier value. (Already-freed barrier? Junk?)", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_barrier_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+	case   INITIALIZED_BARRIER:	log_if("do_barrier_init:  Attempt to set already-set barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init already-set barrier.", NULL);
+	case         FREED_BARRIER:	log_if("do_barrier_init:  Attempt to set freed barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init freed barrier.", NULL);
+	default:			log_if("do_barrier_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to init bogus varrier value. (Already-freed barrier? Junk?)", NULL);
+    }
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_barrier_destroy   (Task* task,  Val arg)   {
     //       ==================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_destroy");
+    struct barrier_struct*  barrier
+	=
+	*((struct barrier_struct**) arg);
 
-    #if NEED_PTHREAD_SUPPORT
+    switch (barrier->state) {
+	//
+	case   INITIALIZED_BARRIER:
+	    {
+		char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
+		//
+		if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+		else	{ barrier->state = CLEARED_BARRIER;			return HEAP_VOID;			}
+	    }
+	    break;
 
-	struct barrier_struct*  barrier
-	    =
-	    *((struct barrier_struct**) arg);
-
-	switch (barrier->state) {
-	    //
-	    case   INITIALIZED_BARRIER:
-		{
-		    char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
-		    //
-		    if (err)	{ log_if("pth__barrier_destroy returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    else	{ barrier->state = CLEARED_BARRIER;			return HEAP_VOID;			}
-		}
-		break;
-
-	    case UNINITIALIZED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear uninitialized barrier");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy uninitialized barrier.", NULL);
-	    case       CLEARED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-cleared barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-cleared barrier.", NULL);
-	    case         FREED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-freed barrier.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-freed barrier.", NULL);
-	    default:			log_if("do_barrier_destroy:  Attempt to clear bogus value.");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy bogus barrier value. (Already-freed barrier? Junk?)", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_barrier_destroy: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+	case UNINITIALIZED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear uninitialized barrier");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy uninitialized barrier.", NULL);
+	case       CLEARED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-cleared barrier.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-cleared barrier.", NULL);
+	case         FREED_BARRIER:	log_if("do_barrier_destroy:  Attempt to clear already-freed barrier.");	 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy already-freed barrier.", NULL);
+	default:			log_if("do_barrier_destroy:  Attempt to clear bogus value.");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to destroy bogus barrier value. (Already-freed barrier? Junk?)", NULL);
+    }
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_barrier_wait   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_wait");
+    struct barrier_struct*  barrier
+	=
+	*((struct barrier_struct**) arg);
 
-    #if NEED_PTHREAD_SUPPORT
+    switch (barrier->state) {
+	//
+	case   INITIALIZED_BARRIER:
+	    {   Bool result;
+		char* err =   pth__barrier_wait( task, arg, &barrier->barrier, &result );
+		//
+		if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+		if (result)							return HEAP_TRUE;
+		else							return HEAP_FALSE;
+	    }
+	    break;
 
-	struct barrier_struct*  barrier
-	    =
-	    *((struct barrier_struct**) arg);
-
-	switch (barrier->state) {
-	    //
-	    case   INITIALIZED_BARRIER:
-		{   Bool result;
-		    char* err =   pth__barrier_wait( task, arg, &barrier->barrier, &result );
-		    //
-		    if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    if (result)							return HEAP_TRUE;
-		    else							return HEAP_FALSE;
-		}
-		break;
-
-	    case UNINITIALIZED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on uninitialized barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized barrier.", NULL);
-	    case       CLEARED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on cleared barrier."); 	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on cleared barrier.", NULL);
-	    case         FREED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on freed barrier.", NULL);
-	    default:			log_if("do_barrier_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on bogus barrier value. (Already-freed barrier?)", NULL);
-	}
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_barrier_wait: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+	case UNINITIALIZED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on uninitialized barrier.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized barrier.", NULL);
+	case       CLEARED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on cleared barrier."); 	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on cleared barrier.", NULL);
+	case         FREED_BARRIER:	log_if("do_barrier_wait: Attempt to wait on freed barrier.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on freed barrier.", NULL);
+	default:			log_if("do_barrier_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on bogus barrier value. (Already-freed barrier?)", NULL);
+    }
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 
@@ -525,241 +422,57 @@ static Val   do_condvar_make   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_make");
-
-    #if NEED_PTHREAD_SUPPORT
-	//
-	// We allocate the condvar_struct on the C
-	// heap rather than the Mythryl heap because
-	// having the garbage collector moving condvars
-	// around in memory seems like a really, really
-	// bad idea:
-	//
-#ifdef OLD
-	struct condvar_struct*  condvar
-	    =
-	    (struct condvar_struct*)  MALLOC( sizeof(struct condvar_struct) );	if (!condvar) die("Unable to malloc condvar_struct"); 
-
-	condvar->state = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
-
-	// We return the address of the condvar_struct
-	// to the Mythryl level encoded as a word value:
-	//
-        return  make_one_word_unt(task,  (Val_Sized_Unt)condvar  );
-#else
-	return TAGGED_INT_FROM_C_INT( pth__condvar_make() );
-#endif
-
-    #else
-	die ("do_condvar_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    // We allocate the condvar_struct on the C
+    // heap rather than the Mythryl heap because
+    // having the garbage collector moving condvars
+    // around in memory seems like a really, really
+    // bad idea:
+    //
+    return TAGGED_INT_FROM_C_INT( pth__condvar_make() );
 }
 
 static Val   do_condvar_free   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_free");
-
-    #if NEED_PTHREAD_SUPPORT
-	// 'arg' should be something returned by do_barrier_make() above,
-	// so it should be a Mythryl boxed word -- a two-word heap record
-	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-	// followed by the C address of our   struct barrier_struct.
-	// Per Mythryl convention, 'arg' will point to the second word,
-	// so all we have to do is cast it appropriately:
+    // 'arg' should be something returned by do_barrier_make() above,
+    // so it should be a Mythryl boxed word -- a two-word heap record
+    // consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+    // followed by the C address of our   struct barrier_struct.
+    // Per Mythryl convention, 'arg' will point to the second word,
+    // so all we have to do is cast it appropriately:
+    //
+    {   char* err =  pth__condvar_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
 	//
-#ifdef OLD
-	struct condvar_struct*  condvar
-	    =
-	    *((struct condvar_struct**) arg);
-
-	switch (condvar->state) {
-	    //
-	    case UNINITIALIZED_CONDVAR:
-	    case   INITIALIZED_CONDVAR:
-	    case       CLEARED_CONDVAR:
-		//
-		condvar->state = FREED_BARRIER;
-log_if("do_condvar_free: free()d condvar %x", condvar);
-		free( condvar );
-		break;
-
-	    case         FREED_CONDVAR:
-		log_if("Attempt to free already-freed condvar instance.");
-		die(   "Attempt to free already-freed condvar instance.");
-
-	    default:
-		log_if("do_condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
-		die(   "do_condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
-	}
-#else
-	{   char* err =  pth__condvar_destroy( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
-	    else		{ 						return HEAP_VOID;	  			}
-	}
-#endif
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-	//
-    #else
-	die ("do_condvar_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+	if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
+	else		{ 						return HEAP_VOID;	  			}
+    }
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
-
-// static Val   do_condvar_init   (Task* task,  Val arg)   {
-//     //       ===============
-//     //
-// 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_init");
-// 
-//     #if NEED_PTHREAD_SUPPORT
-// 
-// 	struct condvar_struct*  condvar
-// 	    =
-// 	    *((struct condvar_struct**) arg);
-// 
-// 	switch (condvar->state) {
-// 	    //
-// 	    case UNINITIALIZED_CONDVAR:
-// 	    case       CLEARED_CONDVAR:
-// 		{
-// 		    char* err = pth__condvar_init( task, arg, &condvar->condvar );
-// 		    //
-// 		    if (err)		{ log_if("pth__condvar_init returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-// 		    else		{ condvar->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
-// 		}
-// 		break;
-// 
-// 	    case   INITIALIZED_CONDVAR:	log_if("do_condvar_init:  Attempt to set already-set condvar.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set already-set condvar.", NULL);
-// 	    case         FREED_CONDVAR:	log_if("do_condvar_init:  Attempt to set freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to set freed condvar.", NULL);
-// 	    default:			log_if("do_condvar_init:  Attempt to set bogus value.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)", NULL);
-// 	}
-//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-// 
-//     #else
-// 	die ("do_condvar_init: unimplemented\n");
-//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//     #endif
-// }
-
-// static Val   do_condvar_destroy   (Task* task,  Val arg)   {
-//     //       ==================
-//     //
-// 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_destroy");
-// 
-//     #if NEED_PTHREAD_SUPPORT
-// 
-// 	struct condvar_struct*  condvar
-// 	    =
-// 	    *((struct condvar_struct**) arg);
-// 
-// 	switch (condvar->state) {
-// 	    //
-// 	    case   INITIALIZED_CONDVAR:
-// 		{
-// 		    char* err =  pth__condvar_destroy( task, arg, &condvar->condvar );
-// 		    //
-// 		    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
-// 		    else		{ condvar->state = CLEARED_CONDVAR;		return HEAP_VOID;	  			}
-// 		}
-// 		break;
-// 
-// 	    case UNINITIALIZED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear uninitialized condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear uninitialized condvar.", NULL);
-// 	    case       CLEARED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-cleared condvar.", NULL);
-// 	    case         FREED_CONDVAR:	log_if("do_condvar_destroy:  Attempt to clear already-freed condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to clear already-freed condvar.", NULL);
-// 	    default:			log_if("do_condvar_destroy:  Attempt to clear bogus value.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "do_condvar_destroy: Attempt to clear bogus value.", NULL);
-// 	}
-//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-// 
-//     #else
-// 	die ("do_condvar_destroy: unimplemented\n");
-//         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//     #endif
-// }
 
 static Val   do_condvar_wait   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_wait");
+    Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
+    Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
-    #if NEED_PTHREAD_SUPPORT
-
-	Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-	Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
-
-#ifdef OLD
-	struct condvar_struct*  condvar =   *((struct condvar_struct**) condvar_arg);
-
-	switch (condvar->state) {
-	    //
-	    case   INITIALIZED_CONDVAR:		break;
-	    //
-	    case UNINITIALIZED_CONDVAR:		log_if("do_condvar_wait: Attempt to wait on uninitialized condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on uninitialized condvar.", NULL);
-	    case       CLEARED_CONDVAR:		log_if("do_condvar_wait: Attempt to wait on already-cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on already-cleared condvar.", NULL);
-	    case         FREED_CONDVAR:		log_if("do_condvar_wait: Attempt to wait on already-freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to wait on already-freed condvar.", NULL);
-	    default:				log_if("do_condvar_wait: Attempt to wait on bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "condvar_wait: Attempt to wait on bogus value.", NULL);
-	}
-
-	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, TAGGED_INT_TO_C_INT( mutex_arg ) );
-	    //
-	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-	    else		{														 return HEAP_VOID;			}
-	}
-#else
-	{   char* err =  pth__condvar_wait( task, arg, TAGGED_INT_TO_C_INT( condvar_arg ), TAGGED_INT_TO_C_INT( mutex_arg ) );
-	    //
-	    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-	    else		{														 return HEAP_VOID;			}
-	}
-#endif
-
-    #else
-	die ("do_condvar_wait: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    char* err =  pth__condvar_wait( task, arg, TAGGED_INT_TO_C_INT( condvar_arg ), TAGGED_INT_TO_C_INT( mutex_arg ) );
+    //
+    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else		{														 return HEAP_VOID;			}
 }
 
 static Val   do_condvar_signal   (Task* task,  Val arg)   {
     //       =================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_signal");
+    char* err =  pth__condvar_signal( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)	{ log_if("do_condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else								return HEAP_VOID;
 
-    #if NEED_PTHREAD_SUPPORT
-
-#ifdef OLD
-	struct condvar_struct*  condvar
-	    =
-	    *((struct condvar_struct**) arg);
-
-	switch (condvar->state) {
-	    //
-	    case   INITIALIZED_CONDVAR:
-		{
-		    char* err =  pth__condvar_signal( task, arg, &condvar->condvar );
-		    //
-		    if (err)	{ log_if("do_condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    else								return HEAP_VOID;
-		}
-		break;
-
-	    case UNINITIALIZED_CONDVAR:	log_if("do_condvar_signal: Attempt to signal via uninitialized condvar.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via uninitialized condvar.", NULL);
-	    case       CLEARED_CONDVAR:	log_if("do_condvar_signal: Attempt to signal via cleared condvar.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via cleared condvar.", NULL);
-	    case         FREED_CONDVAR:	log_if("do_condvar_signal: Attempt to signal via freed condvar.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via freed condvar.", NULL);
-	    default:			log_if("do_condvar_signal: Attempt to signal via bogus value.");			return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to signal via bogus condvar value.", NULL);
-	}
-#else
-	{   char* err =  pth__condvar_signal( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)	{ log_if("do_condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-	    else								return HEAP_VOID;
-	}
-#endif
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-
-    #else
-	die ("do_condvar_signal: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
@@ -767,41 +480,11 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_broadcast");
 
-    #if NEED_PTHREAD_SUPPORT
+    char* err =  pth__condvar_broadcast( task, arg, TAGGED_INT_TO_C_INT( arg ) );
+    //
+    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else			{							return HEAP_VOID;			}
 
-#ifdef OLD
-	struct condvar_struct*  condvar
-	    =
-	    *((struct condvar_struct**) arg);
-
-	switch (condvar->state) {
-	    //
-	    case   INITIALIZED_CONDVAR:
-		{
-		    char* err =  pth__condvar_broadcast( task, arg, &condvar->condvar );
-		    //
-		    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-		    else			{							return HEAP_VOID;			}
-		}
-		break;
-
-	    case UNINITIALIZED_CONDVAR:		log_if("do_condvar_broadcast: Attempt to broadcast via uninitialized condvar.");return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via uninitialized condvar.", NULL);
-	    case       CLEARED_CONDVAR:		log_if("do_condvar_broadcast: Attempt to broadcast via cleared condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via cleared condvar.", NULL);
-	    case         FREED_CONDVAR:		log_if("do_condvar_broadcast: Attempt to broadcast via freed condvar.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via freed condvar.", NULL);
-	    default:				log_if("do_condvar_broadcast: Attempt to broadcast via bogus value.");		return RAISE_ERROR__MAY_HEAPCLEAN( task, "Attempt to broadcast via bogus condvar value.", NULL);
-	}
-#else
-	{   char* err =  pth__condvar_broadcast( task, arg, TAGGED_INT_TO_C_INT( arg ) );
-	    //
-	    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-	    else			{							return HEAP_VOID;			}
-	}
-#endif
-
-    #else
-	die ("do_condvar_broadcast: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
 }
 
 

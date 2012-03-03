@@ -66,12 +66,9 @@
 // pthread can use it.
 																// sib_is_active		def in    src/c/h/heap.h
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
- #if NEED_PTHREAD_SUPPORT
-    //
-    #define WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
- #else
-    #define WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
- #endif
+
+
+#define WHILE_INSUFFICIENT_FREESPACE_IN_SIB(ap, bytes)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (bytes)))
 
 #define COUNT_ALLOC(task, nbytes)	{	\
 	Heap		*__h = task->heap;	\
@@ -477,9 +474,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 
 	pthread_mutex_lock( &pth__mutex );
 
-	    #if NEED_PTHREAD_SUPPORT
-		clean_check: ;	// The pthread version jumps to here to recheck for heapcleaning.
-	    #endif
+	    clean_check: ;						// Pthread support jumps to here to recheck for heapcleaning.
 
 	    // If the agegroup1 sib we want to allocate in
 	    // has not been created or does not have enough
@@ -507,13 +502,10 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 		pthread_mutex_lock( &pth__mutex );
 		ap->requested_extra_free_bytes = 0;
 
-		#if NEED_PTHREAD_SUPPORT
-		{
-	            // Check again to insure that we have sufficient space:
-		    gc_level = -1;
-		    goto clean_check;
-		}
-		#endif
+		// Check again to insure that we have sufficient space:					// Pthread support.
+		//
+		gc_level = -1;
+		goto clean_check;
 	    }
 
 	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
@@ -602,9 +594,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 		clean_level = 1;										// Heapclean agegroup0 and agegroup1 too.
 	    }
 
-	    #if NEED_PTHREAD_SUPPORT
-	        clean_check: ;			// The pthread version jumps to here to redo the garbage collection.
-	    #endif
+	    clean_check: ;											// Pthread support jumps to here to redo the garbage collection.
 
 	    ap->requested_extra_free_bytes += bytesize;
 	    pthread_mutex_unlock( &pth__mutex );
@@ -615,12 +605,10 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 
 	    ap->requested_extra_free_bytes = 0;
 
-	    #if NEED_PTHREAD_SUPPORT
-	    {   // Check again to ensure that we have sufficient space:
+	    {   // Check again to ensure that we have sufficient space:						// Pthread support.
 		//
 		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap_allocation_buffer_bytesize)   goto clean_check;
 	    }
-	    #endif
 
 	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
 	    *(ap->tospace.used_end++) = tagword;

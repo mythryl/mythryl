@@ -344,19 +344,20 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
 
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
-    #if NEED_PTHREAD_SUPPORT
-	Pthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
-								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
-	int	       id;					// Our own private small-int id for the record. We assign these sequentailly starting at 1.
-	Tid           tid;	       				// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
-	    //
-	    // NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
-	    // because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
-	    // we pass a pointer to task->pthread->pid as pthread_t*.
-	    //
-	    // Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
 
-    #endif
+    Pthread_Mode  mode;						// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
+								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
+
+    int		id;						// Our own private small-int id for the record. We assign these sequentailly starting at 1.
+    Tid		tid;	       					// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+	//
+	// NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
+	// because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
+	// we pass a pointer to task->pthread->pid as pthread_t* to avoid race conditions.
+	//
+	// Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
+
+
 };
 
 

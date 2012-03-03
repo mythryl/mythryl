@@ -1108,7 +1108,6 @@ Pthread*  pth__get_pthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-#if NEED_PTHREAD_SUPPORT
     int tid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
@@ -1117,10 +1116,6 @@ Pthread*  pth__get_pthread   ()   {
     }											// pthread_table__global exported via    src/c/h/runtime-base.h
     die ("pth__get_pthread:  tid %d not found in pthread_table__global?!", tid);
     return NULL;									// Cannot execute; only to quiet gcc.
-#else
-    //
-    return pthread_table__global[ 0 ];
-#endif
 }
 
 
@@ -1641,8 +1636,7 @@ void   recover_mythryl_heap   (Pthread* pthread,  const char* fn_name) {
 //							to cope with having garbage collector roots in multiple
 //							posix threads instead of just one.
 //
-//     src/c/mythryl-config.h				Critical configuration stuff, in particular
-//							 NEED_PTHREAD_SUPPORT and MAX_PTHREADS.
+//     src/c/mythryl-config.h				Critical configuration stuff, for example MAX_PTHREADS.
 //
 //     src/lib/std/src/pthread.api			Mythryl-programmer interface to posix-threads functionality.
 //     src/lib/std/src/pthread.pkg			Implementation of previous; this is just wrappers for the calls

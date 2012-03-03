@@ -46,73 +46,55 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
     Task* task =  NULL;
 
-    #if NEED_PTHREAD_SUPPORT
-
+    //
+    for (int i = 0;   i < MAX_PTHREADS;   i++) {
 	//
-	for (int i = 0;   i < MAX_PTHREADS;   i++) {
-	    //
-	    if (((pthread_table__global[i] = MALLOC_CHUNK(Pthread)) == NULL)
-	    ||  ((task = MALLOC_CHUNK(Task)) == NULL)
-            ){
-		die ("runtime-state.c: unable to allocate pthread_table__global entry");
-	    }
-
-	    pthread_table__global[i]->task =  task;
-	}
-	task =  pthread_table__global[0]->task;
-
-    #else
-	if (((pthread_table__global[0] = MALLOC_CHUNK(Pthread)) == NULL)
+	if (((pthread_table__global[i] = MALLOC_CHUNK(Pthread)) == NULL)
 	||  ((task = MALLOC_CHUNK(Task)) == NULL)
-        ){
-	    die ("unable to allocate Lib7 state vector");
+	){
+	    die ("runtime-state.c: unable to allocate pthread_table__global entry");
 	}
 
-	pthread_table__global[0]->task =  task;
-
-    #endif
+	pthread_table__global[i]->task =  task;
+    }
+    task =  pthread_table__global[0]->task;
 
     // Allocate and initialize the heap data structures:
     //
     set_up_heap( task, is_boot, cleaner_args );							// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-    #if !NEED_PTHREAD_SUPPORT
+    // 'set_up_heap' has created an agegroup0 buffer;
+    //  partition it between our MAX_PTHREADS pthreads:
+    //
+    partition_agegroup0_buffer_between_pthreads( pthread_table__global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+
+    // Initialize the per-Pthread Mythryl state:
+    //
+    for (int i = 0;  i < MAX_PTHREADS;  i++) {
 	//
-	set_up_pthread_state(  pthread_table__global[ 0 ] );
-    #else
-        // 'set_up_heap' has created an agegroup0 buffer;
-	//  partition it between our MAX_PTHREADS pthreads:
-        //
-	partition_agegroup0_buffer_between_pthreads( pthread_table__global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	set_up_pthread_state( pthread_table__global[i] );
 
-        // Initialize the per-Pthread Mythryl state:
-        //
-	for (int i = 0;  i < MAX_PTHREADS;  i++) {
+	// Single timers are currently shared
+	// among multiple pthreads:
+	//
+	if (i != 0) {
+	    pthread_table__global[ i ] -> cpu_time_at_start_of_last_heapclean
+	  = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_heapclean;
 	    //
-	    set_up_pthread_state( pthread_table__global[i] );
-
-	    // Single timers are currently shared
-	    // among multiple pthreads:
-	    //
-	    if (i != 0) {
-		pthread_table__global[ i ] -> cpu_time_at_start_of_last_heapclean
-              = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_heapclean;
-		//
-		pthread_table__global[ i ] -> cumulative_cleaning_cpu_time
-	      = pthread_table__global[ 0 ] -> cumulative_cleaning_cpu_time;
-	    }
+	    pthread_table__global[ i ] -> cumulative_cleaning_cpu_time
+	  = pthread_table__global[ 0 ] -> cumulative_cleaning_cpu_time;
 	}
+    }
 
-	// Initialize the first Pthread here:
-	//
-	pthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_pthread_id () returns huge numbers, this gives us small pthread ids.
-	pthread_table__global[0]->tid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
-	pthread_table__global[0]->mode =  PTHREAD_IS_RUNNING;
-    #endif						// NEED_PTHREAD_SUPPORT
+    // Initialize the first Pthread here:
+    //
+    pthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_pthread_id () returns huge numbers, this gives us small pthread ids.
+    pthread_table__global[0]->tid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+    pthread_table__global[0]->mode =  PTHREAD_IS_RUNNING;
 
     // Initialize the timers:
     //
-    reset_timers( pthread_table__global[0] );		// NEED_PTHREAD_SUPPORT note: For now, only Pthread 0 has timers.
+    reset_timers( pthread_table__global[0] );						// "Pthread support note: For now, only Pthread 0 has timers." (Ancient comment, not sure it is true. -- 2012-03-02 CrT)
 
     return task;
 }							// fun make_task
@@ -162,10 +144,8 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->heapvoid			= HEAP_VOID;			// Something for protected_c_arg to point to when not being used.
     pthread->task->protected_c_arg		= &pthread->task->heapvoid;	// Support for  RELEASE_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
 
-    #if NEED_PTHREAD_SUPPORT
-	pthread->tid		= 0;
-	pthread->mode		= PTHREAD_IS_VOID;
-    #endif
+    pthread->tid		= 0;
+    pthread->mode		= PTHREAD_IS_VOID;
 }									// fun set_up_pthread_state
 
 void   initialize_task   (Task* task)   {

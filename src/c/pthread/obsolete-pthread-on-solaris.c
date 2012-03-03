@@ -775,10 +775,6 @@ Pthread*  pth__get_pthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-#if !NEED_PTHREAD_SUPPORT
-   //
-    return pthread_table__global[ 0 ];
-#else
     int pid =  pth__get_pthread_id ();							// Since this just calls getpid(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
@@ -786,7 +782,6 @@ Pthread*  pth__get_pthread   ()   {
 	if (pthread_table__global[i]->pid == pid)   return &pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
     }											// pthread_table__global exported via     src/c/h/runtime-base.h
     die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
-#endif
 }
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
