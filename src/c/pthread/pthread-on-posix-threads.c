@@ -1162,6 +1162,8 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
+    if (!barrier->initialized)  return "pth__barrier_wait:  Must set barrier before waiting on it.";
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", NULL );
 	//
 	int err =  pthread_barrier_wait( &barrier->barrier );
