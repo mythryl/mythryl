@@ -127,7 +127,7 @@
 //   o We build the Mythryl compiler (etc) by saving out
 //     Mythryl heap images to disk and later reloading them.
 //     We would like to have static global mutexes
-//     in packages like   src/lib/std/src/io/file-g.pkg
+//     in packages like   src/lib/std/src/io/winix-text-file-for-os-g.pkg
 //     so mutexes must be implemented in a way which will
 //     survive such heap save/load cycles.
 //
