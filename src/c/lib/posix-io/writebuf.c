@@ -30,8 +30,8 @@
 Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
     //===================
     //
-    // Mythryl type:   (Int, rw_vector_of_one_byte_unts::Rw_Vector, Int, Int) -> Int
-    //                  fd    data                      nbytes start              
+    // Mythryl type:   (Int, rw_vector_of_one_byte_unts::Rw_Vector, Int,   Int) -> Int
+    //                  fd    data                                  nbytes start  
     //
     // Write nbytes of data from the given rw_vector to the specified file, 
     // starting at the given offset. Assume bounds have been checked.
@@ -43,10 +43,10 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_writebuf");
 
-    int		fd         = GET_TUPLE_SLOT_AS_INT(                                 arg, 0);
-    Val		start      = GET_TUPLE_SLOT_AS_VAL(                                 arg, 1);
-    size_t	nbytes     = GET_TUPLE_SLOT_AS_INT(                                 arg, 2);
-    char*	heap_data  = HEAP_STRING_AS_C_STRING(start) + GET_TUPLE_SLOT_AS_INT(arg, 3);
+    int		fd         = GET_TUPLE_SLOT_AS_INT(                               arg, 0);
+    Val		buf        = GET_TUPLE_SLOT_AS_VAL(                               arg, 1);
+    size_t	nbytes     = GET_TUPLE_SLOT_AS_INT(                               arg, 2);
+    char*	heap_data  = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT(arg, 3);
 
 
     ssize_t    	n;
