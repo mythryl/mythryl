@@ -94,7 +94,7 @@ herein
 		      {
 			base_position:  Null_Or( File_Position ),
 
-			more:  Maildrop( More ),		# When this cell is empty, it means that 
+			next:  Maildrop( Next ),		# When this cell is empty, it means that 
 								# there is an outstanding request to the 
 								# server to extend the stream. 
 			data:  Vector,
@@ -102,9 +102,9 @@ herein
 		      }
 
 		also
-		More
-		  = MORE  Input_Buffer	#  forward link to additional data 
-		  | NOMORE		#  placeholder for forward link 
+		Next
+		  = NEXT  Input_Buffer	#  forward link to additional data 
+		  | NO_NEXT		#  placeholder for forward link 
 		  | TERMINATED		#  termination of the stream 
 
 		also
@@ -118,7 +118,7 @@ herein
 			   #
 			   get_position:     Void -> Null_Or( File_Position ),
 			   #
-			   tail:             Maildrop(  Maildrop(  More ) ),	# Points to the more cell of the last buffer. 
+			   tail:             Maildrop(  Maildrop(  Next ) ),	# Points to the next cell of the last buffer. 
 			   #
 			   clean_tag:        threadkit_io_cleanup_at_shutdown::Tag
 			 };
@@ -148,16 +148,16 @@ herein
 		    =
 		    raise exception  iox::IO  { function=>ml_op,  name,  cause=>exn };
 
-		 More_Data = EOF
+		 Next_Data = EOF
 			   | DATA  Input_Buffer
 			   ;
 
 
 		# Extend the stream by a chunk.
-		# Invariant: the more m-variable
+		# Invariant: the next m-variable
 		# is empty on entry and full on exit.
 		#
-		fun extend_stream (read_fn, ml_op, buf as INPUT_BUFFER { more, info, ... } )
+		fun extend_stream (read_fn, ml_op, buf as INPUT_BUFFER { next, info, ... } )
 		    =
 		    {
 			info ->  INFO { get_position, tail, ... };
@@ -171,39 +171,39 @@ herein
 
 			if (cv::length chunk == 0)
 
-			     fill (more, NOMORE);
+			     fill (next, NO_NEXT);
 			     EOF;
 
 			else
 
-			    new_more = make_empty_maildrop ();
+			    new_next = make_empty_maildrop ();
 
 			    buf' = INPUT_BUFFER
 				     {
 				       base_position,
 				       info,
 				       data => chunk,
-				       more => new_more
+				       next => new_next
 				     };
 
-			    # Note that we do not fill the more cell
+			    # Note that we do not fill the next cell
 			    # until after the tail has been updated.
 			    #
 			    # This ensures that someone attempting to
 			    # access the tail will not acquire the lock
 			    # until after we are done.
 			    #
-			    m_update (tail, new_more);
+			    m_update (tail, new_next);
 
-			    fill (more, MORE buf');  #  releases lock!! 
-			    fill (new_more, NOMORE);
+			    fill (next, NEXT buf');  #  releases lock!! 
+			    fill (new_next, NO_NEXT);
 
 			    DATA buf';
 		       fi;
 		   }
 		   except ex
 		       =
-		       {   fill (more, NOMORE);
+		       {   fill (next, NO_NEXT);
 			   input_exn (info, ml_op, ex);
 		       };
 
@@ -212,20 +212,20 @@ herein
 		#
 		# If the stream must be extended,
 		# we lock it by taking the value from the
-		# more cell; the extend_stream function
+		# next cell; the extend_stream function
 		# is responsible for filling in the cell.
 		#
-		fun get_buffer (read_fn, ml_op) (buf as INPUT_BUFFER { more, info, ... } )
+		fun get_buffer (read_fn, ml_op) (buf as INPUT_BUFFER { next, info, ... } )
 		    =
-		    get (peek more)
+		    get (peek next)
 		    where
 			fun get TERMINATED  =>  EOF;
-			    get (MORE buf') =>  DATA buf';
+			    get (NEXT buf') =>  DATA buf';
 
-			    get NOMORE      =>  case (empty more)
+			    get NO_NEXT     =>  case (empty next)
 						    #
-						    NOMORE => extend_stream (read_fn, ml_op, buf);
-						    other  => {  fill (more, other);   get other;  };
+						    NO_NEXT => extend_stream (read_fn, ml_op, buf);
+						    other  => {  fill (next, other);   get other;  };
 						esac;
 			end;
 		    end;
@@ -277,7 +277,7 @@ herein
 			#
 			case (empty m)
 			    #
-			    (m' as MORE _)
+			    (m' as NEXT _)
 				=>
 				{   fill (m, m');
 				    #
@@ -296,11 +296,11 @@ herein
 
 		# Find the end of the stream:
 		# 
-		fun find_eos (buf as INPUT_BUFFER { more, data, ... } )
+		fun find_eos (buf as INPUT_BUFFER { next, data, ... } )
 		    =
-		    case (peek more)
+		    case (peek next)
 			#
-			MORE buf =>  find_eos buf;
+			NEXT buf =>  find_eos buf;
 			_        =>  INPUT_STREAM (buf, cv::length data);
 		    esac;
 
@@ -312,14 +312,14 @@ herein
 
 		fun read_one (INPUT_STREAM (buf, pos))
 		    =
-		    {   buf ->  INPUT_BUFFER { data, more, ... };
+		    {   buf ->  INPUT_BUFFER { data, next, ... };
 
 			if (pos < cv::length data)
 			    #
 			    THE (vec_get (data, pos), INPUT_STREAM (buf, pos+1));
 			else
 
-			    fun get (MORE buf)
+			    fun get (NEXT buf)
 				    =>
 				    read_one (INPUT_STREAM (buf, 0));
 
@@ -327,23 +327,23 @@ herein
 				    =>
 				    NULL;
 
-				get NOMORE
+				get NO_NEXT
 				    =>
-				    case (empty more)
+				    case (empty next)
 					#
-					NOMORE =>   case (extend_stream (read_vector buf, "read_one", buf))
+					NO_NEXT =>   case (extend_stream (read_vector buf, "read_one", buf))
 							#
 							EOF       => NULL;
 							DATA rest => read_one (INPUT_STREAM (rest, 0));
 						    esac;
 
-					other=> {   fill (more, other);
+					other=> {   fill (next, other);
 						    get other;
 						};
 				    esac;
 			    end;
 
-			    get (peek more);
+			    get (peek next);
 			fi;
 		    };
 
@@ -369,11 +369,11 @@ herein
 			    }
 
 			also
-			fun next_buf (buf as INPUT_BUFFER { more, data, ... }, n)
+			fun next_buf (buf as INPUT_BUFFER { next, data, ... }, n)
 			    =
-			    get (peek more)
+			    get (peek next)
 			    where
-				fun get (MORE buf)
+				fun get (NEXT buf)
 					=>
 					input_list (buf, 0, n);
 
@@ -381,11 +381,11 @@ herein
 					=>
 					([], INPUT_STREAM (buf, cv::length data));
 
-				    get NOMORE
+				    get NO_NEXT
 					=>
-					case (empty more)
+					case (empty next)
 					    #
-					    NOMORE
+					    NO_NEXT
 						=>
 						case (extend_stream (read_vector buf, "read_n", buf))
 						    #
@@ -393,7 +393,7 @@ herein
 						    DATA rest =>  input_list (rest, 0, n);
 						esac;
 
-					    other=> {   fill (more, other);
+					    other=> {   fill (next, other);
 							get other;
 						    };
 					esac;
@@ -467,24 +467,24 @@ herein
 					    ::   next_buf (buf, n - remain);
 			  }
 		      also
-		      fun next_buf (INPUT_BUFFER { more, ... }, n)
+		      fun next_buf (INPUT_BUFFER { next, ... }, n)
 			  =
-			  get (peek more)
+			  get (peek next)
 			  where
-			      fun get (MORE buf) => try_input (buf, 0, n);
+			      fun get (NEXT buf) => try_input (buf, 0, n);
 				  get TERMINATED => THE (amount - n);
 	/******
-			      | get NOMORE = (case md::mTake more
-				   of NOMORE =>
+			      | get NO_NEXT = (case md::mTake next
+				   of NO_NEXT =>
 					case extendStream (readVecNB, "can_read", buf)
 					 of EOF => THE (amount - n)
 					  | (DATA b) => tryInput (b, 0, n)
 					esac
 					  except iox::IO { cause=WOULD_BLOCK, ... } => THE (amount - n))
-				    | other=> (md::mPut (more, other); get other)
+				    | other=> (md::mPut (next, other); get other)
 				   	esac
 	******/
-			       get NOMORE => THE (amount - n);
+			       get NO_NEXT => THE (amount - n);
 			     end;
 
 			  end;
@@ -520,13 +520,13 @@ herein
 		    =
 		    close_in_info (info_of_ibuf buf);
 
-		fun end_of_stream (INPUT_STREAM (buf as INPUT_BUFFER { more, ... }, pos))
+		fun end_of_stream (INPUT_STREAM (buf as INPUT_BUFFER { next, ... }, pos))
 		    =
-		    case (empty more)
+		    case (empty next)
 			#
-			(other as MORE _)
+			(other as NEXT _)
 			    =>
-			    {   fill (more, other);
+			    {   fill (next, other);
 				FALSE;
 			    };
 
@@ -538,7 +538,7 @@ herein
 
 				    case (other, *closed)
 					#
-					(NOMORE, FALSE)
+					(NO_NEXT, FALSE)
 					    =>
 					    case (extend_stream (read_vector buf, "end_of_stream", buf))
 						#
@@ -546,13 +546,13 @@ herein
 						_   => FALSE;
 					    esac;
 
-				       _ => {   fill (more, other);
+				       _ => {   fill (next, other);
 						TRUE;
 					    };
 				    esac;
 
 				else
-				     fill (more, other);
+				     fill (next, other);
 				     FALSE;
 				fi;
 			    };
@@ -570,7 +570,7 @@ herein
 				_              =>   fn () =  NULL;
 			    esac;
 
-			more =  make_full_maildrop  NOMORE;
+			next =  make_full_maildrop  NO_NEXT;
 
 			closed_flag = REF FALSE;
 
@@ -584,7 +584,7 @@ herein
 				 clean_tag,
 				 #
 				 closed     => closed_flag,
-				 tail      => make_full_maildrop more
+				 tail      => make_full_maildrop next
 			       };
 
 			# What should we do about the position in this case ??
@@ -600,7 +600,7 @@ herein
 
 			buf = INPUT_BUFFER {
 				base_position, data,
-				info, more
+				info, next
 			      };
 
 			stream =  INPUT_STREAM (buf, 0);
@@ -623,15 +623,15 @@ herein
 
 		fun get_reader (INPUT_STREAM (buf, pos))
 		    =
-		    {   buf ->  INPUT_BUFFER { data, info as INFO { reader, ... }, more, ... };
+		    {   buf ->  INPUT_BUFFER { data, info as INFO { reader, ... }, next, ... };
 
-			fun get_data more
+			fun get_data next
 			    =
-			    case (peek more)
+			    case (peek next)
 				#
-				(MORE (INPUT_BUFFER { data, more=>more', ... } ))
+				(NEXT (INPUT_BUFFER { data, next=>next', ... } ))
 				    =>
-				    data ! get_data more';
+				    data ! get_data next';
 
 				_ => [];
 			    esac;
@@ -641,8 +641,8 @@ herein
 
 			if (pos < cv::length data)
 			     #	
-			     (reader, cv::cat (vec_extract (data, pos, NULL) ! get_data more));
-			else (reader, cv::cat (get_data more));
+			     (reader, cv::cat (vec_extract (data, pos, NULL) ! get_data next));
+			else (reader, cv::cat (get_data next));
 			fi;
 		    };
 
@@ -730,23 +730,23 @@ herein
 			    =
 			    (item ! list, stream);
 
-			fun next_buf (is_empty, buf as INPUT_BUFFER { more, data, ... } )
+			fun next_buf (is_empty, buf as INPUT_BUFFER { next, data, ... } )
 			    =
-			    get (peek more)
+			    get (peek next)
 			    where
 				fun last ()
 				    =
 				    (if is_empty  []; else ["\n"];fi, INPUT_STREAM (buf, cv::length data));
 
-				fun get (MORE buf)
+				fun get (NEXT buf)
 					=>
 					scan_data (buf, 0);
 
-				    get NOMORE
+				    get NO_NEXT
 					=>
-					case (empty more)
+					case (empty next)
 					    #
-					    NOMORE
+					    NO_NEXT
 						=>
 						case (extend_stream (read_vector buf, "read_line", buf))
 						    #
@@ -756,7 +756,7 @@ herein
 
 					    other
 						=>
-						{   fill (more, other);
+						{   fill (next, other);
 						    get other;
 						};
 					esac;
