@@ -175,13 +175,13 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     pthread->posix_signal_counts[sig].seen_count++;
     pthread->all_posix_signals.seen_count++;
 
-    log_if(
-        "posix-signal.c/c_signal_handler: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
-        sig,
-        pthread->posix_signal_counts[sig].seen_count,
-        pthread->posix_signal_counts[sig].done_count,
-        pthread->posix_signal_counts[sig].seen_count - pthread->posix_signal_counts[sig].done_count
-    );
+//    log_if(
+//        "posix-signal.c/c_signal_handler: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
+//        sig,
+//        pthread->posix_signal_counts[sig].seen_count,
+//        pthread->posix_signal_counts[sig].done_count,
+//        pthread->posix_signal_counts[sig].seen_count - pthread->posix_signal_counts[sig].done_count
+//    );
 
     #ifdef SIGNAL_DEBUG
     debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, pthread->posix_signal_pending, pthread->mythryl_handler_for_posix_signal_is_running);

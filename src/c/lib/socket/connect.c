@@ -71,13 +71,13 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );	// Last use of 'addr'.
         char buf[ 1024 ];
 
-										// Translate to hex for log:
-										buf[0] = '\0';
-										for (int i = 0; i < addrlen; ++i) {
-										    //
-										    sprintf (buf+strlen(buf), "%02x.", a[i]);
-										}
-										log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
+//										// Translate to hex for log:
+//										buf[0] = '\0';
+//										for (int i = 0; i < addrlen; ++i) {
+//										    //
+//										    sprintf (buf+strlen(buf), "%02x.", a[i]);
+//										}
+//										log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
 	// Copy address from Mythryl heap into C stack because
 	// we cannot reference the Mythryl heap between
 	// RELEASE_MYTHRYL_HEAP and
@@ -117,7 +117,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 	fd_set write_set;
 
 	do {
-	    log_if( "connect.c/mid: Caught EINTR #%d, doing a select() on fd %d\n", eintr_count, socket);
+//	    log_if( "connect.c/mid: Caught EINTR #%d, doing a select() on fd %d\n", eintr_count, socket);
 
 	    FD_ZERO( &read_set);
 	    FD_ZERO(&write_set);
@@ -153,7 +153,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     }
 #endif
 
-    log_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
+//  log_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/raise-error.h
 }

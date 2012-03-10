@@ -41,7 +41,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
     // XXX BUGGO FIXME:  Architecture dependencies code should
     // probably moved to       sockets-osdep.h
 
-										log_if( "close.c/top: fd d=%d\n", fd );
+//										log_if( "close.c/top: fd d=%d\n", fd );
     errno = 0;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close", NULL );
@@ -58,7 +58,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_close" );
 
-									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
+//									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

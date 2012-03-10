@@ -62,7 +62,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     Mythryl_Heap_Value_Buffer  read_buf;
     //
     {   unsigned char* c_read =  buffer_mythryl_heap_nonvalue( &read_buf, nbytes );
-										log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
+//										log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
 	errno = 0;
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recv", NULL );
@@ -89,8 +89,8 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 	// Copy bytes read into result vector:
 	//
         memcpy( PTR_CAST(char*, vec), c_read, n);
-										log_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
-										hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
+//										log_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
+//										hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
 	unbuffer_mythryl_heap_value( &read_buf );
     }
 

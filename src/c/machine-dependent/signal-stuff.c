@@ -84,13 +84,13 @@ void   choose_signal   (Pthread* pthread)   {
     pthread->next_posix_signal_id  = i;
     pthread->next_posix_signal_count = delta;
 
-    log_if(
-        "signal-stuff.c/choose_signal: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
-        i,
-        pthread->posix_signal_counts[i].seen_count,
-        pthread->posix_signal_counts[i].done_count,
-        pthread->posix_signal_counts[i].seen_count - pthread->posix_signal_counts[i].done_count
-    );
+//    log_if(
+//        "signal-stuff.c/choose_signal: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
+//        i,
+//        pthread->posix_signal_counts[i].seen_count,
+//        pthread->posix_signal_counts[i].done_count,
+//        pthread->posix_signal_counts[i].seen_count - pthread->posix_signal_counts[i].done_count
+//    );
 
     // Mark this signal as 'done':
     //

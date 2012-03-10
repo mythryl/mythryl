@@ -81,10 +81,10 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     if (oob       == HEAP_TRUE) flgs |= MSG_OOB;
     if (dontroute == HEAP_TRUE) flgs |= MSG_DONTROUTE;
 
-															log_if( "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n",
-																socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE"
-															);
-															hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)heap_data, nbytes );
+//															log_if( "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n",
+//																socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE"
+//															);
+//															hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)heap_data, nbytes );
 
     errno = 0;
 
@@ -108,7 +108,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     /*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf" );
-															log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
+//															log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
 	unbuffer_mythryl_heap_value( &data_buf );
     }
 
