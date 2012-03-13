@@ -12,8 +12,121 @@ herein
     package   select_pthread
     : (weak)  Select_Pthread							# Select_Pthread		is from   src/lib/std/src/pthread/select-pthread.api
     {
+	mutex   =  pth::make_mutex   (); 
+	condvar =  pth::make_condvar ();  
+
+	# One record type for each request
+	# supported by the server:
 	#
-	Request = REQUEST;
+	Do_This =  { input: Int,	reply: Int    -> Void };		# Edit to suit. The 'reply' thunks will typically send a do_something() request back to the originating pthread.
+	Do_That =  { input: String,	reply: String -> Void };
+
+	Request =  DO_THIS  Do_This						# Union of above record types, so that we can keep them all in one queue.
+		|  DO_THAT  Do_That
+		; 
+
+	request_queue =  REF ([]: List(Request)); 
+
+	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of thunks for equality.)
+	                           _  => FALSE;
+	    esac;
+
+
+
+	fun do_this' (r: Do_This)						# Internal fn -- will execute in context of server pthread.
+	    =
+	    {   # Edit to do actual work before replying.
+		# This is the meat of the server:
+		#
+		r.reply r.input;
+	    };
+
+	fun do_that' (r: Do_That)						# Internal fn -- will execute in context of server pthread.
+	    =
+	    {   # Edit to do actual work before replying.
+		# This is the meat of the server:
+		#
+		r.reply r.input;
+	    };
+
+
+
+	###############################################
+	# The rest of the file is mostly boilerplate:
+	###############################################
+
+	fun do_this  (request: Do_This)						# External fn -- will execute in context of client pthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_THIS request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	fun do_that  (request: Do_That)						# External fn -- will execute in context of client pthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_THAT request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	fun get_new_requests  () 
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {
+			#
+			pth::wait_on_condvar (condvar, mutex);
+		    };
+
+		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
+		    # 
+		    request_queue := []; 
+		    # 
+		pth::release_mutex  mutex;  
+		# 
+		new_requests; 
+	    };           
+
+	fun server_loop () 
+	    = 
+	    {   service_requests (get_new_requests()); 
+		#
+		server_loop (); 
+	    } 
+	   where 
+		fun service_requests  [] 
+			=> 
+			(); 
+
+		    service_requests  (request ! rest) 
+			=> 
+			{   service_request request; 
+			    #
+			    service_requests rest; 
+			} 
+			where 
+			    fun service_request (DO_THIS r) =>  do_this' r; 
+				service_request (DO_THAT r) =>  do_that' r;
+			    end; 
+			end;
+		end; 
+	    end; 
+
+                                                                my _ = 		# "my _ =" needed because only declarations are syntactically allowable here.
+        pth::spawn_pthread  server_loop;
     };
 end;
 
