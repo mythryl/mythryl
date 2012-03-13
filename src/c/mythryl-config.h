@@ -62,7 +62,7 @@
 
 
 //
-#define MAX_PTHREADS	8
+#define MAX_PTHREADS	32
     //
     // Max number of posix threads running Mythryl.
     // Don't be profligatehere :  We statically
