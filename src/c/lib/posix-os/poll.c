@@ -324,6 +324,6 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
 
 // COPYRIGHT (c) 1994 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

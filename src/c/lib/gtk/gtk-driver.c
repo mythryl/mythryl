@@ -4667,6 +4667,6 @@ Val   _lib7_Gtk_set_value_changed_callback (Task* task, Val arg)
 
 
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

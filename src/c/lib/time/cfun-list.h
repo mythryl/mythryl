@@ -32,6 +32,6 @@ CFUNC("timeofday","timeofday",	_lib7_Time_timeofday,		"Void -> (one_word_int::In
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

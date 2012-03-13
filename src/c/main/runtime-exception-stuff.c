@@ -91,6 +91,6 @@ void   handle_uncaught_exception   (Val e)   {
 }
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

@@ -395,7 +395,7 @@ Val _lib7_win32_IO_write_arr_txt(Task *task, Val arg)
 
 
 /* COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+ * Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
  * released under Gnu Public Licence version 3.
  */
 

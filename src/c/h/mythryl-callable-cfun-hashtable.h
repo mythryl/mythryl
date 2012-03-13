@@ -63,6 +63,6 @@ extern Punt   heapfile_cfun_table_bytesize   (Heapfile_Cfun_Table* table);
 
 
 // COPYRIGHT (c) 1992 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

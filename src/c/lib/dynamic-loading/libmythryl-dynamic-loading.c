@@ -37,6 +37,6 @@ Mythryl_Callable_C_Library	    Libmythryl_Dynamic_Loading = {					// Mythryl_Cal
 
 
 // COPYRIGHT (c) 1995 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

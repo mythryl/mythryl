@@ -31,6 +31,6 @@ Val   _lib7_Ncurses_has_colors   (Task* task,  Val arg)   {	// : Void -> Bool
 
 
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

@@ -2711,6 +2711,6 @@ dtoa
 // REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
 // OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
 //
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 ////////////////////////////////////////////////////////////////////

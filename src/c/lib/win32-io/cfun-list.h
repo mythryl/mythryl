@@ -30,6 +30,6 @@ CFUNC("poll","poll", _lib7_win32_OS_poll,"one_word_unt list * (one_word_int.Int 
 
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

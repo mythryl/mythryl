@@ -30,7 +30,7 @@ _lib7_Ncurses_start_color (Task *task, Val arg)
 }
 
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

@@ -87,7 +87,7 @@ int   get_size_option   (int scale,  char* size)   {
 
 
 // COPYRIGHT (c) 1996 AT&T Research.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

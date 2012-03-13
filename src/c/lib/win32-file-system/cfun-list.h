@@ -39,6 +39,6 @@ CFUNC("get_temp_file_name","get_temp_file_name",      _lib7_win32_FS_get_temp_fi
 
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

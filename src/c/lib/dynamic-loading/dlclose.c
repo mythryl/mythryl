@@ -47,6 +47,6 @@ Val   _lib7_U_Dynload_dlclose   (Task* task, Val lib7_handle)   {	// : one_word_
 
 
 // COPYRIGHT (c) 2000 by Lucent Technologies, Bell Laboratories
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

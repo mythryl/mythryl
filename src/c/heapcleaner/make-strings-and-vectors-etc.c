@@ -759,7 +759,7 @@ Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

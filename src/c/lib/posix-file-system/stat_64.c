@@ -247,6 +247,6 @@ Val   _lib7_P_FileSys_lstat_64   (Task* task,  Val arg)   {	//  : String -> stat
 
 
 // Copyright (c) 2004 by The Fellowship of SML/NJ
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

@@ -39,6 +39,6 @@ CFUNC("tcsetpgrp","tcsetpgrp",   _lib7_P_TTY_tcsetpgrp,      "(Int, Int) -> Void
 
 
 // COPYRIGHT (c) 1995 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

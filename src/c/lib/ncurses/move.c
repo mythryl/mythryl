@@ -37,6 +37,6 @@ Val   _lib7_Ncurses_move   (Task* task,  Val arg)   {    // : (Int, Int) -> Void
 }
 
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

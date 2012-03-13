@@ -142,7 +142,7 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
 
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

@@ -72,6 +72,6 @@ Val   _lib7_Math_get_or_set_rounding_mode   (Task* task,  Val arg)   {
 
 
 // COPYRIGHT (c) 1996 AT&T Research.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

@@ -30,6 +30,6 @@ Val   _lib7_Ncurses_nonl   (Task* task,  Val arg)   {	//  : Void -> Void
     #endif
 }
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

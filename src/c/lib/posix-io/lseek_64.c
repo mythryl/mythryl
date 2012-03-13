@@ -78,6 +78,6 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
 
 
 // Copyright (c) 2004 by The Fellowship of SML/NJ
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

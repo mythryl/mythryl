@@ -115,5 +115,5 @@ int   main   ( int argc, char** argv ) {
     exit( 13 );
 }
 
-// Code by Jeff Prothero Copyright (c) 2010-2011,
+// Code by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.

@@ -44,7 +44,7 @@ struct mklinux_pwrpc32_regs {
 
 
 // COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

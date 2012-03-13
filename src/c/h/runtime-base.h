@@ -953,7 +953,7 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 

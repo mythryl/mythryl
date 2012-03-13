@@ -37,6 +37,6 @@ name_val_t*   _lib7_posix_nv_lookup   (char* key,  name_val_t* array,  int numel
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 //
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 

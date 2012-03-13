@@ -29,7 +29,7 @@ _lib7_Ncurses_refresh (Task *task, Val arg)
 #endif
 }
 
-// Code by Jeff Prothero: Copyright (c) 2010-2011,
+// Code by Jeff Prothero: Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.
 
 
