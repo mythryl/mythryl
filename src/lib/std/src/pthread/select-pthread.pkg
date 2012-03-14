@@ -25,9 +25,14 @@ herein
 	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
 										# (correctly) return FALSE, even though pid may not have gotten zeroed.
 
-	mutex   =  pth::make_mutex   (); 
+	mutex   =  pth::make_mutex   (); 					# These will actually survive a heap dump/load cycle, pretty much.
 	condvar =  pth::make_condvar ();  
-	pipe    =  psx::make_pipe    ();					# See Note[1] at bottom of file.
+
+	Pipe    =  { infd:   psx::File_Descriptor,
+                     outfd:  psx::File_Descriptor
+                   };
+
+	pipe    =  REF (NULL: Null_Or( Pipe ));
 
 	wait_requests =  REF ([]:  List( wio::Wait_Request )  );		# This is the set of file descriptors to select() on.
 	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
@@ -52,13 +57,40 @@ herein
 
 
 
+	fun default_wait_request_list (pipe: Pipe)
+	    =
+	    {   # Our minimal request list is to read
+		# the pipe that clients use to wake us:
+		#
+		io_descriptor =  psx::fd_to_iod  pipe.infd;
+		#
+		[
+		  { io_descriptor,
+		    readable => TRUE,
+		    writable => FALSE,
+		    oobdable => FALSE
+		  }
+		]; 
+	    };
+
 	fun do_stop (r: Do_Stop)						# Internal fn -- will execute in context of server pthread.
 	    =
-	    {   r.reply ();
+	    {   case *pipe							# Close pipe fds, so that we don't leak fds continually
+		    #								# if some idiot stops and starts us continually.
+		    THE { infd, outfd }
+			=>
+			{   psx::close infd;
+			    psx::close outfd;
+			};
+
+		    NULL => ();
+		esac;
 		#
 		fil::log  .{ "src/lib/std/src/pthread/select-pthread.pkg: Shutting down per request from '" + r.who + "'."; };
 		#
 		pid := 0;
+		#
+		r.reply ();
 		#
 		pthread::pthread_exit ();		
 	    };
@@ -117,6 +149,42 @@ herein
 		new_requests; 
 	    };           
 
+	fun do_select ()
+	    =
+	    {   fds_ready_for_io
+		    =
+		    wio::wait_for_io_opportunity
+		      { 
+			wait_requests =>  *wait_requests,
+			timeout	      =>  THE *timeout
+		      };
+		    
+		process_io_ready_fds  fds_ready_for_io;
+	    }
+	    where
+		fun process_io_ready_fds  []         => ();
+		    process_io_ready_fds  (r ! rest) => {   process_io_ready_fd  r;
+							    process_io_ready_fds rest;
+							};
+		end
+
+		also
+		fun process_io_ready_fd  { io_descriptor, readable, writable, oobdable }
+		    =
+		    {   pipe =  the *pipe;
+			#
+			if (io_descriptor == psx::fd_to_iod  pipe.infd)
+			    #
+			    psx::read_vector  (pipe.infd, 1);			# Read and discard the byte that was sent to us.
+
+			    ();
+			else
+			    ();
+			fi;
+		    };
+	    end;
+
+
 	fun server_loop () 
 	    = 
 	    {   service_requests (get_new_requests()); 
@@ -144,30 +212,41 @@ herein
 	    end; 
 
 
-	fun start who						# 'who' is a string identifying the client requesting the startup, for logging purposes.
+	fun start who								# 'who' is a string identifying the client requesting the startup, for logging purposes.
 	    =
 	    {   pth::acquire_mutex mutex;  
 		#
 		if (not (is_running ()))
 		    #
 		    fil::log  .{ "src/lib/std/src/pthread/select-pthread.pkg: Starting up server loop in response to '" + who + "'."; };
-		    #
+
 		    pid :=  wxp::get_process_id ();
-		    #
+
 		    pth::release_mutex  mutex;  
-		    #
-		    wait_requests :=  [];				# If we're being started after a heap save/load then our fds are stale -- safest to dump them.
-		    timeout	  :=  tim::from_float_seconds 0.02;	# Start up with timeout frequency set to 50Hz.
-		    #
+
+		    pipe	  :=  THE (psx::make_pipe ());			# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
+		     								# in which case closing them might close something we actually want this time around.
+
+		    wait_requests :=  default_wait_request_list (the *pipe);	# By default we listen only on our private pipe.
+
+		    timeout	  :=  tim::from_float_seconds  0.02;		# Start up with timeout frequency set to 50Hz.
+
 		    pth::spawn_pthread  server_loop;
-		    #
+
 		    TRUE;
 		else
-		    wait_requests :=  [];				# Re-initialize in this case also, so client sees simple predictable semantics.
-		    timeout	  :=  tim::from_float_seconds 0.02;	# Start up with timeout frequency set to 50Hz.
-		    #
+		    # We re-initialize in this case also, so that
+		    # clients will see simple predictable semantics:
+
+		    # NB: Since we're running, we have a valid pipe;
+		    # there is no reason to create a new one here.
+		    
+		    wait_requests :=  default_wait_request_list (the *pipe);
+
+		    timeout	  :=  tim::from_float_seconds 0.02;
+
 		    pth::release_mutex  mutex;  
-		    #
+
 		    FALSE;
 		fi;
 	    };
