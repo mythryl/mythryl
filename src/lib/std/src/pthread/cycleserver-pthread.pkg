@@ -1,8 +1,7 @@
 ## cycleserver-pthread.pkg
 #
-# Skeleton code for a persistent server pthread.
-# The intention is to simplify construction of
-# new server pthreads via clone-and-mutate.
+# Server pthreads to offload cpu-intensive computations
+# from the main threadkit pthread.
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -17,12 +16,22 @@ herein
     package cycleserver_pthread
     :       Cycleserver_Pthread							# Cycleserver_Pthread		is from   src/lib/std/src/pthread/cycleserver-pthread.api
     { 
-	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+	pid		      =  REF 0;	
+	running_servers_count =  REF 0;						# Count of servers running.  Typically as many as cores on the machine, or maybe one less.
 
-	fun is_running ()
+	fun get_count_of_running_cycleservers ()
 	    =
-	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
-										# (correctly) return FALSE, even though pid may not have gotten zeroed.
+	    {   actual_pid = wxp::get_process_id ();				# If the heap gets dumped to disk and then and reloaded, running_servers_count will be bogus.
+		#								# We detect this by checking if the pid has changed.  There is of course a small chance
+		if(*pid != actual_pid)						# that by accident we still have the same pid after a save/reload, in which case we lose.	XXX BUGGO FIXME.
+		    pid := actual_pid;						# A fix might be to have a generation number associated with each heap image which gets
+		    #								# incremented on every save/load cycle.
+		    running_servers_count :=  0;
+		fi;
+
+		*running_servers_count;
+	    };
+
 	mutex   =  pth::make_mutex   (); 
 	condvar =  pth::make_condvar ();  
 
@@ -34,14 +43,29 @@ herein
 
 	Request =  DO_STOP  Do_Stop						# Union of above record types, so that we can keep them all in one queue.
 		|  DO_ECHO  Do_Echo
+		|  DO_TASK  (Void -> Void)
 		; 
 
-	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
+	external_request_queue =  REF ([]: List(Request));
+	internal_request_queue =  REF ([]: List(Request));
+	    #
+	    # We need two queues because clients will prepend
+	    # requests to the external queue, leaving it in
+	    # reverse order, but we want to run tasks in
+	    # submission order.  So periodically when the
+	    # internal queue is empty we set it to the
+	    # reversed contents of the external queue.
 
-	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	fun external_request_queue_is_empty ()					# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
 	    =									# because Request is not an equality type. (The 'reply' fields are functions
-	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
-	                           _  => FALSE;
+	    case *external_request_queue    [] => TRUE;				# and Mythryl does not support comparison of functions for equality.)
+	                                    _  => FALSE;
+	    esac;
+
+	fun internal_request_queue_is_empty ()					# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *internal_request_queue    [] => TRUE;				# and Mythryl does not support comparison of functions for equality.)
+	                                    _  => FALSE;
 	    esac;
 
 
@@ -52,7 +76,9 @@ herein
 		#
 		fil::log  .{ "src/lib/std/src/pthread/cycleserver-pthread.pkg: Shutting down per request from '" + r.who + "'."; };
 		#
-		pid := 0;
+		running_servers_count
+		   :=
+		   get_count_of_running_cycleservers () - 1; 
 		#
 		pthread::pthread_exit ();		
 	    };
@@ -61,6 +87,11 @@ herein
 	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server pthread.
 	    =
 	    r.reply  r.what;
+
+
+	fun do_task (task: Void -> Void)					# Internal fn -- will execute in context of server pthread.
+	    =
+	    task ();
 
 
 
@@ -73,7 +104,7 @@ herein
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
-		    request_queue :=  (DO_STOP request)  !  *request_queue; 
+		    external_request_queue :=  (DO_STOP request)  !  *external_request_queue; 
 		    # 
 		    pth::broadcast_condvar condvar;  
 		    # 
@@ -85,54 +116,77 @@ herein
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
-		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
+		    external_request_queue :=  (DO_ECHO request)  !  *external_request_queue; 
 		    # 
 		    pth::broadcast_condvar condvar;  
 		    # 
 		pth::release_mutex mutex;  
 	    };           
 
-	fun get_new_requests  () 
+	fun do    (task: Void -> Void)						# External fn -- will execute in context of client pthread.
 	    = 
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
-		    for (request_queue_is_empty()) {
-			#
-			pth::wait_on_condvar (condvar, mutex);
-		    };
-
-		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
+		    external_request_queue :=  (DO_TASK task)  !  *external_request_queue; 
 		    # 
-		    request_queue := []; 
+		    pth::broadcast_condvar condvar;  
 		    # 
-		pth::release_mutex  mutex;  
-		# 
-		new_requests; 
+		pth::release_mutex mutex;  
 	    };           
 
-	fun server_loop () 
+
+	fun get_next_request  () 
 	    = 
-	    {   service_requests (get_new_requests()); 
+	    { 
+		pth::acquire_mutex mutex;  
+		# 
+		for (external_request_queue_is_empty ()
+		and  internal_request_queue_is_empty ()
+		){
+		    #
+		    pth::wait_on_condvar (condvar, mutex);
+		};
+
+		case *internal_request_queue
+		    #
+		    (task ! rest)
+			=>
+			{   internal_request_queue :=   rest;
+			    #
+			    pth::release_mutex  mutex;  
+			    #
+			    task;
+			};
+
+		    [] =>
+			case *external_request_queue
+			    #
+			    (task ! rest)
+				=>
+				{   internal_request_queue :=   reverse  rest;	# Refill internal queue from external one, reversing to restore original request ordering.
+				    external_request_queue :=   [];
+				    #
+				    pth::release_mutex  mutex;  
+				    #
+				    task;
+				};
+
+			    [] => raise exception FAIL "impossible";		# The above 'for' loop condition guarantees one of the two queues is nonempty.
+			esac;
+		esac;
+	    };           
+
+	fun server_loop () 							# This is the outer loop for each cycleserver pthread.
+	    = 
+	    {   service_request (get_next_request()); 
 		#
 		server_loop (); 
 	    } 
-	   where 
-		fun service_requests  [] 
-			=> 
-			(); 
-
-		    service_requests  (request ! rest) 
-			=> 
-			{   service_request request; 
-			    #
-			    service_requests rest; 
-			} 
-			where 
-			    fun service_request (DO_STOP r) =>  do_stop r; 
-				service_request (DO_ECHO r) =>  do_echo r;
-			    end; 
-			end;
+	    where 
+		fun service_request (DO_STOP r) =>  do_stop r; 
+		    service_request (DO_ECHO r) =>  do_echo r;
+		    service_request (DO_TASK r) =>  do_task r;
 		end; 
 	    end; 
 
@@ -140,23 +194,19 @@ herein
 	    =
 	    {   pth::acquire_mutex mutex;  
 		#
-		if (is_running ())
-		    #
-		    pth::release_mutex  mutex;  
-		    #
-		    FALSE;
-		else
-		    #
-		    fil::log  .{ "src/lib/std/src/pthread/cycleserver-pthread.pkg: Starting up server loop in response to '" + who + "'."; };
-		    #
-		    pid :=  wxp::get_process_id ();
-		    #
-		    pth::release_mutex  mutex;  
-		    #
-		    pth::spawn_pthread  server_loop;
-		    #
-		    TRUE;
-		fi;
+		fil::log  .{ "src/lib/std/src/pthread/cycleserver-pthread.pkg: Starting up server loop in response to '" + who + "'."; };
+
+		pid :=  wxp::get_process_id ();
+
+		running_servers_count
+		   :=
+		   get_count_of_running_cycleservers () + 1; 
+
+		pth::release_mutex  mutex;  
+		#
+		pth::spawn_pthread  server_loop;
+
+		*running_servers_count;
 	    };
 
     };
