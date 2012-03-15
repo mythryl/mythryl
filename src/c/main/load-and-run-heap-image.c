@@ -34,7 +34,14 @@ void   load_and_run_heap_image__may_heapclean (
     // This function is called in only one place, in
     //     src/c/main/runtime-main.c
 
-    Task* task =  import_heap_image__may_heapclean( heap_image_to_run_filename, heap_parameters, extra_roots );
+    Task* task
+	=
+	import_heap_image__may_heapclean(									// import_heap_image__may_heapclean				is from   src/c/heapcleaner/import-heap.c
+	    //
+	    heap_image_to_run_filename,
+	    heap_parameters,
+	    extra_roots
+	);
 
 
     set_up_fault_handlers ();

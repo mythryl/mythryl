@@ -1,6 +1,71 @@
-// import-heap.c
+// import-heap.c							// Wouldn't save/load be more concise nomenclature than export/import?
 //
 // Routines to import a Mythryl heap image.
+
+
+
+// XXX BUGGO FIXME:
+//
+//	Right now there seems to be no reliable way
+//	to tell if a heap has been exported and then
+//	imported.
+//
+//	This matters because dynamic C world resources
+//	like running posix threads will be lost in the
+//	the course of an export/import cycle.
+//
+//	Currently this is approximated by recording
+//	the host pid and checking to see if it has
+//	changed, for example in:
+//
+//	    src/lib/std/src/pthread/template-pthread.pkg
+//	    src/lib/std/src/pthread/io-wait-pthread.pkg
+//	    src/lib/std/src/pthread/cycleserver-pthread.pkg
+//	    src/lib/std/src/pthread/lagserver-pthread.pkg
+//
+//	This is actually incorrect because there is a about
+//	one chance in 32,000 that we'll get the same pid
+//	back after a heap reload.
+//
+//	Consequently it would be better if we had a heap
+//	generation number that was incremented on each
+//	save/load cycle and visible at the Mythrl level,
+//	to make a reliable check possible.
+//
+//	It is possible (probable?) that some more general
+//	mechanism should be implemented.  For example
+//	mutexes and condvars are currently "preserved"
+//	across save/load cycles using a pretty awful hack in
+//
+//	    src/c/pthread/pthread-on-posix-threads.c
+//
+//	that cannot actually preserve state properly.
+//	This sort of thing is likely to be a recurring
+//	problem.	
+//
+//	To maintain good separation of concerns, such a
+//	general mechanism would presumably be something
+//	along the lines of:
+//
+//	 o  Have some api for registering a load-time-processing
+//	    C fn with the heap-load logic.
+//
+//	 o  Introduce a "Dynamic C-world Resource" chunktype
+//	    into the heap. (Perhaps as a new BTAG?)  This
+//	    would allow the heap save/load logic to recognize
+//	    such resources, which is not possible with the
+//	    current trick of encoding them in the heap as
+//	    Int31 values.
+//
+//	    This chunktype might contain something like
+//	    a unix special device major/minor device number:
+//	    a pair of values in which
+//
+//	     *  The first identifies the load-time-processing
+//		fn to call on this chunk.
+//
+//	     *  The second provides a unique ID.
+
 
 #include "../mythryl-config.h"
 
