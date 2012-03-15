@@ -1,0 +1,167 @@
+## cycleserver-pthread.pkg
+#
+# Skeleton code for a persistent server pthread.
+# The intention is to simplify construction of
+# new server pthreads via clone-and-mutate.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+stipulate
+    package fil =  file;							# file				is from   src/lib/std/src/posix/file.pkg
+    package pth =  pthread;							# pthread			is from   src/lib/std/src/pthread.pkg
+    package wxp =  winix::process;						# winix::process		is from   src/lib/std/src/posix/winix-process.pkg
+herein
+
+    package cycleserver_pthread
+    :       Cycleserver_Pthread							# Cycleserver_Pthread		is from   src/lib/std/src/pthread/cycleserver-pthread.api
+    { 
+	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+
+	fun is_running ()
+	    =
+	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
+										# (correctly) return FALSE, even though pid may not have gotten zeroed.
+	mutex   =  pth::make_mutex   (); 
+	condvar =  pth::make_condvar ();  
+
+	# One record for each request
+	# supported by the server:
+	#
+	Do_Stop =  { who:  String,	reply: Void   -> Void };
+	Do_Echo =  { what: String,	reply: String -> Void };
+
+	Request =  DO_STOP  Do_Stop						# Union of above record types, so that we can keep them all in one queue.
+		|  DO_ECHO  Do_Echo
+		; 
+
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
+
+	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
+	                           _  => FALSE;
+	    esac;
+
+
+
+	fun do_stop (r: Do_Stop)						# Internal fn -- will execute in context of server pthread.
+	    =
+	    {   r.reply ();
+		#
+		fil::log  .{ "src/lib/std/src/pthread/cycleserver-pthread.pkg: Shutting down per request from '" + r.who + "'."; };
+		#
+		pid := 0;
+		#
+		pthread::pthread_exit ();		
+	    };
+
+
+	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server pthread.
+	    =
+	    r.reply  r.what;
+
+
+
+	###############################################
+	# The rest of the file is mostly boilerplate:
+	###############################################
+
+	fun stop  (request: Do_Stop)						# External fn -- will execute in context of client pthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_STOP request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	fun echo  (request: Do_Echo)						# External fn -- will execute in context of client pthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	fun get_new_requests  () 
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {
+			#
+			pth::wait_on_condvar (condvar, mutex);
+		    };
+
+		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
+		    # 
+		    request_queue := []; 
+		    # 
+		pth::release_mutex  mutex;  
+		# 
+		new_requests; 
+	    };           
+
+	fun server_loop () 
+	    = 
+	    {   service_requests (get_new_requests()); 
+		#
+		server_loop (); 
+	    } 
+	   where 
+		fun service_requests  [] 
+			=> 
+			(); 
+
+		    service_requests  (request ! rest) 
+			=> 
+			{   service_request request; 
+			    #
+			    service_requests rest; 
+			} 
+			where 
+			    fun service_request (DO_STOP r) =>  do_stop r; 
+				service_request (DO_ECHO r) =>  do_echo r;
+			    end; 
+			end;
+		end; 
+	    end; 
+
+	fun start who
+	    =
+	    {   pth::acquire_mutex mutex;  
+		#
+		if (is_running ())
+		    #
+		    pth::release_mutex  mutex;  
+		    #
+		    FALSE;
+		else
+		    #
+		    fil::log  .{ "src/lib/std/src/pthread/cycleserver-pthread.pkg: Starting up server loop in response to '" + who + "'."; };
+		    #
+		    pid :=  wxp::get_process_id ();
+		    #
+		    pth::release_mutex  mutex;  
+		    #
+		    pth::spawn_pthread  server_loop;
+		    #
+		    TRUE;
+		fi;
+	    };
+
+    };
+
+end;
+
+## Code by Jeff Prothero: Copyright (c) 2010-2012,
+## released under Gnu Public Licence version 3.
