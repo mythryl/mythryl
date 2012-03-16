@@ -20,8 +20,8 @@
 //
 //	    src/lib/std/src/pthread/template-pthread.pkg
 //	    src/lib/std/src/pthread/io-wait-pthread.pkg
-//	    src/lib/std/src/pthread/cycleserver-pthread.pkg
-//	    src/lib/std/src/pthread/lagserver-pthread.pkg
+//	    src/lib/std/src/pthread/cpu-bound-task-pthreads.pkg
+//	    src/lib/std/src/pthread/io-bound-task-pthreads.pkg
 //
 //	This is actually incorrect because there is a about
 //	one chance in 32,000 that we'll get the same pid
