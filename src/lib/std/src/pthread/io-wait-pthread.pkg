@@ -93,9 +93,9 @@ herein
 	#
 	pid = REF 0;								# pid of current process while server is running, otherwise zero.
 
-	index_to_client_fn
+	client_fns
 	    =
-	    REF (im::empty:  im::Map( wio::Io_Descriptor -> Void ));		# When an fd is ready to read, we'll look it up in this and call resulting read_fn on it. (Or similar for writing.)
+	    REF (im::empty:  im::Map( wio::Io_Descriptor -> Void ));		# When an fd is ready to read, we'll look it up in this and call resulting read_fn on it. (Or similar for writing or out-of-band data.)
 	
 
 	pipe    =  REF  (NULL:  Null_Or(Pipe));
@@ -105,6 +105,7 @@ herein
 
 	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
 	per_loop_fn   =  REF (NULL: Null_Or( Void -> Void ));			# Function to call once each time around the main outer loop.	(This drives timeslicing in the threadkit scheduler.)
+										# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
 
 	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
 
@@ -119,7 +120,7 @@ herein
 	#################################################################
 	# This section implements our tree mapping (iod+op) -> client_fn:
 
-	# Values for our two-bit read/write/oobd field:				# "oobd" == "out of band data".
+	# Values for our two-bit read/write/oobd field:				# "oobd" == "out-of-band data".
 	#
 	 read_op =  1;
 	write_op =  2;
@@ -196,7 +197,7 @@ herein
 	#
 	fun get_timeout_interval () =   *timeout;				# See comments in   src/lib/std/src/pthread/io-wait-pthread.api
 	#
-	fun set_timeout_interval time
+	fun set_timeout_interval time						# Set timeout to use for our wio::wait_for_io_opportunity calls (C select()/poll().)
 	    =
 	    {
 		pth::acquire_mutex  mutex;
@@ -209,9 +210,9 @@ herein
 	#
 	fun get_per_loop_fn () =  *per_loop_fn;					# See comments in   src/lib/std/src/pthread/io-wait-pthread.api
 	#
-	fun set_per_loop_fn  loopfn
-	    =
-	    {
+	fun set_per_loop_fn  loopfn						# Set fn to be called once each time around our outer loop.
+	    =									# This fn is used to drive pre-emptive multi-threading in the
+	    {									# threadkit scheduler:		src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
 		pth::acquire_mutex  mutex;
 		    #
 		    per_loop_fn :=  loopfn;
@@ -221,9 +222,10 @@ herein
 
 
 	#
-	fun do_stop (r: Do_Stop)						# Internal fn -- will execute in context of server pthread.
-	    =
-	    {   case *pipe							# Close pipe fds, so that we don't leak fds continually
+	fun do_stop (r: Do_Stop)						# Shut down io-wait-pthread server.
+	    =									# Internal fn -- will execute in context of server pthread.
+	    {
+		case *pipe							# Close pipe fds, so that we don't leak fds continually
 		    #								# if some client stops and starts us continually.
 		    THE { infd, outfd }
 			=>
@@ -274,9 +276,9 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#			
-			index_to_client_fn
+			client_fns
 			    :=
-			    im::set( *index_to_client_fn, index, read_fn );
+			    im::set( *client_fns, index, read_fn );
 			#			
 			wait_requests
 			    :=
@@ -305,7 +307,7 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#				
-			index_to_client_fn :=   drop_fn (*index_to_client_fn, index);
+			client_fns :=   drop_fn (*client_fns, index);
 			wait_requests      :=   drop_read_request (*wait_requests, iod);
 			#			
 		    pth::release_mutex  mutex;
@@ -342,9 +344,9 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#			
-			index_to_client_fn
+			client_fns
 			    :=
-			    im::set( *index_to_client_fn, index, write_fn );
+			    im::set( *client_fns, index, write_fn );
 			#			
 			wait_requests
 			    :=
@@ -372,7 +374,7 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#				
-			index_to_client_fn :=   drop_fn (*index_to_client_fn, index);
+			client_fns :=   drop_fn (*client_fns, index);
 			wait_requests      :=   drop_write_request (*wait_requests, iod);
 			#			
 		    pth::release_mutex  mutex;
@@ -410,9 +412,9 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#			
-			index_to_client_fn
+			client_fns
 			    :=
-			    im::set( *index_to_client_fn, index, oobd_fn );
+			    im::set( *client_fns, index, oobd_fn );
 			#			
 			wait_requests
 			    :=
@@ -440,7 +442,7 @@ herein
 		    #
 		    pth::acquire_mutex  mutex;
 			#				
-			index_to_client_fn :=   drop_fn (*index_to_client_fn, index);
+			client_fns :=   drop_fn (*client_fns, index);
 			wait_requests      :=   drop_oobd_request (*wait_requests, iod);
 			#			
 		    pth::release_mutex  mutex;
@@ -560,9 +562,9 @@ herein
 			    # on a client-specified fd, so call the corresponding
 			    # client-supplied handler fn:
 			    #
-			    if readable		index = fdop_to_index ((psx::iod_to_fd  iod),  read_op);	client_fn =  the (im::get( *index_to_client_fn, index ));   client_fn iod;	fi;
-			    if writable		index = fdop_to_index ((psx::iod_to_fd  iod), write_op);	client_fn =  the (im::get( *index_to_client_fn, index ));   client_fn iod;	fi;
-			    if oobdable		index = fdop_to_index ((psx::iod_to_fd  iod),  oobd_op);	client_fn =  the (im::get( *index_to_client_fn, index ));   client_fn iod;	fi;
+			    if readable		index = fdop_to_index ((psx::iod_to_fd  iod),  read_op);	client_fn =  the (im::get( *client_fns, index ));   client_fn iod;	fi;
+			    if writable		index = fdop_to_index ((psx::iod_to_fd  iod), write_op);	client_fn =  the (im::get( *client_fns, index ));   client_fn iod;	fi;
+			    if oobdable		index = fdop_to_index ((psx::iod_to_fd  iod),  oobd_op);	client_fn =  the (im::get( *client_fns, index ));   client_fn iod;	fi;
 			else
 			    # Special case:  A byte has been sent to us on our
 			    # private pipe to wake us from our normal I/O wait.
