@@ -1,6 +1,27 @@
 # io-wait-pthread.pkg
 #
-# For background, see "Overview" comments in    src/lib/std/src/pthread/io-wait-pthread.api
+# For general background, see "Overview" comments in    src/lib/std/src/pthread/io-wait-pthread.api
+#
+# Our basic task here is to atch a set of file descriptors
+# (typically pipes or sockets) and when an I/O opportunity
+# arrives (almost always data now available to read) call
+# a corresponding client-provided closure to take advantage
+# of that opportunity.
+#
+# An I/O opportunity can be one of three things:
+#
+#   o Input file descriptor now has data available to be read. (The typical case of interest.)
+#   o Output file descriptor can now accept a data write.      (Much rarer -- usually we just to a blocking write.) 
+#   o Out-of-band-data is available to be read.                (Vanishingly rare in practice.)
+#
+# So our main datastructure requirement it to be able to map
+#   (filedescriptor, action)
+# pairs to corresponding client-provided closures ("functions").
+#
+# Since fds are short integers and actions can be represented
+# in two bits, we fold fd+action into a single int which can
+# then be used to index a stock red-black tree. 
+#
 #
 # See also:
 #
@@ -16,6 +37,7 @@
 
 stipulate
     package fil =  file;							# file				is from   src/lib/std/src/posix/file.pkg
+    package im  =  int_red_black_map;						# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
     package psx =  posix_1003_1b;						# posix_1003_1b			is from   src/lib/std/src/posix-1003.1b/posix-1003-1b.pkg
     package pth =  pthread;							# pthread			is from   src/lib/std/src/pthread.pkg
     package tim =  time;							# time				is from   src/lib/std/time.pkg
@@ -26,7 +48,108 @@ herein
     package   io_wait_pthread
     : (weak)  Io_Wait_Pthread							# Io_Wait_Pthread		is from   src/lib/std/src/pthread/io-wait-pthread.api
     {
+	#################################################################
+	# BEGIN type definitions section
+
+	Pipe    =  { infd:   psx::File_Descriptor,
+                     outfd:  psx::File_Descriptor
+                   };
+
+	# One record type for each request
+	# supported by the server:
+	#
+	Do_Stop =  { who:   String,	reply: Void   -> Void };		# Edit to suit. The 'reply' thunks will typically send a do_something() request back to the originating pthread.
+	Do_Echo =  { what:  String,	reply: String -> Void };
+
+        Do_Note_Iod_Reader
+	  =
+	  { io_descriptor:  	wio::Io_Descriptor,
+	    read_fn:		wio::Io_Descriptor -> Void			# Call this closure ("function") on iod whenever input is available.
+	  };
+
+        Do_Note_Iod_Writer
+	  =
+	  { io_descriptor:	wio::Io_Descriptor,
+	    write_fn:		wio::Io_Descriptor -> Void			# Call this closure ("function") on iod whenever input is available.
+	  };
+
+	Request =  DO_STOP		Do_Stop					# Union of above record types, so that we can keep them all in one queue.
+		|  DO_ECHO		Do_Echo
+		; 
+
+	# END of type definitions section
+	#################################################################
+
+
+
+	#################################################################
+	# BEGIN MUTABLE STATE SECTION
+	#
 	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+
+	index_to_client_fn
+	    =
+	    REF (im::empty:  im::Map( wio::Io_Descriptor -> Void ));		# When an fd is ready to read, we'll look it up in this and call resulting read_fn on it. (Or similar for writing.)
+	
+
+	pipe    =  REF  (NULL:  Null_Or(Pipe));
+
+	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to select() on (wait on for data availability).
+	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
+
+	per_loop_fn   =  REF (NULL: Null_Or( Void -> Void ));			# Function to call once each time around the main outer loop.	(This drives timeslicing in the threadkit scheduler.)
+
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
+
+	mutex   =  pth::make_mutex   (); 					# These will actually survive a heap save/load cycle, pretty much.
+	condvar =  pth::make_condvar ();  
+
+	# END OF MUTABLE STATE SECTION
+	#################################################################
+
+
+	#################################################################
+	# This section implements our tree mapping (iod+op) -> client_fn:
+
+	# Values for our two-bit read/write/oobd field:				# "oobd" == "out of band data".
+	#
+	 read_op =  1;
+	write_op =  2;
+	 oobd_op =  3;
+
+	fun fdop_to_index (fd: psx::File_Descriptor,  op: Int)
+	    =
+	    {   fd' =  psx::fd_to_int  fd;
+		#
+		index =  (fd' << 2) | op;
+		#
+		index: Int;
+	    };
+
+	fun index_to_fdop (index: Int)
+	    =
+	    {   op =  (index  & 3);
+		fd =  (index >> 2);
+		#
+		(fd, op);
+	    };
+
+
+
+
+
+	one_byte_slice_of_one_byte_unts						# Just anything one byte long to write into our internal pipe.
+	    =
+	    vector_slice_of_one_byte_unts::make_full_slice			# vector_slice_of_one_byte_unts	is from   src/lib/std/src/vector-slice-of-one-byte-unts.pkg
+		#
+		one_byte_vector_of_one_byte_unts
+		where
+		    one_byte_vector_of_one_byte_unts
+			=
+			vector_of_one_byte_unts::from_list
+			    #
+			    [ (one_byte_unt::from_int  0) ];			# vector_of_one_byte_unts	is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+		end;
 
 	fun is_running ()
 	    =
@@ -37,29 +160,6 @@ herein
 										# A fix might be to have a generation number associated with each heap image which gets
 										# incremented on every save/load cycle.
 
-	mutex   =  pth::make_mutex   (); 					# These will actually survive a heap save/load cycle, pretty much.
-	condvar =  pth::make_condvar ();  
-
-	Pipe    =  { infd:   psx::File_Descriptor,
-                     outfd:  psx::File_Descriptor
-                   };
-
-	pipe    =  REF  (NULL:  Null_Or(Pipe));
-
-	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to select() on (wait on for data availability).
-	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
-
-	# One record type for each request
-	# supported by the server:
-	#
-	Do_Stop =  { who:   String,	reply: Void   -> Void };		# Edit to suit. The 'reply' thunks will typically send a do_something() request back to the originating pthread.
-	Do_Echo =  { what:  String,	reply: String -> Void };
-
-	Request =  DO_STOP  Do_Stop						# Union of above record types, so that we can keep them all in one queue.
-		|  DO_ECHO  Do_Echo
-		; 
-
-	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
 
 	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
 	    =									# because Request is not an equality type. (The 'reply' fields are functions
@@ -84,6 +184,34 @@ herein
 		  }
 		]; 
 	    };
+
+
+	fun get_timeout_interval () =   *timeout;				# See comments in   src/lib/std/src/pthread/io-wait-pthread.api
+	#
+	fun set_timeout_interval time
+	    =
+	    {
+		pth::acquire_mutex  mutex;
+		    #
+		    timeout :=  time;
+		    #
+		pth::release_mutex  mutex;
+	    };
+
+
+	fun get_per_loop_fn () =  *per_loop_fn;					# See comments in   src/lib/std/src/pthread/io-wait-pthread.api
+	#
+	fun set_per_loop_fn  loopfn
+	    =
+	    {
+		pth::acquire_mutex  mutex;
+		    #
+		    per_loop_fn :=  loopfn;
+		    #
+		pth::release_mutex  mutex;
+	    };
+
+
 
 	fun do_stop (r: Do_Stop)						# Internal fn -- will execute in context of server pthread.
 	    =
@@ -111,6 +239,139 @@ herein
 	    =
 	    r.reply  r.what;
 
+
+	stipulate
+	    # A helper fn shared by
+	    # drop_iod_reader and	
+	    # drop_iod_writer:
+
+	    fun drop_fn (old_tree,  index)									# Drop fn with given index from our red-black tree.
+		    =
+		    {   (im::drop (old_tree, index))
+			    ->
+			    (new_tree, dropped_value);
+
+			new_tree;
+		    };
+	herein
+	    # For the next four fns there is no obvious
+	    # reason to do the work in the server pthread,
+	    # so we go ahead and do it in the context of
+	    # the client pthread:
+
+	    fun note_iod_reader { io_descriptor, read_fn }							# Start watching for opportunities to read given iod.
+		=
+		{   index =  fdop_to_index(  (psx::iod_to_fd  io_descriptor),  read_op  );
+		    #
+		    pth::acquire_mutex  mutex;
+			#			
+			index_to_client_fn
+			    :=
+			    im::set( *index_to_client_fn, index, read_fn );
+			#			
+			wait_requests
+			    :=
+			    { io_descriptor,  readable => TRUE,  writable => FALSE,  oobdable => FALSE }
+			    !
+			    *wait_requests;
+
+		    pth::release_mutex  mutex;
+		};
+drop looks roughly correct now; next step is to hack note to avoid multiple entries per iod
+
+	    fun drop_iod_reader  (iod:  wio::Io_Descriptor)							# Stop watching for opportunities to read given iod.
+		=
+		{   index =  fdop_to_index(  (psx::iod_to_fd  iod),  read_op  );
+		    #
+		    pth::acquire_mutex  mutex;
+			#				
+			index_to_client_fn :=   drop_fn (*index_to_client_fn, index);
+			wait_requests      :=   drop_read_request (*wait_requests, iod);
+			#			
+		    pth::release_mutex  mutex;
+		}
+		where
+		    fun drop_read_request ([], iod)											# Drop read-request for given iod from requests-list.
+			    =>
+			    [];
+
+			drop_read_request (((req as { io_descriptor, readable => TRUE, writable => FALSE, oobdable => FALSE }) ! rest), iod)
+			    =>
+			    if (io_descriptor == iod)   rest;										# Only request for that iod is 'read', so drop it completely.
+			    else	                req   !   drop_read_request (rest, iod);
+			    fi; 
+
+			drop_read_request (((req as { io_descriptor, readable => TRUE, writable, oobdable }) ! rest), iod)		# Multiple op requests fro that iod, so drop only the 'read' one.
+			    =>
+			    if (io_descriptor == iod)   { io_descriptor, readable => FALSE, writable, oobdable }  !  rest;
+			    else	                req   !   drop_read_request (rest, iod);
+			    fi; 
+
+			drop_read_request  (req ! rest,  iod)
+			    =>
+			    req   !   drop_read_request (rest, iod);
+		    end;
+		end;
+
+
+
+
+	    fun note_iod_writer { io_descriptor, write_fn }							# Start watching for opportunities to write given iod.
+		=
+		{   index =  fdop_to_index(  (psx::iod_to_fd  io_descriptor),  write_op  );
+		    #
+		    pth::acquire_mutex  mutex;
+			#			
+			index_to_client_fn
+			    :=
+			    im::set( *index_to_client_fn, index, write_fn );
+			#			
+			wait_requests
+			    :=
+			    { io_descriptor,  readable => FALSE,  writable => TRUE,  oobdable => FALSE }
+			    !
+			    *wait_requests;
+
+		    pth::release_mutex mutex;
+		};
+drop looks roughly correct now; next step is to hack note to avoid multiple entries per iod
+
+
+	    fun drop_iod_writer  (iod:  wio::Io_Descriptor)							# Stop watching for opportunities to write given iod.
+		=
+		{   index =  fdop_to_index(  (psx::iod_to_fd  iod),  write_op  );
+		    #
+		    pth::acquire_mutex  mutex;
+			#				
+			index_to_client_fn :=   drop_fn (*index_to_client_fn, index);
+			wait_requests      :=   drop_write_request (*wait_requests, iod);
+			#			
+		    pth::release_mutex  mutex;
+		}
+		where
+		    fun drop_write_request ([], iod)															# Drop 'write' request for given iod.
+			     =>
+			    [];
+
+			drop_write_request (((req as { io_descriptor, readable => FALSE, writable => TRUE, oobdable => FALSE }) ! rest), iod)
+			    =>
+			    if (io_descriptor == iod)   rest;
+			    else	                req   !   drop_write_request (rest, iod);									# Only request for that iod is 'read', so drop it completely.
+			    fi; 
+			    #
+
+			drop_write_request (((req as { io_descriptor, readable, writable => TRUE, oobdable }) ! rest), iod)
+			    =>
+			    if (io_descriptor == iod)   { io_descriptor, readable, writable => FALSE, oobdable } ! rest;						# Multiple op requests for that iod, so drop only the 'write' one.
+			    else	                req   !   drop_write_request (rest, iod);
+			    fi; 
+
+			drop_write_request  (req ! rest,  iod)
+			    =>
+			    req   !   drop_write_request (rest, iod);
+		    end;
+		end;
+	end;
 
 	###############################################
 	# The rest of the file is mostly boilerplate:
@@ -140,6 +401,7 @@ herein
 		pth::release_mutex mutex;  
 	    };           
 
+
 	fun get_new_requests  () 
 	    = 
 	    { 
@@ -159,6 +421,14 @@ herein
 		new_requests; 
 	    };           
 
+
+	fun write_to_private_pipe ()
+	    =
+	    {	pipe =  the *pipe;
+		#
+		bytes_written = psx::write_vector (pipe.outfd, one_byte_slice_of_one_byte_unts );			# Write one byte into pipe.
+	    };		
+
 	fun do_select ()
 	    =
 	    {   fds_ready_for_io
@@ -170,6 +440,10 @@ herein
 		      };
 		    
 		process_io_ready_fds  fds_ready_for_io;
+
+		case *per_loop_fn	NULL       =>   ();
+					THE loopfn =>	loop_fn();				# This drives the threadkit timeslicer by providing it with an irregular "clock" pulse.
+		esac;
 	    }
 	    where
 		fun process_io_ready_fds  []         => ();
@@ -185,7 +459,7 @@ herein
 			#
 			if (io_descriptor == psx::fd_to_iod  pipe.infd)
 			    #
-			    psx::read_as_vector					# Read and discard the byte that was sent to us.
+			    psx::read_as_vector							# Read and discard the byte that was sent to us.
 			      {
 				file_descriptor   =>  pipe.infd,
 				max_bytes_to_read =>  1
@@ -199,7 +473,7 @@ herein
 	    end;
 
 
-	fun server_loop () 							# This is the outer loop for the io-wait server pthread.
+	fun server_loop () 									# This is the outer loop for the io-wait server pthread.
 	    = 
 	    {   service_requests (get_new_requests()); 
 		#
@@ -225,6 +499,58 @@ herein
 		end; 
 	    end; 
 
+
+	fun adhoc_test ()
+	    =
+	    {
+
+		    pipe	  :=  THE (psx::make_pipe ());			# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
+
+
+		    wait_requests :=  default_wait_request_list (the *pipe);	# By default we listen only on our private pipe.
+
+
+		    timeout	  :=  tim::from_float_seconds 0.02;
+
+
+		    write_to_private_pipe ();
+
+
+		    fds_ready_for_io
+			=
+			wio::wait_for_io_opportunity
+			  { 
+			    wait_requests =>  *wait_requests,
+			    timeout	      =>  THE *timeout
+			  };
+		    
+
+		    print_fds_read_for_io_list  fds_ready_for_io
+		    where
+			fun print_fds_read_for_io_list []
+				=>
+				();
+
+			    print_fds_read_for_io_list ({ io_descriptor, readable, writable, oobdable } ! rest)
+				=>
+				{   fd =  psx::iod_to_fd (psx::fd_to_int  io_descriptor);
+				    #
+				    printf "fd %d readable %b writable %b oobdable %b\n" fd readable writable oobdable;
+				};
+			end;
+		    end;
+
+		    p =  the *pipe;
+		    
+
+
+		    psx::read_as_vector					# Read and discard the byte that was sent to us.
+		      {
+			file_descriptor   =>  p.infd,
+			max_bytes_to_read =>  1
+		      };
+
+	    };
 
 	fun start who								# 'who' is a string identifying the client requesting the startup, for logging purposes.
 	    =

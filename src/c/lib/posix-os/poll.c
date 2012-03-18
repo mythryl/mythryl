@@ -140,8 +140,8 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
     // Count the number of polling items:
     //
-    for (l = poll_list, nfds = 0;  l != LIST_NIL;  l = LIST_TAIL(l)) {
-	nfds++;
+    for(nfds = 0, l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
+        nfds++;
     }
 
     // Allocate the fds vector:
