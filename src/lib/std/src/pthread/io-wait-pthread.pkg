@@ -94,9 +94,10 @@ herein
 
 	pipe    =  REF  (NULL:  Null_Or(Pipe));
 
-	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to select() on (wait on for data availability).
-	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
+	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to watch for I/O opportunities (C select()/poll()).
+										# INVARIANT: No two entries on list have same Iod_Descriptor value.
 
+	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
 	per_loop_fn   =  REF (NULL: Null_Or( Void -> Void ));			# Function to call once each time around the main outer loop.	(This drives timeslicing in the threadkit scheduler.)
 
 	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
@@ -276,8 +277,19 @@ herein
 			    *wait_requests;
 
 		    pth::release_mutex  mutex;
-		};
-drop looks roughly correct now; next step is to hack note to avoid multiple entries per iod
+		}
+		where
+		    fun note_read_request ([], iod)											# Drop 'write' request for given iod.
+			    =>
+			    [ { io_descriptor,  readable => TRUE,  writable => FALSE,  oobdable => FALSE } ];
+
+			note_read_request (((req as { io_descriptor, readable, writable, oobdable }) ! rest), iod)
+			    =>
+			    if (io_descriptor == iod)   { io_descriptor, readable => TRUE, writable, oobdable } ! rest;			# Previous op request(s) for that iod, so just 'write' to them.
+			    else	                req   !   note_read_request (rest, iod);
+			    fi; 
+		    end;
+		end;
 
 	    fun drop_iod_reader  (iod:  wio::Io_Descriptor)							# Stop watching for opportunities to read given iod.
 		=
@@ -316,7 +328,7 @@ drop looks roughly correct now; next step is to hack note to avoid multiple entr
 
 
 
-	    fun note_iod_writer { io_descriptor, write_fn }							# Start watching for opportunities to write given iod.
+	    fun note_iod_writer { io_descriptor, write_fn }										# Start watching for opportunities to write given iod.
 		=
 		{   index =  fdop_to_index(  (psx::iod_to_fd  io_descriptor),  write_op  );
 		    #
@@ -328,16 +340,25 @@ drop looks roughly correct now; next step is to hack note to avoid multiple entr
 			#			
 			wait_requests
 			    :=
-			    { io_descriptor,  readable => FALSE,  writable => TRUE,  oobdable => FALSE }
-			    !
-			    *wait_requests;
+			    note_write_request (*wait_requests, io_descriptor);
 
 		    pth::release_mutex mutex;
-		};
-drop looks roughly correct now; next step is to hack note to avoid multiple entries per iod
+		}
+		where
+		    fun note_write_request ([], iod)											# Drop 'write' request for given iod.
+			    =>
+			    [ { io_descriptor,  readable => FALSE,  writable => TRUE,  oobdable => FALSE } ];
+
+			note_write_request (((req as { io_descriptor, readable, writable, oobdable }) ! rest), iod)
+			    =>
+			    if (io_descriptor == iod)   { io_descriptor, readable, writable => TRUE, oobdable } ! rest;			# Previous op request(s) for that iod, so just 'write' to them.
+			    else	                req   !   note_write_request (rest, iod);
+			    fi; 
+		    end;
+		end;
 
 
-	    fun drop_iod_writer  (iod:  wio::Io_Descriptor)							# Stop watching for opportunities to write given iod.
+	    fun drop_iod_writer  (iod:  wio::Io_Descriptor)										# Stop watching for opportunities to write given iod.
 		=
 		{   index =  fdop_to_index(  (psx::iod_to_fd  iod),  write_op  );
 		    #
@@ -441,8 +462,8 @@ drop looks roughly correct now; next step is to hack note to avoid multiple entr
 		    
 		process_io_ready_fds  fds_ready_for_io;
 
-		case *per_loop_fn	NULL       =>   ();
-					THE loopfn =>	loop_fn();				# This drives the threadkit timeslicer by providing it with an irregular "clock" pulse.
+		case *per_loop_fn	NULL        =>   ();
+					THE loop_fn =>	loop_fn();				# This drives the threadkit timeslicer by providing it with an irregular "clock" pulse.
 		esac;
 	    }
 	    where
