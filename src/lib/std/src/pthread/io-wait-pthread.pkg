@@ -64,19 +64,19 @@ herein
         Do_Note_Iod_Reader
 	  =
 	  { io_descriptor:  	wio::Io_Descriptor,
-	    read_fn:		wio::Io_Descriptor -> Void			# Call this closure ("function") on iod whenever input is available on fd.
+	    read_fn:		wio::Io_Descriptor -> Void			# Call this fn (closure) on iod whenever input is available on fd.
 	  };
 
         Do_Note_Iod_Writer
 	  =
 	  { io_descriptor:	wio::Io_Descriptor,
-	    write_fn:		wio::Io_Descriptor -> Void			# Call this closure ("function") on iod whenever output is possible on fd.
+	    write_fn:		wio::Io_Descriptor -> Void			# Call this fn (closure) on iod whenever output is possible on fd.
 	  };
 
         Do_Note_Iod_Oobder
 	  =
 	  { io_descriptor:	wio::Io_Descriptor,
-	    oobd_fn:		wio::Io_Descriptor -> Void			# Call this closure ("function") on iod whenever out-of-band data ("oobd") is available on this fd.
+	    oobd_fn:		wio::Io_Descriptor -> Void			# Call this fn (closure) on iod whenever out-of-band data ("oobd") is available on this fd.
 	  };
 
 	Request =  DO_STOP		Do_Stop					# Union of above record types, so that we can keep them all in one queue.
@@ -98,14 +98,18 @@ herein
 	    REF (im::empty:  im::Map( wio::Io_Descriptor -> Void ));		# When an fd is ready to read, we'll look it up in this and call resulting read_fn on it. (Or similar for writing or out-of-band data.)
 	
 
-	pipe    =  REF  (NULL:  Null_Or(Pipe));
+	pipe    =  REF  (NULL:  Null_Or(Pipe));					# This is a private pipe we use to wake our server pthread by sending it a byte.
+										# Since it spends all of its time sleeping on a  wio::wait_for_io_opportunity (C select()/poll())
+										# call, sending it a byte is the simplest and best way to wake it. (See Note[1].)
 
-	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to watch for I/O opportunities (C select()/poll()).
+	wait_requests =  REF ([]:  List( wio::Wait_Request ));			# This is the set of file descriptors to watch for I/O opportunities via wio::wait_for_io_opportunity (C select()/poll()).
 										# INVARIANT: No two entries on list have same Iod_Descriptor value.
 
 	timeout	      =  REF (tim::from_float_seconds 0.02);			# Set up to timeout at 50Hz.
-	per_loop_fn   =  REF (NULL: Null_Or( Void -> Void ));			# Function to call once each time around the main outer loop.	(This drives timeslicing in the threadkit scheduler.)
+
 										# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+	per_loop_fns  =  REF ([]: List( Ref(Void -> Void)) );			# Functions to call once each time around the main outer loop.
+										# See note_per_loop_fn/drop_per_loop_fn comments in	src/lib/std/src/pthread/io-wait-pthread.api
 
 	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
 
@@ -207,18 +211,24 @@ herein
 		pth::release_mutex  mutex;
 	    };
 
+
+	# For background on these two see comments in
 	#
-	fun get_per_loop_fn () =  *per_loop_fn;					# See comments in   src/lib/std/src/pthread/io-wait-pthread.api
+	#     src/lib/std/src/pthread/io-wait-pthread.api
 	#
-	fun set_per_loop_fn  loopfn						# Set fn to be called once each time around our outer loop.
+	fun note_per_loop_fn  loopfn						# Set fn to be called once each time around our outer loop.
 	    =									# This fn is used to drive pre-emptive multi-threading in the
 	    {									# threadkit scheduler:		src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
 		pth::acquire_mutex  mutex;
 		    #
-		    per_loop_fn :=  loopfn;
+		    if (not (list::in (loopfn, *per_loop_fns)))			# Don't add fn to list if it is already in the list.
+			#
+			per_loop_fns :=  loopfn ! *per_loop_fns;
+		    fi;
 		    #
 		pth::release_mutex  mutex;
 	    };
+drop_per_loop_fn = note_per_loop_fn;
 
 
 	#
@@ -472,12 +482,10 @@ herein
 		end;
 	end;
 
-	###############################################
-	# The rest of the file is mostly boilerplate:
-	###############################################
+
 	#
-	fun stop  (request: Do_Stop)						# External fn -- will execute in context of client pthread.
-	    = 
+	fun stop  (request: Do_Stop)						# Queue up a stop-server-pthread request for later execution by do_stop.
+	    = 									# External fn -- will execute in context of client pthread.
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
@@ -488,8 +496,8 @@ herein
 		pth::release_mutex mutex;  
 	    };           
 	#
-	fun echo  (request: Do_Echo)						# External fn -- will execute in context of client pthread.
-	    = 
+	fun echo  (request: Do_Echo)						# Queue up an echo-back-toclient request for later execution by do_echo.  (This is mostly for unit testing.)
+	    = 									# External fn -- will execute in context of client pthread.
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
@@ -540,9 +548,7 @@ herein
 		    
 		process_io_ready_fds  fds_ready_for_io;
 
-		case *per_loop_fn	NULL        =>   ();
-					THE loop_fn =>	loop_fn();				# This drives the threadkit timeslicer by providing it with an irregular "clock" pulse.
-		esac;
+		map'  *per_loop_fns  (fn f = *f());				# This drives the threadkit timeslicer by providing it with an irregular "clock" pulse.
 	    }
 	    where
 		fun process_io_ready_fds  []         => ();
@@ -716,7 +722,13 @@ end;
 # By always including a read of this pipe in our wio::wait_for_io_opportunity
 # call (C select()/poll()) we ensure that the server pthread can
 # always we woken just by writing one byte to the pipe.
-
+#
+# NB: Modern Linux/Posix provide pselect()/ppoll() calls which can wait
+#     on signals as well as fds, so an alternative would be to use them
+#     and then wake-via-signal.  But signals are public and finite in number
+#     whereas pipes are private and unbounded in number, so the pipe
+#     solution still seems cleaner, and efficiency is a non-issue in
+#     this application (we do not expect to use this mechanism heavily).
 
 
 
