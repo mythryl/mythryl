@@ -98,7 +98,7 @@ herein
 	    REF (im::empty:  im::Map( wio::Io_Descriptor -> Void ));		# When an fd is ready to read, we'll look it up in this and call resulting read_fn on it. (Or similar for writing or out-of-band data.)
 	
 
-	pipe    =  REF  (NULL:  Null_Or(Pipe));					# This is a private pipe we use to wake our server pthread by sending it a byte.
+	private_pipe  =  REF  (NULL:  Null_Or(Pipe));					# This is a private pipe we use to wake our server pthread by sending it a byte.
 										# Since it spends all of its time sleeping on a  wio::wait_for_io_opportunity (C select()/poll())
 										# call, sending it a byte is the simplest and best way to wake it. (See Note[1].)
 
@@ -235,7 +235,7 @@ drop_per_loop_fn = note_per_loop_fn;
 	fun do_stop (r: Do_Stop)						# Shut down io-wait-pthread server.
 	    =									# Internal fn -- will execute in context of server pthread.
 	    {
-		case *pipe							# Close pipe fds, so that we don't leak fds continually
+		case *private_pipe						# Close pipe fds, so that we don't leak fds continually
 		    #								# if some client stops and starts us continually.
 		    THE { infd, outfd }
 			=>
@@ -531,7 +531,7 @@ drop_per_loop_fn = note_per_loop_fn;
 	#
 	fun write_to_private_pipe ()
 	    =
-	    {	pipe =  the *pipe;
+	    {	pipe =  the *private_pipe;
 		#
 		bytes_written = psx::write_vector (pipe.outfd, one_byte_slice_of_one_byte_unts );			# Write one byte into pipe.
 	    };		
@@ -560,7 +560,7 @@ drop_per_loop_fn = note_per_loop_fn;
 		also
 		fun process_io_ready_fd  { io_descriptor => iod, readable, writable, oobdable }
 		    =
-		    {   pipe =  the *pipe;
+		    {   pipe =  the *private_pipe;
 			#
 			if (iod  !=  psx::fd_to_iod  pipe.infd)
 			    #
@@ -591,80 +591,65 @@ drop_per_loop_fn = note_per_loop_fn;
 	#
 	fun server_loop () 									# This is the outer loop for the io-wait server pthread.
 	    = 
-	    {   service_requests (get_new_requests()); 
+	    {   apply  service_request  (get_new_requests()); 
 		#
 		server_loop (); 
 	    } 
-	   where 
-		fun service_requests  [] 
-			=> 
-			(); 
-
-		    service_requests  (request ! rest) 
-			=> 
-			{
-			    service_request request; 
-			    #
-			    service_requests rest; 
-			} 
-			where 
-			    fun service_request (DO_STOP r) =>  do_stop r; 
-				service_request (DO_ECHO r) =>  do_echo r;
-			    end; 
-			end;
+	    where 
+		fun service_request (DO_STOP r) =>  do_stop r; 
+		    service_request (DO_ECHO r) =>  do_echo r;
 		end; 
-	    end; 
+	    end;
 
 	#
 	fun adhoc_test ()
 	    =
 	    {
-
-		    pipe	  :=  THE (psx::make_pipe ());			# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
-
-
-		    wait_requests :=  default_wait_request_list (the *pipe);	# By default we listen only on our private pipe.
+		private_pipe  :=  THE (psx::make_pipe ());					# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
 
 
-		    timeout	  :=  tim::from_float_seconds 0.02;
+		wait_requests :=  default_wait_request_list (the *private_pipe);		# By default we listen only on our private pipe.
 
 
-		    write_to_private_pipe ();
+		timeout	  :=  tim::from_float_seconds 0.02;
 
 
-		    fds_ready_for_io
-			=
-			wio::wait_for_io_opportunity
-			  { 
-			    wait_requests =>  *wait_requests,
-			    timeout	      =>  THE *timeout
-			  };
-		    
-
-		    print_fds_read_for_io_list  fds_ready_for_io
-		    where
-			fun print_fds_read_for_io_list []
-				=>
-				();
-
-			    print_fds_read_for_io_list ({ io_descriptor, readable, writable, oobdable } ! rest)
-				=>
-				{   fd =  psx::iod_to_fd (psx::fd_to_int  io_descriptor);
-				    #
-				    printf "fd %d readable %b writable %b oobdable %b\n" fd readable writable oobdable;
-				};
-			end;
-		    end;
-
-		    p =  the *pipe;
-		    
+		write_to_private_pipe ();
 
 
-		    psx::read_as_vector					# Read and discard the byte that was sent to us.
-		      {
-			file_descriptor   =>  p.infd,
-			max_bytes_to_read =>  1
+		fds_ready_for_io
+		    =
+		    wio::wait_for_io_opportunity
+		      { 
+			wait_requests =>  *wait_requests,
+			timeout	      =>  THE *timeout
 		      };
+
+
+		print_fds_read_for_io_list  fds_ready_for_io
+		where
+		    fun print_fds_read_for_io_list []
+			    =>
+			    ();
+
+			print_fds_read_for_io_list ({ io_descriptor, readable, writable, oobdable } ! rest)
+			    =>
+			    {   fd =  psx::iod_to_fd (psx::fd_to_int  io_descriptor);
+				#
+				printf "fd %d readable %b writable %b oobdable %b\n" fd readable writable oobdable;
+			    };
+		    end;
+		end;
+
+		pipe =  the *private_pipe;
+
+
+
+		psx::read_as_vector					# Read and discard the byte that was sent to us.
+		  {
+		    file_descriptor   =>  pipe.infd,
+		    max_bytes_to_read =>  1
+		  };
 
 	    };
 	#
@@ -680,12 +665,12 @@ drop_per_loop_fn = note_per_loop_fn;
 
 		    pth::release_mutex  mutex;  
 
-		    pipe	  :=  THE (psx::make_pipe ());			# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
-		     								# in which case closing them might close something we actually want this time around.
+		    private_pipe  :=  THE (psx::make_pipe ());				# We do not close any existing pipe fds here because they might be stale stuff from before a heap dump/load cycle,
+		     									# in which case closing them might close something we actually want this time around.
 
-		    wait_requests :=  default_wait_request_list (the *pipe);	# By default we listen only on our private pipe.
+		    wait_requests :=  default_wait_request_list (the *private_pipe);	# By default we listen only on our private pipe.
 
-		    timeout	  :=  tim::from_float_seconds  0.02;		# Start up with timeout frequency set to 50Hz.
+		    timeout	  :=  tim::from_float_seconds  0.02;			# Start up with timeout frequency set to 50Hz.
 
 		    pth::spawn_pthread  server_loop;
 
@@ -697,7 +682,7 @@ drop_per_loop_fn = note_per_loop_fn;
 		    # NB: Since we're running, we have a valid pipe;
 		    # there is no reason to create a new one here.
 		    
-		    wait_requests :=  default_wait_request_list (the *pipe);
+		    wait_requests :=  default_wait_request_list (the *private_pipe);
 
 		    timeout	  :=  tim::from_float_seconds 0.02;
 
