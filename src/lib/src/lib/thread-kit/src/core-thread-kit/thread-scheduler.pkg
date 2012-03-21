@@ -18,10 +18,12 @@
 stipulate
     package fat =  fate;						# fate				is from   src/lib/std/src/nj/fate.pkg
     package itt =  internal_threadkit_types;				# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package pth =  pthread;						# pthread			is from   src/lib/std/src/pthread.pkg
     package sig =  runtime_signals;					# runtime_signals		is from   src/lib/std/src/nj/runtime-signals.pkg
     package saf =  set_sigalrm_frequency;				# set_sigalrm_frequency		is from   src/lib/std/src/nj/set-sigalrm-frequency.pkg
     package tim =  time;						# time				is from   src/lib/std/time.pkg
     package tkq =  threadkit_queue;					# threadkit_queue		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-queue.pkg
+    package wxp =  winix::process;					# winix::process		is from   src/lib/std/src/posix/winix-process.pkg
     #
     Fate(X) =  fat::Fate(X);
     #
@@ -34,6 +36,106 @@ herein
     : (weak)  Thread_Scheduler						# Thread_Scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.api
     {
 	Thread  =  itt::Thread;
+
+
+	##################################################
+	# This section contains (partial) support for
+	# inter-pthread communication per
+	#
+	#     src/lib/std/src/pthread/template-pthread.pkg
+	#
+	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+
+	fun is_running ()
+	    =
+	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
+										# (correctly) return FALSE, even though pid may not have gotten zeroed.
+	mutex   =  pth::make_mutex   (); 
+	condvar =  pth::make_condvar ();  
+
+	# One record for each pthread-level
+	# request supported by the server:
+	#
+	Do_Echo =  { what: String,	reply: String -> Void };
+
+	Request =  DO_ECHO  Do_Echo
+		; 
+
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
+
+	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
+	                           _  => FALSE;
+	    esac;
+
+	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server pthread.
+	    =
+	    r.reply  r.what;
+
+	fun echo  (request: Do_Echo)						# External fn -- will execute in context of client pthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	fun get_new_inter_pthread_requests  () 
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+#		    for (request_queue_is_empty()) {				# DO NOT DELETE THIS CLAUSE!
+#			#							# Eventually we should execute it when both run queues are empty
+#			pth::wait_on_condvar (condvar, mutex);			# (while awaiting new work from worker pthreads).
+#		    };
+
+		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
+		    # 
+		    request_queue := []; 
+		    # 
+		pth::release_mutex  mutex;  
+		# 
+		new_requests; 
+	    };           
+
+	fun service_inter_pthread_requests  [] 
+		=> 
+		(); 
+
+	    service_inter_pthread_requests  (request ! rest) 
+		=> 
+		{   service_inter_pthread_request request; 
+		    #
+		    service_inter_pthread_requests rest; 
+		} 
+		where 
+		    fun service_inter_pthread_request (DO_ECHO r)
+			=
+			do_echo r;
+		end;
+	end; 
+
+	# REMAINING WORK:	
+	# we still need to put
+	#
+	#    service_inter_pthread_requests (get_new_inter_pthread_requests()); 
+	#
+	# somewhere where it will be executed frequently.
+	#
+	# When both run queues are empty, it should eventually
+	# execute the wait_on_condvar logic.
+
+	#
+	# End of pthread-support section
+	##################################################
+
+
 
 	trace_backpatchfn =   REF (fn _ = ()) :   Ref( (Void -> String) -> Void );
 	    #
@@ -161,12 +263,12 @@ herein
 
 	# The thread ready queues:
 	#
-	#    foreground_ready_queue:
+	#    foreground_run_queue:
 	#
 	#        This is for interactive foreground jobs
 	#        needing prompt servicing.
 	#
-	#    background_ready_queue:
+	#    background_run_queue:
 	#
 	#        This is for CPU-intensive jobs not needing
 	#        quick response.
@@ -177,12 +279,12 @@ herein
 	# 'I/O bound' jobs half the available cycles.
 	#
 	#
-	background_ready_queue =   tkq::make_threadkit_queue () :   tkq::Threadkit_Queue( (itt::Thread, Fate(Void)) );
-	foreground_ready_queue =   tkq::make_threadkit_queue () :   tkq::Threadkit_Queue( (itt::Thread, Fate(Void)) );
+	background_run_queue =   tkq::make_threadkit_queue () :   tkq::Threadkit_Queue( (itt::Thread, Fate(Void)) );
+	foreground_run_queue =   tkq::make_threadkit_queue () :   tkq::Threadkit_Queue( (itt::Thread, Fate(Void)) );
 
 	
 	stipulate
-	    foreground_ready_queue
+	    foreground_run_queue
 		->
 		itt::THREADKIT_QUEUE { rear => rear1, ... };
 	herein
@@ -213,7 +315,7 @@ herein
 	#
 	fun dequeue_io_bound_thread ()									# Dequeue a thread from the queue for 'I/O bound' threads:
 	    =
-	    case foreground_ready_queue
+	    case foreground_run_queue
 		#
 		itt::THREADKIT_QUEUE { front => REF [], rear => REF [] }
 		    =>
@@ -244,7 +346,7 @@ herein
 	also
 	fun dequeue_cpu_bound_thread ()									# Remove a thread from the queue for 'cpu-bound' threads.
 	    =												# We assume the 'io-bound' thread queue is empty:
-	    case background_ready_queue
+	    case background_run_queue
 		#
 		itt::THREADKIT_QUEUE { front => REF [], rear => REF [] }
 		    =>
@@ -268,7 +370,7 @@ herein
 	#
 	fun promote_some_background_thread_to_foreground ()						# Promote a thread from the 'cpu-bound' queue to the 'io-bound'  queue.
 	    =
-	    case (tkq::next  background_ready_queue)
+	    case (tkq::next  background_run_queue)
 		#
 		THE x =>  enqueue x;
 		NULL  =>  ();
@@ -424,7 +526,7 @@ herein
 				    }
 				);
 
-		foreground_ready_queue
+		foreground_run_queue
 		    ->
 		    itt::THREADKIT_QUEUE { front, ... };
 
@@ -501,7 +603,7 @@ herein
 		    promote_some_background_thread_to_foreground ();
 		    enqueue current_p;
 		else
-		    tkq::enqueue (background_ready_queue, current_p);
+		    tkq::enqueue (background_run_queue, current_p);
 		fi;
 	    };
 
@@ -656,8 +758,8 @@ herein
 		    :=
 		    NULL;
 
-		tkq::reset  foreground_ready_queue;
-		tkq::reset  background_ready_queue;
+		tkq::reset  foreground_run_queue;
+		tkq::reset  background_run_queue;
 
 		if (not running)
 		    #
