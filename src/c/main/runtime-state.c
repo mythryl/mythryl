@@ -117,7 +117,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->next_posix_signal_count			= 0;
     //
     pthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
-    pthread->heapcleaning_done_signal_handler_state			= LIB7_SIG_IGNORE;
+    pthread->heapcleaning_done_signal_handler_state		= LIB7_SIG_IGNORE;
     pthread->cpu_time_at_start_of_last_heapclean		= MALLOC_CHUNK(Time);
     pthread->cumulative_cleaning_cpu_time			= MALLOC_CHUNK(Time);
 

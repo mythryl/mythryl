@@ -30,7 +30,7 @@ CFUNC("getSigState","getSigState",	_lib7_Sig_getsigstate,	"System_Constant -> In
 CFUNC("setSigState","setSigState",	_lib7_Sig_setsigstate,	"(System_Constant, Int) -> Int")
 CFUNC("getSigMask","getSigMask",	_lib7_Sig_getsigmask,	"Void -> Null_Or(List(System_Constant))")
 CFUNC("setSigMask","setSigMask",	_lib7_Sig_setsigmask,	"Null_Or(List(System_Constant)) -> Void")
-CFUNC("pause","pause",		_lib7_Sig_pause,	"Void -> Void")
+CFUNC("pause","pause",			_lib7_Sig_pause,	"Void -> Void")
 
 
 
