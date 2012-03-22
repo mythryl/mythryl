@@ -12,8 +12,8 @@ struct {
   char *sname,*lname;
 } win32SigTab[] = {
   {0, "INTERRUPT", "SIGINT"},
-  {1, "ALRAM", "SIGALRM"},
-  {2, "TERMINAL", "SIGTERM"},
+  {1, "ALARM", "SIGALRM"},
+  {2, "TERMINATE", "SIGTERM"},
   {3, "CLEANING", "RUNSIG_GC"}
 };
 

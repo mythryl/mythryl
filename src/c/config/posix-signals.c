@@ -23,7 +23,7 @@ Signal_Descriptor	SigTable[] = {						// Signal_Descriptor	is from   src/c/confi
 	{ SIGINT,	"SIGINT",	"INTERRUPT"},	// POSIX
 	{ SIGQUIT,	"SIGQUIT",	"QUIT"},	// POSIX
 	{ SIGALRM,	"SIGALRM",	"ALARM"},	// POSIX
-	{ SIGTERM,	"SIGTERM",	"TERMINAL"},	// POSIX
+	{ SIGTERM,	"SIGTERM",	"TERMINATE"},	// POSIX		// Polite (catchable) request to terminate. http://en.wikipedia.org/wiki/SIGTERM
 #ifdef SIGPIPE
 	{ SIGPIPE,	"SIGPIPE",	"PIPE"},	// POSIX
 #endif
