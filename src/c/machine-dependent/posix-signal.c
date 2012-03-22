@@ -47,14 +47,14 @@
 
 #ifdef USE_ZERO_LIMIT_PTR_FN
 Punt		SavedPC;
-extern		Zero_Heap_Allocation_Limit[];					// Actually a pointer, not an array.
+extern		Zero_Heap_Allocation_Limit[];								// Actually a pointer, not an array.
 #endif
 
 
 static void   c_signal_handler   (/* int sig,  Signal_Handler_Info_Arg info,  Signal_Handler_Context_Arg* scp */);
 
 
-Val   list_signals__may_heapclean   (Task* task, Roots* extra_roots)   {						// Called from src/c/lib/signal/listsignals.c
+Val   list_signals__may_heapclean   (Task* task, Roots* extra_roots)   {				// Called from src/c/lib/signal/listsignals.c
     //===========================
     //
     return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, extra_roots);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
@@ -65,7 +65,7 @@ void   pause_until_signal   (Pthread* pthread) {
     //
     // Suspend the given Pthread
     // until a signal is received:
-    pause ();									// pause() is a clib function, see pause(2).
+    pause ();												// pause() is a clib function, see pause(2).
 }
 
 void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
@@ -82,7 +82,8 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
 
     switch (sig_num) {
 	//
-    case RUNSIG_GC:
+    case RUNSIG_HEAPCLEANING_DONE:
+        //
 	pthread->heapcleaning_done_signal_handler_state =  signal_state;
 	break;
 
@@ -100,7 +101,7 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
 		break;
 
 	    case LIB7_SIG_ENABLED:
-		SET_SIGNAL_HANDLER( sig_num, c_signal_handler );			// SET_SIGNAL_HANDLER 	#define in   src/c/machine-dependent/system-dependent-signal-get-set-etc.h
+		SET_SIGNAL_HANDLER( sig_num, c_signal_handler );					// SET_SIGNAL_HANDLER 	#define in   src/c/machine-dependent/system-dependent-signal-get-set-etc.h
 		break;
 
 	    default:
@@ -121,7 +122,8 @@ int   get_signal_state   (Pthread* pthread,  int sig_num)   {
     //
     switch (sig_num) {
         //
-    case RUNSIG_GC:
+    case RUNSIG_HEAPCLEANING_DONE:
+        //
 	return pthread->heapcleaning_done_signal_handler_state;
 
     default:
