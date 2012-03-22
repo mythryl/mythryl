@@ -90,8 +90,9 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
     //
     Signal_Descriptor**  signals =   MALLOC_VEC( Signal_Descriptor*, TABLE_SIZE + RUNTIME_GENERATED_SIGNAL_COUNT);
 
-    // Sort the signal table by increasing signal number.
-    // The sort removes duplicates by mapping to the first name.
+    // Insertion-sort the signal table by increasing signal number.
+    // If there are duplicate definitions of a sig value
+    // the first is kept and the rest are dropped.
     // We need this because some systems alias signals.
     //
     int n = 0;
@@ -104,7 +105,7 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
 	int  j;
 	for (j = 0;  j < n;  j++) {
 	    //
-	    if (signals[j]->sig == p->sig)		break;	      // A duplicate.
+	    if (signals[j]->sig == p->sig)		break;	      // A duplicate -- drop it.
 
 	    if (signals[j]->sig > p->sig) {
 	        //
@@ -122,7 +123,7 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
 	}
     }
 
-    // Here, n is the number of system signals and
+    // At this point 'n' is the number of system signals and
     // signals[n-1]->sig is the largest system signal code.
     //
 

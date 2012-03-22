@@ -83,7 +83,7 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
     switch (sig_num) {
 	//
     case RUNSIG_GC:
-	pthread->cleaning_signal_handler_state = signal_state;
+	pthread->heapcleaning_done_signal_handler_state =  signal_state;
 	break;
 
     default:
@@ -122,7 +122,7 @@ int   get_signal_state   (Pthread* pthread,  int sig_num)   {
     switch (sig_num) {
         //
     case RUNSIG_GC:
-	return pthread->cleaning_signal_handler_state;
+	return pthread->heapcleaning_done_signal_handler_state;
 
     default:
 	if (!IS_SYSTEM_SIG(sig_num))   die ("get_signal_state: unknown signal %d\n", sig_num);
