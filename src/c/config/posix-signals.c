@@ -72,7 +72,9 @@ Signal_Descriptor	SigTable[] = {
 
 // Run-time system generated signals:
 //
-Signal_Descriptor    RunTSignals[] = {
+static Signal_Descriptor    RunTSignals []
+=                           ///////////
+{
 	{ -1,           "RUNSIG_GC",    "CLEANING" },
 };
 #define RUNTIME_GENERATED_SIGNAL_COUNT  (sizeof(RunTSignals)/sizeof(Signal_Descriptor))
