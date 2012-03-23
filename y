@@ -1,101 +1,37 @@
-#!/usr/bin/mythryl
-
-{
-    include int_red_black_map;					# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
-
-    fun assert bool_value
-        =
-	if (not bool_value)
-	   #
-	   print "Assertion failed.\n";
-	   exit 1;
-	fi;
-
-
-    # When debugging uncomment the following lines and
-    # add more log_if calls as appropriate:
-    #
-#   file::set_logger_to (file::LOG_TO_FILE "xyzzy.log");
-#   log_if = file::log_if file::compiler_logging;
-#   log_if .{ "Top of script"; }; 
-
-    loops = 100;			# Originally 100, then 1100.
-
-    limit = 10 * 1000;			# Originally 100.
-
-    fun subpthread_fn id ()
-	=
-	{
-	    for (loop = 0; loop < loops; ++loop) {
-
-printf "loop %d\n" loop;
-		# Create a map by successive appends:
-		#
-		my test_map
-		    =
-		    for (m = empty, i = 0;  i < limit;  ++i; m) {
-
-			m = set (m, i, i);
-			assert (all_invariants_hold   m);
-			assert (not (is_empty m));
-			assert (the (first_val_else_null m) == 0);
-			assert (     vals_count m  == i+1);
-
-			assert (#1 (the (first_keyval_else_null m)) == 0);
-			assert (#2 (the (first_keyval_else_null m)) == 0);
-
-		    };
-
-		# Check resulting map's contents:
-		#
-		for (i = 0;  i < limit;  ++i) {
-		    assert ((the (get (test_map, i))) == i);
-		};
-
-		# Try removing at all possible positions in map:
-		#
-		for (map' = test_map, i = 0;   i < limit;   ++i) {
-
-		    my (map'', value) = drop (map', i);
-
-		    assert (all_invariants_hold map'');
-		};
-
-		assert (is_empty empty);
-	    };
-
-	    pthread::pthread_exit ();
-	};	
-
-    subpthread0 = pthread::spawn_pthread  (subpthread_fn 0);
-    subpthread1 = pthread::spawn_pthread  (subpthread_fn 1);
-    subpthread2 = pthread::spawn_pthread  (subpthread_fn 2);
-    subpthread3 = pthread::spawn_pthread  (subpthread_fn 3);
-    subpthread4 = pthread::spawn_pthread  (subpthread_fn 4);
-    subpthread5 = pthread::spawn_pthread  (subpthread_fn 5);
-
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: About to join subthread0";
-print "y: About to join subthread0";
-    pthread::join_pthread  subpthread0;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread0";
-print "y: Joined subthread0";
-    pthread::join_pthread  subpthread1;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread1";
-print "y: Joined subthread1";
-    pthread::join_pthread  subpthread2;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread2";
-print "y: Joined subthread2";
-    pthread::join_pthread  subpthread3;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread3";
-print "y: Joined subthread3";
-    pthread::join_pthread  subpthread4;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread4";
-print "y: Joined subthread4";
-    pthread::join_pthread  subpthread5;
-# heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread5";
-print "y: Joined subthread5";
-
-
-#    log_if .{ "Script DONE."; }; 		# printf "Script DONE\n";   file::flush file::stdout;   
-};
-
+    src/lib/std/threadkit-winix.pkg
+    src/lib/std/src/threadkit/threadkit-process-result.pkg
+    src/lib/std/src/threadkit/posix/threadkit-winix-io.pkg
+    src/lib/std/src/socket/threadkit-pre-socket.pkg
+    src/lib/std/src/socket/threadkit-socket.pkg
+    src/lib/std/src/socket/threadkit-plain-socket.pkg
+    src/lib/std/src/socket/threadkit-internet-socket.pkg
+    src/lib/std/src/socket/threadkit-unix-domain-socket.pkg
+    src/lib/std/src/io/threadkit-winix-base-file-io-driver-for-posix-g.pkg
+    src/lib/std/src/io/threadkit-winix-data-file-for-os-g.pkg
+    src/lib/std/src/io/threadkit-winix-base-data-file-io-driver-for-posix.pkg
+    src/lib/std/src/io/threadkit-io-cleanup-at-shutdown.pkg
+    src/lib/std/src/io/threadkit-winix-base-text-file-io-driver-for-posix.pkg
+    src/lib/std/src/io/threadkit-winix-mailslot-io-g.pkg
+    src/lib/std/src/io/threadkit-winix-text-file-for-os-g.pkg
+    src/lib/std/src/posix/threadkit-winix-data-file-io-driver-for-posix.pkg
+    src/lib/std/src/posix/threadkit-winix-process.pkg
+    src/lib/std/src/posix/threadkit-file.pkg
+    src/lib/std/src/posix/threadkit-winix-data-file-for-posix.pkg
+    src/lib/std/src/posix/threadkit-spawn.pkg
+    src/lib/std/src/posix/threadkit-winix-text-file-for-posix.pkg
+    src/lib/std/src/posix/threadkit-winix-text-file-io-driver-for-posix.pkg
+    src/lib/std/src/posix/threadkit-data-file.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-version.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-queue.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-io-manager.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-unit-test.pkg
+    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-startup-and-shutdown-hooks.pkg
+    src/lib/src/lib/thread-kit/src/win32/threadkit-winix-text-file-io-driver-for-win32.pkg
+    src/lib/src/lib/thread-kit/src/win32/threadkit-winix-text-file-for-win32.pkg
+    src/lib/src/lib/thread-kit/src/win32/threadkit-winix-data-file-io-driver-for-win32.pkg
+    src/lib/src/lib/thread-kit/src/lib/threadkit-uncaught-exception-reporting.pkg
+    src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
+    src/lib/src/lib/thread-kit/src/glue/threadkit-export-function-g.pkg
+    src/lib/src/threadkit-quickstring.pkg
