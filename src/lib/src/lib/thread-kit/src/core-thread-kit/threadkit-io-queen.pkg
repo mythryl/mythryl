@@ -18,11 +18,10 @@ herein
     package  threadkit_io_queen
     : (weak) Threadkit_Io_Queen				# Threadkit_Io_Queen		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-io-queen.api
     {
-
-							# Wait_Request			def in    src/lib/src/lib/thread-kit/src/winix/threadkit-winix-io.api
-
 	Io_Descriptor =  wio::Io_Descriptor;
-	Wait_Request  =  wio::Wait_Request;
+
+	Wait_Request  =  wio::Wait_Request;		# Wait_Request			def in    src/lib/src/lib/thread-kit/src/winix/threadkit-winix-io.api
+							# Wait_Request =  { io_descriptor: Io_Descriptor, readable: Bool, writable: Bool, oobdable: Bool };
 	Wait_Result   =  wio::Wait_Result;
 
 	Io_Wait_Item
@@ -34,7 +33,7 @@ herein
 	      fate:		fat::Fate( Wait_Result )
 	    };
 
-	waiting =   REF ([]: List( Io_Wait_Item ));							# Icky thread-hostile mutable global state...? XXX SUCKO FIXME
+	waiting_queue__local =   REF ([]: List( Io_Wait_Item ));							# Icky thread-hostile mutable global state...? XXX SUCKO FIXME
 
 	# In some OSs (e.g., Linux)
 	# this may raise an EINTR error,
@@ -58,15 +57,16 @@ herein
 
 		fun wait_for { transaction_id, clean_up, next }					# Reppy calls this fn blockFn
 		    =
-		    pi
+		    pi										# "pi" seems to be a Reppy abbreviation for "poll info" == "wait request"
 		    where
 			pi  =   fat::call_with_current_fate
 				    (
 				     fn fate
 					=
-					{   item = { wait_request, transaction_id, clean_up, fate };
-
-					    waiting := item ! *waiting;
+					{   item =  { wait_request, transaction_id, clean_up, fate };
+					    #
+					    waiting_queue__local :=  item  !  *waiting_queue__local;
+					    #
 					    next ();
 					    raise exception FAIL "impossible: io_mailop";
 					}
@@ -92,28 +92,24 @@ herein
 	    pi == wait_request;
 
 
-	# Take an I/O waiting queue and return
-	# the cleaned queue along with the list
-	# of wait_requests in it.
-	#
-	# 'Cleaning' consists of dropping cancelled
-	# transactions from the wait queue:	
-	#
-	fun clean wait_queue
+	fun drop_cancelled_transactions wait_queue
 	    =
-	    clean' (wait_queue, [], [])
+	    # We return the processed I/O waiting queue
+	    # along with the list of wait_requests in it:
+	    #
+	    drop_cancelled_transactions' (wait_queue, [], [])
 	    where
-		fun clean' ([] : List( Io_Wait_Item ), wait_requests, q)
+		fun drop_cancelled_transactions' ([] : List( Io_Wait_Item ), wait_requests, q)
 			=>
 			(wait_requests, q);		    				# Done.
 
-		    clean' ( { transaction_id => REF itt::CANCELLED_TRANSACTION_ID, ... } ! rest, wait_requests, wait_queue)
+		    drop_cancelled_transactions' ( { transaction_id => REF itt::CANCELLED_TRANSACTION_ID, ... } ! rest, wait_requests, wait_queue)
 			=>
-			clean' (rest, wait_requests, wait_queue);			# Ignore cancelled transaction.
+			drop_cancelled_transactions' (rest, wait_requests, wait_queue);			# Ignore cancelled transaction.
 
-		    clean' ((item as { wait_request, ... } ) ! rest, wait_requests, wait_queue)
+		    drop_cancelled_transactions' ((item as { wait_request, ... } ) ! rest, wait_requests, wait_queue)
 			=>
-			clean'							# Pass everything else through.
+			drop_cancelled_transactions'							# Pass everything else through.
 			  ( rest,
 			    wait_request ! wait_requests,
 			    item ! wait_queue
@@ -122,15 +118,6 @@ herein
 	    end;
 
 
-	# Enqueue a thread that is polling on the ready queue.
-	#
-	# We have to do some fate hacking to pass the
-	# poll info to the thread.
-	#
-	# We also must catch the case where the transaction
-	# has been canceled, since a single thread might be
-	# polling on multiple descriptors.
-	#
 	fun enqueue
 		( { transaction_id as REF (itt::TRANSACTION_ID id),
 		    clean_up,
@@ -140,17 +127,21 @@ herein
 		  pi
 		)
 		=>
+		# Enqueue a thread that is polling on the ready queue.
+		#
+		# We have to do some fate hacking to pass the
+		# poll info to the thread.
+		#
+		# We also must catch the case where the transaction
+		# has been canceled, since a single thread might be
+		# polling on multiple descriptors.
+		#
 		{   ufate = fat::call_with_current_fate
 				(
 				 fn kfate
 				    =
-				    {   fat::call_with_current_fate
-					    (
-					     fn ufate
-						=
-						fat::resume_fate  kfate  ufate
-					    );
-
+				    {   fat::call_with_current_fate   (fn ufate =  fat::resume_fate  kfate  ufate);
+					#
 					fat::resume_fate  fate  pi;
 				    }
 				);
@@ -170,23 +161,23 @@ herein
 
 	fun poll_io ()
 	    =
-	    case (clean *waiting)
+	    case (drop_cancelled_transactions  *waiting_queue__local)
 		#	  
 		([], _)
 		    =>
-		    waiting := [];
+		    waiting_queue__local :=  [];
 
 		(wait_requests, wait_queue)
 		    =>
 		    case (poll wait_requests)
 			#
-			[] =>  waiting :=  list::reverse  wait_queue;
+			[] =>  waiting_queue__local :=   list::reverse  wait_queue;
 			#
 			l  => filter (l, wait_queue, [])
 			      where
 				  fun filter ([], r, wait_queue)
 					  =>
-					  waiting
+					  waiting_queue__local
 					      :=
 					      list::reverse_and_prepend
 						  (r, wait_queue);
@@ -215,7 +206,7 @@ herein
 
 	fun any_waiting ()
 	    =
-	    case *waiting
+	    case *waiting_queue__local
 		#
 		[] => FALSE;
 		 _ => TRUE;
