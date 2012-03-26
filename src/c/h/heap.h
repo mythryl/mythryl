@@ -52,7 +52,7 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
 //
 typedef   struct repair            Repair;						// Defined below.
 typedef   struct sib               Sib;							// Defined below.
-typedef   struct hugechunk_quire  Hugechunk_Quire;					// Defined below.
+typedef   struct hugechunk_quire   Hugechunk_Quire;					// Defined below.
 typedef   struct hugechunk  	   Hugechunk;						// Defined below.
 typedef   struct agegroup          Agegroup;						// Defined below.
 
@@ -401,7 +401,7 @@ inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* hq,  Val p
 #define HUGECHUNK_IS_FREE(dp)		((dp)->hugechunk_state == FREE_HUGECHUNK)
 
 //
-struct hugechunk {
+struct hugechunk {				// The best name for this might be "hugechunk_chit" since it is not the hugechunk itself but rather a chit/ticket/token for it.
     //
     Punt	    chunk;			// The actual chunk.
 
@@ -421,7 +421,7 @@ struct hugechunk {
 
 
 inline Punt    uprounded_hugechunk_bytesize   (Hugechunk* hugechunk)   {
-    //                      =================================
+    //         ============================
     //
     // The size of a hugechunk, rounded up to a
     // multiple of our hugechunk ram quantum:
