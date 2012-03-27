@@ -172,7 +172,7 @@ Val   make_mythryl_signal_handler_arg   (
 
     Pthread* pthread = task->pthread;
 
-    Val resume_fate =  make_resumption_fate( task,  resume_after_handling_signal );
+    Val run_fate =  make_resumption_fate( task,  resume_after_handling_signal );
 
     // Allocate the Mythryl signal handler's argument record:
     //
@@ -180,11 +180,11 @@ Val   make_mythryl_signal_handler_arg   (
 	//
 	TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_id	),
         TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_count	),
-	resume_fate
+	run_fate
     );
 
     #ifdef SIGNAL_DEBUG
-	debug_say( "make_mythryl_signal_handler_arg: resumeC = %#x, arg = %#x\n", resume_fate, arg );
+	debug_say( "make_mythryl_signal_handler_arg: resumeC = %#x, arg = %#x\n", run_fate, arg );
     #endif
 
     return arg;
