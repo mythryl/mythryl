@@ -14,7 +14,7 @@
 //     src/lib/compiler/execution/code-segments/code-segment.pkg
 //     src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
 //     src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
-//     src/lib/src/lib/thread-kit/src/glue/threadkit-export-function-g.pkg
+//     src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 //     src/lib/std/commandline.pkg
 //     src/lib/std/src/nj/export.pkg
 //     src/lib/std/src/nj/heap-debug.pkg
