@@ -421,101 +421,104 @@ herein
 	    };
 
 
-	fun sync_on_one_mailop  (is_ready:  Base_Mailop(X))
-	    =
-	    {   ts::disable_thread_switching ();
-		#
-		case (is_ready ())
-		    #	      
-		    MAILOP_READY { do_it, ... }					# Reppy calls this field doFn
-			=>
-			do_it ();
-
-		    MAILOP_UNREADY wait_for
-			=>
-			{   (make_flag ()) ->   (flag, set_flag);
-			    #
-			    wait_for  { mailop_state =>  flag,
-					clean_up     =>  set_flag,
-					next         =>  ts::reenable_thread_switching_and_dispatch_next_thread
-                                      };
-			};
-		esac;
-	    };
-
-	# This function handles the case of
-	# synchronizing on a list of base mailops
-	# (w/o any negative acknowledgements).
-	#
-	# It also handles the case of synchronizing
-	# on NEVER.
-	#
-	fun run_prepared_baseops []    =>  ts::dispatch_next_thread ();
-	    run_prepared_baseops [bev] =>  sync_on_one_mailop  bev;
-	    #
-	    run_prepared_baseops  base_mailops
-		=>
+	stipulate
+	    fun run_one_mailop  (is_ready:  Base_Mailop(X))
+		=
 		{   ts::disable_thread_switching ();
 		    #
-		    ext (base_mailops, []);
-		}
-		where
-		    fun ext (is_ready ! rest,  wait_fors)
+		    case (is_ready ())
+			#	      
+			MAILOP_READY { do_it, ... }					# Reppy calls this field doFn
 			    =>
-			    case (is_ready ())
+			    do_it ();
+
+			MAILOP_UNREADY wait_for
+			    =>
+			    {   (make_flag ()) ->   (flag, set_flag);
 				#
-				MAILOP_UNREADY wait_for          =>  ext     (rest, wait_for ! wait_fors);
-				MAILOP_READY { priority, do_it } =>  ext_rdy (rest, [(priority, do_it)], 1);
-			    esac;
+				wait_for  { mailop_state =>  flag,
+					    clean_up     =>  set_flag,
+					    next         =>  ts::reenable_thread_switching_and_dispatch_next_thread
+					  };
+			    };
+		    esac;
+		};
+	herein
 
-			ext ([], wait_fors)
-			    =>
-			    call_with_current_control_fate
-				(fn fate
-				    =
-				    {   switch_to_control_fate =  switch_to_control_fate  fate;
-					#
-					(make_flag ()) ->   (mailop_state, set_flag);
+	    # This function handles the case of
+	    # synchronizing on a list of base mailops
+	    # (w/o any negative acknowledgements).
+	    #
+	    # It also handles the case of synchronizing
+	    # on NEVER.
+	    #
+	    fun run_prepared_baseops []    =>  ts::dispatch_next_thread ();
+		run_prepared_baseops [bev] =>  run_one_mailop  bev;
+		#
+		run_prepared_baseops  baseops
+		    =>
+		    {   ts::disable_thread_switching ();
+			#
+			run_baseops (baseops, []);
+		    }
+		    where
+			fun run_baseops (is_ready ! rest,  wait_fors)								# In this loop we have not yet found any baseops ready to fire.
+				=>
+				case (is_ready ())
+				    #
+				    MAILOP_UNREADY wait_for          =>  run_baseops       (rest, wait_for ! wait_fors);
+				    MAILOP_READY { priority, do_it } =>  run_ready_baseops (rest, [(priority, do_it)], 1);
+				esac;
 
-					fun log [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
+			    run_baseops ([], wait_fors)										# Done -- no ready-to-fire baseops found and no candidates left to check.
+				=>
+				call_with_current_control_fate
+				    (fn fate
+					=
+					{   switch_to_control_fate =  switch_to_control_fate  fate;
 					    #
-					    log (wait_for ! r)
-						=>
-						switch_to_control_fate
-						    (wait_for
-						      { mailop_state,
-							clean_up =>  set_flag,
-							next     =>  fn () = log r
-						      }
-						    );
-					end;
+					    (make_flag ()) ->   (mailop_state, set_flag);
 
-					log  wait_fors;
+					    fun log [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
+						#
+						log (wait_for ! r)
+						    =>
+						    switch_to_control_fate
+							(wait_for
+							  { mailop_state,
+							    clean_up =>  set_flag,
+							    next     =>  fn () = log r
+							  }
+							);
+					    end;
 
-					error "[log]";
-				    }
-				);
-		    end
+					    log  wait_fors;
 
-		    # NOTE: Maybe we should just keep
-		    #       track of the max priority?
-		    #       What about fairness to fixed
-		    #       priority mailops (e::g., always, timeout?)
+					    error "[log]";
+					}
+				    );
+			end
 
-		    also
-		    fun ext_rdy (is_ready ! r,  do_its,  n)
-			    =>
-			    case (is_ready ())
-				#
-				MAILOP_READY { priority, do_it } =>  ext_rdy (r, (priority, do_it) ! do_its, n+1);
-				_                                =>  ext_rdy (r, do_its, n);
-			    esac;
+			# NOTE: Maybe we should just keep
+			#       track of the max priority?
+			#       What about fairness to fixed
+			#       priority mailops (e::g., always, timeout?)
 
-			ext_rdy ([],  do_its,  n)
-			    =>
-			    select_do_fn  (do_its, n)  ();
+			also
+			fun run_ready_baseops (is_ready ! r,  do_its,  n)								# In this loop we have found at least one baseop ready to fire.
+				=>
+				case (is_ready ())
+				    #
+				    MAILOP_READY { priority, do_it } =>  run_ready_baseops (r, (priority, do_it) ! do_its, n+1);
+				    _                                =>  run_ready_baseops (r, do_its, n);
+				esac;
+
+			    run_ready_baseops ([],  do_its,  n)
+				=>
+				select_do_fn  (do_its, n)  ();										# Select a base mailop to fire and then fire it.
+			end;
 		    end;
-		end;
+	    end;
 	end;
 
 	# Walk the mailop group tree,
@@ -628,7 +631,7 @@ herein
 	fun run_prepared_mailops  group
 	    =
 	    {	ts::disable_thread_switching ();
-
+		#
 		ext (bl, []);
 	    }
 	    where
