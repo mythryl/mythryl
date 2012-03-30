@@ -453,10 +453,10 @@ herein
 	# It also handles the case of synchronizing
 	# on NEVER.
 	#
-	fun sync_on_base_mailops []    =>  ts::dispatch_next_thread ();
-	    sync_on_base_mailops [bev] =>  sync_on_one_mailop  bev;
+	fun select_among_base_mailops []    =>  ts::dispatch_next_thread ();
+	    select_among_base_mailops [bev] =>  sync_on_one_mailop  bev;
 	    #
-	    sync_on_base_mailops  base_mailops
+	    select_among_base_mailops  base_mailops
 		=>
 		{   ts::disable_thread_switching ();
 		    #
@@ -613,7 +613,6 @@ herein
 					    gather (group', bl', flg_sets');
 				    end;
 
-
 				gather (group as NACK_GROUP _, bl, flg_sets)
 				    =>
 				    gather_wrapped (group, bl, flg_sets);
@@ -629,9 +628,14 @@ herein
 	# on groups of mailops where negative
 	# acknowledgements are involved.
 	#
-	fun sync_on_group  group
+	fun select_on_mailop_expression  group
 	    =
-	    {   (collect group)
+	    {	ts::disable_thread_switching ();
+
+		ext (bl, []);
+	    }
+	    where
+	        (collect group)
 		    ->
 		    (bl, flg_sets);
 
@@ -670,9 +674,7 @@ herein
 				=
 				{   switch_to_control_fate =  switch_to_control_fate  fate;
 				    #
-				    mailop_state
-					=
-					REF (itt::MAILOP_THREAD (ts::get_current_thread ()));
+				    mailop_state =   REF (itt::MAILOP_THREAD (ts::get_current_thread ()));
 
 				    fun set_flag flag ()
 					=
@@ -699,12 +701,12 @@ herein
 				 }
 			    );
 
-		    ext ((is_ready, flag) ! r, wait_fors)
+		    ext ((is_ready, flag) ! rest, wait_fors)
 			=>
 			case (is_ready ())
 			    #
-			    MAILOP_READY { priority, do_it } =>  ext_rdy (r, [(priority, (do_it, flag))], 1);
-			    MAILOP_UNREADY wait_for          =>  ext (r, (wait_for, flag) ! wait_fors);
+			    MAILOP_READY { priority, do_it } =>  ext_rdy (rest, [(priority, (do_it, flag))], 1);
+			    MAILOP_UNREADY wait_for          =>  ext     (rest, (wait_for, flag) ! wait_fors);
 			esac;
 		end
 
@@ -725,31 +727,26 @@ herein
 			    do_it();
 			};
 
-		    ext_rdy ((is_ready, flag) ! r, do_its, n)
+		    ext_rdy ((is_ready, flag) ! rest, do_its, n)
 			=>
 			case (is_ready ())
 			    #
 			    MAILOP_READY { priority, do_it }
 				=>
-				ext_rdy (r, (priority, (do_it, flag)) ! do_its, n+1);
+				ext_rdy (rest, (priority, (do_it, flag)) ! do_its, n+1);
 
-			    _   =>
-				ext_rdy (r, do_its, n);
+			    _   =>   ext_rdy (rest, do_its, n);
 			esac;
 		end;
-
-		ts::disable_thread_switching ();
-
-		ext (bl, []);
-	    };							# fun sync_on_group
+	    end;							# fun select_on_mailop_expression
 
 
 	fun do_mailop  mailop
 	    =
 	    case (force mailop)
 		#
-		BASE_GROUP base_mailops =>  sync_on_base_mailops  base_mailops;
-		group                   =>  sync_on_group         group;
+		BASE_GROUP base_mailops =>  select_among_base_mailops  base_mailops;
+		group                   =>  select_on_mailop_expression         group;
 	    esac;
 
 
@@ -757,42 +754,36 @@ herein
 	    =
 	    case (force_bl (mailops, []))
 		#
-		BASE_GROUP base_mailops
-		    =>
-		    sync_on_base_mailops  base_mailops;
-
-		group =>   sync_on_group  group;
+		BASE_GROUP base_mailops  =>   select_among_base_mailops  base_mailops;
+		group                    =>   select_on_mailop_expression  group;
 	    esac
 	    where
-	        fun force_bl ([], base_mailops)
-			=>
-			BASE_GROUP base_mailops;
-
-		    force_bl (mailop ! r, base_mailops')
+	        fun force_bl  (mailop ! rest,  base_mailops')
 			=>
 			case (force' mailop)
 			    #
-			    BASE_GROUP base_mailops =>  force_bl (r, base_mailops @ base_mailops');
-			    #
-			    GROUP group  =>  force_l  (r, group @ [BASE_GROUP base_mailops']);
-			    group        =>  force_l  (r, [group, BASE_GROUP base_mailops']);
+			    BASE_GROUP base_mailops =>  force_bl (rest,       base_mailops @ base_mailops' );
+			    GROUP      group        =>  force_l  (rest,  group @ [BASE_GROUP base_mailops']);
+			    group                   =>  force_l  (rest, [group,   BASE_GROUP base_mailops']);
 			esac;
+
+		    force_bl ([], base_mailops)	    =>	BASE_GROUP  base_mailops;
 		end
 
 		also
 		fun force_l ([], [group]) =>  group;
 		    force_l ([], l)       =>  GROUP l;
 
-		    force_l (mailop ! r, l)
+		    force_l (mailop ! rest, l)
 			=>
 			case (force' mailop, l)
 			    #
-			    (BASE_GROUP base_mailops, BASE_GROUP base_mailops' ! r')
+			    (BASE_GROUP base_mailops, BASE_GROUP base_mailops' ! rest')
 				=>
-				force_l (r, BASE_GROUP (base_mailops @ base_mailops') ! r');
+				force_l (rest, BASE_GROUP (base_mailops @ base_mailops') ! rest');
 
-			    (GROUP group, l) =>   force_l (r, group @ l);
-			    (      group, l) =>   force_l (r, group ! l);
+			    (GROUP group, l) =>   force_l (rest, group @ l);
+			    (      group, l) =>   force_l (rest, group ! l);
 			esac;
 		end
 
