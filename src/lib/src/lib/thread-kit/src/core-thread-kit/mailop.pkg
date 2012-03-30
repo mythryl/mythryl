@@ -367,10 +367,10 @@ herein
 
 	stipulate
 	    #
-	    count =  REF 0;
+	    count =  REF 0;					# Runs circularly around range 0..999,999
 	    #
-	    fun random i
-		=
+	    fun pick_fairly i					# The point here is just to pick fairly among 'i' alternative ready mailops,
+		=						# so that we don't consistently pass over any one ready mailop.
 		{   j =  *count;
 		    #
 		    if (j == 1000000)   count := 0;
@@ -394,13 +394,13 @@ herein
 			    priority  p =>  p;
 			end;
 
-			fun max ((p, do_it) ! r, max_p, k, do_its)
+			fun max ((p, do_it) ! rest,  max_p,  k,  do_its)
 				=>
 				{   p =  priority p;
 				    #
-				    if    (p >  max_p)   max (r, p, 1, [do_it]);
-				    elif  (p == max_p)   max (r, max_p, k+1, do_it ! do_its);
-				    else                 max (r, max_p, k, do_its);
+				    if    (p >  max_p)   max (rest,     p, 1,          [do_it]);
+				    elif  (p == max_p)   max (rest, max_p, k+1, do_it ! do_its);
+				    else                 max (rest, max_p, k,           do_its);
 				    fi;
 				};
 
@@ -410,7 +410,7 @@ herein
 
 			    max ([], _, k, do_its)
 				=>
-				list::nth (do_its, random k);
+				list::nth (do_its, pick_fairly k);
 			end;
 		    end;
 	     end;
@@ -463,12 +463,20 @@ herein
 		    ext (base_mailops, []);
 		}
 		where
-		    fun ext ([], wait_fors)
+		    fun ext (is_ready ! rest,  wait_fors)
+			    =>
+			    case (is_ready ())
+				#
+				MAILOP_UNREADY wait_for          =>  ext     (rest, wait_for ! wait_fors);
+				MAILOP_READY { priority, do_it } =>  ext_rdy (rest, [(priority, do_it)], 1);
+			    esac;
+
+			ext ([], wait_fors)
 			    =>
 			    call_with_current_control_fate
 				(fn fate
 				    =
-				    {   switch_to_control_fate = switch_to_control_fate fate;
+				    {   switch_to_control_fate =  switch_to_control_fate  fate;
 					#
 					(make_flag ()) ->   (mailop_state, set_flag);
 
@@ -485,19 +493,11 @@ herein
 						    );
 					end;
 
-					log wait_fors;
+					log  wait_fors;
 
 					error "[log]";
 				    }
 				);
-
-			ext (is_ready ! rest,  wait_fors)
-			    =>
-			    case (is_ready ())
-				#
-				MAILOP_READY { priority, do_it } =>  ext_rdy (rest, [(priority, do_it)], 1);
-				MAILOP_UNREADY wait_for          =>  ext     (rest, wait_for ! wait_fors);
-			    esac;
 		    end
 
 		    # NOTE: Maybe we should just keep
@@ -506,17 +506,17 @@ herein
 		    #       priority mailops (e::g., always, timeout?)
 
 		    also
-		    fun ext_rdy ([], do_its, n)
-			    =>
-			    select_do_fn (do_its, n) ();
-
-			ext_rdy (is_ready ! r, do_its, n)
+		    fun ext_rdy (is_ready ! r,  do_its,  n)
 			    =>
 			    case (is_ready ())
 				#
 				MAILOP_READY { priority, do_it } =>  ext_rdy (r, (priority, do_it) ! do_its, n+1);
 				_                                =>  ext_rdy (r, do_its, n);
 			    esac;
+
+			ext_rdy ([],  do_its,  n)
+			    =>
+			    select_do_fn  (do_its, n)  ();
 		    end;
 		end;
 	end;
@@ -535,10 +535,8 @@ herein
 	#
 	fun collect group
 	    =
-	    {   un_wrapped_flag
-		    =
-		    REF FALSE;
-
+	    {   un_wrapped_flag =   REF FALSE;
+		#
 		fun gather_wrapped (group, bl, flg_sets)
 			=
 			{    (gather (group, bl, [], flg_sets))
@@ -550,7 +548,14 @@ herein
 			where
 			    fun gather (BASE_GROUP base_mailops, bl, all_flgs, flg_sets)
 				    =>
-				    {   fun append ([], bl, all_flgs)
+				    {	(append (base_mailops, bl, all_flgs))
+					    ->
+					    (bl', all_flgs');
+
+					(bl', all_flgs', flg_sets);
+				    }
+				    where
+				        fun append ([], bl, all_flgs)
 						=>
 						(bl, all_flgs);
 
@@ -561,24 +566,17 @@ herein
 						    append (r, (bev, flag) ! bl, flag ! all_flgs);
 						};
 					end;
+				    end;
 
-
-					(append (base_mailops, bl, all_flgs))
-					    ->
-					    (bl', all_flgs');
-
-
-					(bl', all_flgs', flg_sets);
-				    };
 
 				gather (GROUP group, bl, all_flgs, flg_sets)
 				    =>
-				    {   fun f (group', (bl', all_flgs', flg_sets'))
+				    fold_left  f  (bl, all_flgs, flg_sets)  group
+				    where
+				        fun f (group', (bl', all_flgs', flg_sets'))
 					    =
 					    gather (group', bl', all_flgs', flg_sets');
-
-					fold_left f (bl, all_flgs, flg_sets) group;
-				    };
+				    end;
 
 				gather (NACK_GROUP (cvar, group), bl, all_flgs, flg_sets)
 				    =>
@@ -631,7 +629,7 @@ herein
 	# on groups of mailops where negative
 	# acknowledgements are involved.
 	#
-	fun sync_on_group group
+	fun sync_on_group  group
 	    =
 	    {   (collect group)
 		    ->
@@ -683,10 +681,8 @@ herein
 					    check_cvars ();
 					};
 
-				    fun log []
-					    =>
-					    ts::reenable_thread_switching_and_dispatch_next_thread ();
-
+				    fun log [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
+					#
 					log ((wait_for, flag) ! r)
 					    =>
 					    switch_to_control_fate
@@ -759,7 +755,16 @@ herein
 
 	fun select mailops
 	    =
-	    {   fun force_bl ([], base_mailops)
+	    case (force_bl (mailops, []))
+		#
+		BASE_GROUP base_mailops
+		    =>
+		    sync_on_base_mailops  base_mailops;
+
+		group =>   sync_on_group  group;
+	    esac
+	    where
+	        fun force_bl ([], base_mailops)
 			=>
 			BASE_GROUP base_mailops;
 
@@ -786,20 +791,15 @@ herein
 				=>
 				force_l (r, BASE_GROUP (base_mailops @ base_mailops') ! r');
 
-			    (GROUP group, l)
-				=>
-				force_l (r, group @ l);
-
-			    (group, l)
-				=>
-				force_l (r, group ! l);
+			    (GROUP group, l) =>   force_l (r, group @ l);
+			    (      group, l) =>   force_l (r, group ! l);
 			esac;
 		end
 
 		also
-		fun force' (GUARD g)
-			=>
-			force' (g ());
+		fun force' (GUARD g)            =>   force' (g ());
+		    force' (BASE_MAILOPS group) =>   BASE_GROUP group;
+		    force' (CHOOSE mailops)     =>   force_bl (mailops, []);
 
 		    force' (WITH_NACK f)
 			=>
@@ -808,24 +808,8 @@ herein
 			    NACK_GROUP (cvar, force' (f (cvar_get_mailop cvar)));
 			};
 
-		    force' (BASE_MAILOPS group)
-			=>
-			BASE_GROUP group;
-
-		    force' (CHOOSE mailops)
-			=>
-			force_bl (mailops, []);
 		end;
-
-		case (force_bl (mailops, []))
-		    #
-		    BASE_GROUP base_mailops
-			=>
-			sync_on_base_mailops  base_mailops;
-
-		    group =>   sync_on_group  group;
-		esac;
-	    };				# fun select
+	    end;			# fun select
     };					# package mailop
 end;
 
