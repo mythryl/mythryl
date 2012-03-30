@@ -301,66 +301,63 @@ herein
 	  end
     -DEBUG*/
 
-	# Force the evaluation of
-	# any guards in a mailop group:
+	# Prepare mailop expression to run.
+        # In particular, this evaluates all
+        # guards in the expression:
 	#
-	fun force (BASE_MAILOPS l) =>   BASE_GROUP l;
+	fun prepare (BASE_MAILOPS l) =>   BASE_GROUP l;
 	    #
-	    force mailop
+	    prepare mailop
 		=>
-		force' mailop
+		prepare' mailop
 		where
-		    fun force' (GUARD g)
+		    fun prepare' (GUARD g)
 			    =>
-			    force' (g ());
+			    prepare' (g ());
 
-			force' (WITH_NACK f)
+			prepare' (WITH_NACK f)
 			    =>
 			    {   cvar = itt::CONDITION_VARIABLE (REF (itt::CVAR_UNSET []));
 				#
-				NACK_GROUP (cvar, force' (f (cvar_get_mailop cvar)));
+				NACK_GROUP (cvar, prepare' (f (cvar_get_mailop cvar)));
 			    };
 
-			force' (BASE_MAILOPS group)
+			prepare' (BASE_MAILOPS  baseops)
 			    =>
-			    BASE_GROUP group;
+			    BASE_GROUP  baseops;
 
-			force' (CHOOSE mailops)
+			prepare' (CHOOSE mailops)
 			    =>
-			    force_bl (mailops, [])									# "bl" might be "base event list"...?
+			    prepare_baseops (mailops, [])				# Optimistically assume baseops-only; we'll fall back to general prepare_mailops() routine if we're wrong.
 			    where
-				fun force_bl ([], base_mailops)
+				fun prepare_baseops ([], baseops)
 					=>
-					BASE_GROUP base_mailops;
+					BASE_GROUP baseops;
 
-				    force_bl (mailop ! r, base_mailops')
+				    prepare_baseops (mailop ! rest, baseops')
 					=>
-					case (force' mailop)
-					    BASE_GROUP base_mailops =>  force_bl (r, base_mailops @ base_mailops');
-					    GROUP      group        =>  force_l  (r, group @ [BASE_GROUP base_mailops']);
-					    group                   =>  force_l  (r, [group, BASE_GROUP base_mailops']);
+					case (prepare' mailop)
+					    #
+					    BASE_GROUP baseops =>  prepare_baseops (rest,  baseops @             baseops' );
+					    GROUP      mailops =>  prepare_mailops (rest,  mailops @ [BASE_GROUP baseops']);
+					               mailops =>  prepare_mailops (rest, [mailops,   BASE_GROUP baseops']);
 					esac;
 				end
 
 				also
-				fun force_l ([], [group]) =>  group;
-				    force_l ([], l)       =>  GROUP l;
+				fun prepare_mailops ([], [group]) =>  group;		# This fn handles the general case vs prepare_baseops above handling the nice simple (and common) case.
+				    prepare_mailops ([], l)       =>  GROUP l;
 
-				    force_l (mailop ! r, l)
+				    prepare_mailops (mailop ! rest, l)
 					=>
-					case (force' mailop, l)
+					case (prepare' mailop, l)
 					    #				      
-					    (BASE_GROUP base_mailops, BASE_GROUP base_mailops' ! r')
+					    (BASE_GROUP baseops, BASE_GROUP baseops' ! rest')
 						=>
-						force_l (r, BASE_GROUP (base_mailops @ base_mailops') ! r');
+						prepare_mailops (rest, BASE_GROUP (baseops @ baseops') ! rest');
 
-					    (GROUP group, l)
-						=>
-						force_l (r, group @ l);
-
-					    (group, l)
-						=>
-						force_l (r, group ! l);
+					    (GROUP mailops, l) =>   prepare_mailops (rest, mailops @ l);
+					    (      mailops, l) =>   prepare_mailops (rest, mailops ! l);		# Here 'mailops' can be BASE_GROUP or NACK_GROUP.
 				       esac;
 	end;    end;  end;  end;end;
 
@@ -453,10 +450,10 @@ herein
 	# It also handles the case of synchronizing
 	# on NEVER.
 	#
-	fun select_among_base_mailops []    =>  ts::dispatch_next_thread ();
-	    select_among_base_mailops [bev] =>  sync_on_one_mailop  bev;
+	fun run_prepared_baseops []    =>  ts::dispatch_next_thread ();
+	    run_prepared_baseops [bev] =>  sync_on_one_mailop  bev;
 	    #
-	    select_among_base_mailops  base_mailops
+	    run_prepared_baseops  base_mailops
 		=>
 		{   ts::disable_thread_switching ();
 		    #
@@ -628,7 +625,7 @@ herein
 	# on groups of mailops where negative
 	# acknowledgements are involved.
 	#
-	fun select_on_mailop_expression  group
+	fun run_prepared_mailops  group
 	    =
 	    {	ts::disable_thread_switching ();
 
@@ -738,65 +735,65 @@ herein
 			    _   =>   ext_rdy (rest, do_its, n);
 			esac;
 		end;
-	    end;							# fun select_on_mailop_expression
+	    end;							# fun run_prepared_mailops
 
 
 	fun do_mailop  mailop
 	    =
-	    case (force mailop)
+	    case (prepare mailop)
 		#
-		BASE_GROUP base_mailops =>  select_among_base_mailops  base_mailops;
-		group                   =>  select_on_mailop_expression         group;
+		BASE_GROUP baseops =>  run_prepared_baseops  baseops;
+		           mailops =>  run_prepared_mailops  mailops;
 	    esac;
 
 
 	fun select mailops
 	    =
-	    case (force_baseops (mailops, []))										# Start by optimistically assuming baseops-only case; we'll fall back to general force_mailops() if proved wrong.
+	    case (prepare_baseops (mailops, []))									# Start by optimistically assuming baseops-only case; we'll fall back to general prepare_mailops() if proved wrong.
 		#
-		BASE_GROUP base_mailops  =>   select_among_base_mailops  base_mailops;					# This is special-case handling for baseops-only case.
-		group                    =>   select_on_mailop_expression  group;					# This is the general case.
+		BASE_GROUP baseops  =>   run_prepared_baseops  baseops;							# This is special-case handling for baseops-only case.
+		           mailops  =>   run_prepared_mailops  mailops;							# This is the general case.
 	    esac
 	    where
-	        fun force_baseops  (mailop ! rest,  base_mailops')							# force_baseops handles the nice simple baseop-only cases, force_mailops handles the remaining messier cases.
+	        fun prepare_baseops  (mailop ! rest,  base_mailops')							# prepare_baseops handles the nice simple baseop-only cases, prepare_mailops handles the remaining messier cases.
 			=>
-			case (force_one_mailop mailop)
+			case (prepare_one_mailop  mailop)
 			    #
-			    BASE_GROUP base_mailops =>  force_baseops (rest,        base_mailops @ base_mailops' );
-			    GROUP      group        =>  force_mailops  (rest,  group @ [BASE_GROUP base_mailops']);
-			    nackg as NACK_GROUP _   =>  force_mailops  (rest, [nackg,   BASE_GROUP base_mailops']);
+			    BASE_GROUP base_mailops =>  prepare_baseops (rest,        base_mailops @ base_mailops' );
+			    GROUP      group        =>  prepare_mailops  (rest,  group @ [BASE_GROUP base_mailops']);
+			    nackg as NACK_GROUP _   =>  prepare_mailops  (rest, [nackg,   BASE_GROUP base_mailops']);
 			esac;
 
-		    force_baseops ([], base_mailops)	    =>	BASE_GROUP  base_mailops;
+		    prepare_baseops ([], base_mailops)	    =>	BASE_GROUP  base_mailops;
 		end
 
 		also
-		fun force_mailops ([], [group]) =>  group;
-		    force_mailops ([], l)       =>  GROUP l;
+		fun prepare_mailops ([], [group]) =>  group;
+		    prepare_mailops ([], l)       =>  GROUP l;
 		    #
-		    force_mailops (mailop ! rest, l)
+		    prepare_mailops (mailop ! rest, l)
 			=>
-			case (force_one_mailop mailop, l)
+			case (prepare_one_mailop mailop, l)
 			    #
 			    (BASE_GROUP base_mailops, BASE_GROUP base_mailops' ! rest')
 				=>
-				force_mailops (rest, BASE_GROUP (base_mailops @ base_mailops') ! rest');
+				prepare_mailops (rest, BASE_GROUP (base_mailops @ base_mailops') ! rest');
 
-			    (GROUP group, l) =>   force_mailops  (rest,  group @ l);
-			    (other,       l) =>   force_mailops  (rest,  other ! l);						# 'other' can be (BASE_GROUP _) or (NACK_GROUP _).
+			    (GROUP group, l) =>   prepare_mailops  (rest,  group @ l);
+			    (other,       l) =>   prepare_mailops  (rest,  other ! l);						# 'other' can be (BASE_GROUP _) or (NACK_GROUP _).
 			esac;
 		end
 
 		also
-		fun force_one_mailop (GUARD g)            =>   force_one_mailop (g ());
-		    force_one_mailop (BASE_MAILOPS group) =>   BASE_GROUP group;
-		    force_one_mailop (CHOOSE mailops)     =>   force_baseops (mailops, []);
+		fun prepare_one_mailop (GUARD g)            =>   prepare_one_mailop (g ());
+		    prepare_one_mailop (BASE_MAILOPS group) =>   BASE_GROUP group;
+		    prepare_one_mailop (CHOOSE mailops)     =>   prepare_baseops (mailops, []);
 		    #
-		    force_one_mailop (WITH_NACK f)
+		    prepare_one_mailop (WITH_NACK f)
 			=>
 			{   cvar =  itt::CONDITION_VARIABLE  (REF  (itt::CVAR_UNSET []));
 			    #
-			    NACK_GROUP (cvar, force_one_mailop (f (cvar_get_mailop cvar)));
+			    NACK_GROUP (cvar, prepare_one_mailop (f (cvar_get_mailop cvar)));
 			};
 
 		end;
