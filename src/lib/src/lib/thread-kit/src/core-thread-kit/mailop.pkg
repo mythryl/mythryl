@@ -40,7 +40,7 @@ herein
 				include Mailop;					# Mailop			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.api
 				#
 				atomic_cvar_set:   itt::Condition_Variable -> Void;
-				cvar_get_mailop:   itt::Condition_Variable -> Mailop( Void );
+				wait_on_condvar__mailop:   itt::Condition_Variable -> Mailop( Void );
 			    }
     {
 	call_with_current_control_fate	=  fat::call_with_current_control_fate;
@@ -147,18 +147,20 @@ herein
 	# The mailop constructor for
 	# waiting on a condition variable:
 	#
-	fun cvar_get_mailop (itt::CONDITION_VARIABLE  state)
+	fun wait_on_condvar__mailop (itt::CONDITION_VARIABLE  state)
 	    =
 	    BASE_MAILOPS [is_ready]
 	    where 
-		fun wait_for { mailop_state, clean_up, next }				# Reppy calls this fn blockFn
+		fun wait_for { mailop_state, clean_up, next }									# Reppy calls this fn blockFn
 		    =
 		    call_with_current_fate
 			(fn fate
 			    =
-			    {   waiting =   case *state    itt::CVAR_UNSET waiting =>	waiting;
-						 /* */     _                       =>	raise exception FAIL "Library bug: Unsupported case in cvar_get_mailop";
-					    esac;					# Above case is impossible because is_ready only queues us up if *state is not CVAR_SET.
+			    {   waiting =   case *state
+						#
+						itt::CVAR_UNSET waiting =>   waiting;
+						_                       =>   raise exception FAIL "Bug in wait_on_condvar__mailop";	# Impossible -- is_ready only queues us up if *state is not CVAR_SET.
+					    esac;
 				#
 				item =  { mailop_state,  clean_up,  fate };
 
@@ -168,7 +170,7 @@ herein
 			    }
 			);
 
-		fun is_ready ()									# Reppy calls this fn pollFn
+		fun is_ready ()													# Reppy calls this fn pollFn
 		    =
 		    case *state
 			#
@@ -178,7 +180,7 @@ herein
 				#
 				MAILOP_READY { priority => n, do_it }
 				where
-				    fun do_it ()						# Reppy calls this fn doFn
+				    fun do_it ()										# Reppy calls this fn doFn
 					=
 					{   state :=  itt::CVAR_SET  1;
 					    #
@@ -203,21 +205,21 @@ herein
 	      [
 		fn () = itt::MAILOP_READY
 			  { priority  =>  -1,
-			    do_it =>  fn () = {   ts::reenable_thread_switching ();		# Reppy calls this field doFn
+			    do_it =>  fn () = {   ts::reenable_thread_switching ();						# Reppy calls this field doFn
 						  result;
 					      }
 			  }
 	      ];
 
-	never = BASE_MAILOPS [];								# A mailop which is never ready:
+	never = BASE_MAILOPS [];												# A mailop which is never ready:
 
 	guard = GUARD;
 
 	with_nack = WITH_NACK;
 
-	fun choose (mailops:  List(  Mailop(X) ))						# 'gather_mailops' handles the general case.
-	    =											# 'gather_baseops' assumes common special case of only base mailops;
-	    gather_baseops (reverse mailops, [])						#  We optimistically start with gather_baseops; we'll fall back to gather_mailops if necessary.
+	fun choose (mailops:  List(  Mailop(X) ))										# 'gather_mailops' handles the general case.
+	    =															# 'gather_baseops' assumes common special case of only base mailops;
+	    gather_baseops (reverse mailops, [])										#  We optimistically start with gather_baseops; we'll fall back to gather_mailops if necessary.
 	    where
 		fun gather_baseops ([],                           baseops') =>  BASE_MAILOPS baseops';				# Done, return result.
 		    #
@@ -323,7 +325,7 @@ herein
 			    =>
 			    {   cvar = itt::CONDITION_VARIABLE (REF (itt::CVAR_UNSET []));
 				#
-				NACK_GROUP (cvar, prepare' (f (cvar_get_mailop cvar)));
+				NACK_GROUP (cvar, prepare' (f (wait_on_condvar__mailop cvar)));
 			    };
 
 			prepare' (BASE_MAILOPS  baseops)
@@ -332,7 +334,7 @@ herein
 
 			prepare' (CHOOSE mailops)
 			    =>
-			    prepare_baseops (mailops, [])				# Optimistically assume baseops-only; we'll fall back to general prepare_mailops() routine if we're wrong.
+			    prepare_baseops (mailops, [])								# Optimistically assume baseops-only; we'll fall back to general prepare_mailops() routine if we're wrong.
 			    where
 				fun prepare_baseops ([], baseops)
 					=>
@@ -349,7 +351,7 @@ herein
 				end
 
 				also
-				fun prepare_mailops ([], [group]) =>  group;		# This fn handles the general case vs prepare_baseops above handling the nice simple (and common) case.
+				fun prepare_mailops ([], [group]) =>  group;						# This fn handles the general case vs prepare_baseops above handling the nice simple (and common) case.
 				    prepare_mailops ([], l)       =>  GROUP l;
 
 				    prepare_mailops (mailop ! rest, l)
@@ -426,7 +428,7 @@ herein
 
 
 	stipulate
-	    fun run_one_mailop  (is_ready:  Base_Mailop(X))
+	    fun do_one_mailop  (is_ready:  Base_Mailop(X))
 		=
 		{   ts::disable_thread_switching ();
 		    #
@@ -456,25 +458,25 @@ herein
 	    # It also handles the case of synchronizing
 	    # on NEVER.
 	    #
-	    fun run_prepared_baseops []    =>  ts::dispatch_next_thread ();
-		run_prepared_baseops [bev] =>  run_one_mailop  bev;
+	    fun do_prepared_baseops []    =>  ts::dispatch_next_thread ();
+		do_prepared_baseops [bev] =>  do_one_mailop  bev;
 		#
-		run_prepared_baseops  baseops
+		do_prepared_baseops  baseops
 		    =>
 		    {   ts::disable_thread_switching ();
 			#
-			run_baseops (baseops, []);
+			do_baseops (baseops, []);
 		    }
 		    where
-			fun run_baseops (is_ready ! rest,  wait_fors)								# In this loop we have not yet found any baseops ready to fire.
+			fun do_baseops (is_ready ! rest,  wait_fors)								# In this loop we have not yet found any baseops ready to fire.
 				=>
 				case (is_ready ())
 				    #
-				    MAILOP_UNREADY wait_for          =>  run_baseops       (rest, wait_for ! wait_fors);
-				    MAILOP_READY { priority, do_it } =>  run_ready_baseops (rest, [(priority, do_it)], 1);
+				    MAILOP_UNREADY wait_for          =>  do_baseops       (rest, wait_for ! wait_fors);
+				    MAILOP_READY { priority, do_it } =>  do_ready_baseops (rest, [(priority, do_it)], 1);
 				esac;
 
-			    run_baseops ([], wait_fors)										# Done -- no ready-to-fire baseops found and no candidates left to check.
+			    do_baseops ([], wait_fors)										# Done -- no ready-to-fire baseops found and no candidates left to check.
 				=>
 				call_with_current_control_fate
 				    (fn fate
@@ -509,15 +511,15 @@ herein
 			#       priority mailops (e::g., always, timeout?)
 
 			also
-			fun run_ready_baseops (is_ready ! r,  do_its,  n)								# In this loop we have found at least one baseop ready to fire.
+			fun do_ready_baseops (is_ready ! r,  do_its,  n)								# In this loop we have found at least one baseop ready to fire.
 				=>
 				case (is_ready ())
 				    #
-				    MAILOP_READY { priority, do_it } =>  run_ready_baseops (r, (priority, do_it) ! do_its, n+1);
-				    _                                =>  run_ready_baseops (r, do_its, n);
+				    MAILOP_READY { priority, do_it } =>  do_ready_baseops (r, (priority, do_it) ! do_its, n+1);
+				    _                                =>  do_ready_baseops (r, do_its, n);
 				esac;
 
-			    run_ready_baseops ([],  do_its,  n)
+			    do_ready_baseops ([],  do_its,  n)
 				=>
 				select_do_fn  (do_its, n)  ();										# Select a base mailop to fire and then fire it.
 			end;
@@ -541,33 +543,32 @@ herein
 	    =
 	    case mailops
 		#
-		GROUP _ =>
-		    gather_mailops (mailops, [], [])
-		    where 
-			un_wrapped_flag =  REF FALSE;
+		GROUP _ =>  gather_mailops (mailops, [], [])
+			    where 
+				un_wrapped_flag =  REF FALSE;
 
-			fun append_baseops  (baseop ! rest,  results) =>  append_baseops  (rest,  (baseop, un_wrapped_flag) ! results);
-			    append_baseops  (           [],  results) =>  results;
-			end;
-
-			fun gather_mailops (BASE_GROUP baseops, bl, flagsets)
-				=>
-				(append_baseops (baseops, bl), flagsets);
-
-			    gather_mailops (GROUP group, bl, flagsets)
-				=>
-				fold_left  f  (bl, flagsets)  group
-				where
-				    fun f (group', (bl', flagsets'))
-					=
-					gather_mailops (group', bl', flagsets');
+				fun append_baseops  (baseop ! rest,  results) =>  append_baseops  (rest,  (baseop, un_wrapped_flag) ! results);
+				    append_baseops  (           [],  results) =>  results;
 				end;
 
-			    gather_mailops (group as NACK_GROUP _, bl, flagsets)
-				=>
-				gather_wrapped (group, bl, flagsets);
-			end;
-		    end;
+				fun gather_mailops (BASE_GROUP baseops, bl, flagsets)
+					=>
+					(append_baseops (baseops, bl), flagsets);
+
+				    gather_mailops (GROUP group, bl, flagsets)
+					=>
+					fold_left  f  (bl, flagsets)  group
+					where
+					    fun f (group', (bl', flagsets'))
+						=
+						gather_mailops (group', bl', flagsets');
+					end;
+
+				    gather_mailops (group as NACK_GROUP _, bl, flagsets)
+					=>
+					gather_wrapped (group, bl, flagsets);
+				end;
+			    end;
 
 		group =>   gather_wrapped (group, [], []);
 	    esac
@@ -632,11 +633,11 @@ herein
 	# mailop expression where negative
 	# acknowledgements are involved.
 	#
-	fun run_prepared_mailops  group
+	fun do_prepared_mailops  group
 	    =
 	    {	ts::disable_thread_switching ();
 		#
-		run_mailops (bl, []);
+		do_mailops (bl, []);
 	    }
 	    where
 	        (collect_baseops_and_flagsets_from_mailops  group)
@@ -671,15 +672,15 @@ herein
 			    end;
 		    end;
 
-		fun run_mailops ((is_ready, flag) ! rest, wait_fors)								# In this loop we have not yet found a mailop ready to fire.
+		fun do_mailops ((is_ready, flag) ! rest, wait_fors)								# In this loop we have not yet found a mailop ready to fire.
 			=>
 			case (is_ready ())
 			    #
-			    MAILOP_READY { priority, do_it } =>  run_ready_mailops (rest, [(priority, (do_it, flag))], 1);
-			    MAILOP_UNREADY wait_for          =>  run_mailops       (rest, (wait_for, flag) ! wait_fors);
+			    MAILOP_READY { priority, do_it } =>  do_ready_mailops (rest, [(priority, (do_it, flag))], 1);
+			    MAILOP_UNREADY wait_for          =>  do_mailops       (rest, (wait_for, flag) ! wait_fors);
 			esac;
 
-		    run_mailops ([], wait_fors)											# End of the line -- no ready-to-fire mailops found and none left to check.
+		    do_mailops ([], wait_fors)											# End of the line -- no ready-to-fire mailops found and none left to check.
 			=>
 			call_with_current_control_fate
 			    (fn fate
@@ -720,18 +721,18 @@ herein
 		# priority mailops (e::g., always, timeout?)
 		#
 		also
-		fun run_ready_mailops ((is_ready, flag) ! rest, do_its, n)							# In this loop we have found at least one mailop ready to fire.
+		fun do_ready_mailops ((is_ready, flag) ! rest, do_its, n)						# In this loop we have found at least one mailop ready to fire.
 			=>
 			case (is_ready ())
 			    #
 			    MAILOP_READY { priority, do_it }
 				=>
-				run_ready_mailops (rest, (priority, (do_it, flag)) ! do_its, n+1);
+				do_ready_mailops (rest, (priority, (do_it, flag)) ! do_its, n+1);
 
-			    _   =>   run_ready_mailops (rest, do_its, n);
+			    _   =>   do_ready_mailops (rest, do_its, n);
 			esac;
 
-		    run_ready_mailops ([], do_its, n)										# End of line -- select one mailop to fire and then fire it.
+		    do_ready_mailops ([], do_its, n)									# End of line -- select one mailop to fire and then fire it.
 			=>
 			{   (select_do_fn (do_its, n))
 				->
@@ -742,15 +743,15 @@ herein
 			    do_it();
 			};
 		end;
-	    end;							# fun run_prepared_mailops
+	    end;													# fun do_prepared_mailops
 
 
 	fun do_mailop  mailop
 	    =
 	    case (prepare mailop)
 		#
-		BASE_GROUP baseops =>  run_prepared_baseops  baseops;
-		           mailops =>  run_prepared_mailops  mailops;
+		BASE_GROUP baseops =>  do_prepared_baseops  baseops;
+		           mailops =>  do_prepared_mailops  mailops;
 	    esac;
 
 
@@ -758,11 +759,11 @@ herein
 	    =
 	    case (prepare_baseops (mailops, []))									# Start by optimistically assuming baseops-only case; we'll fall back to general prepare_mailops() if proved wrong.
 		#
-		BASE_GROUP baseops  =>   run_prepared_baseops  baseops;							# This is special-case handling for baseops-only case.
-		           mailops  =>   run_prepared_mailops  mailops;							# This is the general case.
+		BASE_GROUP baseops  =>   do_prepared_baseops  baseops;							# This is special-case handling for baseops-only case.
+		           mailops  =>   do_prepared_mailops  mailops;							# This is the general case.
 	    esac
 	    where
-	        fun prepare_baseops  (mailop ! rest,  baseops')							# prepare_baseops handles the nice simple baseop-only cases, prepare_mailops handles the remaining messier cases.
+	        fun prepare_baseops  (mailop ! rest,  baseops')								# prepare_baseops handles the nice simple baseop-only cases, prepare_mailops handles the remaining messier cases.
 			=>
 			case (prepare_one_mailop  mailop)
 			    #
@@ -787,7 +788,7 @@ herein
 				prepare_mailops (rest, BASE_GROUP (baseops @ baseops') ! rest');
 
 			    (GROUP group, l) =>   prepare_mailops  (rest,  group @ l);
-			    (other,       l) =>   prepare_mailops  (rest,  other ! l);						# 'other' can be (BASE_GROUP _) or (NACK_GROUP _).
+			    (other,       l) =>   prepare_mailops  (rest,  other ! l);					# 'other' can be (BASE_GROUP _) or (NACK_GROUP _).
 			esac;
 		end
 
@@ -800,7 +801,7 @@ herein
 			=>
 			{   cvar =  itt::CONDITION_VARIABLE  (REF  (itt::CVAR_UNSET []));
 			    #
-			    NACK_GROUP (cvar, prepare_one_mailop (f (cvar_get_mailop cvar)));
+			    NACK_GROUP (cvar, prepare_one_mailop (f (wait_on_condvar__mailop cvar)));
 			};
 
 		end;
