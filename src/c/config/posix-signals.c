@@ -101,7 +101,7 @@ static Signal_Descriptor    runtime_generated_signals__local []						// Signal_D
 //    *** Internal error: undefined sigTable entry for signal 31 ***
 //    
 //    Uncaught exception NULL_OR
-//      raised at: src/lib/std/src/nj/runtime-signals-guts.pkg:101.25-101.41
+//      raised at: src/lib/std/src/nj/runtime-signals-guts.pkg:102.25-102.41
 
 #ifdef SOON
 	    { -1,                   "RUNSIG_THREAD_SCHEDULER_TIMESLICE",	"THREAD_SCHEDULER_TIMESLICE" },	// RUNSIG_HEAPCLEANING_DONE here shows up as
