@@ -338,7 +338,8 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
 	posix_signal_counts[ MAX_POSIX_SIGNALS ];		// Per-signal counts of pending signals.
     //
     int		posix_signal_rotor;				// Ihe index in previous of the next slot to check, round-robin style.
-    int		heapcleaning_done_signal_handler_state;			// State of the cleaner signal handler.
+    int		heapcleaning_done_signal_handler_state;		// State of the heapcleaning signal handler.
+    int		thread_scheduler_timeslice_signal_handler_state;// State of the timeslicing  signal handler.
 
     Time*	cpu_time_at_start_of_last_heapclean;		// The cumulative CPU time at the start of the last heapclean -- see src/c/main/timers.c
     Time*	cumulative_cleaning_cpu_time;			// The cumulative cleaning time.

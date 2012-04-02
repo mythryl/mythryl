@@ -77,7 +77,7 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
     // should the pending signals be discarded?
     //
     // How do we keep track of the state
-    // of non-UNIX signals (e.g., GC)?				XXX BUGGO FIXME
+    // of non-UNIX signals (e.g., HEAPCLEANING_DONE)?				XXX BUGGO FIXME -- maybe should be a dedicated refcell in heap image for each one, although preserving their state across dump/load seems a minor concern.
 
 
     switch (sig_num) {
@@ -85,6 +85,11 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
     case RUNSIG_HEAPCLEANING_DONE:
         //
 	pthread->heapcleaning_done_signal_handler_state =  signal_state;
+	break;
+
+    case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
+        //
+	pthread->thread_scheduler_timeslice_signal_handler_state =  signal_state;
 	break;
 
     default:
@@ -125,6 +130,10 @@ int   get_signal_state   (Pthread* pthread,  int sig_num)   {
     case RUNSIG_HEAPCLEANING_DONE:
         //
 	return pthread->heapcleaning_done_signal_handler_state;
+
+    case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
+        //
+	return pthread->thread_scheduler_timeslice_signal_handler_state;
 
     default:
 	if (!IS_SYSTEM_SIG(sig_num))   die ("get_signal_state: unknown signal %d\n", sig_num);
