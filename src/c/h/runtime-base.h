@@ -243,6 +243,13 @@ struct task {
     Val		current_closure;					// Currently executing closure ("function").
     //
     Val		link_register;						// A valid program counter value -- initially at least entrypoint in 'closure'.
+									// Semantics still more than a little mysterious.
+									// Datum:   If you do   find . -name '*.c' -print | xargs egrep link_register
+									//          you'll find we (almost?) alwways set it either to HEAP_VOID
+									//          or else to GET_CODE_ADDRESS_FROM_CLOSURE(closure), for example   task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
+									//          in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+									//          where   #define GET_CODE_ADDRESS_FROM_CLOSURE(c)	(GET_TUPLE_SLOT_AS_VAL(c, 0))   in   src/c/h/runtime-values.h:
+
     Val		program_counter;					// Address of Mythryl code to execute; when
 									// calling a Mythryl function from C, this			NB:  The garbage collector treats link_register as a root but not
 									// holds the same value as the link_register.			program_counter, so presumably it always points into the same <something>. -- 2011-11-15 CrT
@@ -255,7 +262,7 @@ struct task {
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.
 
     Val		fault_exception;					// The exception packet for a hardware fault.
-    Vunt  faulting_program_counter;				// The program counter of the faulting instruction.
+    Vunt	faulting_program_counter;				// The program counter of the faulting instruction.
 
     Val*	protected_c_arg;					// Used to protect one arg from garbage collection by RELEASE_MYTHRYL_HEAP in src/c/h/runtime-base.h
     Val		heapvoid;						// Dummy for protected_c_arg to point to when not being used.  Initialized to HEAP_VOID.

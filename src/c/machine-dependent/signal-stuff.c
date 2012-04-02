@@ -20,7 +20,7 @@ void   choose_signal   (Pthread* pthread)   {
     // seen at the C level but not yet handled at the Mythryl
     // level.  Our job is to find and return the number of
     // that signal plus the number of times it has fired at
-    // the C level since last being handled at the Mythry level.
+    // the C level since last being handled at the Mythryl level.
     //
     // Choose which signal to pass to the Mythryl-level handler
     // and set up the Mythryl state vector accordingly.
@@ -32,7 +32,7 @@ void   choose_signal   (Pthread* pthread)   {
     // WARNING: This should be called with signals masked
     // to avoid race conditions.
 
-    int i, j, delta;
+    int delta;
 
     // Scan the signal counts looking for
     // a signal that needs to be handled.
@@ -56,17 +56,17 @@ void   choose_signal   (Pthread* pthread)   {
     // to remember where we left off scanning, so we can pick
     // up from there next time:	
 
-    i = pthread->posix_signal_rotor;
-    j = 0;
+    int i = pthread->posix_signal_rotor;
+    int j = 0;
     do {
-	ASSERT (j++ < NUM_SIGS);
+	ASSERT (j++ < MAX_POSIX_SIGNALS);				// At worst we have to search all the way through pthread->posix_signal_counts[MAX_POSIX_SIGNALS].
 
 	i++;
 
 	// Wrap circularly around the signal vector:
 	//
-	if (i == MAX_POSIX_SIGNALS)
-            i = MIN_SYSTEM_SIG;
+	if (i == MAX_POSIX_SIGNALS)					// #define MAX_POSIX_SIGNALS  32		in (codemade file:)	src/c/o/system-signals.h
+	    i =  MIN_SYSTEM_SIG;					// #define MIN_SYSTEM_SIG      1		in (codemade file:)	src/c/o/system-signals.h
 
 	// Does this signal have pending work? (Nonzero == "yes"):
 	//
@@ -81,7 +81,7 @@ void   choose_signal   (Pthread* pthread)   {
     // since last being handled at the
     // Mythryl level:
     //
-    pthread->next_posix_signal_id  = i;
+    pthread->next_posix_signal_id    = i;
     pthread->next_posix_signal_count = delta;
 
 //    log_if(
@@ -95,7 +95,7 @@ void   choose_signal   (Pthread* pthread)   {
     // Mark this signal as 'done':
     //
     pthread->posix_signal_counts[i].done_count  += delta;
-    pthread->all_posix_signals.done_count += delta;
+    pthread->all_posix_signals.done_count       += delta;
 
     #ifdef SIGNAL_DEBUG
         debug_say ("choose_signal: sig = %d, count = %d\n", pthread->next_posix_signal_id, pthread->next_posix_signal_count);

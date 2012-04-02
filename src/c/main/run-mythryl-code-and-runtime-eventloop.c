@@ -157,7 +157,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 		if (need_to_call_heapcleaner( task, 4*ONE_K_BINARY )) {
 		    //
-		  call_heapcleaner( task, 0 );			// call_heapcleaner	def in   src/c/heapcleaner/call-heapcleaner.c
+		    call_heapcleaner( task, 0 );							// call_heapcleaner	def in   src/c/heapcleaner/call-heapcleaner.c
 		}
 
 	        // Figure out which unix signal needs handling
@@ -198,9 +198,9 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		choose_signal( pthread );
 		//
-		task->argument	     =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
-		task->fate	     =  PTR_CAST( Val,  return_from_signal_handler_c );
-		task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
+		task->argument	      =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
+		task->fate	      =  PTR_CAST( Val,  return_from_signal_handler_c );
+		task->exception_fate  =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
 		task->current_closure =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter =

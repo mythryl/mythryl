@@ -185,14 +185,18 @@ static void   process_commandline_options   (
     {   char* mythryl_script = getenv("MYTHRYL_SCRIPT");			// "The getenv() function returns a pointer to the value in the environment, or NULL if there is no match."
 	//									// MYTHRYL_SCRIPT gets set by start_subprocess() in src/c/o/mythryl.c
 	//
-	if (mythryl_script__global) {						// mythryl_script__global gets passed via   do_get_script_name	in   src/c/lib/kludge/libmythryl-kludge.c
-	    //									// and get_script_name	in   src/lib/src/kludge.pkg
-	    //									// to  main		in   src/lib/core/internal/mythryld-app.pkg
+	if (mythryl_script) {
+	    //
+	    //
 	    // Copy MYTHRYL_SCRIPT value out of environment:
 	    //
-	    mythryl_script__global
-		=
-		(char*)  malloc( strlen(mythryl_script) +1 );			// '+1' for terminal '\0'.
+	    mythryl_script__global						// mythryl_script__global gets passed via   do_get_script_name	in   src/c/lib/kludge/libmythryl-kludge.c
+		=								// and get_script_name	in   src/lib/src/kludge.pkg
+		(char*)								// to  main		in   src/lib/core/internal/mythryld-app.pkg
+		malloc(
+		    strlen( mythryl_script )  +1				// '+1' for terminal '\0'.
+		 );
+
 	    //
 	    strcpy( mythryl_script__global, mythryl_script );
 
