@@ -65,13 +65,7 @@
 #include <stdarg.h>
 
 typedef  Int1  Bool;
-
-#ifndef TRUE		// Some systems already define TRUE and FALSE.
-    #define TRUE  1
-    #define FALSE 0
-#endif
-
-typedef Int1 Status;
+typedef  Int1  Status;
 
 // Assertions for debugging:
 //

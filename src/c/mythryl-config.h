@@ -31,8 +31,28 @@
 #include "config.h"
 
 
+#ifndef TRUE		// Some systems already define TRUE and FALSE.
+    #define TRUE  1
+    #define FALSE 0
+#endif
 
-#define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
+#define NEED_TO_EXECUTE_ASSERTS  FALSE
+    //
+    // For debugging the codebase contains various statements like
+    //
+    //     ASSERT( foo == bar );
+    //     ASSERT( j++ < MAX_POSIX_SIGNALS );		// See src/c/machine-dependent/signal-stuff.c
+    //
+    // If NEED_TO_EXECUTE_ASSERTS is TRUE, these ASSERTS generate which tests
+    // the given expression and if it is false generates stderr output like
+    //
+    //     assertion failed in file foo.c, function do_bar(), line 1287
+    // 
+    // If NEED_TO_EXECUTE_ASSERTS is FALSE, these ASSERTS generate no code.
+    // This is the normal production configuration, for speed.
+
+
+#define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS TRUE
     //
     // The Mythryl heapcleaner ("garbage collector") runs as a cooperative
     // thread with user code -- the Mythryl compiler ensures that every closed

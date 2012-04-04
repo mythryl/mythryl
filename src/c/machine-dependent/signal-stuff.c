@@ -56,8 +56,11 @@ void   choose_signal   (Pthread* pthread)   {
     // to remember where we left off scanning, so we can pick
     // up from there next time:	
 
-    int i = pthread->posix_signal_rotor;
+    #if NEED_TO_EXECUTE_ASSERTS
     int j = 0;
+    #endif
+
+    int i = pthread->posix_signal_rotor;
     do {
 	ASSERT (j++ < MAX_POSIX_SIGNALS);				// At worst we have to search all the way through pthread->posix_signal_counts[MAX_POSIX_SIGNALS].
 
@@ -74,7 +77,7 @@ void   choose_signal   (Pthread* pthread)   {
 
     } while (delta == 0);
 
-    pthread->posix_signal_rotor = i;		// Next signal to scan on next call to this fn.
+    pthread->posix_signal_rotor = i;					// Next signal to scan on next call to this fn.
 
     // Record the signal to process
     // and how many times it has fired
