@@ -69,7 +69,8 @@ typedef  Int1  Status;
 
 // Assertions for debugging:
 //
-#ifdef ASSERT_ON
+#if NEED_TO_EXECUTE_ASSERTS
+    //
     extern void assert_fail (const char *a, const char *file, int line);
 //  #define ASSERT(A)	((A) ? ((void)0) : assert_fail(#A, __FILE__, __LINE__))
     #define ASSERT(A)	{ if (!(A)) assert_fail(#A, __FILE__, __LINE__); }
@@ -490,7 +491,7 @@ extern char** raw_args;
 extern char** commandline_arguments;				// Does not include the command name (argv[0]).
 extern char*  mythryl_program_name__global;			// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
 extern char*  mythryl_script__global;				// Contents of MYTHRYL_SCRIPT environment variable at startup.  This var is cleared immediately upon being read.	Def in src/c/main/runtime-main.c
-extern int    verbosity;
+extern int    verbosity__global;				// Used only in   src/c/heapcleaner/import-heap.c  and in   src/c/main/runtime-main.c
 extern Bool   codechunk_comment_display_is_enabled__global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
 extern Bool   heapcleaner_messages_are_enabled__global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
 extern Bool   unlimited_heap_is_enabled__global;		// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c

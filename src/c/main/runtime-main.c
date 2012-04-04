@@ -55,7 +55,7 @@ FILE* DebugF = NULL;	// Referenced only here and in   src/c/main/error-reporting
 
 // Runtime globals:
 //
-int    verbosity = 0;
+int    verbosity__global = 0;
 Bool   codechunk_comment_display_is_enabled__global = FALSE;
 Bool   heapcleaner_messages_are_enabled__global = FALSE;
 Bool   unlimited_heap_is_enabled__global = FALSE;
@@ -116,7 +116,7 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 
     process_environment_options( &heapcleaner_args );
 
-    if (verbosity > 0) {
+    if (verbosity__global > 0) {
 	printf("\n");
 	printf("--------------------------------------------------------\n");
 	printf("mythryl-runtime-intel32:    src/c/main/runtime-main.c:   %d args:\n",argc);
@@ -155,7 +155,7 @@ static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {
     //
     char* vebosity_string = getenv( "MYTHRYL_VERBOSITY" );
     if   (vebosity_string) {
-          verbosity = atoi( vebosity_string );
+          verbosity__global = atoi( vebosity_string );
     }
 }
 
@@ -300,7 +300,7 @@ static void   process_commandline_options   (
 		heap_image_to_run_filename = *argv;		// Remember heap file to load.
 //		++argv; --argc;					// Hide heapfile from subquent logic.
 
-                if (verbosity > 0) {
+                if (verbosity__global > 0) {
 		    fprintf(
 			stderr,
 			"Looks like a shebang invocation -- heap_image_to_run_filename set to '%s'\n",
@@ -319,13 +319,13 @@ static void   process_commandline_options   (
 
     raw_args = argv;
 
-    if (verbosity > 0) {
+    if (verbosity__global > 0) {
         printf("             src/c/main/runtime-main.c:   Constructing a %d-slot commandline_arguments perlvector...\n",argc);
     }
 
     commandline_arguments = MALLOC_VEC(char*, argc);
 
-    if (verbosity > 0) {
+    if (verbosity__global > 0) {
         printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name__global to '%s'...\n",*argv);
     }
 
@@ -356,7 +356,7 @@ static void   process_commandline_options   (
 		is_boot = TRUE;
 		compiled_files_to_load_filename = option_arg;
 
-                if (verbosity > 0) {
+                if (verbosity__global > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-compiledfiles-to-load setting compiled_files_to_load_filename to '%s'...\n",compiled_files_to_load_filename);
                 }
 
@@ -364,7 +364,7 @@ static void   process_commandline_options   (
 
 		CHECK("heap-image-to-run");
 		heap_image_to_run_filename = option_arg;
-                if (verbosity > 0) {
+                if (verbosity__global > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-heap-image-to-run setting heap_image_to_run_filename to '%s'...\n", heap_image_to_run_filename);
                 }
 
@@ -372,7 +372,7 @@ static void   process_commandline_options   (
 
 		CHECK("cmdname");
 		mythryl_program_name__global = option_arg;
-                if (verbosity > 0) {
+                if (verbosity__global > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);
                 }
 
@@ -392,7 +392,7 @@ static void   process_commandline_options   (
 	    } else if (MATCH("verbosity")) {
 
 		CHECK("verbosity");
-		verbosity = atoi(option_arg);
+		verbosity__global = atoi(option_arg);
 
 	    } else if (MATCH("show-code-chunk-comments")) {
 
@@ -424,14 +424,14 @@ static void   process_commandline_options   (
 		}
             }
 	} else {
-            if (verbosity > 0) {
+            if (verbosity__global > 0) {
                 printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_arguments,arg);
             } 
 	    *next_arg++ = arg;
 	}
     }
 
-    if (verbosity > 0)   printf("\n");
+    if (verbosity__global > 0)   printf("\n");
     *next_arg = NULL;
 
     if (seen_error)   print_stats_and_exit( 1 );

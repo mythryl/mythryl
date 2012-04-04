@@ -148,13 +148,13 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 
 	if ((inbuf.file = fopen(fname, "rb"))) {
 	    //
-	    if (verbosity > 0)   say("loading %s ", fname);
+	    if (verbosity__global > 0)   say("loading %s ", fname);
 
 	} else {
 	    //
 	    if ((inbuf.file = fopen(fname, "rb"))) {
 		//
-	        if (verbosity > 0)   say("loading %s ", fname);
+	        if (verbosity__global > 0)   say("loading %s ", fname);
 
 	    } else {
 
@@ -302,7 +302,7 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 
     if (inbuf.file)   fclose (inbuf.file);
 
-    if (verbosity > 0)   say(" done\n");
+    if (verbosity__global > 0)   say(" done\n");
 
     return task;
 }								// fun import_heap_image__may_heapclean
@@ -473,7 +473,7 @@ static void   read_heap   (
 		ap->fromspace.seniorchunks_end =  ap->tospace.start;
 	    }
 
-	    if (verbosity > 0)   say(".");
+	    if (verbosity__global > 0)   say(".");
 
 	    p++;
 	}
@@ -586,7 +586,7 @@ static void   read_heap   (
 		FREE (boHdrs);
 	    }
 
-	    if (verbosity > 0)   say(".");
+	    if (verbosity__global > 0)   say(".");
 
 	    p++;
 	}
