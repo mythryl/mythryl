@@ -62,17 +62,17 @@ Bool   unlimited_heap_is_enabled__global = FALSE;
 
 char** raw_args;
 
-char** commandline_arguments;			// Does not include the program name (argv[0]).
+char** commandline_arguments_without_argv0__global;		// Does not include the program name (argv[0]).  Used various places.
 
-char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
+char*  mythryl_program_name__global;				// The program name used to invoke the runtime.
 
-char*  mythryl_script__global = NULL;		// Contents of MYTHRYL_SCRIPT environment variable if set at invocation time, else NULL
-						// The MYTHRYL_SCRIPT variable is removed from the environment at startup,
-						// as soon as its contents have been cached here.
-						// This gets exported to the C level via get_script_name in src/c/lib/kludge/libmythryl-kludge.c
+char*  mythryl_script__global = NULL;				// Contents of MYTHRYL_SCRIPT environment variable if set at invocation time, else NULL
+								// The MYTHRYL_SCRIPT variable is removed from the environment at startup,
+								// as soon as its contents have been cached here.
+								// This gets exported to the C level via get_script_name in src/c/lib/kludge/libmythryl-kludge.c
 
-Bool   saw_shebang_line__global = FALSE;	// Intended only for debug, currently used nowhere.
-Bool   running_script__global   = FALSE;	// As of 2012-04-04 this is currently used only for debugging log_if()s and only in   src/c/pthread/pthread-on-posix-threads.c
+Bool   saw_shebang_line__global = FALSE;			// Intended only for debug, currently used nowhere.
+Bool   running_script__global   = FALSE;			// As of 2012-04-04 this is currently used only for debugging log_if()s and only in   src/c/pthread/pthread-on-posix-threads.c
 
 // Local variables:
 //
@@ -323,14 +323,16 @@ static void   process_commandline_options   (
         printf("             src/c/main/runtime-main.c:   Constructing a %d-slot commandline_arguments perlvector...\n",argc);
     }
 
-    commandline_arguments = MALLOC_VEC(char*, argc);
+    commandline_arguments_without_argv0__global
+	=
+	MALLOC_VEC(char*, argc);
 
     if (verbosity__global > 0) {
         printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name__global to '%s'...\n",*argv);
     }
 
     mythryl_program_name__global = *argv++;
-    next_arg = commandline_arguments;
+    next_arg = commandline_arguments_without_argv0__global;
     while (--argc > 0) {
 	char	*arg = *argv++;
 
@@ -425,7 +427,7 @@ static void   process_commandline_options   (
             }
 	} else {
             if (verbosity__global > 0) {
-                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_arguments,arg);
+                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_arguments_without_argv0__global,arg);
             } 
 	    *next_arg++ = arg;
 	}

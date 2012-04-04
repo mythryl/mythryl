@@ -160,7 +160,7 @@ static Val   do_get_commandline_args   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_commandline_args");
 
-    return make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments, NULL);
+    return make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments_without_argv0__global, NULL);
 }
 //
 static Val   do_concatenate_two_tuples   (Task* task,  Val arg)   {

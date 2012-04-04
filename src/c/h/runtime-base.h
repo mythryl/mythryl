@@ -488,7 +488,7 @@ void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							// unbuf
 // out (e.g., those of the form --runtime-xxx[=yyy]).
 //
 extern char** raw_args;
-extern char** commandline_arguments;				// Does not include the command name (argv[0]).
+extern char** commandline_arguments_without_argv0__global;	// Does not include program name (argv[0]).  Used various places, set in src/c/main/runtime-main.c
 extern char*  mythryl_program_name__global;			// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
 extern char*  mythryl_script__global;				// Contents of MYTHRYL_SCRIPT environment variable at startup.  This var is cleared immediately upon being read.	Def in src/c/main/runtime-main.c
 extern int    verbosity__global;				// Used only in   src/c/heapcleaner/import-heap.c  and in   src/c/main/runtime-main.c

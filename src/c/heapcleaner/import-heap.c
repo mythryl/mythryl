@@ -286,7 +286,7 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
         //
 	Val program_name =  make_ascii_string_from_c_string__may_heapclean(task, mythryl_program_name__global, extra_roots);		Roots roots1 = { &program_name, extra_roots };
         //
-	Val args         =  make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments, &roots1 );
+	Val args         =  make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_arguments_without_argv0__global, &roots1 );
 
 	task->argument = make_two_slot_record( task, program_name, args );
 

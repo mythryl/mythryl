@@ -462,12 +462,12 @@ Val   _lib7_Gtk_gtk_init   (Task* task,  Val arg)   {	// : Void -> Void
 
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	extern char	**commandline_arguments;
+	extern char	**commandline_arguments_without_argv0__global;
 
 	int argc = 0;
-	while (commandline_arguments[argc]) ++argc;    
+	while (commandline_arguments_without_argv0__global[argc]) ++argc;    
 
-	if (!gtk_init_check( &argc, &commandline_arguments )) {
+	if (!gtk_init_check( &argc, &commandline_arguments_without_argv0__global )) {
 	    //
 	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "gtk_init: failed to initialize GUI support", NULL);
 	}
