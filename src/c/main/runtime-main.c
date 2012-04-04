@@ -71,8 +71,8 @@ char*  mythryl_script__global = NULL;		// Contents of MYTHRYL_SCRIPT environment
 						// as soon as its contents have been cached here.
 						// This gets exported to the C level via get_script_name in src/c/lib/kludge/libmythryl-kludge.c
 
-Bool   saw_shebang_line = FALSE;
-Bool   running_script   = FALSE;
+Bool   saw_shebang_line__global = FALSE;	// Intended only for debug, currently used nowhere.
+Bool   running_script__global   = FALSE;	// As of 2012-04-04 this is currently used only for debugging log_if()s and only in   src/c/pthread/pthread-on-posix-threads.c
 
 // Local variables:
 //
@@ -189,13 +189,14 @@ static void   handle_mythryl_script_environment_variable   (void)   {
 	strcpy( mythryl_script__global, mythryl_script );
 
 	unsetenv( "MYTHRYL_SCRIPT" );					// My first version of the code did not do this;
-									    // Hue White pointed out that the MYTHRYL_SCRIPT
-									    // setting then gets inherited by subprocesses,
-									    // with unpleasantly mysterious results.
-	running_script = TRUE;
+									// Hue White pointed out that the MYTHRYL_SCRIPT
+									// setting then gets inherited by subprocesses,
+									// with unpleasantly mysterious results.
+
+	running_script__global = TRUE;					// Used only to control debugging log_if()s, and only in   src/c/pthread/pthread-on-posix-threads.c
     }
     //
-    if (running_script) {
+    if (running_script__global) {
 	if (!log_if_fd)   log_if_fd = open("script.log",  O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
     }
     if     (!log_if_fd)   log_if_fd = open("unknown.log", O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
@@ -292,12 +293,12 @@ static void   process_commandline_options   (
 		// For now, we silently ignore any other shebang-line switches:
 		//////////////////////////////////////////////////////
 
-		saw_shebang_line = TRUE;		  // Used only for debug. 	
+		saw_shebang_line__global = TRUE;		// Intended for debug support, currently not used at all.
 
-	        ++argv; --argc;                           // Skip the mythryl-runtime-intel32 path.
-                while (**argv == '-') { ++argv; --argc; } // Ignore all shebang line switches.
-		heap_image_to_run_filename = *argv;       // Remember heap file to load.
-//		++argv; --argc;                           // Hide heapfile from subquent logic.
+	        ++argv; --argc;                         	// Skip the mythryl-runtime-intel32 path.
+                while (**argv == '-') { ++argv; --argc; }	// Ignore all shebang line switches.
+		heap_image_to_run_filename = *argv;		// Remember heap file to load.
+//		++argv; --argc;					// Hide heapfile from subquent logic.
 
                 if (verbosity > 0) {
 		    fprintf(

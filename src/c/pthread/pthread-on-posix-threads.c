@@ -725,7 +725,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
 	pthread_mutex_unlock( &pth__mutex );
 
- if (running_script) log_if("pth__pthread_create: BOTTOM (error).");
+ if (running_script__global) log_if("pth__pthread_create: BOTTOM (error).");
 	switch (err) {
 	    //
 	    case EAGAIN:	return "pth__pthread_create: Insufficient resources to create posix thread: May have reached PTHREAD_THREADS_MAX.";
@@ -746,7 +746,7 @@ void   pth__pthread_exit   (Task* task)   {
     //
 											PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
- if (running_script) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
+ if (running_script__global) log_if("pth__pthread_exit/TOP: Calling heapcleaner.");
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//
 	// I presume this call must be intended to sweep all live
@@ -756,7 +756,7 @@ void   pth__pthread_exit   (Task* task)   {
 	// buffer for a new thread.   -- 2011-11-10 CrT
 
 
- if (running_script) log_if("pth__pthread_exit/MID: Updating state.");
+ if (running_script__global) log_if("pth__pthread_exit/MID: Updating state.");
     pthread_mutex_lock(    &pth__mutex );
 	//
 	task->pthread->mode = PTHREAD_IS_VOID;
@@ -765,7 +765,7 @@ void   pth__pthread_exit   (Task* task)   {
 	//
     pthread_mutex_unlock(  &pth__mutex );
 
- if (running_script) log_if("pth__pthread_exit/BOTTOM: Done.");
+ if (running_script__global) log_if("pth__pthread_exit/BOTTOM: Done.");
     pthread_exit( NULL );								// "The pthread_exit() function cannot return to its caller."   -- http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 }
 

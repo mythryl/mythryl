@@ -723,7 +723,7 @@ static void   start_subprocess (
 	//
 	// Also, if MYTHRYL_SCRIPT is set the global variable
 	//
-	//     running_script
+	//     running_script__global
 	//
 	// is set to TRUE by process_commandline_options() in
 	//

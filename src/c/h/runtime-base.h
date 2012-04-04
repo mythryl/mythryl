@@ -494,8 +494,9 @@ extern int    verbosity;
 extern Bool   codechunk_comment_display_is_enabled__global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
 extern Bool   heapcleaner_messages_are_enabled__global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
 extern Bool   unlimited_heap_is_enabled__global;		// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
-extern Bool   saw_shebang_line;					// Used only for debug;  set				     in   src/c/main/runtime-main.c
-extern Bool   running_script;					// Used only for debug;  set				     in   src/c/main/runtime-main.c
+extern Bool   saw_shebang_line__global;				// Intended only for debug; currently never used; set	     in   src/c/main/runtime-main.c
+extern Bool   running_script__global;				// Used only for debug;  set				     in   src/c/main/runtime-main.c
+								//                       read				     in   src/c/pthread/pthread-on-posix-threads.c	
 
 extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   src/c/main/runtime-state.c
     //
