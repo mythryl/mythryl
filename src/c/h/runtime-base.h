@@ -271,7 +271,7 @@ struct task {
 };
 
 
-// Type for our pth__heapcleaner_state global:
+// Type for our pth__heapcleaner_state__global global:
 //
 typedef enum {
     //
@@ -471,9 +471,9 @@ typedef  struct  {
     //
 } Mythryl_Heap_Value_Buffer;
 //
-void*   buffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
-void*   buffer_mythryl_heap_nonvalue	( Mythryl_Heap_Value_Buffer*,                int heapval_bytesize );		//   buffer_mythryl_heap_nonvalue		def in   src/c/main/runtime-state.c
-void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+extern void*   buffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+extern void*   buffer_mythryl_heap_nonvalue	( Mythryl_Heap_Value_Buffer*,                int heapval_bytesize );		//   buffer_mythryl_heap_nonvalue		def in   src/c/main/runtime-state.c
+extern void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
 
 
 
@@ -510,13 +510,13 @@ extern Pthread*	pthread_table__global [];					// pthread_table__global	def in   
     // serialized by the pth__mutex
     // in that file.     
 
-extern Heapcleaner_State  pth__heapcleaner_state;			// Grab pth__mutex before changing this.
-extern int                pth__running_pthreads_count;			// Grab pth__mutex before changing this.
+extern Heapcleaner_State  pth__heapcleaner_state__global;			// Grab pth__mutex before changing this.
+extern int                pth__running_pthreads_count__global;			// Grab pth__mutex before changing this.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
 
-extern void   pth__validate_running_pthreads_count (void);		// Explicitly verify that pth__running_pthreads_count is correct by looping over pthread_table__global[].
+extern void   pth__validate_running_pthreads_count (void);		// Explicitly verify that pth__running_pthreads_count__global is correct by looping over pthread_table__global[].
 
 
 // log_if declaration.
@@ -616,8 +616,8 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 ////////////////////////////////////////////////////////////////////////////
 // Statically pre-allocated mutexs, condvars and such:
 //
-extern Mutex	    pth__mutex;							// Governs  pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count ... -- see  src/c/pthread/pthread-on-posix-threads.c
-extern Condvar	    pth__condvar;						// Waits on pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count ... -- see  src/c/pthread/pthread-on-posix-threads.c
+extern Mutex	    pth__mutex;							// Governs  pthread->mode, pth__heapcleaner_state__global, pth__running_pthreads_count__global ... -- see  src/c/pthread/pthread-on-posix-threads.c
+extern Condvar	    pth__condvar;						// Waits on pthread->mode, pth__heapcleaner_state__global, pth__running_pthreads_count__global ... -- see  src/c/pthread/pthread-on-posix-threads.c
 //
 //
 

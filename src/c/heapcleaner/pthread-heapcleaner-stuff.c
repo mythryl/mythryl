@@ -171,7 +171,7 @@ static Val** extra_heapcleaner_roots__local;
 void    pth__validate_running_pthreads_count   (void)   {
     //  ====================================
     //
-    // Check that		    pth__running_pthreads_count
+    // Check that		    pth__running_pthreads_count__global
     // is correct by looping over   pthread_table__global[]					// pthread_table__global	def in   src/c/main/runtime-state.c
     // and counting.
     // 
@@ -179,7 +179,7 @@ void    pth__validate_running_pthreads_count   (void)   {
     // !! CALLER MUST BE HOLDING pth__mutex !!
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     // 
-    // (Otherwise pth__running_pthreads_count and/or
+    // (Otherwise pth__running_pthreads_count__global and/or
     // the 'mode' fields might change in the middle
     // of the below loop, invalidating the computation.)	 
 
@@ -193,10 +193,10 @@ void    pth__validate_running_pthreads_count   (void)   {
 	}
     }
 
-    if (running_pthreads != pth__running_pthreads_count) {
+    if (running_pthreads != pth__running_pthreads_count__global) {
 	//
-	die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: validate_running_pthreads_count: pth__running_pthreads_count d=%d but running_pthreads d=%d!",
-	    pth__running_pthreads_count,
+	die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: validate_running_pthreads_count: pth__running_pthreads_count__global d=%d but running_pthreads d=%d!",
+	    pth__running_pthreads_count__global,
 	    running_pthreads
 	);
     }
@@ -228,19 +228,19 @@ int   pth__start_heapcleaning   (Task *task) {
     //   o First to arrive sets pthread->mode = PRIMARY_HEAPCLEANER
     //     and will be the one which does the actual heapcleaning work.
     //
-    //   o The primary heapcleaner sets pth__heapcleaner_state to
+    //   o The primary heapcleaner sets pth__heapcleaner_state__global to
     //     HEAPCLEANER_IS_STARTING to signal the remaining
     //     RUNNING pthreads to stop using the Mythryl heap and set
     //     pthread->mode == PTHREAD_IS_SECONDARY_HEAPCLEANER
     //
-    //   o The primary heapcleaner waits until pth__running_pthreads_count
-    //     drops to zero, then sets pth__heapcleaner_state to
+    //   o The primary heapcleaner waits until pth__running_pthreads_count__global
+    //     drops to zero, then sets pth__heapcleaner_state__global to
     //     HEAPCLEANER_IS_RUNNING, returns to the invoking
     //     call-heapcleaner function and does the heapcleaning work
     //     while the secondary heapcleaner pthreads wait.
     //
     //   o When the primary heapcleaner completes the heapcleaning
-    //     it sets pth__heapcleaner_state to HEAPCLEANER_IS_OFF and
+    //     it sets pth__heapcleaner_state__global to HEAPCLEANER_IS_OFF and
     //     signals the secondary heapcleaner pthreads to resume
     //     execution of user code.
 // log_if("pth__start_heapcleaning: TOP.");
@@ -248,19 +248,19 @@ int   pth__start_heapcleaning   (Task *task) {
 
     pthread_mutex_lock(   &pth__mutex  );							// 
 	//
-	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+	if (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {
 	    ////////////////////////////////////////////////////////////
 	    // We're a secondary heapcleaner -- we'll just wait() while
 	    // the primary heapcleaner pthread does all the actual work:
 	    ////////////////////////////////////////////////////////////
 	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Remove ourself from set of RUNNING pthreads.
-	    --pth__running_pthreads_count;							// Decrement count of PTHREAD_IS_RUNNING mode pthreads.
+	    --pth__running_pthreads_count__global;							// Decrement count of PTHREAD_IS_RUNNING mode pthreads.
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
-	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
 		pthread_cond_wait(&pth__condvar,&pth__mutex);					// (pth__mutex is released while waiting and returned to us before waking.)
 	    }
 	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
-	    ++pth__running_pthreads_count;
+	    ++pth__running_pthreads_count__global;
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 	    pthread_mutex_unlock(  &pth__mutex  );
 // log_if("pth__start_heapcleaning: return FALSE.");
@@ -271,10 +271,10 @@ int   pth__start_heapcleaning   (Task *task) {
 	/////////////////////////////////////////////////////////////
 												pth__validate_running_pthreads_count();
 
-	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER
-												// mode until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER
+												// mode until we set pth__heapcleaner_state__global back to HEAPCLEANER_IS_OFF.
 	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of RUNNING pthreads.
-	--pth__running_pthreads_count;
+	--pth__running_pthreads_count__global;
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
 	// Clear extra-roots buffer.  This buffer gets appended to (only)
@@ -284,10 +284,10 @@ int   pth__start_heapcleaning   (Task *task) {
         pth__extra_heapcleaner_roots__global[0] =  NULL;					// Buffer must always be terminated by a NULL entry.
         extra_heapcleaner_roots__local =  pth__extra_heapcleaner_roots__global;
 
-	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	while (pth__running_pthreads_count__global > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    pthread_cond_wait( &pth__condvar, &pth__mutex);
 	}
-	pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has commenced. This is pure documentation -- nothing tests for this state.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has commenced. This is pure documentation -- nothing tests for this state.
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
     pthread_mutex_unlock(  &pth__mutex  );							// Not logically required, but holding a mutex for a long time is a bad habit.
@@ -312,7 +312,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 
     pthread_mutex_lock(   &pth__mutex  );							// 
 	//
-	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+	if (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {
 
 	    ////////////////////////////////////////////////////////////
 	    // We're a secondary heapcleaner -- we'll just wait() while
@@ -330,17 +330,17 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 												} 
 
 	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
-	    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
+	    --pth__running_pthreads_count__global;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
 
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
-	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
 		//
 		pthread_cond_wait(&pth__condvar,&pth__mutex);
 	    }
 	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 
-	    ++pth__running_pthreads_count;
+	    ++pth__running_pthreads_count__global;
 
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
@@ -354,10 +354,10 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	/////////////////////////////////////////////////////////////
 												pth__validate_running_pthreads_count();
 
-	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER mode
-												// until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER mode
+												// until we set pth__heapcleaner_state__global back to HEAPCLEANER_IS_OFF.
 	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
-	--pth__running_pthreads_count;
+	--pth__running_pthreads_count__global;
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
 	extra_heapcleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
@@ -372,12 +372,12 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 												    die("src/c/heapcleaner/pthread-heapcleaner-stuff.c: pth__extra_heapcleaner_roots__global[] overflow.");
 												} 
 
-	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	while (pth__running_pthreads_count__global > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    //
 	    pthread_cond_wait( &pth__condvar, &pth__mutex);
 	}
 
-	pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
     pthread_mutex_unlock(  &pth__mutex  );
@@ -403,9 +403,9 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     partition_agegroup0_buffer_between_pthreads( pthread_table__global );
 
     pthread_mutex_lock(   &pth__mutex  );							// 
-	pth__heapcleaner_state = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
 	pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from PRIMARY_HEAPCLEANER mode.
-	++pth__running_pthreads_count;								//
+	++pth__running_pthreads_count__global;								//
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
     pthread_mutex_unlock(  &pth__mutex  );
 												PTHREAD_LOG_IF ("%d finished heapcleaning\n", task->pthread->tid);

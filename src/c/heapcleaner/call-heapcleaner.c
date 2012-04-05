@@ -118,7 +118,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	//     A) pthread->mode == PTHREAD_IS_BLOCKED
 	//
 	//        These threads will not touch the Mythryl heap until we set
-	//            pth__heapcleaner_state = HEAPCLEANER_IS_OFF
+	//            pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF
         //        thanks to the pthread_cond_wait() loop in
 	//            recover_mythryl_heap()
 	//        in src/c/pthread/pthread-on-posix-threads.c
@@ -126,7 +126,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	//     B) pthread->mode == PTHREAD_IS_SECONDARY_HEAPCLEANER
 	//
 	//	  These theads also will not touch the Mythryl heap until we set
-	//            pth__heapcleaner_state = HEAPCLEANER_IS_OFF
+	//            pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF
 	//        thanks here to the pthread_cond_wait() loop in
 	//            pth__start_heapcleaning()
 	//        in src/c/heapcleaner/pthread-heapcleaner-stuff.c
@@ -456,7 +456,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
     // FALSE otherwise.
 
     {														// Pthread support.
-        if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF)   return TRUE;
+        if (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
