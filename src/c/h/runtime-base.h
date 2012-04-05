@@ -478,18 +478,18 @@ extern void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							/
 
 
 
+extern char*  mythryl_program_name__global;					// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
 
-/////////////////////////////////////////////////////////////////////////
-// These are two views of the command line arguments.
-// raw_args is essentially argv[].
-// commandline_arguments is argv[] with runtime system arguments stripped
-// out (e.g., those of the form --runtime-xxx[=yyy]).
-// commandline_arguments is argv[] with runtime system arguments stripped
-// out (e.g., those of the form --runtime-xxx[=yyy]).
-//
 extern char** raw_commandline_args__global;					// argv untouched, directly from main(). Defined in   src/c/main/runtime-main.c   and used (only) in   src/c/lib/heap/libmythryl-heap.c
 extern char** commandline_args_without_argv0_or_runtime_args__global;		// Does not include program name (argv[0]) or --runtime-xxx=yyy.  Used various places, set in src/c/main/runtime-main.c
-extern char*  mythryl_program_name__global;					// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
+    //
+    // These are two views of the command line arguments.
+    // raw_args is essentially argv[].
+    // commandline_arguments is argv[] with runtime system arguments stripped
+    // out (e.g., those of the form --runtime-xxx[=yyy]).
+    // commandline_arguments is argv[] with runtime system arguments stripped
+    // out (e.g., those of the form --runtime-xxx[=yyy]).
+
 extern char*  mythryl_script__global;						// Contents of MYTHRYL_SCRIPT environment variable at startup.  This var is cleared immediately upon being read.	Def in src/c/main/runtime-main.c
 extern int    verbosity__global;						// Used only in   src/c/heapcleaner/import-heap.c  and in   src/c/main/runtime-main.c
 extern Bool   codechunk_comment_display_is_enabled__global;			// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
@@ -633,10 +633,10 @@ extern void     pth__shut_down		(void);					// Called once just before calling e
 ////////////////////////////////////////////////////////////////////////////
 // PTHREAD START/STOP/ETC SUPPORT
 //
-extern char*    pth__pthread_create		( int* pthread_table_slot,
-					      Val thread,
-					      Val closure
-					    );					// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
+extern char*    pth__pthread_create	( int* pthread_table_slot,
+					  Val thread,
+					  Val closure
+					);						// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
 //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
 //											// This gets exported to the Mythryl level as  "pthread", "make_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
 //											// and instantiated   at the Mythryl leval as  "make_pthread"             in    src/lib/std/src/pthread.pkg
