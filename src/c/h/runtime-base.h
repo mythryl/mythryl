@@ -487,19 +487,19 @@ void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							// unbuf
 // commandline_arguments is argv[] with runtime system arguments stripped
 // out (e.g., those of the form --runtime-xxx[=yyy]).
 //
-extern char** raw_args;
-extern char** commandline_arguments_without_argv0__global;	// Does not include program name (argv[0]).  Used various places, set in src/c/main/runtime-main.c
-extern char*  mythryl_program_name__global;			// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
-extern char*  mythryl_script__global;				// Contents of MYTHRYL_SCRIPT environment variable at startup.  This var is cleared immediately upon being read.	Def in src/c/main/runtime-main.c
-extern int    verbosity__global;				// Used only in   src/c/heapcleaner/import-heap.c  and in   src/c/main/runtime-main.c
-extern Bool   codechunk_comment_display_is_enabled__global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
-extern Bool   heapcleaner_messages_are_enabled__global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
-extern Bool   unlimited_heap_is_enabled__global;		// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
-extern Bool   saw_shebang_line__global;				// Intended only for debug; currently never used; set	     in   src/c/main/runtime-main.c
-extern Bool   running_script__global;				// Used only for debug;  set				     in   src/c/main/runtime-main.c
-								//                       read				     in   src/c/pthread/pthread-on-posix-threads.c	
+extern char** raw_commandline_args__global;					// argv untouched, directly from main(). Defined in   src/c/main/runtime-main.c   and used (only) in   src/c/lib/heap/libmythryl-heap.c
+extern char** commandline_args_without_argv0_or_runtime_args__global;		// Does not include program name (argv[0]) or --runtime-xxx=yyy.  Used various places, set in src/c/main/runtime-main.c
+extern char*  mythryl_program_name__global;					// Command name used to invoke the runtime.  mythryl_program_name__global	is from   src/c/main/runtime-main.c
+extern char*  mythryl_script__global;						// Contents of MYTHRYL_SCRIPT environment variable at startup.  This var is cleared immediately upon being read.	Def in src/c/main/runtime-main.c
+extern int    verbosity__global;						// Used only in   src/c/heapcleaner/import-heap.c  and in   src/c/main/runtime-main.c
+extern Bool   codechunk_comment_display_is_enabled__global;			// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
+extern Bool   heapcleaner_messages_are_enabled__global;				// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
+extern Bool   unlimited_heap_is_enabled__global;				// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Bool   saw_shebang_line__global;						// Intended only for debug; currently never used; set	     in   src/c/main/runtime-main.c
+extern Bool   running_script__global;						// Used only for debug;  set				     in   src/c/main/runtime-main.c
+										//                       read				     in   src/c/pthread/pthread-on-posix-threads.c	
 
-extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   src/c/main/runtime-state.c
+extern Pthread*	pthread_table__global [];					// pthread_table__global	def in   src/c/main/runtime-state.c
     //
     // Table of all active posix threads in process.
     // (Or at least, all posix threads running Mythryl

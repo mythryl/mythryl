@@ -60,9 +60,9 @@ Bool   codechunk_comment_display_is_enabled__global = FALSE;
 Bool   heapcleaner_messages_are_enabled__global = FALSE;
 Bool   unlimited_heap_is_enabled__global = FALSE;
 
-char** raw_args;
+char** raw_commandline_args__global;
 
-char** commandline_arguments_without_argv0__global;		// Does not include the program name (argv[0]).  Used various places.
+char** commandline_args_without_argv0_or_runtime_args__global;		// Does not include the program name (argv[0]).  Used various places.
 
 char*  mythryl_program_name__global;				// The program name used to invoke the runtime.
 
@@ -317,13 +317,13 @@ static void   process_commandline_options   (
 	seen_error = TRUE;
     }
 
-    raw_args = argv;
+    raw_commandline_args__global =   argv;						// Used (only) in   src/c/lib/heap/libmythryl-heap.c
 
     if (verbosity__global > 0) {
         printf("             src/c/main/runtime-main.c:   Constructing a %d-slot commandline_arguments perlvector...\n",argc);
     }
 
-    commandline_arguments_without_argv0__global
+    commandline_args_without_argv0_or_runtime_args__global
 	=
 	MALLOC_VEC(char*, argc);
 
@@ -332,7 +332,7 @@ static void   process_commandline_options   (
     }
 
     mythryl_program_name__global = *argv++;
-    next_arg = commandline_arguments_without_argv0__global;
+    next_arg = commandline_args_without_argv0_or_runtime_args__global;
     while (--argc > 0) {
 	char	*arg = *argv++;
 
@@ -427,7 +427,7 @@ static void   process_commandline_options   (
             }
 	} else {
             if (verbosity__global > 0) {
-                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_arguments_without_argv0__global,arg);
+                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_args_without_argv0_or_runtime_args__global,arg);
             } 
 	    *next_arg++ = arg;
 	}
