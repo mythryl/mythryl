@@ -3,6 +3,6 @@
 printf "%s\n" (strcat(argv())); 
 
 
-src/lib/core/init/pre-pervasive.pkg:  Light cleaning.
+src/lib/core/init/:  Renamed   pre-pervasive.pkg -> proto-pervasive.pkg  because the former sucks donkey parts.'
 
 
