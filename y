@@ -3,7 +3,9 @@
 printf "%s\n" (strcat(argv())); 
 
 
-src/lib/core/init/: Renamed prestring.pkg -> protostring.pkg'
+src/lib/std/src/:  Renamed pre-string.pkg -> protostring.pkg'
+
+
 
 
 
