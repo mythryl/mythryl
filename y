@@ -3,7 +3,8 @@
 printf "%s\n" (strcat(argv())); 
 
 
-src/lib/std/src/: Renamed num-format.pkg -> number-format.pkg
+src/lib/std/src/: Renamed num-scan.pkg ->  number-scan.pkg'
+
 
 
 
