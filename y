@@ -3,7 +3,7 @@
 printf "%s\n" (strcat(argv())); 
 
 
-src/lib/std/src/: Renamed num-scan.pkg ->  number-scan.pkg'
+Renamed src/lib/std/src/socket/pre-socket.pkg -> src/lib/std/src/socket/proto-socket.pkg, src/lib/std/src/socket/threadkit-pre-socket.pkg -> src/lib/std/src/socket/threadkit-proto-socket.pkg'
 
 
 
