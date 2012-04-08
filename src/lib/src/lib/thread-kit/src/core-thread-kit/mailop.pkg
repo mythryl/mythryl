@@ -88,7 +88,7 @@ herein
 
 	Mailop_Readiness ==  itt::Mailop_Readiness;
 	Mailop           ==  itt::Mailop;
-	Base_Mailop(X)   =   itt::Base_Mailop(X);
+	Mailop_Thunk(X)   =   itt::Mailop_Thunk(X);
 
 
 	# Condition variables.
@@ -118,32 +118,30 @@ herein
 	    =
 	    case *state
 		#
-		itt::CVAR_UNSET  waiting
+		itt::CONDVAR_UNSET  waiting_threads
 		    =>
 		    {   ts::foreground_run_queue ->  rwq::RW_QUEUE { back, ... };
 			#
-			state :=    itt::CVAR_SET  1;
+			state :=    itt::CONDVAR_VALUE  1;
 			#
-			back
-			    :=
-			    add  waiting
-			    where
-				fun add [] =>   *back;
-				    #
-				    add ( { mailop_done=>REF itt::MAILOP_DONE, ... } ! rest)
-					=>
-					add rest;									# Drop cancelled transaction.
-
-				    add ( { mailop_done as REF (itt::MAILOP_PENDING_FOR tid), clean_up, fate } ! rest)
-					=>
-					{   mailop_done :=   itt::MAILOP_DONE;
+			back :=    add  waiting_threads										# Add to foreground run queue all threads that were waiting for condvar to be set.
+				    where
+					fun add [] =>   *back;
 					    #
-					    clean_up ();
+					    add ( { mailop_done=>REF itt::MAILOP_DONE, ... } ! rest)
+						=>
+						add rest;									# Drop cancelled transaction.
 
-					    (tid, fate)  !  (add rest);
-					};
-				end;
-			    end;
+					    add ( { mailop_done as REF (itt::MAILOP_PENDING_FOR tid), clean_up, fate } ! rest)
+						=>
+						{   mailop_done :=   itt::MAILOP_DONE;
+						    #
+						    clean_up ();
+
+						    (tid, fate)  !  (add rest);
+						};
+					end;
+				    end;
 		    };
 
 		 _ => error "cvar already set";
@@ -155,7 +153,7 @@ herein
 	#
 	fun wait_on_condvar__mailop (itt::CONDITION_VARIABLE  state)
 	    =
-	    BASE_MAILOPS [is_ready]
+	    MAILOP_THUNKS [is_ready]
 	    where 
 		fun wait_for { mailop_done, clean_up, next }									# Reppy calls this fn blockFn
 		    =
@@ -164,13 +162,13 @@ herein
 			    =
 			    {   waiting =   case *state
 						#
-						itt::CVAR_UNSET waiting =>   waiting;
-						_                       =>   raise exception FAIL "Bug in wait_on_condvar__mailop";	# Impossible -- is_ready only queues us up if *state is not CVAR_SET.
+						itt::CONDVAR_UNSET waiting =>   waiting;
+						_                       =>   raise exception FAIL "Bug in wait_on_condvar__mailop";	# Impossible -- is_ready only queues us up if *state is not CONDVAR_VALUE.
 					    esac;
 				#
 				item =  { mailop_done,  clean_up,  fate };
 
-				state :=  itt::CVAR_UNSET (item ! waiting);
+				state :=  itt::CONDVAR_UNSET (item ! waiting);
 
 				next ();
 			    }
@@ -180,22 +178,22 @@ herein
 		    =
 		    case *state
 			#
-			itt::CVAR_SET n
+			itt::CONDVAR_VALUE n
 			    =>
-			    {   state := itt::CVAR_SET (n+1);
+			    {   state := itt::CONDVAR_VALUE (n+1);
 				#
 				MAILOP_READY { priority => n, do_it }
 				where
 				    fun do_it ()										# Reppy calls this fn doFn
 					=
-					{   state :=  itt::CVAR_SET  1;
+					{   state :=  itt::CONDVAR_VALUE  1;
 					    #
 					    ts::reenable_thread_switching ();
 					};
 				end;
 			    };
 
-			itt::CVAR_UNSET _
+			itt::CONDVAR_UNSET _
 			    =>
 			    MAILOP_UNREADY  wait_for;
 		    esac;
@@ -207,7 +205,7 @@ herein
 	#
 	fun always_mailop  result
 	    =
-	    BASE_MAILOPS
+	    MAILOP_THUNKS
 	      [
 		fn () = itt::MAILOP_READY
 			  { priority  =>  -1,
@@ -217,7 +215,7 @@ herein
 			  }
 	      ];
 
-	never = BASE_MAILOPS [];												# A mailop which is never ready:
+	never = MAILOP_THUNKS [];												# A mailop which is never ready:
 
 	guard = GUARD;
 
@@ -227,21 +225,21 @@ herein
 	    =															# 'gather_baseops' assumes common special case of only base mailops;
 	    gather_baseops (reverse mailops, [])										#  We optimistically start with gather_baseops; we'll fall back to gather_mailops if necessary.
 	    where
-		fun gather_baseops ([],                           baseops') =>  BASE_MAILOPS baseops';				# Done, return result.
+		fun gather_baseops ([],                           baseops') =>  MAILOP_THUNKS baseops';				# Done, return result.
 		    #
-		    gather_baseops (BASE_MAILOPS []       ! rest, baseops') =>  gather_baseops (rest,           baseops');
-		    gather_baseops (BASE_MAILOPS [baseop] ! rest, baseops') =>  gather_baseops (rest, baseop  ! baseops');
-		    gather_baseops (BASE_MAILOPS  baseops ! rest, baseops') =>  gather_baseops (rest, baseops @ baseops');
+		    gather_baseops (MAILOP_THUNKS []       ! rest, baseops') =>  gather_baseops (rest,           baseops');
+		    gather_baseops (MAILOP_THUNKS [baseop] ! rest, baseops') =>  gather_baseops (rest, baseop  ! baseops');
+		    gather_baseops (MAILOP_THUNKS  baseops ! rest, baseops') =>  gather_baseops (rest, baseops @ baseops');
 		    #
 		    gather_baseops (mailops, []) =>  gather_mailops (mailops, []);
-		    gather_baseops (mailops, l ) =>  gather_mailops (mailops, [BASE_MAILOPS l]);
+		    gather_baseops (mailops, l ) =>  gather_mailops (mailops, [MAILOP_THUNKS l]);
 		end 
 
 		also
 		fun gather_mailops ([], [mailop]) => mailop;
 		    gather_mailops ([], mailops) => CHOOSE mailops;
 		    gather_mailops (CHOOSE mailops ! r, mailops') => gather_mailops (r, mailops @ mailops');
-		    gather_mailops (BASE_MAILOPS base_mailops ! r, BASE_MAILOPS base_mailops' ! r') => gather_mailops (r, BASE_MAILOPS (base_mailops @ base_mailops') ! r');
+		    gather_mailops (MAILOP_THUNKS base_mailops ! r, MAILOP_THUNKS base_mailops' ! r') => gather_mailops (r, MAILOP_THUNKS (base_mailops @ base_mailops') ! r');
 		    gather_mailops (mailop ! r, mailops') => gather_mailops (r, mailop ! mailops');
 		end;
 	    end;
@@ -258,7 +256,7 @@ herein
 			MAILOP_UNREADY wait_for          =>  MAILOP_UNREADY (wfn o wait_for);
 		    esac;
 
-		fun wrap' (BASE_MAILOPS base_mailops)    =>  BASE_MAILOPS (map  wrap_base_mailop  base_mailops);
+		fun wrap' (MAILOP_THUNKS base_mailops)    =>  MAILOP_THUNKS (map  wrap_base_mailop  base_mailops);
 		    #
 		    wrap' (CHOOSE mailops)               =>  CHOOSE (map wrap' mailops);
 		    wrap' (GUARD g)                      =>  GUARD (fn () = wrap (g(), wfn));
@@ -286,7 +284,7 @@ herein
 			MAILOP_UNREADY wait_for          =>  MAILOP_UNREADY (wrap wait_for);
 		    esac;
 
-		fun wrap' (BASE_MAILOPS base_mailops)	=>  BASE_MAILOPS (map wrap_base_mailop base_mailops);
+		fun wrap' (MAILOP_THUNKS base_mailops)	=>  MAILOP_THUNKS (map wrap_base_mailop base_mailops);
 		    #
 		    wrap' (CHOOSE mailops)		=>  CHOOSE (map wrap' mailops);
 		    wrap' (GUARD g)			=>  GUARD  (fn ()  = wrap_handler (g(), hfn));
@@ -295,7 +293,7 @@ herein
 	    end;
 
 	Mailop_Group(X)
-	  = BASE_GROUP  List( Base_Mailop(X) )
+	  = BASE_GROUP  List( Mailop_Thunk(X) )
 	  | GROUP       List( Mailop_Group(X) )
 	  | NACK_GROUP  (itt::Condition_Variable, Mailop_Group(X))
 	  ;
@@ -317,7 +315,7 @@ herein
         # In particular, this evaluates all
         # guards in the expression:
 	#
-	fun prepare (BASE_MAILOPS l) =>   BASE_GROUP l;
+	fun prepare (MAILOP_THUNKS l) =>   BASE_GROUP l;
 	    #
 	    prepare mailop
 		=>
@@ -329,12 +327,12 @@ herein
 
 			prepare' (WITH_NACK f)
 			    =>
-			    {   cvar = itt::CONDITION_VARIABLE (REF (itt::CVAR_UNSET []));
+			    {   cvar = itt::CONDITION_VARIABLE (REF (itt::CONDVAR_UNSET []));
 				#
 				NACK_GROUP (cvar, prepare' (f (wait_on_condvar__mailop cvar)));
 			    };
 
-			prepare' (BASE_MAILOPS  baseops)
+			prepare' (MAILOP_THUNKS  baseops)
 			    =>
 			    BASE_GROUP  baseops;
 
@@ -434,7 +432,7 @@ herein
 
 
 	stipulate
-	    fun do_one_mailop  (is_ready:  Base_Mailop(X))
+	    fun do_one_mailop  (is_ready:  Mailop_Thunk(X))
 		=
 		{   ts::disable_thread_switching ();
 		    #
@@ -792,12 +790,12 @@ herein
 
 		also
 		fun prepare_one_mailop (GUARD g)            =>   prepare_one_mailop (g ());
-		    prepare_one_mailop (BASE_MAILOPS group) =>   BASE_GROUP group;
+		    prepare_one_mailop (MAILOP_THUNKS group) =>   BASE_GROUP group;
 		    prepare_one_mailop (CHOOSE mailops)     =>   prepare_baseops (mailops, []);
 		    #
 		    prepare_one_mailop (WITH_NACK f)
 			=>
-			{   cvar =  itt::CONDITION_VARIABLE  (REF  (itt::CVAR_UNSET []));
+			{   cvar =  itt::CONDITION_VARIABLE  (REF  (itt::CONDVAR_UNSET []));
 			    #
 			    NACK_GROUP (cvar, prepare_one_mailop (f (wait_on_condvar__mailop cvar)));
 			};
