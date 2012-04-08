@@ -1,17 +1,19 @@
 ## mailslot.pkg
-
-# Compiled by:
-#     src/lib/std/standard.lib
-
-
-# The representation of synchronous slots.
+#
+# Mailslots implement synchronous message sends -- both
+# threads must be ready before either can proceed.
 #
 # To ensure that we always leave the atomic region exactly once, we
 # require that the blocking operation be responsible for leaving the
 # atomic region (in the mailop case, it must also execute the clean-up
 # action).  The do_it fn always transfers control to the blocked thread
 # without leaving the atomic region.  Note that the give (and give')
-# wait_fors run using the receiver's thread ID.
+# wait_fors run using the receiver's thread state.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
 
 
 
@@ -73,9 +75,7 @@ herein
 		out_q    => rwq::make_rw_queue ()
 	      };
 
-	# (Mailslot(X), Mailslot(X)) -> Bool 
-	#	
-	fun same_mailslot
+	fun same_mailslot							# (Mailslot(X), Mailslot(X)) -> Bool 
 	    ( MAILSLOT { in_q=>in1, ... },
 	      MAILSLOT { in_q=>in2, ... }
 	    )
@@ -83,33 +83,33 @@ herein
 	    rwq::same_queue (in1, in2);
 
 
-	fun make_transaction_id ()
+	fun make__mailop_done__refcell ()
 	    =
 	    REF (itt::MAILOP_PENDING_FOR (ts::get_current_thread()) );
 
 
-	fun cancel_transaction_and_return_thread_id (mailop_done as REF (itt::MAILOP_PENDING_FOR thread_id))
+	fun end_transaction_and_return_thread_state (mailop_done as REF (itt::MAILOP_PENDING_FOR thread_id))
 		=>
 		{   mailop_done :=   itt::MAILOP_DONE;
 		    #
 		    thread_id;
 		};
 
-	    cancel_transaction_and_return_thread_id  (REF (itt::MAILOP_DONE))
+	    end_transaction_and_return_thread_state  (REF (itt::MAILOP_DONE))
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";			# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
 
-	# Given a transaction ID,
+	# Given a mailop_done refcell
 	# set the current thread
-	# to its thread ID and
-	# mark it cancelled.
+	# to its thread state and
+	# mark it complete:
 	#
 	fun set_current_thread  mailop_done
 	    =
-	    ts::set_current_thread (cancel_transaction_and_return_thread_id mailop_done);
+	    ts::set_current_thread  (end_transaction_and_return_thread_state  mailop_done);
 
-	Qy_Item(X)
+	Queue_Item(X)
 	  = NO_ITEM
 	  |    ITEM  (Ref(itt::Mailop_Done), Fate(X))
 	  ;
@@ -267,14 +267,14 @@ herein
 		#
 		case (clean_and_remove  in_q)
 		    #
-		    ITEM (rid, rkont)
+		    ITEM (rid, rfate)
 			=>
 			call_with_current_fate
-			    (fn put_fate =  {   ts::run_thread   (cancel_transaction_and_return_thread_id  rid,    put_fate);
+			    (fn put_fate =  {   ts::run_thread   (end_transaction_and_return_thread_state  rid,    put_fate);
 						#
 						priority := 1;
 
-						switch_to_fate  rkont  msg;
+						switch_to_fate  rfate  msg;
 					    }
 			    );
 
@@ -285,7 +285,7 @@ herein
 				call_with_current_fate
 				    (fn put_fate
 					=
-					{   enqueue (out_q, (make_transaction_id(), put_fate));
+					{   enqueue (out_q, (make__mailop_done__refcell(), put_fate));
 					    #
 					    ts::reenable_thread_switching_and_dispatch_next_thread ();
 					}
@@ -312,7 +312,7 @@ herein
 			call_with_current_fate
 			    (fn put_fate
 				=
-				{   ts::run_thread   (cancel_transaction_and_return_thread_id  mailop_done,    put_fate);
+				{   ts::run_thread   (end_transaction_and_return_thread_state  mailop_done,    put_fate);
 				    #
 				    priority := 1;
 
@@ -330,7 +330,7 @@ herein
 				    =
 				    {   clean_and_enqueue (out_q, (mailop_done, put_fate));
 					next();
-					impossible ();
+					impossible ();						# next() should never return.
 				    }
 				);
 
@@ -358,17 +358,17 @@ herein
 			#
 			case (clean_and_remove  in_q)
 			    #
-			    ITEM (rid, rkont)
+			    ITEM (rid, rfate)
 				=>
 				{   call_with_current_fate
 					(
 					 fn put_fate
 					    =
-					    {   ts::run_thread   (cancel_transaction_and_return_thread_id  rid,   put_fate);
+					    {   ts::run_thread   (end_transaction_and_return_thread_state  rid,   put_fate);
 						#
 						priority :=  1;
 
-						switch_to_fate  rkont  msg;							# NB: switch_to_fate never returns.
+						switch_to_fate  rfate  msg;							# NB: switch_to_fate never returns.
 					    }
 					);
 
@@ -408,7 +408,7 @@ herein
 
 			    NO_ITEM
 				=>
-				{   enqueue (in_q, (make_transaction_id(), get_fate));
+				{   enqueue (in_q, (make__mailop_done__refcell(), get_fate));
 				    #
 				    ts::reenable_thread_switching_and_dispatch_next_thread ();
 				};
@@ -433,6 +433,7 @@ herein
 			priority := 1;
 
 			call_with_current_fate
+			    #
 			    (fn get_fate
 				=
 				switch_to_fate  put_fate  (my_id,  get_fate)				# 
@@ -445,10 +446,9 @@ herein
 				    (
 				     fn get_fate
 					=
-					{   clean_and_enqueue
-						(in_q, (mailop_done, get_fate));
-
-					    next ();
+					{   clean_and_enqueue  (in_q,  (mailop_done, get_fate));
+					    #
+					    next ();						# next () should never return.
 
 					    impossible();
 					}
@@ -484,9 +484,9 @@ herein
 				    {   my_id =  ts::get_current_thread ();
 					#
 					set_current_thread  mailop_done;
-					#
+
 					priority := 1;
-					#
+
 					switch_to_fate  put_fate  (my_id,  get_fate);		# 
 				    }
 			    )   );
