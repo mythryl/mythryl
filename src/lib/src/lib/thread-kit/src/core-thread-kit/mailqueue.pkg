@@ -1,10 +1,11 @@
 ## mailqueue.pkg
+#
+# Unbounded queues of thread-to-thread mail messages.
 
 # Compiled by:
 #     src/lib/std/standard.lib
 
 
-# Unbounded queues of thread-to-thread mail messages.
 
 
 stipulate
@@ -42,6 +43,9 @@ herein
 	fun dequeue ( { front => x ! rest, rear } ) =>  ( { front=>rest, rear }, x);
 	    dequeue ( { front => [],       rear } ) =>  dequeue { front=>list::reverse rear, rear=> [] };
 	end;
+	    # Remove item from queue and return it plus new queue.
+	    # This will raise an exception if queue is empty, but
+	    # caller guarantees that queue is nonempty.
 
 	Mailqueue_State(X)
 	  = EMPTY      Queue( (Ref( itt::Mailop_Done ), Fate(X)))
@@ -62,10 +66,9 @@ herein
 	    =
 	    MAILQUEUE (REF empty_queue);
 
-	fun same_mailqueue
-	    ( MAILQUEUE s1,
-	      MAILQUEUE s2
-	    )
+	fun same_mailqueue ( MAILQUEUE s1,
+			     MAILQUEUE s2
+	                   )
 	    =
 	    s1 == s2;							# Compare the refcells -- each refcell is equal only to itself, and different mailqueues will always have different refcells.
 
@@ -75,22 +78,27 @@ herein
 	    REF (itt::MAILOP_PENDING_FOR (ts::get_current_thread()));
 
 
-	fun cancel_transaction_and_return_thread_state (mailop_done as REF (itt::MAILOP_PENDING_FOR thread_state))
+	fun end_transaction_and_return_thread_state (mailop_done as REF (itt::MAILOP_PENDING_FOR thread_state))
 		=>
 		{   mailop_done :=   itt::MAILOP_DONE;
 		    #
 		    thread_state;
 		};
 
-	    cancel_transaction_and_return_thread_state  (REF (itt::MAILOP_DONE))
+	    end_transaction_and_return_thread_state  (REF (itt::MAILOP_DONE))
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction";			# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
 	    
 
-	Qy_Item X
+	Mailqueue_Item(X)
+	  #
 	  = NO_ITEM
-	  |    ITEM  (Ref(itt::Mailop_Done), Fate(X), Mailqueue_State(X))
+	  #
+	  |    ITEM   ( Ref(itt::Mailop_Done),
+			Fate(X),
+			Mailqueue_State(X)
+		      )
 	  ;
 
 	stipulate
@@ -151,11 +159,11 @@ herein
 		end;
 	end;
 
-	fun push (MAILQUEUE state, x)
+	fun push (MAILQUEUE qstate, x)
 	    =
 	    {   ts::disable_thread_switching ();
-
-		case *state
+		#
+		case *qstate
 		    #
 		    EMPTY q
 			=>
@@ -163,18 +171,19 @@ herein
 			    #
 			    NO_ITEM =>
 				{
-				    state := NONEMPTY (1, { front => [x], rear => [] } );
+				    qstate :=  NONEMPTY (1, { front => [x], rear => [] } );
+				    #
 				    ts::reenable_thread_switching();
 				};
 
-			    ITEM (mailop_done, get_fate, state')
+			    ITEM (mailop_done, get_fate, qstate')
 				=>
 				call_with_current_fate
 				    (fn fate
 					=
-					{   state :=  state';
+					{   qstate :=  qstate';
 					    #
-					    ts::run_thread   (cancel_transaction_and_return_thread_state  mailop_done,   fate);
+					    ts::run_thread   (end_transaction_and_return_thread_state  mailop_done,   fate);
 
 					    switch_to_fate  get_fate  x;								# 
 					}
@@ -183,14 +192,11 @@ herein
 
 		    NONEMPTY (p, q)
 			=> 
-			# We force a context switch here
-			# to prevent a producer from
-			# outrunning a consumer.
-			#
-			call_with_current_fate
+			call_with_current_fate								# We force a context switch here to prevent a producer from outrunning a consumer.
+			    #
 			    (fn fate
 				=
-				{   state :=  NONEMPTY (p, enqueue (q, x));
+				{   qstate :=  NONEMPTY (p, enqueue (q, x));
 				    #
 				    ts::reenable_thread_switching_and_yield_to_next_thread  fate;
 				}
@@ -198,7 +204,7 @@ herein
 		 esac;
 	    };
 
-	fun get_msg (state, q)
+	fun get_msg (qstate, q)
 	    =
 	    {   (dequeue q) ->   (q', msg);
 		#
@@ -207,8 +213,8 @@ herein
 		    { front => [],
 		      rear  => []
 		    }
-			=>   state :=  empty_queue;
-		    _   =>   state :=  NONEMPTY (1, q');
+			=>   qstate :=  empty_queue;
+		    _   =>   qstate :=  NONEMPTY (1, q');
 
 		esac;
 
@@ -217,11 +223,11 @@ herein
 		msg;
 	    };
 
-	fun pull (MAILQUEUE state)
+	fun pull (MAILQUEUE qstate)
 	    =
 	    {   ts::disable_thread_switching ();
 		#
-		case *state
+		case *qstate
 		    #
 		    EMPTY q
 			=>
@@ -229,7 +235,7 @@ herein
 					(
 					 fn get_fate
 					    =
-					    {   state := EMPTY (enqueue (q, (make__mailop_done__refcell(), get_fate)));
+					    {   qstate :=  EMPTY (enqueue (q, (make__mailop_done__refcell(), get_fate)));
 
 						ts::reenable_thread_switching_and_dispatch_next_thread ();
 					    }
@@ -242,28 +248,28 @@ herein
 
 		  NONEMPTY (priority, q)
 		      =>
-		      get_msg (state, q);
+		      get_msg (qstate, q);
 
 		esac;
 	    };
 
-	fun pull' (MAILQUEUE state)
+	fun pull' (MAILQUEUE qstate)
 	    =
 	    {
 		fun wait_for { mailop_done, clean_up, next }
 		    =
-		    {   q = case *state     EMPTY    q =>  q;
-			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/wait_for";	# Should be impossible, since is_ready() (below) only queues us up if *state is EMPTY.
+		    {   q = case *qstate    EMPTY    q =>  q;
+			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/wait_for";	# Should be impossible, since is_ready() (below) only queues us up if *qstate is EMPTY.
 			    esac;
 
 			msg = call_with_current_fate
 				  (fn get_fate
 				      =
-				      {   state := EMPTY (enqueue (q, (mailop_done, get_fate)));
-
+				      {   qstate :=  EMPTY (enqueue (q, (mailop_done, get_fate)));
+					  #
 					  next ();
 
-					  raise exception FAIL "Mailqueue: impossible";
+					  raise exception FAIL "Mailqueue: impossible";			# next() should never return.
 				      }
 				  );
 
@@ -276,18 +282,18 @@ herein
 
 		fun is_ready ()
 		    =
-		    case *state
+		    case *qstate
 			#
 			EMPTY _ =>   itt::MAILOP_UNREADY  wait_for;
 			#
 			NONEMPTY (priority, q)
 			    =>
-			    {   state := NONEMPTY (priority+1, q);
-
+			    {   qstate :=  NONEMPTY (priority+1, q);
+				#
 				itt::MAILOP_READY
 				  {
 				    priority,
-				    do_it =>   .{  get_msg (state, q);  }
+				    do_it =>   .{  get_msg (qstate, q);  }
 				  };
 			    };
 		    esac;
@@ -296,11 +302,11 @@ herein
 		itt::BASE_MAILOPS  [ is_ready ];
 	    };
 
-	fun nonblocking_pull (MAILQUEUE state)
+	fun nonblocking_pull (MAILQUEUE qstate)
 	    =
 	    {   ts::disable_thread_switching();
 
-		case *state
+		case *qstate
 		    #
 		    EMPTY q
 			=>
@@ -310,7 +316,7 @@ herein
 
 		    NONEMPTY (priority, q)
 			=>
-			THE (get_msg (state, q));
+			THE (get_msg (qstate, q));
 		esac;
 	    };
     };				# package mailqueue
