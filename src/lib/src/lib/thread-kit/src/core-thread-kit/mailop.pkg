@@ -304,17 +304,17 @@ herein
 		end;
 	    end;
 
-	Mailop_Group(X)
-	  = BASEOP_GROUP  List( Mailop_Baseop(X) )
-	  | MAILOP_GROUP  List( Mailop_Group(X) )
-	  | NACK_GROUP  (itt::Condition_Variable, Mailop_Group(X))
+	Prepared_Mailops(X)
+	  = NACKFREE_MAILOPS  List( Mailop_Baseop(X) )
+	  | NACKFULL_MAILOPS  List( Prepared_Mailops(X) )
+	  | WITHNACK_MAILOP  (itt::Condition_Variable, Prepared_Mailops(X))
 	  ;
 
     /* +DEBUG
     fun sayGroup (msg, eg) = let
-	  fun f (BASEOP_GROUP l, sl) = "BASEOP_GROUP(" ! int::to_string (list::length l) ::()) ! sl
-	    | f (MAILOP_GROUP l, sl) = "MAILOP_GROUP(" ! g (l, ")" ! sl)
-	    | f (NACK_GROUP   l, sl) = "NACK_GROUP(" ! f(#2 l, ")" ! sl)
+	  fun f (NACKFREE_MAILOPS l, sl) = "NACKFREE_MAILOPS(" ! int::to_string (list::length l) ::()) ! sl
+	    | f (NACKFULL_MAILOPS l, sl) = "NACKFULL_MAILOPS(" ! g (l, ")" ! sl)
+	    | f (WITHNACK_MAILOP  l, sl) = "WITHNACK_MAILOP(" ! f(#2 l, ")" ! sl)
 	  also g ([], sl) = sl
 	    | g ([x], sl) = f (x, sl)
 	    | g (x ! r, sl) = f (x, ", " ! g (r, sl))
@@ -329,7 +329,7 @@ herein
 	#
 	fun prepare (BASEOPS l)
 		=>
-		BASEOP_GROUP l;
+		NACKFREE_MAILOPS l;
 
 	    prepare mailop
 		=>
@@ -343,12 +343,12 @@ herein
 			    =>
 			    {   condvar = itt::CONDITION_VARIABLE (REF (itt::CONDVAR_UNSET []));
 				#
-				NACK_GROUP  (condvar,  prepare' (f (wait_on_condvar__mailop  condvar)));
+				WITHNACK_MAILOP  (condvar,  prepare' (f (wait_on_condvar__mailop  condvar)));
 			    };
 
 			prepare' (BASEOPS  baseops)
 			    =>
-			    BASEOP_GROUP  baseops;
+			    NACKFREE_MAILOPS  baseops;
 
 			prepare' (CHOOSE mailops)
 			    =>
@@ -356,32 +356,32 @@ herein
 			    where
 				fun prepare_baseops ([], baseops)
 					=>
-					BASEOP_GROUP baseops;
+					NACKFREE_MAILOPS baseops;
 
 				    prepare_baseops (mailop ! rest, baseops')
 					=>
 					case (prepare' mailop)
 					    #
-					    BASEOP_GROUP baseops =>  prepare_baseops (rest,  baseops @             baseops' );
-					    MAILOP_GROUP mailops =>  prepare_mailops (rest,  mailops @ [BASEOP_GROUP baseops']);
-					    /*        */ mailops =>  prepare_mailops (rest, [mailops,   BASEOP_GROUP baseops']);
+					    NACKFREE_MAILOPS baseops =>  prepare_baseops (rest,  baseops @             baseops' );
+					    NACKFULL_MAILOPS mailops =>  prepare_mailops (rest,  mailops @ [NACKFREE_MAILOPS baseops']);
+					    /*        */ mailops =>  prepare_mailops (rest, [mailops,   NACKFREE_MAILOPS baseops']);
 					esac;
 				end
 
 				also
 				fun prepare_mailops ([], [group]) =>  group;						# This fn handles the general case vs prepare_baseops above handling the nice simple (and common) case.
-				    prepare_mailops ([], l)       =>  MAILOP_GROUP l;
+				    prepare_mailops ([], l)       =>  NACKFULL_MAILOPS l;
 
 				    prepare_mailops (mailop ! rest, l)
 					=>
 					case (prepare' mailop, l)
 					    #				      
-					    (BASEOP_GROUP baseops, BASEOP_GROUP baseops' ! rest')
+					    (NACKFREE_MAILOPS baseops, NACKFREE_MAILOPS baseops' ! rest')
 						=>
-						prepare_mailops (rest, BASEOP_GROUP (baseops @ baseops') ! rest');
+						prepare_mailops (rest, NACKFREE_MAILOPS (baseops @ baseops') ! rest');
 
-					    (MAILOP_GROUP mailops, l) =>   prepare_mailops (rest, mailops @ l);
-					    (             mailops, l) =>   prepare_mailops (rest, mailops ! l);		# Here 'mailops' can be BASEOP_GROUP or NACK_GROUP.
+					    (NACKFULL_MAILOPS mailops, l) =>   prepare_mailops (rest, mailops @ l);
+					    (             mailops, l) =>   prepare_mailops (rest, mailops ! l);		# Here 'mailops' can be NACKFREE_MAILOPS or WITHNACK_MAILOP.
 				       esac;
 	end;    end;  end;  end;end;
 
@@ -564,7 +564,7 @@ herein
 	    =
 	    case mailops
 		#
-		MAILOP_GROUP _
+		NACKFULL_MAILOPS _
 		    =>
 		    gather_mailops (mailops, [], [])
 		    where 
@@ -574,11 +574,11 @@ herein
 			    append_baseops  (           [],  results) =>  results;
 			end;
 
-			fun gather_mailops (BASEOP_GROUP baseops, bl, flagsets)
+			fun gather_mailops (NACKFREE_MAILOPS baseops, bl, flagsets)
 				=>
 				(append_baseops (baseops, bl), flagsets);
 
-			    gather_mailops (MAILOP_GROUP group, bl, flagsets)
+			    gather_mailops (NACKFULL_MAILOPS group, bl, flagsets)
 				=>
 				fold_left  f  (bl, flagsets)  group
 				where
@@ -587,7 +587,7 @@ herein
 					gather_mailops (group', bl', flagsets');
 				end;
 
-			    gather_mailops (group as NACK_GROUP _, bl, flagsets)
+			    gather_mailops (group as WITHNACK_MAILOP _, bl, flagsets)
 				=>
 				gather_wrapped (group, bl, flagsets);
 			end;
@@ -607,7 +607,7 @@ herein
 			    (bl, flagsets);
 			}
 			where
-			    fun gather (BASEOP_GROUP baseops, bl, all_flags, flagsets)
+			    fun gather (NACKFREE_MAILOPS baseops, bl, all_flags, flagsets)
 				    =>
 				    {	(append_baseops (baseops, bl, all_flags))
 					    ->
@@ -630,7 +630,7 @@ herein
 				    end;
 
 
-				gather (MAILOP_GROUP group, bl, all_flags, flagsets)
+				gather (NACKFULL_MAILOPS group, bl, all_flags, flagsets)
 				    =>
 				    fold_left  f  (bl, all_flags, flagsets)  group
 				    where
@@ -639,7 +639,7 @@ herein
 					    gather (group', bl', all_flags', flagsets');
 				    end;
 
-				gather (NACK_GROUP (condvar, group), bl, all_flags, flagsets)
+				gather (WITHNACK_MAILOP (condvar, group), bl, all_flags, flagsets)
 				    =>
 				    {   (gather (group, bl, [], flagsets))
 					    ->
@@ -765,7 +765,7 @@ herein
 	    =
 	    case (prepare mailop)
 		#
-		BASEOP_GROUP baseops =>  do_prepared_baseops  baseops;
+		NACKFREE_MAILOPS baseops =>  do_prepared_baseops  baseops;
 		             mailops =>  do_prepared_mailops  mailops;
 	    esac;
 
@@ -785,7 +785,7 @@ herein
 	    =
 	    case (prepare_baseops (mailops, []))									# Start by optimistically assuming baseops-only case; we'll fall back to general prepare_mailops() if proved wrong.
 		#
-		BASEOP_GROUP baseops  =>   do_prepared_baseops  baseops;						# This is special-case handling for baseops-only case.
+		NACKFREE_MAILOPS baseops  =>   do_prepared_baseops  baseops;						# This is special-case handling for baseops-only case.
 		             mailops  =>   do_prepared_mailops  mailops;						# This is the general case.
 	    esac
 	    where
@@ -798,48 +798,48 @@ herein
 		#  o Figure out whether we have any WITH_NACK clauses,
 		#    which complicate things.
 		#    
-		#  We return BASEOP_GROUP in the common simple case of no WITH_NACK clauses, otherwise
-		#  we return MAILOP_GROUP or NACK_GROUP.
+		#  We return NACKFREE_MAILOPS in the common simple case of no WITH_NACK clauses, otherwise
+		#  we return NACKFULL_MAILOPS or WITHNACK_MAILOP.
 		# 
 	        fun prepare_baseops  (mailop ! rest,  baseops')								# prepare_baseops handles the nice simple baseop-only cases;
 			=>												# prepare_mailops handles the remaining messier cases.
 			case (prepare_one_mailop  mailop)
 			    #
-			    /* */ BASEOP_GROUP baseops =>  prepare_baseops  (rest,  baseops @               baseops' );
-			    /* */ MAILOP_GROUP  group  =>  prepare_mailops  (rest,  group   @ [BASEOP_GROUP baseops']);
-			    ng as NACK_GROUP   _       =>  prepare_mailops  (rest, [ng,        BASEOP_GROUP baseops']);
+			    /* */ NACKFREE_MAILOPS baseops =>  prepare_baseops  (rest,  baseops @                   baseops' );
+			    /* */ NACKFULL_MAILOPS mailops =>  prepare_mailops  (rest,  mailops @ [NACKFREE_MAILOPS baseops']);
+			    ng as WITHNACK_MAILOP   _      =>  prepare_mailops  (rest, [ng,        NACKFREE_MAILOPS baseops']);
 			esac;
 
-		    prepare_baseops ([], baseops)	    =>	BASEOP_GROUP  baseops;
+		    prepare_baseops ([], baseops)	    =>	NACKFREE_MAILOPS  baseops;
 		end
 
 		also
 		fun prepare_mailops ([], [group]) =>  group;
-		    prepare_mailops ([], l)       =>  MAILOP_GROUP l;
+		    prepare_mailops ([], l)       =>  NACKFULL_MAILOPS l;
 		    #
 		    prepare_mailops (mailop ! rest, l)
 			=>
 			case (prepare_one_mailop  mailop,  l)
 			    #
-			    (BASEOP_GROUP baseops,  BASEOP_GROUP baseops' ! rest')
+			    (NACKFREE_MAILOPS baseops,  NACKFREE_MAILOPS baseops' ! rest')
 				=>
-				prepare_mailops (rest, BASEOP_GROUP (baseops @ baseops') ! rest');
+				prepare_mailops (rest, NACKFREE_MAILOPS (baseops @ baseops') ! rest');
 
-			    (MAILOP_GROUP group, l) =>   prepare_mailops  (rest,  group @ l);
-			    (other,              l) =>   prepare_mailops  (rest,  other ! l);				# 'other' can be (BASEOP_GROUP _) or (NACK_GROUP _).
+			    (NACKFULL_MAILOPS group, l) =>   prepare_mailops  (rest,  group @ l);
+			    (other,                  l) =>   prepare_mailops  (rest,  other ! l);				# 'other' can be (NACKFREE_MAILOPS _) or (WITHNACK_MAILOP _).
 			esac;
 		end
 
 		also
 		fun prepare_one_mailop (GUARD g)        =>   prepare_one_mailop (g ());					# Generate a rule on the fly, then recursively prepare it.
-		    prepare_one_mailop (BASEOPS group)  =>   BASEOP_GROUP group;
+		    prepare_one_mailop (BASEOPS group)  =>   NACKFREE_MAILOPS group;
 		    prepare_one_mailop (CHOOSE mailops) =>   prepare_baseops (mailops, []);
 		    #
 		    prepare_one_mailop (WITH_NACK f)
 			=>
 			{   condvar =  itt::CONDITION_VARIABLE  (REF  (itt::CONDVAR_UNSET []));
 			    #
-			    NACK_GROUP  (condvar,  prepare_one_mailop  (f  (wait_on_condvar__mailop  condvar)));
+			    WITHNACK_MAILOP  (condvar,  prepare_one_mailop  (f  (wait_on_condvar__mailop  condvar)));
 			};
 
 		end;
