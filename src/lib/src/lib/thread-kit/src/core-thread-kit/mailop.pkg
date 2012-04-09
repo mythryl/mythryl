@@ -5,7 +5,7 @@
 # Some important requirements on the implementation
 # of base mailop values:
 #
-#  1)  An is_ready, do_it or wait_for function
+#  1)  An is_ready, do_it or unready_mailop function
 #      is always called from inside an uninterruptible_scope.			# "uninterruptible_scope" == "critical section" == "atomic region" == ...
 #
 #  2)  An is_ready returns an integer priority.
@@ -16,10 +16,10 @@
 #      with the underlying synchronization value and
 #      to increase it by one for each synchronization attempt.
 #
-#  3)  A wait_for is responsible for exiting the atomic region.
+#  3)  A unready_mailop is responsible for exiting the atomic region.
 #      A do_it should NOT leave the atomic region.
 #
-#  4)  Each wait_for is responsible for executing the
+#  4)  Each unready_mailop is responsible for executing the
 #      "clean_up" action prior to leaving the atomic region.
 
 # Compiled by:
@@ -96,12 +96,12 @@ herein
 	# Because these variables are set inside
 	# atomic regions we have to use different
 	# conventions for clean-up, etc.  Instead
-	# of requiring the wait_for fate
+	# of requiring the unready_mailop fate
 	# to call the clean_up action and to leave
 	# the atomic region, we call the clean_up
 	# function when setting the condition variable
 	# (in set_condvar_in_uninterruptible_scope), and have the invariant
-	# that the wait_for fate is dispatched
+	# that the unready_mailop fate is dispatched
 	# outside the atomic region.
 
 
@@ -155,7 +155,7 @@ herein
 	    =
 	    BASEOPS [is_ready]
 	    where 
-		fun wait_for { mailop_done, clean_up, next }									# Reppy's name for 'wait_for' is 'blockFn'.
+		fun unready_mailop { mailop_done, clean_up, next }									# Reppy's name for 'unready_mailop' is 'blockFn'.
 		    =
 		    call_with_current_fate
 			#
@@ -198,7 +198,7 @@ herein
 
 			itt::CONDVAR_UNSET _
 			    =>
-			    MAILOP_UNREADY  wait_for;
+			    MAILOP_UNREADY  unready_mailop;
 		    esac;
 	    end;
 
@@ -265,7 +265,7 @@ herein
 		    case (is_ready ())
 			#
 			MAILOP_READY { priority, do_it } =>  MAILOP_READY { priority, do_it => wfn o do_it };
-			MAILOP_UNREADY wait_for          =>  MAILOP_UNREADY (wfn o wait_for);
+			MAILOP_UNREADY unready_mailop    =>  MAILOP_UNREADY (wfn o unready_mailop);
 		    esac;
 		#
 		fun wrap' (BASEOPS base_mailops)	 =>  BASEOPS (map  wrap_base_mailop  base_mailops);		# Curried application yielding a list of thunks that will do  case (is_ready() )... esac  when later invoked.
@@ -293,7 +293,7 @@ herein
 		    case (is_ready ())
 			#
 			MAILOP_READY { priority, do_it } =>  MAILOP_READY { priority, do_it => wrap do_it };
-			MAILOP_UNREADY wait_for          =>  MAILOP_UNREADY (wrap wait_for);
+			MAILOP_UNREADY unready_mailop    =>  MAILOP_UNREADY (wrap unready_mailop);
 		    esac;
 		#
 		fun wrap' (BASEOPS  base_mailops)	=>  BASEOPS  (map  wrap_base_mailop  base_mailops);
@@ -460,13 +460,13 @@ herein
 			    =>
 			    do_it ();
 
-			MAILOP_UNREADY wait_for
+			MAILOP_UNREADY unready_mailop
 			    =>
 			    {   (make__mailop_done__and__clean_up ())
 				    ->
 				    { mailop_done, clean_up };
 				#
-				wait_for  { mailop_done,
+				unready_mailop  { mailop_done,
 					    clean_up,
 					    next        =>  ts::reenable_thread_switching_and_dispatch_next_thread
 					  };
@@ -493,19 +493,19 @@ herein
 		    where
 #			Collect_Ready_Mailops_Result
 #			    #
-#			    = NO_READY_MAILOPS { wait_fors: List(Wait_For) }
+#			    = NO_READY_MAILOPS { unready_mailops: List(Unready_Mailop) }
 #			    |    READY_MAILOPS
 #			    ;
 
-			fun do_baseops (is_ready ! rest,  wait_fors)								# In this loop we have not yet found any baseops ready to fire.
+			fun do_baseops (is_ready ! rest,  unready_mailops)								# In this loop we have not yet found any baseops ready to fire.
 				=>
 				case (is_ready ())
 				    #
-				    MAILOP_UNREADY wait_for          =>  do_baseops       (rest, wait_for ! wait_fors);
+				    MAILOP_UNREADY unready_mailop    =>  do_baseops       (rest, unready_mailop ! unready_mailops);
 				    MAILOP_READY { priority, do_it } =>  do_ready_baseops (rest, [(priority, do_it)], 1);
 				esac;
 
-			    do_baseops ([], wait_fors)										# Done -- no ready-to-fire baseops found and no candidates left to check.
+			    do_baseops ([], unready_mailops)										# Done -- no ready-to-fire baseops found and no candidates left to check.
 				=>
 				call_with_current_control_fate
 				    (fn fate
@@ -518,10 +518,10 @@ herein
 					    #
 					    fun log [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
 						#
-						log (wait_for ! rest)
+						log (unready_mailop ! rest)
 						    =>
 						    switch_to_control_fate
-							(wait_for
+							(unready_mailop
 							  { mailop_done,
 							    clean_up,
 							    next     =>  fn () = log rest
@@ -529,7 +529,7 @@ herein
 							);
 					    end;
 
-					    log  wait_fors;
+					    log  unready_mailops;
 
 					    error "[log]";
 					}
@@ -697,15 +697,15 @@ herein
 			    end;
 		    end;
 		#
-		fun do_mailops ((is_ready, flag) ! rest, wait_fors)								# In this loop we have not yet found a mailop ready to fire.
+		fun do_mailops ((is_ready, flag) ! rest, unready_mailops)								# In this loop we have not yet found a mailop ready to fire.
 			=>
 			case (is_ready ())
 			    #
 			    MAILOP_READY { priority, do_it } =>  do_ready_mailops (rest, [(priority, (do_it, flag))], 1);
-			    MAILOP_UNREADY wait_for          =>  do_mailops       (rest, (wait_for, flag) ! wait_fors);
+			    MAILOP_UNREADY unready_mailop    =>  do_mailops       (rest, (unready_mailop, flag) ! unready_mailops);
 			esac;
 
-		    do_mailops ([], wait_fors)											# End of the line -- no ready-to-fire mailops found and none left to check.
+		    do_mailops ([], unready_mailops)											# End of the line -- no ready-to-fire mailops found and none left to check.
 			=>
 			call_with_current_control_fate
 			    (fn fate
@@ -723,17 +723,17 @@ herein
 				    #
 				    fun log [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
 					#
-					log ((wait_for, flag) ! r)
+					log ((unready_mailop, flag) ! r)
 					    =>
 					    switch_to_control_fate
-						(wait_for { mailop_done,
+						(unready_mailop { mailop_done,
 							    clean_up =>  cleanup_fn flag,
 							    next     =>  fn () = log r
 							  }
 						);
 				    end;
 
-				    log  wait_fors;
+				    log  unready_mailops;
 
 				    error "[log]";
 				 }
