@@ -23,7 +23,7 @@
 #      A fire_mailop should NOT end the uninterruptible scope.
 #
 #  4)  Each start_watching_for_mailop_ready_to_fire fn is responsible for executing
-#      the "clean_up" action prior to ending the uninterruptible scope.
+#      the "finish_selectrun" action prior to ending the uninterruptible scope.
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -100,8 +100,8 @@ herein
 	# atomic regions we have to use different
 	# conventions for clean-up, etc.  Instead
 	# of requiring the start_watching_for_mailop_ready_to_fire fate
-	# to call the clean_up action and to leave
-	# the atomic region, we call the clean_up
+	# to call the finish_selectrun fn and to end
+	# the uninterruptible scope, we call the finish_selectrun
 	# function when setting the condition variable
 	# (in set_condvar_in_uninterruptible_scope), and have the invariant
 	# that the start_watching_for_mailop_ready_to_fire fate is dispatched
@@ -134,12 +134,12 @@ herein
 						=>
 						run rest;									# Drop completed/cancelled transaction.
 
-					    run ( { selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED tid), clean_up, fate } ! rest)
+					    run ( { selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED tid), finish_selectrun, fate } ! rest)
 						=>
 						{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
 						    #
-						    clean_up ();
-
+						    finish_selectrun ();							# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;
+																# and sending nacks as appropriate.
 						    (tid, fate)  !  (run rest);
 						};
 					end;
@@ -157,7 +157,12 @@ herein
 	    =
 	    ISREADY_MAILOPS [is_mailop_ready_to_fire]
 	    where 
-		fun start_watching_for_mailop_ready_to_fire { selectrun_status, clean_up, next }				# Reppy refers to 'start_watching_for_mailop_ready_to_fire' as 'blockFn'.
+		fun start_watching_for_mailop_ready_to_fire									# Reppy refers to 'start_watching_for_mailop_ready_to_fire' as 'blockFn'.
+		      {
+			selectrun_status,
+			finish_selectrun,								# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			next
+		      }
 		    =
 		    call_with_current_fate
 			#
@@ -171,7 +176,7 @@ herein
 					_                                  =>   raise exception FAIL "Bug in wait_on_condvar__mailop";
 				    esac;					# This exception is impossible -- is_mailop_ready_to_fire() only queues us up if *condvar_state is not CONDVAR_IS_SET.
 				#
-				waiting_thread =  { selectrun_status,  clean_up,  fate };
+				waiting_thread =  { selectrun_status,  finish_selectrun,  fate };
 
 				condvar_state :=  itt::CONDVAR_IS_NOT_SET (waiting_thread ! waiting_threads);			# Add ourself to list of threads waiting for condvar to be set.
 
@@ -440,13 +445,13 @@ herein
 	     end;
 	end;
 	#
-	fun make__mailop_done__and__clean_up ()
+	fun make__selectrun_status__and__finish_selectrun ()
 	    =
 	    {   selectrun_status =    REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread()));
 		#
-		clean_up    =    .{   selectrun_status :=  itt::SELECTRUN_IS_COMPLETE;  };
+		finish_selectrun    =    .{   selectrun_status :=  itt::SELECTRUN_IS_COMPLETE;  };
 
-		{ selectrun_status, clean_up };
+		{ selectrun_status, finish_selectrun };
 	    };
 
 
@@ -465,13 +470,13 @@ herein
 
 			MAILOP_IS_NOT_READY_TO_FIRE start_watching_for_mailop_ready_to_fire
 			    =>
-			    {   (make__mailop_done__and__clean_up ())
+			    {   (make__selectrun_status__and__finish_selectrun ())
 				    ->
-				    { selectrun_status, clean_up };
+				    { selectrun_status, finish_selectrun };
 				#
 				start_watching_for_mailop_ready_to_fire
 				  { selectrun_status,
-				    clean_up,
+				    finish_selectrun,
 				    next        =>  ts::reenable_thread_switching_and_dispatch_next_thread
 				  };
 			    };
@@ -516,9 +521,9 @@ herein
 					=
 					{   switch_to_control_fate =  switch_to_control_fate  fate;
 					    #
-					    (make__mailop_done__and__clean_up ())
+					    (make__selectrun_status__and__finish_selectrun ())
 						->
-						{ selectrun_status, clean_up };
+						{ selectrun_status, finish_selectrun };
 					    #
 					    fun run [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
 						#
@@ -527,7 +532,7 @@ herein
 						    switch_to_control_fate
 							(start_watching_for_mailop_ready_to_fire
 							  { selectrun_status,
-							    clean_up,
+							    finish_selectrun,
 							    next     =>  fn () =  run rest
 							  }
 							);
@@ -739,7 +744,7 @@ herein
 						    start_watching_for_mailop_ready_to_fire
 						      {
 							selectrun_status,
-							clean_up =>  cleanup_fn flag,
+							finish_selectrun =>  cleanup_fn flag,
 							next     =>  fn () =  run rest
 						      }
 						);
