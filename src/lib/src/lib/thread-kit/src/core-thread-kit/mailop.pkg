@@ -230,8 +230,15 @@ herein
 	never' = ISREADY_MAILOPS [];												# Used in:	src/lib/x-kit/widget/basic/topwindow.pkg
 																#		src/lib/x-kit/xclient/pkg/window/widget-cable.pkg
 																
+	# These generate mailops on-the-fly while 'select' is running.
+	# The second is given a mailop with which to detect client
+	# abort of the generated mailop:
+	#
 	dynamic_mailop		 =  DYNAMIC_MAILOP;
-	dynamic_mailop_with_nack =  DYNAMIC_MAILOP_WITH_NACK;
+	dynamic_mailop_with_nack =  DYNAMIC_MAILOP_WITH_NACK;									# This is mainly used in:   src/lib/std/src/io/threadkit-winix-text-file-for-os-g.pkg
+																# Also used in:		    src/lib/std/src/io/threadkit-winix-mailslot-io-g.pkg
+																#			    src/lib/std/src/posix/threadkit-winix-data-file-io-driver-for-posix.pkg
+																#			    	
 
 	#
 	fun choose (mailops:  List(  Mailop(X) ))										# 'gather_mailops' handles the general case.
@@ -359,39 +366,39 @@ herein
 				WITHNACK_MAILOP  (condvar,  prepare' (f (wait_on_condvar__mailop  condvar)));
 			    };
 
-			prepare' (ISREADY_MAILOPS  baseops)
+			prepare' (ISREADY_MAILOPS  mailops)
 			    =>
-			    NACKFREE_MAILOPS  baseops;
+			    NACKFREE_MAILOPS  mailops;
 
 			prepare' (CHOOSE_MAILOP  mailops)
 			    =>
-			    prepare_nackfree_mailops (mailops, [])								# Optimistically assume nackfree; we'll fall back toprepare_nackfull_mailops() routine if we're wrong.
+			    prepare_mailops (mailops, [])								# Optimistically assume nackfree; we'll fall back toprepare_nackfull_mailops() routine if we're wrong.
 			    where
-				fun prepare_nackfree_mailops ([], baseops)
+				fun prepare_mailops ([], mailops)
 					=>
-					NACKFREE_MAILOPS baseops;
+					NACKFREE_MAILOPS mailops;
 
-				    prepare_nackfree_mailops (mailop ! rest, baseops')
+				    prepare_mailops (mailop ! rest, mailops')
 					=>
 					case (prepare' mailop)
 					    #
-					    NACKFREE_MAILOPS baseops =>  prepare_nackfree_mailops (rest,  baseops @             baseops' );
-					    NACKFULL_MAILOPS mailops =>  prepare_nackfull_mailops (rest,  mailops @ [NACKFREE_MAILOPS baseops']);
-					    /*        */ mailops =>  prepare_nackfull_mailops (rest, [mailops,   NACKFREE_MAILOPS baseops']);
+					    NACKFREE_MAILOPS mailops =>  prepare_mailops          (rest,  mailops @                   mailops' );
+					    NACKFULL_MAILOPS mailops =>  prepare_nackfull_mailops (rest,  mailops @ [NACKFREE_MAILOPS mailops']);
+					    /*        */     mailops =>  prepare_nackfull_mailops (rest, [mailops,   NACKFREE_MAILOPS mailops']);
 					esac;
 				end
 
 				also
-				fun prepare_nackfull_mailops ([], [group]) =>  group;						# The general case vs prepare_nackfree_mailops above handling the nice simple (and common) case.
+				fun prepare_nackfull_mailops ([], [group]) =>  group;						# The general case vs prepare_mailops above handling the nice simple (and common) case.
 				    prepare_nackfull_mailops ([], l)       =>  NACKFULL_MAILOPS l;
 				    #
 				    prepare_nackfull_mailops (mailop ! rest, l)
 					=>
 					case (prepare' mailop, l)
 					    #				      
-					    (NACKFREE_MAILOPS baseops, NACKFREE_MAILOPS baseops' ! rest')
+					    (NACKFREE_MAILOPS mailops, NACKFREE_MAILOPS mailops' ! rest')
 						=>
-						prepare_nackfull_mailops (rest, NACKFREE_MAILOPS (baseops @ baseops') ! rest');
+						prepare_nackfull_mailops (rest, NACKFREE_MAILOPS (mailops @ mailops') ! rest');
 
 					    (NACKFULL_MAILOPS mailops, l) =>   prepare_nackfull_mailops (rest, mailops @ l);
 					    (             mailops, l) =>   prepare_nackfull_mailops (rest, mailops ! l);		# Here 'mailops' can be NACKFREE_MAILOPS or WITHNACK_MAILOP.
@@ -495,8 +502,8 @@ herein
 	    #
 	    # It also handles NEVER.
 	    #
-	    fun do_nackfree_mailops []    =>  ts::dispatch_next_thread ();							# 'select' with empty rule list -- nothing to do.
-		do_nackfree_mailops [bev] =>  do_one_mailop  bev;								# This is the only call to   do_one_mailop().
+	    fun do_nackfree_mailops []       =>  ts::dispatch_next_thread ();							# 'select' with empty rule list -- nothing to do.
+		do_nackfree_mailops [mailop] =>  do_one_mailop  mailop;								# This is the only call to   do_one_mailop().
 		#
 		do_nackfree_mailops  baseops
 		    =>
@@ -810,10 +817,12 @@ herein
 															#         ...
 															#     ];
 															#
-															#
+															# We have two main cases:
+															#  1) If one or more mailops in the list is ready to fire, we pick one and fire it.
+															#  2) If no mailop in the list is ready to fire, we must block until one becomes ready, then continue as in 1).
 	fun select mailops
 	    =
-	    case (prepare_nackfree_mailops (mailops, []))									# Start by optimistically assuming nackfree case; we'll fall back to general nackfull if proved wrong.
+	    case (prepare_mailops (mailops, []))								# Start by optimistically assuming nackfree case; we'll fall back to general nackfull if proved wrong.
 		#
 		NACKFREE_MAILOPS mailops  =>   do_nackfree_mailops  mailops;						# This is special-case handling for simple special case of no WITH_NACK mailops.
 		/*            */ mailops  =>   do_nackfull_mailops  mailops;						# This is the general case.
@@ -832,16 +841,16 @@ herein
 		#  we return NACKFREE_MAILOPS _, otherwise    
 		#  we return NACKFULL_MAILOPS _ or WITHNACK_MAILOP _.
 		# 
-	        fun prepare_nackfree_mailops  (mailop ! rest,  baseops')								# prepare_nackfree_mailops handles the nice simple baseop-only cases;
+	        fun prepare_mailops  (mailop ! rest,  baseops')								# prepare_mailops handles the nice simple baseop-only cases;
 			=>												# prepare_nackfull_mailops handles the remaining messier cases.
 			case (prepare_one_mailop  mailop)
 			    #
-			    /* */ NACKFREE_MAILOPS baseops =>  prepare_nackfree_mailops  (rest,  baseops @                   baseops' );
+			    /* */ NACKFREE_MAILOPS baseops =>  prepare_mailops  (rest,  baseops @                   baseops' );
 			    /* */ NACKFULL_MAILOPS mailops =>  prepare_nackfull_mailops  (rest,  mailops @ [NACKFREE_MAILOPS baseops']);
 			    ng as WITHNACK_MAILOP   _      =>  prepare_nackfull_mailops  (rest, [ng,        NACKFREE_MAILOPS baseops']);
 			esac;
 
-		    prepare_nackfree_mailops ([], baseops)	    =>	NACKFREE_MAILOPS  baseops;
+		    prepare_mailops ([], baseops)	    =>	NACKFREE_MAILOPS  baseops;
 		end
 
 		also
@@ -863,7 +872,7 @@ herein
 
 		also
 		fun prepare_one_mailop (ISREADY_MAILOPS  mailops)     =>   NACKFREE_MAILOPS mailops;
-		    prepare_one_mailop (CHOOSE_MAILOP    mailops)     =>   prepare_nackfree_mailops (mailops, []);
+		    prepare_one_mailop (CHOOSE_MAILOP    mailops)     =>   prepare_mailops (mailops, []);
 		    prepare_one_mailop (DYNAMIC_MAILOP   make_mailop) =>   prepare_one_mailop (make_mailop ());				# Generate a select[...] mailop on the fly, then recursively prepare it.
 		    #
 		    prepare_one_mailop (DYNAMIC_MAILOP_WITH_NACK f)									# Same as DYNAMIC_MAILOP but with a nack mailop to signal client-code abort.
