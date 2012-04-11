@@ -120,11 +120,11 @@ herein
 	    =
 	    case *state
 		#
-		itt::CONDVAR_IS_NOT_SET  waiting_threads										# waiting_threads is the list of threads sitting
+		itt::CONDVAR_IS_NOT_SET  waiting_threads									# waiting_threads is the list of threads sitting
 		    =>														# blocked waiting for this condvar to be set.
 		    {   ts::foreground_run_queue ->  rwq::RW_QUEUE { back, ... };
 			#
-			state :=    itt::CONDVAR_IS_SET  1;									# Set the condition variable.
+			state :=    itt::CONDVAR_IS_SET  1;									# Set the condition variable.  NB: The '1' is a priority, not its (non-existent) value.
 			#
 			back :=     run  waiting_threads									# Add to foreground run queue all threads that were waiting for condvar to be set.
 				    where
@@ -132,15 +132,15 @@ herein
 					    #
 					    run ( { selectrun_status=>REF itt::SELECTRUN_IS_COMPLETE, ... } ! rest)
 						=>
-						run rest;									# Drop completed/cancelled transaction.
+						run rest;									# Drop completed selectrun.
 
-					    run ( { selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED tid), finish_selectrun, fate } ! rest)
+					    run ( { selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED thread), finish_selectrun, fate } ! rest)
 						=>
 						{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
 						    #
-						    finish_selectrun ();							# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;
-																# and sending nacks as appropriate.
-						    (tid, fate)  !  (run rest);
+						    finish_selectrun ();							# Do stuff like   selectrun_status := SELECTRUN_IS_COMPLETE;   and sending nacks.
+
+						    (thread, fate)  !  (run rest);
 						};
 					end;
 				    end;
@@ -173,7 +173,7 @@ herein
 				    case *condvar_state
 					#
 					itt::CONDVAR_IS_NOT_SET waiting_threads =>   waiting_threads;
-					_					=>   raise exception FAIL "Bug in wait_on_condvar'";
+					itt::CONDVAR_IS_SET _			=>   raise exception FAIL "Bug in wait_on_condvar'";
 				    esac;					#    Above exception should not happen:  is_mailop_ready_to_fire() only queues us up if *condvar_state is not CONDVAR_IS_SET.
 				#
 				waiting_thread =  { selectrun_status,  finish_selectrun,  fate };
@@ -188,17 +188,17 @@ herein
 		    =
 		    case *condvar_state
 			#
-			itt::CONDVAR_IS_SET n
+			itt::CONDVAR_IS_SET priority
 			    =>
-			    {   condvar_state :=  itt::CONDVAR_IS_SET (n+1);
+			    {   condvar_state :=   itt::CONDVAR_IS_SET (priority+1);						# Increment the condition-variable priority.
 				#
-				MAILOP_IS_READY_TO_FIRE {  priority => n,  fire_mailop  }
+				MAILOP_IS_READY_TO_FIRE {  priority,  fire_mailop  }
 				where
 				    fun fire_mailop ()										# Reppy refers to fire_mailop as 'doFn'.
 					=
-					{   condvar_state :=  itt::CONDVAR_IS_SET  1;
+					{   condvar_state :=  itt::CONDVAR_IS_SET  1;						# Set condvar priority back to minimum.
 					    #
-					    ts::reenable_thread_switching ();
+					    ts::reenable_thread_switching ();							# End uninterruptable scope.
 					};
 				end;
 			    };
@@ -240,36 +240,37 @@ herein
 																#			    src/lib/std/src/posix/threadkit-winix-data-file-io-driver-for-posix.pkg
 																#			    	
 
+	# Combine a list of mailops into a single mailop:
 	#
-	fun choose (mailops:  List(  Mailop(X) ))										# 'gather_mailops' handles the general case.
-	    =															# 'gather_baseops' assumes common special case of only base mailops;
-	    gather_baseops (reverse mailops, [])										#  We optimistically start with gather_baseops; we'll fall back to gather_mailops if necessary.
+	fun cat_mailops (mailops:  List(  Mailop(X) ))										# This gets called in (for example):   src/lib/std/src/io/threadkit-winix-mailslot-io-g.pkg
+	    =															# A frequent idiom is  do_mailop (cat_mailops mailops);
+	    gather (reverse mailops, [])											#
 	    where
-		fun gather_baseops ([],                           baseops') =>  ISREADY_MAILOPS baseops';				# Done, return result.
+		fun gather ([],                               results) =>  ISREADY_MAILOPS results;				# Done, return results.
 		    #
-		    gather_baseops (ISREADY_MAILOPS []       ! rest, baseops') =>  gather_baseops (rest,           baseops');
-		    gather_baseops (ISREADY_MAILOPS [baseop] ! rest, baseops') =>  gather_baseops (rest, baseop  ! baseops');
-		    gather_baseops (ISREADY_MAILOPS  baseops ! rest, baseops') =>  gather_baseops (rest, baseops @ baseops');
+		    gather (ISREADY_MAILOPS []       ! rest,  results) =>  gather (rest,           results);
+		    gather (ISREADY_MAILOPS [mailop] ! rest,  results) =>  gather (rest, mailop  ! results);
+		    gather (ISREADY_MAILOPS  mailops ! rest,  results) =>  gather (rest, mailops @ results);
 		    #
-		    gather_baseops (mailops, []) =>  gather_mailops (mailops, []);
-		    gather_baseops (mailops, l ) =>  gather_mailops (mailops, [ISREADY_MAILOPS l]);
+		    gather (mailops, []) =>  gather' (mailops, []);
+		    gather (mailops, l ) =>  gather' (mailops, [ISREADY_MAILOPS l]);
 		end 
 
 		also
-		fun gather_mailops ([], [mailop]) =>  mailop;
-		    gather_mailops ([], mailops)  =>  CHOOSE_MAILOP mailops;
+		fun gather' ([], [mailop]) =>  mailop;
+		    gather' ([], mailops)  =>  CHOOSE_MAILOP mailops;
 		    #
-		    gather_mailops  (CHOOSE_MAILOP mailops ! rest,  mailops')
+		    gather'  (CHOOSE_MAILOP mailops ! rest,  mailops')
 			=>
-			gather_mailops (rest, mailops @ mailops');
+			gather' (rest, mailops @ mailops');
 
-		    gather_mailops (ISREADY_MAILOPS base_mailops ! rest, ISREADY_MAILOPS base_mailops' ! rest')
+		    gather' (ISREADY_MAILOPS base_mailops ! rest, ISREADY_MAILOPS base_mailops' ! rest')
 			=>
-			gather_mailops (rest, ISREADY_MAILOPS (base_mailops @ base_mailops') ! rest');
+			gather' (rest, ISREADY_MAILOPS (base_mailops @ base_mailops') ! rest');
 
-		    gather_mailops (mailop ! rest, mailops')
+		    gather' (mailop ! rest, mailops')
 			=>
-			gather_mailops (rest, mailop ! mailops');
+			gather' (rest, mailop ! mailops');
 		end;
 	    end;
 	#
@@ -480,7 +481,7 @@ herein
 			    =>
 			    fire_mailop ();
 
-			MAILOP_IS_NOT_READY_TO_FIRE start_watching_for_mailop_ready_to_fire
+			MAILOP_IS_NOT_READY_TO_FIRE  start_watching_for_mailop_ready_to_fire
 			    =>
 			    {   (make__selectrun_status__and__finish_selectrun ())
 				    ->
