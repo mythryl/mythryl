@@ -711,7 +711,7 @@ herein
 	    Test_Mailops_For_Readiness_To_Fire_Result(X)
 		#
 		= NO_READY_MAILOPS { start_mailop_watch__fns:	List ((itt::Start_Watching_For_Mailop_Ready__Fn(X), Ref(Bool))) }
-		|    READY_MAILOPS { fire_mailop_fns:		List ((Int, (Void -> X))),	n: Int }
+		|    READY_MAILOPS { fire_mailop_fns:		List ((Int, ((Void -> X), Ref(Bool)))),	n: Int }
 		;
 
 	herein
@@ -724,43 +724,23 @@ herein
 		=
 		{   ts::disable_thread_switching ();							# Start uninterruptible scope (aka "critical section" aka "atomic region"...)
 		    #
-		    test_mailops_for_readiness_to_fire (mailops, []);
-		}
-		where
-		    (gather_base_mailops_and_nackstates  group)
-			->
-			(mailops, nackstates);
-		    #
-		    fun send_nacks_as_appropriate ()
-			=
-			apply  check_condvar  nackstates						# NB: We capture 'nackstates' here for later use in 'finish_selectrun_fn'.
-			where
-			    # check_condvar checks the flags of a nackstate.
-			    # If they are all FALSE then the
-			    # corresponding condvar is set to signal
-			    # the negative ack.
-			    #
-			    fun check_condvar (condvar, flags)
-				=
-				check_flags flags
-				where
-				    fun check_flags ((REF TRUE) ! _) =>	 ();
-					check_flags (_ ! rest)	     =>	 check_flags  rest;
-					check_flags []		     =>	 set_condvar_in_uninterruptible_scope  condvar;
-				    end;
-				end;
-			end;
-		    #
-		    fun test_mailops_for_readiness_to_fire ((is_mailop_ready_to_fire, flag) ! rest,   start_mailop_watch__fns)			# In this loop we have not yet found a mailop ready to fire.
+		    case (test_mailops_for_readiness_to_fire (mailops, []))
+			#
+			READY_MAILOPS { fire_mailop_fns,  n }
 			    =>
-			    case (is_mailop_ready_to_fire ())
-				#
-				MAILOP_IS_READY_TO_FIRE      { priority, fire_mailop }	     =>  test_mailops_for_readiness_to_fire' (rest, [(priority, (fire_mailop, flag))], 1);
-				MAILOP_IS_NOT_READY_TO_FIRE  start_watching_for_mailop_ready =>  test_mailops_for_readiness_to_fire  (rest, (start_watching_for_mailop_ready, flag) ! start_mailop_watch__fns);
-			    esac;
+			    {   (pick_highest_priority_mailop_breaking_ties_fairly (fire_mailop_fns, n))
+				    ->
+				    (fire_mailop, flag);
 
-			test_mailops_for_readiness_to_fire ([], start_mailop_watch__fns)							# Done -- no ready-to-fire mailops found and none left to check,
-			    =>															# so we must block until some mailop becomes ready to fire.
+				flag := TRUE;
+
+				send_nacks_as_appropriate ();
+
+				fire_mailop ();
+			    };
+
+			NO_READY_MAILOPS { start_mailop_watch__fns }
+			    =>
 			    call_with_current_control_fate
 				(fn fate
 				    =
@@ -798,6 +778,45 @@ herein
 					end;													# fn start_mailop_watches__loop
 				    end														# where
 				);
+
+		    esac;	
+		}
+		where
+		    (gather_base_mailops_and_nackstates  group)
+			->
+			(mailops, nackstates);
+		    #
+		    fun send_nacks_as_appropriate ()
+			=
+			apply  check_condvar  nackstates						# NB: We capture 'nackstates' here for later use in 'finish_selectrun_fn'.
+			where
+			    # check_condvar checks the flags of a nackstate.
+			    # If they are all FALSE then the
+			    # corresponding condvar is set to signal
+			    # the negative ack.
+			    #
+			    fun check_condvar (condvar, flags)
+				=
+				check_flags flags
+				where
+				    fun check_flags ((REF TRUE) ! _) =>	 ();
+					check_flags (_ ! rest)	     =>	 check_flags  rest;
+					check_flags []		     =>	 set_condvar_in_uninterruptible_scope  condvar;
+				    end;
+				end;
+			end;
+		    #
+		    fun test_mailops_for_readiness_to_fire ((is_mailop_ready_to_fire, flag) ! rest,   start_mailop_watch__fns)			# In this loop we have not yet found a mailop ready to fire.
+			    =>
+			    case (is_mailop_ready_to_fire ())
+				#
+				MAILOP_IS_READY_TO_FIRE      { priority, fire_mailop }	     =>  test_mailops_for_readiness_to_fire' (rest, [(priority, (fire_mailop, flag))], 1);
+				MAILOP_IS_NOT_READY_TO_FIRE  start_watching_for_mailop_ready =>  test_mailops_for_readiness_to_fire  (rest, (start_watching_for_mailop_ready, flag) ! start_mailop_watch__fns);
+			    esac;
+
+			test_mailops_for_readiness_to_fire ([], start_mailop_watch__fns)							# Done -- no ready-to-fire mailops found and none left to check,
+			    =>															# so we must block until some mailop becomes ready to fire.
+			    NO_READY_MAILOPS { start_mailop_watch__fns };
 		    end
 
 		    also
@@ -814,16 +833,7 @@ herein
 
 			test_mailops_for_readiness_to_fire' ([], fire_mailop_fns, n)								# Done -- pick one select[...] mailop to fire and then fire it.
 			    =>
-			    {   (pick_highest_priority_mailop_breaking_ties_fairly (fire_mailop_fns, n))
-				    ->
-				    (fire_mailop, flag);
-
-				flag := TRUE;
-
-				send_nacks_as_appropriate ();
-
-				fire_mailop();
-			    };
+			    READY_MAILOPS { fire_mailop_fns,  n };
 		    end;
 															# NOTE: Maybe above we should just
 															# keep track of the max priority?
