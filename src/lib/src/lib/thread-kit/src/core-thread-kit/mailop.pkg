@@ -495,6 +495,14 @@ herein
 			    };
 		    esac;
 		};
+
+	    Test_Mailops_For_Readiness_To_Fire_Result(X)
+		#
+		= NO_READY_MAILOPS { start_mailop_watch__fns:	List (itt::Start_Watching_For_Mailop_Ready__Fn(X)) }
+		|    READY_MAILOPS { fire_mailop_fns:		List ((Int, (Void -> X))),	n: Int }
+		;
+
+
 	herein
 
 	    # This function handles the case of picking
@@ -508,26 +516,19 @@ herein
 		#
 		do_nackfree_mailops  mailops
 		    =>
-		    {   ts::disable_thread_switching ();									# Start uninterruptible scope. (Aka "critical section", "atomic region" etc.)
+		    {
+		        ts::disable_thread_switching ();									# Start uninterruptible scope. (Aka "critical section", "atomic region" etc.)
 			#
-			do_mailops (mailops, []);
-		    }
-		    where
-#			Collect_Ready_Mailops_Result
-#			    #
-#			    = NO_READY_MAILOPS { start_mailop_watch__fns: List(Start_Watching_For_Mailop_Ready__Fn) }
-#			    |    READY_MAILOPS
-#			    ;
-
-			fun do_mailops (is_mailop_ready_to_fire ! rest,  start_mailop_watch__fns)				# In this loop we have not yet found any mailops ready to fire.
+			case (test_mailops_for_readiness_to_fire (mailops, []))
+			    #
+			    READY_MAILOPS { fire_mailop_fns, n }
 				=>
-				case (is_mailop_ready_to_fire ())
+				{   fire_mailop =   pick_highest_priority_mailop_breaking_ties_fairly  (fire_mailop_fns, n);	# Pick a select[....] mailop to fire ...
 				    #
-				    MAILOP_IS_NOT_READY_TO_FIRE start_watching_for_mailop_ready	=>  do_mailops       (rest, start_watching_for_mailop_ready ! start_mailop_watch__fns);
-				    MAILOP_IS_READY_TO_FIRE { priority, fire_mailop }		=>  do_ready_mailops (rest, [(priority, fire_mailop)], 1);
-				esac;
+				    fire_mailop ();										# ... and then fire it.
+				};
 
-			    do_mailops ([], start_mailop_watch__fns)								# Done -- no ready-to-fire mailops found and no candidates left to check.
+			    NO_READY_MAILOPS { start_mailop_watch__fns }
 				=>
 				call_with_current_control_fate
 				    #
@@ -559,32 +560,48 @@ herein
 					    end;
 					end
 				    );
-			end
+			    
+			esac;
+		    }
+		    where
 
-			# NOTE: Maybe we should just keep
-			#       track of the max priority?
-			#       What about fairness to fixed
-			#       priority mailops (e::g., always, timeout?)
-
-			also
-			fun do_ready_mailops (is_mailop_ready_to_fire ! rest,  fire_mailop_fns,  n)					# In this loop we have found at least one mailop which is ready to fire.
+			fun test_mailops_for_readiness_to_fire (is_mailop_ready_to_fire ! rest,  start_mailop_watch__fns)				# In this loop we have not yet found any mailops ready to fire.
 				=>
 				case (is_mailop_ready_to_fire ())
 				    #
-				    MAILOP_IS_READY_TO_FIRE { priority, fire_mailop } =>  do_ready_mailops (rest, (priority, fire_mailop) ! fire_mailop_fns, n+1);
-				    _                                                 =>  do_ready_mailops (rest,                           fire_mailop_fns, n  );
+				    MAILOP_IS_NOT_READY_TO_FIRE start_watching_for_mailop_ready	=>  test_mailops_for_readiness_to_fire   (rest, start_watching_for_mailop_ready ! start_mailop_watch__fns);
+				    MAILOP_IS_READY_TO_FIRE { priority, fire_mailop }		=>  test_mailops_for_readiness_to_fire'  (rest, [(priority, fire_mailop)], 1);
 				esac;
 
-			    do_ready_mailops ([],  fire_mailop_fns,  n)
+			    test_mailops_for_readiness_to_fire ([], start_mailop_watch__fns)								# Done -- no ready-to-fire mailops found and no candidates left to check.
 				=>
-				{   fire_mailop =   pick_highest_priority_mailop_breaking_ties_fairly  (fire_mailop_fns, n);		# Pick a select[....] mailop to fire ...
+				NO_READY_MAILOPS { start_mailop_watch__fns };										# No mailops were ready to fire; return list of fns which
+			end																# each start a watch on one mailop for readiness to fire.
+
+			also
+			fun test_mailops_for_readiness_to_fire' (is_mailop_ready_to_fire ! rest,  fire_mailop_fns,  n)					# In this loop we have found at least one mailop which is ready to fire.
+				=>
+				case (is_mailop_ready_to_fire ())
 				    #
-				    fire_mailop ();											# ... and then fire it.
-				};
-			end;														# fun do_ready_mailops
-		    end;														# where
-	    end;															# fun do_nackfree_mailops
-	end;																# stipulate
+				    MAILOP_IS_READY_TO_FIRE { priority, fire_mailop } =>  test_mailops_for_readiness_to_fire' (rest, (priority, fire_mailop) ! fire_mailop_fns, n+1);
+				    _                                                 =>  test_mailops_for_readiness_to_fire' (rest,                           fire_mailop_fns, n  );
+				esac;
+
+			    test_mailops_for_readiness_to_fire' ([],  fire_mailop_fns,  n)
+				=>
+			         READY_MAILOPS { fire_mailop_fns, n };											# At least one mailop was ready to fire; return the fns which
+																			# will fire the ready-to-fire mailops.
+
+			end;																# fun do_ready_mailops
+
+																			# NOTE: Maybe we should just keep
+																			#       track of the max priority above?
+																			#       What about fairness to fixed
+																			#       priority mailops (e::g., always, timeout?)
+
+		    end;																# where
+	    end;																	# fun do_nackfree_mailops
+	end;																		# stipulate
 
 	# Walk the mailop group tree,
 	# collecting the base mailops
