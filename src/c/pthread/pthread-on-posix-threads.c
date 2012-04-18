@@ -35,7 +35,7 @@
 #include <sys/types.h>
 #endif
 
-#include <sys/prctl.h>
+// #include <sys/prctl.h>							// Commented out 2012-04-17 CrT because it seems unneeded and Dave Husby reported that it isn't available on OpenBSD 5.0
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
