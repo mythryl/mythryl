@@ -42,7 +42,7 @@
 // by linear scan if nothing else?  -- 2011-11-03 CrT)
 // 
 // 
-#define SELF_PTHREAD	(pth__get_pthread())
+#define SELF_PTHREAD	(pth__get_pthread())			// Note that we still have   #define SELF_PTHREAD	(pthread_table__global[ 0 ])   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 
 
 #ifdef USE_ZERO_LIMIT_PTR_FN

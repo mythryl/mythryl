@@ -22,7 +22,7 @@
 
 // This is temporary:					XXX BUGGO FIXME
 //
-#define SELF_PTHREAD	(pthread_table__global[ 0 ])
+#define SELF_PTHREAD	(pthread_table__global[ 0 ])			// Note that we have switched to  #define SELF_PTHREAD	(pth__get_pthread())    in   src/c/machine-dependent/posix-signal.c
 
 
 static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg code, Signal_Handler_Context_Arg* scp */);
@@ -30,7 +30,7 @@ static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg co
 
 
 void   set_up_fault_handlers   (Task* task)   {
-    // ================================
+    // =====================
     //
     // Set up the DIVIDE_BY_ZERO and OVERFLOW fault handlers
 
