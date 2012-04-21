@@ -139,7 +139,7 @@ typedef pthread_mutex_t			Mutex;			// A mutual-exclusion lock:		https://computin
 typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
 typedef pthread_barrier_t		Barrier;		// A barrier.
 
-typedef pthread_t 			Tid;			// A pthread id.
+typedef pthread_t 			Ptid;			// A pthread id.
     //
     // NB; Tid MUST be pthread_t from <pthread.h> because in
     // pth__pthread_create from src/c/pthread/pthread-on-posix-threads.c
@@ -353,11 +353,11 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
 								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 
     int		id;						// Our own private small-int id for the record. We assign these sequentailly starting at 1.
-    Tid		tid;	       					// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+    Ptid	ptid;	       					// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	//
 	// NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
-	// because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
-	// we pass a pointer to task->pthread->pid as pthread_t* to avoid race conditions.
+	//     because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
+	//     we pass a pointer to task->pthread->tid as pthread_t* to avoid race conditions.
 	//
 	// Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
 
@@ -652,7 +652,7 @@ extern char*    pth__pthread_join		(Task* task, Val pthread_table_slot);	// Wait
 extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
 //											// Pthread is typedef'ed in src/c/h/runtime-base.h
 //
-extern Tid      pth__get_pthread_id		(void);					// Used to initialize pthread_table__global[0]->pid in   src/c/main/runtime-state.c
+extern Ptid	pth__get_pthread_id		(void);					// Used to initialize pthread_table__global[0]->pid in   src/c/main/runtime-state.c
 //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
 //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
 

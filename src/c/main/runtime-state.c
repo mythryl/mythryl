@@ -89,7 +89,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     // Initialize the first Pthread here:
     //
     pthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_pthread_id () returns huge numbers, this gives us small pthread ids.
-    pthread_table__global[0]->tid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+    pthread_table__global[0]->ptid =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
     pthread_table__global[0]->mode =  PTHREAD_IS_RUNNING;
 
     // Initialize the timers:
@@ -147,9 +147,9 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->heapvoid			= HEAP_VOID;			// Something for protected_c_arg to point to when not being used.
     pthread->task->protected_c_arg		= &pthread->task->heapvoid;	// Support for  RELEASE_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
 
-    pthread->tid		= 0;
+    pthread->ptid		= 0;						// Note that '0' works as an initializer whether pthread_t is an int or pointer on the host OS.
     pthread->mode		= PTHREAD_IS_VOID;
-}									// fun set_up_pthread_state
+}										// fun set_up_pthread_state
 
 void   initialize_task   (Task* task)   {
     // ===============

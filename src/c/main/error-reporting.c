@@ -168,7 +168,7 @@ void   log_if   (const char * fmt, ...) {
 	// We fill in dummy tid= and (thread) name= values here to reduce
 	// the need for special-case code when processing logfiles:
 	//
-	sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08d tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), (int)(pthread_self()&0x3FFFFFFF), "none");
+	sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08lx tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "none");
 
 	// Now write the message proper into buf[],
         // right after the timestamp:

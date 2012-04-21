@@ -703,7 +703,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     int err =   pthread_create(
 		    //
-		    &task->pthread->tid,							// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
+		    &task->pthread->ptid,							// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
 												//         valid as seen by both parent and child threads, without using spinlocks or such.
 												//	   Passing the pointer is safe (only) because 'tid' is of type pthread_t from <pthread.h>
 												//	   -- we define field 'tid' as 'Tid' in src/c/h/pthread.h
@@ -829,7 +829,7 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", NULL );			// Enter BLOCKED mode.
 	//
-        int err =  pthread_join( pthread_to_join->tid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
+        int err =  pthread_join( pthread_to_join->ptid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
 	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
@@ -1188,14 +1188,16 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 
 
 //
-Tid   pth__get_pthread_id   ()   {
-    //===================
+Ptid   pth__get_pthread_id   ()   {
+    // ===================
     //
-    // Return a unique small-int id distinguishing
+    // Return a unique value distinguishing
     // the currently running pthread from all other
-    // pthreads.
+    // pthreads.  This is an 'unsigned long' on
+    // Linux but a pointer on OpenBSD 5.0, so
+    // we need to be type-agnostic hereabouts:
     //
-    return  pthread_self() & 0x3FFFFFFF; 
+    return  pthread_self();
 }
 //
 Pthread*  pth__get_pthread   ()   {
@@ -1206,14 +1208,14 @@ Pthread*  pth__get_pthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-    int tid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
+    Ptid ptid =  pth__get_pthread_id ();								// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table__global[i]->tid == tid)   return pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
-    }											// pthread_table__global exported via    src/c/h/runtime-base.h
-    die ("pth__get_pthread:  tid %d not found in pthread_table__global?!", tid);
-    return NULL;									// Cannot execute; only to quiet gcc.
+	if (pthread_table__global[i]->ptid == ptid)   return pthread_table__global[ i ];		// pthread_table__global	def in   src/c/main/runtime-state.c
+    }													// pthread_table__global exported via    src/c/h/runtime-base.h
+    die ("pth__get_pthread:  tid %lx not found in pthread_table__global?!", (unsigned long int) ptid);	// NB: 'ptid' can be an int or pointer type depending on OS. (E.g., unsigned long on Linux, pointer on OpenBSD.)
+    return NULL;											// Cannot execute; only to quiet gcc.
 }
 
 

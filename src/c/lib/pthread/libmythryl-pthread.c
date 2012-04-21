@@ -99,7 +99,8 @@ static Val   do_get_pthread_id         (Task* task,  Val arg)   {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN("get_pthread_id");
 
-    return TAGGED_INT_FROM_C_INT( pth__get_pthread_id());			// pth__get_pthread_id	def in    src/c/pthread/pthread-on-posix-threads.c
+
+    return  make_one_word_int( task, (Vint) (pth__get_pthread_id()));		// pth__get_pthread_id	def in    src/c/pthread/pthread-on-posix-threads.c
 }
 
 static Val   do_spawn_pthread   (Task* task,  Val closure)   {			// Apparently never called.

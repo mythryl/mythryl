@@ -92,7 +92,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// select a PRIMARY_HEAPCLEANER pthread to do the heapcleaning work.
 	// That pthread returns and falls into the regular heapcleaning code;
 	// the remainder wait until heapcleaning is complete:
-														PTHREAD_LOG_IF ("initiating heapcleaning mode tid d=%d\n", task->pthread->tid);
+														PTHREAD_LOG_IF ("initiating heapcleaning mode tid x=%lx\n", (unsigned long int) task->pthread->ptid);
 	//
 	if (!pth__start_heapcleaning( task )) {									// pth__start_heapcleaning				def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
@@ -295,7 +295,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (agegroup-0 pass).
 
     {														// Pthread support.
-														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
+														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid x=%lx\n", (unsigned long int) task->pthread->ptid);
 	int we_are_the_primary_heapcleaner_pthread
 	    =
 	    pth__start_heapcleaning_with_extra_roots (task, extra_roots);					// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c

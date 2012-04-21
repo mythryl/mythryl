@@ -156,7 +156,7 @@ first_call = FALSE;
 
 
  static volatile int	pthreads_ready_to_clean__local = 0;					// Number of processors that are ready to clean.
- static volatile Tid	heapcleaner_pthread_tid__local;						// The tid (p-thread id) of the pthread that will do the actual heapcleaning work. (The rest sit and watch.)
+ static volatile Ptid	heapcleaner_pthread_tid__local;						// The tid (p-thread id) of the pthread that will do the actual heapcleaning work. (The rest sit and watch.)
  static volatile int	barrier_needs_to_be_initialized__local;					// Not sure if these last two need to be 'volatile', but better safe than sorry.
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
@@ -408,7 +408,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	++pth__running_pthreads_count__global;								//
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
     pthread_mutex_unlock(  &pth__mutex  );
-												PTHREAD_LOG_IF ("%d finished heapcleaning\n", task->pthread->tid);
+												PTHREAD_LOG_IF ("%lx finished heapcleaning\n", (unsigned long int) task->pthread->ptid);
 // log_if("pth__finish_heapcleaning: BOTTOM.");
 }
 
