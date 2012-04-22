@@ -394,9 +394,9 @@ typedef struct { int read_fd;					// fd to read() on.
                  int write_fd;					// fd to write() on.
                } Pipe_Pair;
 //
-typedef struct { Pipe_Pair stdin;
-                 Pipe_Pair stdout;
-                 Pipe_Pair stderr;
+typedef struct { Pipe_Pair stdin_;
+                 Pipe_Pair stdout_;
+                 Pipe_Pair stderr_;
                } Stdin_Stdout_Stderr_Pipes;
 
 //
@@ -437,9 +437,9 @@ static Stdin_Stdout_Stderr_Pipes   open_subprocess_pipes   (void)   {
 
     Stdin_Stdout_Stderr_Pipes  pipes;
 
-    pipes.stdin   = make_pipe_pair ();
-    pipes.stdout  = make_pipe_pair ();
-    pipes.stderr  = make_pipe_pair ();
+    pipes.stdin_   = make_pipe_pair ();
+    pipes.stdout_  = make_pipe_pair ();
+    pipes.stderr_  = make_pipe_pair ();
 
     return pipes;
 }
@@ -684,9 +684,9 @@ static void   start_subprocess (
 
         // Close the child-process pipe ends:
 	//
-        close( subprocess_pipes.stdin.read_fd   );
-        close( subprocess_pipes.stdout.write_fd );
-        close( subprocess_pipes.stderr.write_fd );
+        close( subprocess_pipes.stdin_.read_fd   );
+        close( subprocess_pipes.stdout_.write_fd );
+        close( subprocess_pipes.stderr_.write_fd );
 
         set_signal_handlers();
 
@@ -697,9 +697,9 @@ static void   start_subprocess (
 
         // Close the parent-process pipe ends:
         //
-        close( subprocess_pipes.stdin.write_fd  );
-        close( subprocess_pipes.stdout.read_fd  );
-        close( subprocess_pipes.stderr.read_fd  );
+        close( subprocess_pipes.stdin_.write_fd  );
+        close( subprocess_pipes.stdout_.read_fd  );
+        close( subprocess_pipes.stderr_.read_fd  );
 
         // Close the original stdin/stdout/stderr file descriptors:
 	//
@@ -710,9 +710,9 @@ static void   start_subprocess (
         // Set up the pipes leading to us as the child's
         // new stdin/stdout/stderr:
         //
-	copy_pipe( subprocess_pipes.stdin.read_fd,   STDIN_FILENO   );
-	copy_pipe( subprocess_pipes.stdout.write_fd, STDOUT_FILENO  );
-	copy_pipe( subprocess_pipes.stderr.write_fd, STDERR_FILENO  );
+	copy_pipe( subprocess_pipes.stdin_.read_fd,   STDIN_FILENO   );
+	copy_pipe( subprocess_pipes.stdout_.write_fd, STDOUT_FILENO  );
+	copy_pipe( subprocess_pipes.stderr_.write_fd, STDERR_FILENO  );
 
 	setenv( "MYTHRYL_SCRIPT", "<stdin>", TRUE );				// The 'TRUE' makes it overwrite any pre-existing value for "MYTHRYL_SCRIPT".
 	//
@@ -869,14 +869,14 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
     if (max_fd <= STDERR_FILENO) {
 	max_fd  = STDERR_FILENO+1;
     }
-    if (max_fd <= subprocess_pipes.stdin.write_fd) {
-	max_fd  = subprocess_pipes.stdin.write_fd+1;
+    if (max_fd <= subprocess_pipes.stdin_.write_fd) {
+	max_fd  = subprocess_pipes.stdin_.write_fd+1;
     }
-    if (max_fd <= subprocess_pipes.stdout.read_fd) {
-	max_fd  = subprocess_pipes.stdout.read_fd+1;
+    if (max_fd <= subprocess_pipes.stdout_.read_fd) {
+	max_fd  = subprocess_pipes.stdout_.read_fd+1;
     }
-    if (max_fd <= subprocess_pipes.stderr.read_fd) {
-	max_fd  = subprocess_pipes.stderr.read_fd+1;
+    if (max_fd <= subprocess_pipes.stderr_.read_fd) {
+	max_fd  = subprocess_pipes.stderr_.read_fd+1;
     }
 
     for (;;) {
@@ -888,12 +888,12 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	FD_ZERO( &writable_file_descriptors );
 
 	{                              FD_SET( STDIN_FILENO,                    &readable_file_descriptors ); }
-        if (!eof_on_childs_stdout) {   FD_SET( subprocess_pipes.stdout.read_fd, &readable_file_descriptors ); }
-        if (!eof_on_childs_stderr) {   FD_SET( subprocess_pipes.stderr.read_fd, &readable_file_descriptors ); }
+        if (!eof_on_childs_stdout) {   FD_SET( subprocess_pipes.stdout_.read_fd, &readable_file_descriptors ); }
+        if (!eof_on_childs_stderr) {   FD_SET( subprocess_pipes.stderr_.read_fd, &readable_file_descriptors ); }
 
 	{			       FD_SET( STDOUT_FILENO,                   &writable_file_descriptors ); }
 	{			       FD_SET( STDERR_FILENO,                   &writable_file_descriptors ); }
-	if (!eof_on_childs_stdin)  {   FD_SET( subprocess_pipes.stdin.write_fd, &writable_file_descriptors ); }
+	if (!eof_on_childs_stdin)  {   FD_SET( subprocess_pipes.stdin_.write_fd, &writable_file_descriptors ); }
 
         int bytes_copied  = 0;
 
@@ -932,8 +932,8 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	// then we're done:
 	//
 	if (child_is_dead
-	&&  (eof_on_childs_stdout || !FD_ISSET( subprocess_pipes.stdout.read_fd, &readable_file_descriptors ))
-	&&  (eof_on_childs_stderr || !FD_ISSET( subprocess_pipes.stderr.read_fd, &readable_file_descriptors ))
+	&&  (eof_on_childs_stdout || !FD_ISSET( subprocess_pipes.stdout_.read_fd, &readable_file_descriptors ))
+	&&  (eof_on_childs_stderr || !FD_ISSET( subprocess_pipes.stderr_.read_fd, &readable_file_descriptors ))
 	){
 	    exit( child_exit_status );
 	}
@@ -942,17 +942,17 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	// compiler to our user is
 	// bog safe:
 	//
-	if (!eof_on_childs_stdout && FD_ISSET( subprocess_pipes.stdout.read_fd, &readable_file_descriptors )) {
+	if (!eof_on_childs_stdout && FD_ISSET( subprocess_pipes.stdout_.read_fd, &readable_file_descriptors )) {
 	    //
-	    int   copied   = copy_from_to( subprocess_pipes.stdout.read_fd, STDOUT_FILENO, 512 );
+	    int   copied   = copy_from_to( subprocess_pipes.stdout_.read_fd, STDOUT_FILENO, 512 );
 	    bytes_copied  += copied;
 	    if (!copied) {
 		eof_on_childs_stdout = TRUE;
 	    }
 	}
-	if (!eof_on_childs_stderr && FD_ISSET( subprocess_pipes.stderr.read_fd, &readable_file_descriptors )) {
+	if (!eof_on_childs_stderr && FD_ISSET( subprocess_pipes.stderr_.read_fd, &readable_file_descriptors )) {
 	    //
-	    int   copied   = copy_from_to( subprocess_pipes.stderr.read_fd, STDERR_FILENO, 512 );
+	    int   copied   = copy_from_to( subprocess_pipes.stderr_.read_fd, STDERR_FILENO, 512 );
 	    bytes_copied  += copied;
 	    if (!copied)  eof_on_childs_stderr = TRUE;
 	}
@@ -965,14 +965,14 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	    !child_is_dead
 	) {
 	    //
-	    if (FD_ISSET( subprocess_pipes.stdin.write_fd, &writable_file_descriptors )) {
+	    if (FD_ISSET( subprocess_pipes.stdin_.write_fd, &writable_file_descriptors )) {
 		//
 		int bytes_written
 		    =
 		    send_byte_to(
 			//
 			*remaining_text_for_compiler,
-			subprocess_pipes.stdin.write_fd
+			subprocess_pipes.stdin_.write_fd
 		    );
 
 		remaining_text_for_compiler += bytes_written;
@@ -992,9 +992,9 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 		// (If it becomes one, we can set up non-blocking writes.)
 		//
 		if (FD_ISSET( STDIN_FILENO,                    &readable_file_descriptors )                &&
-		    FD_ISSET( subprocess_pipes.stdin.write_fd, &writable_file_descriptors )
+		    FD_ISSET( subprocess_pipes.stdin_.write_fd, &writable_file_descriptors )
 		){
-		    bytes_copied  += copy_from_to( STDIN_FILENO, subprocess_pipes.stdin.write_fd, 1 );
+		    bytes_copied  += copy_from_to( STDIN_FILENO, subprocess_pipes.stdin_.write_fd, 1 );
 		}
 	    }
 	}
@@ -1006,7 +1006,7 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	    &&										// hang when sent a script like
 	    !eof_on_childs_stdin							//
 	){										//     #!/usr/bin/mythryl
-	    close( subprocess_pipes.stdin.write_fd );					//     (
+	    close( subprocess_pipes.stdin_.write_fd );					//     (
 	    //										//
 	    eof_on_childs_stdin = TRUE;							// -- the Mythryl parser would hang forever waiting
 	}										// for the missing close paren.

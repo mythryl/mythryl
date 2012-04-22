@@ -195,7 +195,7 @@ save_yacc_and_lex:
 rest2:
 	$(MAKE) rest3
 
-#	$(MAKE) --jobs=`grep processor /proc/cpuinfo | wc -l` rest3
+#	$(MAKE) -j `grep processor /proc/cpuinfo | wc -l` rest3
 
 # The list of apps and libs for
 # 'make rest' to build.  This

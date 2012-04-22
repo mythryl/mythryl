@@ -349,6 +349,17 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ _UC_MACHINE_SET_PC(scp, ((long) (addr))); }
 #    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
+#  elif defined(OPSYS_OPENBSD)
+    // intel32, OpenBSD
+#    define SIG_FAULT1		SIGFPE
+#    define INT_DIVZERO(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTDIV))
+#    define INT_OVFLW(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTOVF))
+
+#    define GET_SIGNAL_CODE(info, scp)	(info)
+#    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
+#    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
+#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+
 #  elif defined(OPSYS_SOLARIS)
      // intel32, Solaris
 
