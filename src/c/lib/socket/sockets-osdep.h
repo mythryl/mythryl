@@ -33,7 +33,7 @@ typedef void *sockoptval_t;	// The pointer type used to pass values to  getsocko
 #    define SOCKADDR_HAS_LEN	// Socket address has a length field.
 #  endif
 
-#  if (defined(OPSYS_FREEBSD) || defined (OPSYS_NETBSD) || defined (OPSYS_NETBSD2))
+#  if (defined(OPSYS_FREEBSD) || defined (OPSYS_NETBSD) || defined (OPSYS_NETBSD2) || defined(OPSYS_OPENBSD))
 #    define i386		1	// To avoid a bug in system header files.
 #    define INCLUDE_RPCENT_H	<rpc/rpc.h>
 #  endif

@@ -35,7 +35,10 @@
 #include <sys/types.h>
 #endif
 
-// #include <sys/prctl.h>							// Commented out 2012-04-17 CrT because it seems unneeded and Dave Husby reported that it isn't available on OpenBSD 5.0
+#if HAVE_SYS_PRCTL_H
+#include <sys/prctl.h>
+#endif
+
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -457,6 +460,52 @@ Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its 
 // This is just a clone of the above dynamically-allocated mutex section.
 //
 //
+
+#if !defined(HAVE_PTHREAD_BARRIER_T)
+
+// We need to emulate pthread_barrier_t since the OS doesn't provide one.
+// This was blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
+//             -- Dave Huseby
+
+int  barrier_init_emulation  (Barrier* barrier,  int needed) {
+    //
+    barrier->needed = needed;
+    barrier->called = 0;
+    //NOTE: error checking is for the weak minded
+    pthread_mutex_init( &barrier->mutex, NULL );
+    pthread_cond_init( &barrier->cond, NULL );
+    return 0;
+}
+
+int  barrier_destroy_emulation  (Barrier* barrier) {
+    //
+    pthread_mutex_destroy( &barrier->mutex );
+    pthread_cond_destroy( &barrier->cond );
+    return 0;
+}
+
+int  barrier_wait_emulation  (Barrier* barrier) {
+    //
+    int ret = 0;
+    pthread_mutex_lock( &barrier->mutex );
+    barrier->called++;
+    if (barrier->called == barrier->needed) {
+	//
+	barrier->called = 0;
+	pthread_cond_broadcast( &barrier->cond );
+	ret = PTHREAD_BARRIER_SERIAL_THREAD;
+
+    } else {
+
+	pthread_cond_wait( &barrier->cond, &barrier->mutex );
+    }
+    pthread_mutex_unlock( &barrier->mutex );
+    return ret;
+}
+
+#endif
+
+
 typedef struct { Barrier barrier;
                  Bool    is_set;
                }

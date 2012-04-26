@@ -19,12 +19,21 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
 #include <string.h>
 
-#if HAVE_GTK_2_0_GTK_GTK_H
-    #include <gtk-2.0/gtk/gtk.h>
-#elif HAVE_GTK_GTK_H
-    #include <gtk/gtk.h>
+#if (defined(HAVE_GTK_2_0_GTK_GTK_H) || defined(HAVE_GTK_GTK_H))
+    
+  // Don't do this: #include <gtk-2.0/gtk/gtk.h> because the command `pkg-config --cflags gtk+-2.0`
+  // returns the path of the gtk-2.0 directory.  the only reason it worked before is because of a 
+  // coincidence that the directory containing the gtk-2.0 was also in the list of include paths
+  // which happens on some systems like Linux.  On OpenBSD, it doesn't, so we have to just trust that
+  // pkg-config returns the correct path for including gtk/gtk.h.
+
+   #include <gtk/gtk.h>
+
+#else
+    #error "No GTK Library Installed"
 #endif
 
 #include "runtime-base.h"

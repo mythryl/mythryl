@@ -20,10 +20,10 @@
 #  if   (defined(OPSYS_AIX))			// See also src/c/h/system-dependent-unix-stuff.h
 #    define OS_NAME	"aix"
 #  elif (defined(OPSYS_DARWIN))
-#    define OS_NAME    "darwin"
+#    define OS_NAME	"darwin"
 #  elif (defined(OPSYS_DUNIX))
 #    define OS_NAME	"dunix"
-#  elif (defined(OPSYS_FREEBSD) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2))
+#  elif (defined(OPSYS_FREEBSD) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2) || defined(OPSYS_OPENBSD))
 #    define OS_NAME	"bsd"
 #  elif (defined(OPSYS_HPUX9))
 #    define OS_NAME	"hpux"
@@ -40,7 +40,7 @@
 #  elif (defined(OPSYS_SUNOS))
 #    define OS_NAME	"sunos"
 #  elif (defined(OPSYS_CYGWIN))
-#    define OS_NAME    "cygwin"
+#    define OS_NAME	"cygwin"
 #  else
 #    define OS_NAME	"unix"
 #  endif

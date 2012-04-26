@@ -13,7 +13,7 @@
 #define FALSE	0
 #define TRUE	1
 
-#if (!defined(SYMBOLMAPSTACK_GLOBALS_HAVE_LEADING_UNDERSCORE)) && (defined(OPSYS_SUNOS) || (defined(OPSYS_FREEBSD) && !defined(__ELF__)) || defined(OPSYS_NETBSD) || (defined(OPSYS_NETBSD2) && !defined(__ELF__)) || defined(OPSYS_NEXTSTEP) || defined(OPSYS_WIN32) || defined(OPSYS_DARWIN) || defined(OPSYS_CYGWIN))
+#if (!defined(SYMBOLMAPSTACK_GLOBALS_HAVE_LEADING_UNDERSCORE)) && (defined(OPSYS_SUNOS) || (defined(OPSYS_FREEBSD) && !defined(__ELF__)) || defined(OPSYS_NETBSD) || (defined(OPSYS_NETBSD2) && !defined(__ELF__)) || (defined(OPSYS_OPENBSD) && !defined(__ELF__)) || defined(OPSYS_NEXTSTEP) || defined(OPSYS_WIN32) || defined(OPSYS_DARWIN) || defined(OPSYS_CYGWIN))
 #  define SYMBOLMAPSTACK_GLOBALS_HAVE_LEADING_UNDERSCORE
 #endif
 

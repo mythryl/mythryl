@@ -96,7 +96,7 @@ typedef int fe_rnd_mode_t;
 
 typedef int fe_rnd_mode_t;
 
-#elif (defined(OPSYS_IRIX) || defined(OPSYS_IRIX5) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2))
+#elif (defined(OPSYS_IRIX) || defined(OPSYS_IRIX5) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2) || defined(OPSYS_OPENBSD))
 #  include <ieeefp.h>
 #  define FE_TONEAREST		FP_RN
 #  define FE_TOWARDZERO		FP_RZ
