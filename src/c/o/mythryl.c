@@ -887,12 +887,12 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	FD_ZERO( &readable_file_descriptors );
 	FD_ZERO( &writable_file_descriptors );
 
-	{                              FD_SET( STDIN_FILENO,                    &readable_file_descriptors ); }
+	{                              FD_SET( STDIN_FILENO,                     &readable_file_descriptors ); }
         if (!eof_on_childs_stdout) {   FD_SET( subprocess_pipes.stdout_.read_fd, &readable_file_descriptors ); }
         if (!eof_on_childs_stderr) {   FD_SET( subprocess_pipes.stderr_.read_fd, &readable_file_descriptors ); }
 
-	{			       FD_SET( STDOUT_FILENO,                   &writable_file_descriptors ); }
-	{			       FD_SET( STDERR_FILENO,                   &writable_file_descriptors ); }
+	{			       FD_SET( STDOUT_FILENO,                    &writable_file_descriptors ); }
+	{			       FD_SET( STDERR_FILENO,                    &writable_file_descriptors ); }
 	if (!eof_on_childs_stdin)  {   FD_SET( subprocess_pipes.stdin_.write_fd, &writable_file_descriptors ); }
 
         int bytes_copied  = 0;
@@ -991,7 +991,7 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 		//
 		// (If it becomes one, we can set up non-blocking writes.)
 		//
-		if (FD_ISSET( STDIN_FILENO,                    &readable_file_descriptors )                &&
+		if (FD_ISSET( STDIN_FILENO,                     &readable_file_descriptors )                &&
 		    FD_ISSET( subprocess_pipes.stdin_.write_fd, &writable_file_descriptors )
 		){
 		    bytes_copied  += copy_from_to( STDIN_FILENO, subprocess_pipes.stdin_.write_fd, 1 );

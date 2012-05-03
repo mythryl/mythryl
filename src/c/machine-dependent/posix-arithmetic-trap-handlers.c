@@ -104,7 +104,7 @@ void   set_up_fault_handlers   (Task* task)   {
 	#if (defined(TARGET_PWRPC32) && defined(OPSYS_LINUX))
 	    Signal_Handler_Context_Arg*  scp						// "scp" may be "signalhandler context pointer"
 	#else
-	    Signal_Handler_Info_Arg	    info,
+	    Signal_Handler_Info_Arg	  info,
 	    Signal_Handler_Context_Arg*   scp
 	#endif
     ){

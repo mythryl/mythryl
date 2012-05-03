@@ -140,37 +140,38 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
 
 #if defined(HAVE_PTHREAD_BARRIER_T)
 
-	typedef pthread_barrier_t		Barrier;		// A barrier.
-	typedef pthread_barrier_attr_t	BarrierAttr;	// A barrier attributes.
+  typedef pthread_barrier_t    Barrier;    // A barrier.
+  typedef pthread_barrier_attr_t  BarrierAttr;  // A barrier attributes.
 
 #else
 
-	// OpenBSD pthreads does not include pthread barriers so we need to provide our own.
-	// blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
-	typedef struct {
-		//
-		int		needed;
-		int		called;
-		pthread_mutex_t mutex;
-		pthread_cond_t cond;
-		//
-	} Barrier;
+  // OpenBSD pthreads does not include pthread barriers so we need to provide our own.
+  // Blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
+  typedef struct {
+    //
+    int    needed;
+    int    called;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    //
+  } Barrier;
 
-	typedef struct {
-		// empty
-	} BarrierAttr;
+  typedef struct {
+    // empty
+  } BarrierAttr;
 
-	// barrier functions
-#   define pthread_barrier_init(b,a,n) barrier_init_emulation(b,n)
-#   define pthread_barrier_destroy(b) barrier_destroy_emulation(b)
-#   define pthread_barrier_wait(b) barrier_wait_emulation(b)
-	int barrier_init_emulation ( Barrier * barrier, int needed );
-	int barrier_destroy_emulation ( Barrier * barrier );
-	int barrier_wait_emulation ( Barrier * barrier);
 
-	// this gets returned from barrier_wait_emulation when the requisite
-	// number of threads has been reached...
-#   define PTHREAD_BARRIER_SERIAL_THREAD -1
+  // Barrier functions:
+  #define pthread_barrier_init(b,a,n) barrier_init_emulation(b,n)
+  #define pthread_barrier_destroy(b) barrier_destroy_emulation(b)
+  #define pthread_barrier_wait(b) barrier_wait_emulation(b)
+  int barrier_init_emulation ( Barrier * barrier, int needed );
+  int barrier_destroy_emulation ( Barrier * barrier );
+  int barrier_wait_emulation ( Barrier * barrier);
+
+  // This gets returned from barrier_wait_emulation when the requisite
+  // number of threads has been reached...
+  #define PTHREAD_BARRIER_SERIAL_THREAD -1
 
 #endif
 
@@ -640,7 +641,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 #endif
 
 #if HAVE_SYS_PCTRL_H
-	#include <sys/prctl.h>
+    #include <sys/prctl.h>
 #endif
 
 #if HAVE_UNISTD_H

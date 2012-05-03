@@ -26,6 +26,7 @@
 
 #if defined(OPSYS_UNIX)
 #  if (defined(OPSYS_SUNOS) || defined(OPSYS_IRIX4) || defined(OPSYS_LINUX) || defined(OPSYS_AIX) || defined(OPSYS_FREEBSD) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2) || defined(OPSYS_OPENBSD) || defined(OPSYS_DARWIN) || defined(OPSYS_CYGWIN))
+ 
 #     define GET_HOST_HARDWARE_PAGE_BYTESIZE()	(getpagesize())
 #  else
    // POSIX 1003.1b interface

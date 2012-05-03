@@ -39,6 +39,7 @@
 #include <sys/prctl.h>
 #endif
 
+
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -462,46 +463,48 @@ Vunt   pth__condvar_make   (void) {									// Create a new condvar, return its 
 
 #if !defined(HAVE_PTHREAD_BARRIER_T)
 
-// we need to emulate pthread_barrier_t since the OS doesn't provide one.
-// this was blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
+// We need to emulate pthread_barrier_t since the OS doesn't provide one.
+// This was blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
+//             -- Dave Huseby
 
-int barrier_init_emulation ( Barrier * barrier, int needed )
-{
-	barrier->needed = needed;
+int  barrier_init_emulation  (Barrier* barrier,  int needed) {
+    //
+    barrier->needed = needed;
+    barrier->called = 0;
+    //NOTE: error checking is for the weak minded
+    pthread_mutex_init( &barrier->mutex, NULL );
+    pthread_cond_init( &barrier->cond, NULL );
+    return 0;
+}
+
+int  barrier_destroy_emulation  (Barrier* barrier) {
+    //
+    pthread_mutex_destroy( &barrier->mutex );
+    pthread_cond_destroy( &barrier->cond );
+    return 0;
+}
+
+int  barrier_wait_emulation  (Barrier* barrier) {
+    //
+    int ret = 0;
+    pthread_mutex_lock( &barrier->mutex );
+    barrier->called++;
+    if (barrier->called == barrier->needed) {
+	//
 	barrier->called = 0;
-	//NOTE: error checking is for the weak minded
-	pthread_mutex_init( &barrier->mutex, NULL );
-	pthread_cond_init( &barrier->cond, NULL );
-	return 0;
-}
+	pthread_cond_broadcast( &barrier->cond );
+	ret = PTHREAD_BARRIER_SERIAL_THREAD;
 
-int barrier_destroy_emulation ( Barrier * barrier )
-{
-	pthread_mutex_destroy( &barrier->mutex );
-	pthread_cond_destroy( &barrier->cond );
-	return 0;
-}
+    } else {
 
-int barrier_wait_emulation ( Barrier * barrier)
-{
-	int ret = 0;
-	pthread_mutex_lock( &barrier->mutex );
-	barrier->called++;
-	if (barrier->called == barrier->needed)
-	{
-		barrier->called = 0;
-		pthread_cond_broadcast( &barrier->cond );
-		ret = PTHREAD_BARRIER_SERIAL_THREAD;
-	}
-	else
-	{
-		pthread_cond_wait( &barrier->cond, &barrier->mutex );
-	}
-	pthread_mutex_unlock( &barrier->mutex );
-	return ret;
+	pthread_cond_wait( &barrier->cond, &barrier->mutex );
+    }
+    pthread_mutex_unlock( &barrier->mutex );
+    return ret;
 }
 
 #endif
+
 
 typedef struct { Barrier barrier;
                  Bool    is_set;

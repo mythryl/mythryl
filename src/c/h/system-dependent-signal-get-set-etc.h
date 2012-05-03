@@ -298,7 +298,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #  define SET_UP_FLOATING_POINT_EXCEPTION_HANDLING()    FPEEnable()
 
 #  if (defined(TARGET_INTEL32) && defined(OPSYS_LINUX))
-    /** INTEL32, LINUX **/
+     /** INTEL32, LINUX **/
 #    define INTO_OPCODE		0xce	// The 'into' instruction is a single
 					// instruction that signals OVERFLOW
 
@@ -313,7 +313,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_FREEBSD)
-    // intel32, FreeBSD
+     // intel32, FreeBSD
 #    define SIG_FAULT1		SIGFPE
 #    define INT_DIVZERO(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTDIV_TRAP))
 #    define INT_OVFLW(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTOVF_TRAP))
@@ -325,7 +325,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 
 
 #  elif defined(OPSYS_NETBSD2)
-    // intel32, NetBSD (version 2.x)
+     // intel32, NetBSD (version 2.x)
 #    define SIG_FAULT1		SIGFPE
 #    define SIG_FAULT2		SIGBUS
 #    define INT_DIVZERO(s, c)	0
@@ -338,7 +338,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 
 
 #  elif defined(OPSYS_NETBSD)
-    // intel32, NetBSD (version 3.x)
+     // intel32, NetBSD (version 3.x)
 #    define SIG_FAULT1		SIGFPE
 #    define SIG_FAULT2		SIGBUS
 #    define INT_DIVZERO(s, c)	0
@@ -350,15 +350,16 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_OPENBSD)
-    // intel32, OpenBSD
-#    define SIG_FAULT1		SIGFPE
-#    define INT_DIVZERO(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTDIV))
-#    define INT_OVFLW(s, c)	(((s) == SIGFPE) && ((c) == FPE_INTOVF))
+     // intel32, OpenBSD
 
-#    define GET_SIGNAL_CODE(info, scp)	(info)
-#    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
-#    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define SIG_FAULT1    SIGFPE
+#    define INT_DIVZERO(s, c)  (((s) == SIGFPE) && ((c) == FPE_INTDIV))
+#    define INT_OVFLW(s, c)  (((s) == SIGFPE) && ((c) == FPE_INTOVF))
+
+#    define GET_SIGNAL_CODE(info, scp)  (info)
+#    define GET_SIGNAL_PROGRAM_COUNTER(scp)    ((scp)->sc_pc)
+#    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)  { (scp)->sc_pc = (long)(addr); }
+#    define SIG_Zero_Heap_Allocation_Limit(scp)  { LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_SOLARIS)
      // intel32, Solaris
