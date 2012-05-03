@@ -339,10 +339,10 @@ extern char     *sys_errlist[];
 #  define HAS_UCONTEXT
 #  define HAS_STRERROR
 
-+#elif defined(OPSYS_OPENBSD)            // NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
+#elif defined(OPSYS_OPENBSD)						// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
-#  define HAS_POSIX_SIGS              // Don't use HAS_BSD_SIGS...OpenBSD has deprecated them in favor of posix sigs.
-//#  define HAS_UCONTEXT              // Doesn't have Linux-style ucontext stuff.
+#  define HAS_POSIX_SIGS							// don't use HAS_BSD_SIGS...OpenBSD has deprecated them in favor of posix sigs
+//#  define HAS_UCONTEXT							// doesn't have Linux-style ucontext stuff
 #  define HAS_GETRUSAGE
 #  define HAS_SETITIMER
 #  define HAS_ANON_MMAP

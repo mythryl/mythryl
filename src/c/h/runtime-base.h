@@ -154,24 +154,24 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     //
- } Barrier;
+  } Barrier;
 
- typedef struct {
+  typedef struct {
     // empty
- } BarrierAttr;
+  } BarrierAttr;
 
 
   // Barrier functions:
-#   define pthread_barrier_init(b,a,n) barrier_init_emulation(b,n)
-#   define pthread_barrier_destroy(b) barrier_destroy_emulation(b)
-#   define pthread_barrier_wait(b) barrier_wait_emulation(b)
+  #define pthread_barrier_init(b,a,n) barrier_init_emulation(b,n)
+  #define pthread_barrier_destroy(b) barrier_destroy_emulation(b)
+  #define pthread_barrier_wait(b) barrier_wait_emulation(b)
   int barrier_init_emulation ( Barrier * barrier, int needed );
   int barrier_destroy_emulation ( Barrier * barrier );
   int barrier_wait_emulation ( Barrier * barrier);
 
   // This gets returned from barrier_wait_emulation when the requisite
   // number of threads has been reached...
-#   define PTHREAD_BARRIER_SERIAL_THREAD -1
+  #define PTHREAD_BARRIER_SERIAL_THREAD -1
 
 #endif
 

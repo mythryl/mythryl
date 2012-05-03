@@ -351,6 +351,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 
 #  elif defined(OPSYS_OPENBSD)
      // intel32, OpenBSD
+
 #    define SIG_FAULT1    SIGFPE
 #    define INT_DIVZERO(s, c)  (((s) == SIGFPE) && ((c) == FPE_INTDIV))
 #    define INT_OVFLW(s, c)  (((s) == SIGFPE) && ((c) == FPE_INTOVF))
