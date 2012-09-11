@@ -1,8 +1,4 @@
 // mythryl.c, a small shebang wrapper for mythryl scripts.
-
-// Created 2007-03-12 CrT.
-// First successful run:   Lib7.110.58 [built: Tue Mar 13 13:19:31 2007]     Do   bin/mythryld -h   for help, <Ctrl>-D to quit. */
-
 //
 // For security reasons, most *nix operating systems will not
 // allow a script interpreter to itself be a script:  If the
@@ -31,11 +27,15 @@
 
 
 
+
 /*
 ###			"The best way to solve a hard problem
 ###			 is to convert it into an easy problem."
 */
 
+
+// Created 2007-03-12 CrT.
+// First successful run:   Lib7.110.58 [built: Tue Mar 13 13:19:31 2007]     Do   bin/mythryld -h   for help, <Ctrl>-D to quit. */
 
 
 #include "../mythryl-config.h"
@@ -98,9 +98,9 @@
 
 
 
-#define SCRIPT_EXIT_BOILERPLATE "\n posix_1003_1b::kill (posix_1003_1b::K_PROC (posix_1003_1b::get_process_id' () ), posix_1003_1b::signal::term );;\n"
+// #define SCRIPT_EXIT_BOILERPLATE "\n posix_1003_1b::kill (posix_1003_1b::K_PROC (posix_1003_1b::get_process_id' () ), posix_1003_1b::signal::term );;\n"
     //
-    // #define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
+#define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
     // #define SCRIPT_EXIT_BOILERPLATE "\n (winix::process::exit winix::process::success): Void;\n"
     //
     // See Note[2] at bottom of file.
@@ -380,15 +380,15 @@ static void   close_redundant_fds   (void)   {
 	fclose(log_fd);
     #endif
 
-    for (int fd = 3;   fd < 100;   ++fd)   close( fd );
+//    for (int fd = 3;   fd < 100;   ++fd)   close( fd );
 
     #if DEBUG
 	open_logfile ();
     #endif
 }
 
-// A record to track the six ends of the three pipes
-// connecting us with our subprocess:
+// A pair of records to track the six ends of the
+// three pipes connecting us with our subprocess:
 //
 typedef struct { int read_fd;					// fd to read() on.
                  int write_fd;					// fd to write() on.
@@ -398,16 +398,20 @@ typedef struct { Pipe_Pair stdin_;
                  Pipe_Pair stdout_;
                  Pipe_Pair stderr_;
                } Stdin_Stdout_Stderr_Pipes;
-
+			//
+			// We avoid 'stdin'/'stdout'/'stderr' above because
+			// they are C++ reserved words and we might want
+			// to convert to compiling as C++ at some point.
 //
-static Pipe_Pair   make_pipe_pair   (void)   {
+static Pipe_Pair   make_pipe_fd_pair   (void)   {
     //
-    // To communicate with our subprocess, we need
-    // three pipes, one each for its stdin, stdout,
-    // stderr.  We create these using the following
-    // fn, for each pipe later handing one end to
-    // our subprocess and keeping the other for
-    // ourself.
+    // To communicate with our subprocess we need three
+    // pipes, one each for its stdin, stdout, stderr.
+    //
+    // We create these using the following fn.
+    //
+    // Later we will hand one end of each pipe to our
+    // subprocess and keep the other end for ourself.
 
     Pipe_Pair pp;
 
@@ -437,9 +441,9 @@ static Stdin_Stdout_Stderr_Pipes   open_subprocess_pipes   (void)   {
 
     Stdin_Stdout_Stderr_Pipes  pipes;
 
-    pipes.stdin_   = make_pipe_pair ();
-    pipes.stdout_  = make_pipe_pair ();
-    pipes.stderr_  = make_pipe_pair ();
+    pipes.stdin_   = make_pipe_fd_pair ();
+    pipes.stdout_  = make_pipe_fd_pair ();
+    pipes.stderr_  = make_pipe_fd_pair ();
 
     return pipes;
 }
@@ -780,9 +784,12 @@ static int   copy_from_to   (
         max_bytes_to_copy  = 512;
     }
 
-    ssize_t   bytes_read
-	=
-	read(   read_fd,   buf,   max_bytes_to_copy   );
+    ssize_t   bytes_read;
+
+    do  {
+	bytes_read =   read(   read_fd,   buf,   max_bytes_to_copy   );
+	//
+    } while (bytes_read == -1  &&  errno == EINTR);									// Ah, POSIX, how can we not love you?  :-)
 
     if (bytes_read <= -1) {
 	//
@@ -790,7 +797,7 @@ static int   copy_from_to   (
 	exit(1);
     }
 
-    if (bytes_read == 0)  return 0;
+    if (bytes_read == 0)  return 0;											// End of file.
 
     char* rest_of_buf
 	=
@@ -804,9 +811,12 @@ static int   copy_from_to   (
     //
     while (bytes_left_to_write > 0) {
 	//
-	ssize_t   bytes_written
-	    = 
-	    write(   write_fd,   rest_of_buf,   bytes_left_to_write   );
+	ssize_t   bytes_written;
+
+	do {
+	    bytes_written =  write(   write_fd,   rest_of_buf,   bytes_left_to_write   );
+	    //
+	} while (bytes_written == -1  &&  errno == EINTR);
 
 	if (bytes_written <= -1) {
 	    //
@@ -818,8 +828,8 @@ static int   copy_from_to   (
 	// by accepting zero bytes, but sane OSes are as
 	// common as unicorns, so:
 	//
-	if (bytes_written == 0)   sleep_10ms ();
-
+	if (bytes_written == 0)   sleep_10ms ();									// Actually, I think we'll get this on end of file (i.e., pipe closed from other end)
+															// so we should maybe be aborting with an error message here...?  -- 2012-06-14 CrT
 	rest_of_buf         += bytes_written;
 	bytes_left_to_write -= bytes_written;
     }         
@@ -1105,24 +1115,20 @@ int   main   ( int argc, char** argv ) {
 //     So instead we send ourself the TERM signal, whose handler
 //     consists of the above code.     -- CrT, circa 2008
 //
-// Cynbe, 2012-02-05:
 //
-//     But shouldn't casting to Void resolve this?
-//     Changing to either of
+// Cynbe, 2012-06-13:
 //
-//         #define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
-//         #define SCRIPT_EXIT_BOILERPLATE "\n (winix::process::exit winix::process::success): Void;\n"
+//     Changed back after changing the type of  winix::process::exit  from
 //
-//     results in the script
+//         Status -> X
+//     to
+//         Status -> Void
 //
-//         #!/usr/bin/mythryl
-//         print "Hello, world!\n";
+//     -- this should resolve the free-type-variable issues.
 //
-//     just hanging.  But entering
-//
-//         winix::process::exit  winix::process::success;
-//
-//     at the Mythryl   eval:   prompt works fine.
+//     We still need the  Status -> X  version on occasion (in particular
+//     in 'case' statements, so the branch types all match) so I made it
+//     available as winix::process::exit.
 
 
 

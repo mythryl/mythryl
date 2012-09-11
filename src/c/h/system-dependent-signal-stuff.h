@@ -11,7 +11,7 @@
 // To avoid race conditions
 // we keep two counters.
 //
-// This type appears only in  struct pthread  in
+// This type appears only in  struct hostthread  in
 //
 //     src/c/h/runtime-base.h
 //
@@ -41,7 +41,7 @@ typedef struct {
 
 // Utility functions:
 //
-extern void   choose_signal			(Pthread* pthread);
+extern void   choose_signal			(Hostthread* hostthread);
 extern Val    make_resumption_fate		(Task* task,  Val resume[]);
 extern Val    make_mythryl_signal_handler_arg	(Task* task,  Val resume[]);
 extern void   load_resume_state			(Task* task);
@@ -52,9 +52,9 @@ extern void   load_resume_state			(Task* task);
 //     src/c/machine-dependent/posix-signal.c
 //     src/c/machine-dependent/win32-signal.c
 //
-extern void	pause_until_signal		(Pthread* pthread);						//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
-extern void	set_signal_state		(Pthread* pthread, int signal_number, int signal_state);
-extern int	get_signal_state		(Pthread* pthread, int signal_number);
+extern void	pause_until_signal		(Hostthread* hostthread);						//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
+extern void	set_signal_state		(Hostthread* hostthread, int signal_number, int signal_state);
+extern int	get_signal_state		(Hostthread* hostthread, int signal_number);
 //
 extern Val	list_signals__may_heapclean	(Task* task, Roots*);
 extern void	set_signal_mask			(Task* task, Val signal_list);

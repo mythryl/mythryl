@@ -17,7 +17,7 @@ struct smlgtk_event
 extern struct smlgtk_event smlgtk_event;
 
 /*  
- *  A pthread based runtime 
+ *  A hostthread based runtime 
  */
 extern void smlgtk_runtime_init();
 extern void smlgtk_runtime_cleanup();

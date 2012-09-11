@@ -67,22 +67,22 @@
 
 
 
-#define NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
+#define NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
     //
     // Define this as 1 (i.e. TRUE) to compile in support.
     //
-    // Currently this must be TRUE for pthread support to function.	(Is this actually true? -- 2012-03-02 CrT)
+    // Currently this must be TRUE for hostthread support to function.	(Is this actually true? -- 2012-03-02 CrT)
     //									(I have a feeling this would be a good switch to get rid of.  -- 2011-01-02 CrT) 
     // This switch affects the files:
     // 
-    //     src/c/h/runtime-base.h				// pthread section.
-    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
+    //     src/c/h/runtime-base.h				// hostthread section.
+    //     src/c/heapcleaner/hostthread-heapcleaner-stuff.c
     //     src/c/heapcleaner/call-heapcleaner.c
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 
 //
-#define MAX_PTHREADS	32
+#define MAX_HOSTTHREADS	32
     //
     // Max number of posix threads running Mythryl.
     // Don't be profligatehere :  We statically
@@ -91,27 +91,27 @@
     //
     //     src/c/h/runtime-configuration.h
 
-#define NEED_PTHREAD_DEBUG_SUPPORT 0
+#define NEED_HOSTTHREAD_DEBUG_SUPPORT 0
     //
-    // Set this to TRUE to Log pthread-related stuff
+    // Set this to TRUE to Log hostthread-related stuff
     // via the log_if fn from   src/c/main/error-reporting.c
     // NB: Doing this during a full build of the compiler
     //     will produce a logfile gigabytes long.
 
-#define PTHREAD_LOG_IF   if (NEED_PTHREAD_DEBUG_SUPPORT) log_if
+#define HOSTTHREAD_LOG_IF   if (NEED_HOSTTHREAD_DEBUG_SUPPORT) log_if
     //
     // The idea here is that 
     //
-    //     PTHREAD_LOG_IF ("Starting to foo the %s\n", bar);
+    //     HOSTTHREAD_LOG_IF ("Starting to foo the %s\n", bar);
     //
     // is a lot less clutter than
     //
-    //     #if NEED_PTHREAD_DEBUG_SUPPORT
+    //     #if NEED_HOSTTHREAD_DEBUG_SUPPORT
     //         log_if ("Starting to foo the %s\n", bar);
     //     #endif
     //
     // Also, the former provides typechecking even when
-    // PTHREAD_LOG_IF == 0   -- much more bitrot-resistant.
+    // HOSTTHREAD_LOG_IF == 0   -- much more bitrot-resistant.
 
 
 #define NEED_HEAPCLEANER_PAUSE_STATISTICS 0
@@ -180,7 +180,7 @@
     // it is safe and sensible to leave it unchanged.
     // We use it in
     //
-    //     src/c/pthread/pthread-on-posix-threads.c
+    //     src/c/hostthread/hostthread-on-posix-threads.c
     //
     // to try to put each mutex in its own cache line.  This can
     // improve performance because cores typically lock a complete

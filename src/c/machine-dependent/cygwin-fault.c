@@ -22,14 +22,14 @@
 #include <windows.h>
 #include <exceptions.h>					// Cygwin stuff
 
-#define SELF_PTHREAD      (pthread_table__global[ 0 ])
+#define SELF_HOSTTHREAD      (hostthread_table__global[ 0 ])
 
 BOOL   cygwin_generic_handler   (int code)   {
     //
     // Generic handler for cygwin "signals" such as interrupt, alarm. 
     // Returns TRUE if the main thread is running Mythryl code.
 
-    Pthread* pthread =  SELF_PTHREAD;
+    Hostthread* hostthread =  SELF_HOSTTHREAD;
 
     // Sanity check:  We compile in a MAX_POSIX_SIGNAL value but
     // have no way to ensure that we don't wind up getting run
@@ -38,16 +38,16 @@ BOOL   cygwin_generic_handler   (int code)   {
     //
     if (sig >= MAX_POSIX_SIGNALS)    die ("posix-signal.c: c_signal_handler: sig d=%d >= MAX_POSIX_SIGNAL %d\n", sig, MAX_POSIX_SIGNALS ); 
 
-    pthread->posix_signal_counts[code].seen_count++;
-    pthread->all_posix_signals.seen_count++;
+    hostthread->posix_signal_counts[code].seen_count++;
+    hostthread->all_posix_signals.seen_count++;
 
-    pthread->ccall_limit_pointer_mask = 0;
+    hostthread->ccall_limit_pointer_mask = 0;
 
-    if (pthread->executing_mythryl_code
-    &&  *pthread->posix_signal_pending
-    &&  *pthread->mythryl_handler_for_posix_signal_is_running
+    if (hostthread->executing_mythryl_code
+    &&  *hostthread->posix_signal_pending
+    &&  *hostthread->mythryl_handler_for_posix_signal_is_running
     ){
-       pthread->posix_signal_pending = TRUE;
+       hostthread->posix_signal_pending = TRUE;
        SIG_Zero_Heap_Allocation_Limit();
        return TRUE;
     }
@@ -91,13 +91,13 @@ static int  page_fault_handler   (EXCEPTION_RECORD* exn,  void* foo,  CONTEXT* c
     //
     extern Vunt request_fault [];
 
-    Task* task = SELF_PTHREAD->task;
+    Task* task = SELF_HOSTTHREAD->task;
 
     int code = exn->ExceptionCode;
 
     DWORD pc = (DWORD) exn->ExceptionAddress;
 
-    if (*SELF_PTHREAD->executing_mythryl_code) {
+    if (*SELF_HOSTTHREAD->executing_mythryl_code) {
 	//
         die ("cygwin:fault_handler: bogus fault not in Lib7: %#x\n", code);
     }

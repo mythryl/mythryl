@@ -488,7 +488,7 @@ if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 //      8K or so sometimes.  Prosumably broken reporting.
 //    ]
 // We have a fn   check_agegroup0_overrun_tripwire_buffer      in   src/c/heapcleaner/heap-debug-stuff.c
-// We have a fn   partition_agegroup0_buffer_between_pthreads  in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+// We have a fn   partition_agegroup0_buffer_between_hostthreads  in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 // To add flavor to the mix:
 //    *  In src/c/heapcleaner/make-strings-and-vectors-etc.c
 //       we seem to make a point of never allocating more than MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS

@@ -1,4 +1,4 @@
-## mailqueue.pkg
+## mailqueue.pkg					# Derives from cml/src/core-cml/mailbox.sml
 #
 # Unbounded queues of thread-to-thread mail messages.
 
@@ -9,9 +9,9 @@
 
 
 stipulate
-    package fat =  fate;				# fate				is from   src/lib/std/src/nj/fate.pkg
-    package itt =  internal_threadkit_types;		# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
-    package ts  =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    package fat =  fate;						# fate				is from   src/lib/std/src/nj/fate.pkg
+    package itt =  internal_threadkit_types;				# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package ts  =  thread_scheduler;					# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
     #
     Fate(X) =   fat::Fate(X);
     #
@@ -21,18 +21,14 @@ herein
 
     package mailqueue: (weak)
     api {
-
-	include Mailqueue;				# Mailqueue			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailqueue.api
-
+	include Mailqueue;						# Mailqueue			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailqueue.api
+	#
 	reset_mailqueue:  Mailqueue(X) -> Void;
-
     }
     {
-	Queue(X)
-	    =
-	    { front:  List(X),
-	      rear:   List(X)
-	    };
+	Queue(X) =  { front:  List(X),
+		      rear:   List(X)
+		    };
 
 	fun enqueue ( { front, rear }, x)
 	    =
@@ -48,7 +44,7 @@ herein
 	    # caller guarantees that queue is nonempty.
 
 	Mailqueue_State(X)
-	  = EMPTY      Queue( (Ref( itt::Selectrun_Status ), Fate(X)))
+	  = EMPTY      Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)))
 	  | NONEMPTY  (Int, Queue(X))					# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
 	  ;
 
@@ -75,17 +71,17 @@ herein
 
 	fun make__mailop_done__refcell ()
 	    =
-	    REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread()));
+	    REF (itt::DO1MAILOPRUN_IS_BLOCKED (ts::get_current_thread()));
 
 
-	fun end_selectrun_and_return_thread_state (selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED thread_state))
+	fun end_do1mailoprun_and_return_thread (do1mailoprun_status as REF (itt::DO1MAILOPRUN_IS_BLOCKED thread_state))
 		=>
-		{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
+		{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    thread_state;
 		};
 
-	    end_selectrun_and_return_thread_state  (REF (itt::SELECTRUN_IS_COMPLETE))
+	    end_do1mailoprun_and_return_thread  (REF (itt::DO1MAILOPRUN_IS_COMPLETE))
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction";			# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
@@ -95,7 +91,7 @@ herein
 	  #
 	  = NO_ITEM
 	  #
-	  |    ITEM   ( Ref(itt::Selectrun_Status),									# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
+	  |    ITEM   ( Ref( itt::Do1mailoprun_Status ),									# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			Fate(X),
 			Mailqueue_State(X)
 		      )													# This really should be a record.  XXX SUCKO FIXME.
@@ -103,7 +99,7 @@ herein
 
 	stipulate
 
-	    fun clean ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest) =>   clean rest;
+	    fun clean ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest) =>   clean rest;
 		clean l => l;
 	    end;
 
@@ -111,7 +107,7 @@ herein
 		    =>
 		    l;
 
-		clean_rev ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest,  l)
+		clean_rev ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest,  l)
 		    =>
 		    clean_rev (rest,  l);
 
@@ -161,7 +157,7 @@ herein
 
 	fun push (MAILQUEUE qstate, x)
 	    =
-	    {   ts::disable_thread_switching ();
+	    {   ts::enter_uninterruptible_scope ();
 		#
 		case *qstate
 		    #
@@ -173,17 +169,17 @@ herein
 				{
 				    qstate :=  NONEMPTY (1, { front => [x], rear => [] } );
 				    #
-				    ts::reenable_thread_switching();
+				    ts::exit_uninterruptible_scope();
 				};
 
-			    ITEM (selectrun_status, get_fate, qstate')
+			    ITEM (do1mailoprun_status, get_fate, qstate')
 				=>
 				call_with_current_fate
-				    (fn fate
+				    (fn old_fate
 					=
 					{   qstate :=  qstate';
 					    #
-					    ts::run_thread   (end_selectrun_and_return_thread_state  selectrun_status,   fate);
+					    ts::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => end_do1mailoprun_and_return_thread  do1mailoprun_status,   old_fate };
 
 					    switch_to_fate  get_fate  x;								# 
 					}
@@ -198,7 +194,7 @@ herein
 				=
 				{   qstate :=  NONEMPTY (p, enqueue (q, x));
 				    #
-				    ts::reenable_thread_switching_and_yield_to_next_thread  fate;
+				    ts::yield_to_next_thread__usend  fate;
 				}
 			    );
 		 esac;
@@ -218,14 +214,14 @@ herein
 
 		esac;
 
-		ts::reenable_thread_switching ();
+		ts::exit_uninterruptible_scope ();
 
 		msg;
 	    };
 
 	fun pull (MAILQUEUE qstate)
 	    =
-	    {   ts::disable_thread_switching ();
+	    {   ts::enter_uninterruptible_scope ();
 		#
 		case *qstate
 		    #
@@ -237,11 +233,12 @@ herein
 					    =
 					    {   qstate :=  EMPTY (enqueue (q, (make__mailop_done__refcell(), get_fate)));
 						#
-						ts::reenable_thread_switching_and_dispatch_next_thread ();
+log::note .{ sprintf "%s\tmailqueue.pkg/pull calling dispatch_next_thread__usend__noreturn"  (ts::thread_scheduler_statestring ()); };
+						ts::dispatch_next_thread__usend__noreturn ();
 					    }
 					);
 
-			    ts::reenable_thread_switching ();
+			    ts::exit_uninterruptible_scope ();
 
 			    msg;
 			 };
@@ -258,8 +255,8 @@ herein
 	    {
 		fun set_up_mailopready_watch
 		      {
-			selectrun_status,						# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,						# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,						# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
@@ -269,7 +266,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -281,7 +278,7 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {   q = case *qstate    EMPTY    q =>  q;
 			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/set_up_mailopready_watch";	# Should be impossible, since is_mailop_ready_to_fire() (below)
@@ -291,7 +288,7 @@ herein
 			    #
 			    (fn get_fate
 				=
-				{   qstate :=  EMPTY (enqueue (q, (selectrun_status, get_fate)));
+				{   qstate :=  EMPTY (enqueue (q, (do1mailoprun_status, get_fate)));
 				    #
 				    return_to__set_up_mailopready_watches__loop ();									# Return control to mailop.pkg.
 													raise exception FAIL "Mailqueue: impossible";	# return_to__set_up_mailopready_watches__loop() should never return.
@@ -300,9 +297,9 @@ herein
 			)
 			    -> msg;															# Execution will pick up on this line when 'get_fate" is eventually called.
 
-			finish_selectrun ();
+			finish_do1mailoprun ();
 
-			ts::reenable_thread_switching ();
+			ts::exit_uninterruptible_scope ();
 
 			msg;
 		    };
@@ -331,13 +328,13 @@ herein
 
 	fun nonblocking_pull (MAILQUEUE qstate)
 	    =
-	    {   ts::disable_thread_switching ();
+	    {   ts::enter_uninterruptible_scope ();
 		#
 		case *qstate
 		    #
 		    EMPTY q
 			=>
-			{   ts::reenable_thread_switching ();
+			{   ts::exit_uninterruptible_scope ();
 			    NULL;
 			};
 

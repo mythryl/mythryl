@@ -13,22 +13,22 @@
 #include "runtime-timer.h"
 
 
-void   reset_timers   (Pthread* pthread)   {
+void   reset_timers   (Hostthread* hostthread)   {
     //
     // Clear the cleaner timers.
     //
-    pthread->cumulative_cleaning_cpu_time->seconds = 0;
-    pthread->cumulative_cleaning_cpu_time->uSeconds = 0;
+    hostthread->cumulative_cleaning_cpu_time->seconds = 0;
+    hostthread->cumulative_cleaning_cpu_time->uSeconds = 0;
 }
 
 
-void   start_heapcleaning_timer   (Pthread* pthread)   {
+void   start_heapcleaning_timer   (Hostthread* hostthread)   {
     //
-    get_cpu_time( pthread->cpu_time_at_start_of_last_heapclean,  NULL );
+    get_cpu_time( hostthread->cpu_time_at_start_of_last_heapclean,  NULL );
 }
 
 
-void   stop_heapcleaning_timer   (Pthread* pthread,  long* time) {
+void   stop_heapcleaning_timer   (Hostthread* hostthread,  long* time) {
     //
     // Stop the cleaning timer and update
     // the cumulative cleaning time.
@@ -38,8 +38,8 @@ void   stop_heapcleaning_timer   (Pthread* pthread,  long* time) {
     int   sec;
     int   usec;
     Time  t1;
-    Time* gt0 =  pthread -> cpu_time_at_start_of_last_heapclean;
-    Time* gt  =  pthread -> cumulative_cleaning_cpu_time;
+    Time* gt0 =  hostthread -> cpu_time_at_start_of_last_heapclean;
+    Time* gt  =  hostthread -> cumulative_cleaning_cpu_time;
 
 
     get_cpu_time( &t1, NULL );

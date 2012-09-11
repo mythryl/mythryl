@@ -62,20 +62,24 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-/*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+  do { 						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+						// Restored 2012-08-01 CrT due to consistent failures here when switching on thread-scheduler-control-g.pkg by default.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_writebuf", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_writebuf", NULL );
 	    //
 	    n = write (fd, c_data, nbytes);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_writebuf" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_writebuf" );
 
-/*  } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+  } while (n < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	unbuffer_mythryl_heap_value( &data_buf );
     }
+{ int nn = n;
+  if (nn < 0) { printf("writebuf.c: write() return status is negative. (== %d)\n",nn); fflush(stdout); }
+}
 
-    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
+    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);				// from   src/c/lib/raise-error.h
 }
 
 

@@ -67,11 +67,11 @@ Val   _lib7_netdb_get_service_by_name   (Task* task,  Val arg)   {
     {   char* c_service  = buffer_mythryl_heap_value(  &service_buf, (void*) heap_service,  strlen( heap_service  ) +1 );		// '+1' for terminal NUL on string.
 	char* c_protocol = buffer_mythryl_heap_value( &protocol_buf, (void*) heap_protocol, strlen( heap_protocol ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_name", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_service_by_name", NULL );
 	    //
 	    result = getservbyname( c_service, c_protocol );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_name" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_service_by_name" );
 
 	unbuffer_mythryl_heap_value(  &service_buf );
 	unbuffer_mythryl_heap_value( &protocol_buf );

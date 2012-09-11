@@ -91,11 +91,11 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     //
     //     src/c/heapcleaner/call-heapcleaner.c
     //
-    // NB: If we have multiple pthreads running,
+    // NB: If we have multiple hostthreads running,
     // each has its own agegroup0, but we process
     // all of those during this call, by virtue
     // of being passed all the roots from all the
-    // running pthreads. 
+    // running hostthreads. 
 
     Heap*      heap =  task->heap;
     Agegroup*  age1 =  heap->agegroup[0];
@@ -156,13 +156,13 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // pointers into agegroup0 from other agegroups
     // we need to know about them now:	
     //
-    {    for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
+    {    for (int i = 0;  i < MAX_HOSTTHREADS;  i++) {									// Potentially need to process one heap storelog per hostthread.
 	    //
-	    Pthread* pthread =  pthread_table__global[ i ];
+	    Hostthread* hostthread =  hostthread_table__global[ i ];
 	    //
-	    Task*   task     =  pthread->task;
+	    Task*   task     =  hostthread->task;
 	    //
-	    if (pthread->mode != PTHREAD_IS_VOID) {
+	    if (hostthread->mode != HOSTTHREAD_IS_VOID) {
 		//
 		process_task_heap_changelog( task, heap );
 	    }

@@ -36,11 +36,11 @@ Val   _lib7_P_ProcEnv_getpid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getpid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getpid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getpid", NULL );
 	//
 	int pid = getpid();
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getpid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getpid" );
 
     return TAGGED_INT_FROM_C_INT( pid );
 }

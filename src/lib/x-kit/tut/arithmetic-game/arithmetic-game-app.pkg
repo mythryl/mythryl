@@ -19,6 +19,8 @@
 stipulate
     include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
+    package ts  =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    #
     package f8b =  eight_byte_float;			# eight_byte_float		is from   src/lib/std/eight-byte-float.pkg
     package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
     package xtr =  xlogger;				# xlogger			is from   src/lib/x-kit/xclient/pkg/stuff/xlogger.pkg
@@ -43,7 +45,7 @@ stipulate
     #
     tracefile   =  "arithmetic-game-app.trace.log";
     tracing     =  logger::make_logtree_leaf { parent => xlogger::xkit_logging, name => "arithmetic_game_app::tracing" };
-    trace	=  xtr::log_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+    trace	=  xtr::log_if tracing 0;		# Conditionally write strings to tracing.log or whatever.
         #
         # To debug via tracelogging, annotate the code with lines like
 	#
@@ -70,11 +72,22 @@ herein
 #		enable file::all_logging;				# Gross overkill.
 	    };
 
+	app_task		   =  REF (NULL: Null_Or( Apptask   ));
+	run_selfcheck		   =  REF FALSE;
 	stipulate
 	    selfcheck_tests_passed =  REF 0;
 	    selfcheck_tests_failed =  REF 0;
 	herein
-	    run_selfcheck =  REF FALSE;
+
+	    fun reset_global_mutable_state ()					# Reset above state variables to load-time values.
+		=								# This will be needed if (say) we get run multiple times interactively without being reloaded.
+		{   run_selfcheck		:=  FALSE;
+		    #
+		    app_task			:=  NULL;
+		    #
+		    selfcheck_tests_passed	:=  0;
+		    selfcheck_tests_failed	:=  0;
+		};
 
 	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
 	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
@@ -88,6 +101,33 @@ herein
                 { passed => *selfcheck_tests_passed,
                   failed => *selfcheck_tests_failed
                 };
+
+	    fun kill_arithmetic_game_app ()
+		=
+		{
+log::note .{ sprintf "%s\tkill_arithmetic_game_app/TOP:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		    kill_task  { success => TRUE,  task => (the *app_task) };
+log::note .{ sprintf "%s\tkill_arithmetic_game_app/ZZZ:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		};
+
+	    fun wait_for_app_task_done ()
+		=
+		{
+log::note .{ sprintf "%s\twait_for_app_task_done/TOP  -- arithmetic-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task =  the  *app_task;
+		    #
+log::note .{ sprintf "%s\twait_for_app_task_done/BBB  -- arithmetic-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task_finished' =  task_done__mailop  task;
+
+log::note .{ sprintf "%s\twait_for_app_task_done/CCC  -- arithmetic-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    block_until_mailop_fires  task_finished';
+
+log::note .{ sprintf "%s\twait_for_app_task_done/DDD  -- arithmetic-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    assert (get_task's_state  task  ==  state::SUCCESS);
+log::note .{ sprintf "%s\twait_for_app_task_done/ZZZ  -- arithmetic-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		};
+
+
 	end;
 
 	Game_Reconfigure_Command
@@ -298,12 +338,17 @@ herein
 			#
 #			assert (not (xc::same_cs_pixmap (antedraw_window_image, postdraw_window_image)));
 
-			sleep_for (time::from_milliseconds 2000);		# Just to let the user watch it.
+			sleep_for (time::from_milliseconds 2000);				# Just to let the user watch it.
 
 			# All done -- shut everything down:
 			#
 			xc::close_xsession  xsession;
-			shut_down_thread_scheduler  winix::process::success;
+
+			sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_arithmetic_game_app ();
+
+#			shut_down_thread_scheduler  winix::process::success;			# We did this prior to 6.3
 
 			();
 		    };
@@ -311,7 +356,7 @@ herein
 
 							    # make_root_window	def in    src/lib/x-kit/widget/basic/root-window.pkg
 							    # screen_of		def in    src/lib/x-kit/widget/basic/root-window.pkg
-	fun main (xdisplay, xauthentication)
+	fun start_up_arithmetic_game_app_threads (xdisplay, xauthentication)
 	    = 
 	    {   root_window =  wg::make_root_window  (xdisplay, xauthentication);
 
@@ -346,7 +391,11 @@ herein
 		    =
 		    {   wg::delete_root_window  root_window;
 
-			shut_down_thread_scheduler 0;
+			sleep_for (time::from_milliseconds 200);				# Give previous a fair chance to take effect. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_arithmetic_game_app ();
+
+#			shut_down_thread_scheduler 0;			# We did this prior to 6.3
 		    };
 
 		quit_button
@@ -677,7 +726,7 @@ herein
 					do_new_game (SET_MATH_OP op_fn') =>  start_game (d,  op_fn');
 				    end;
 
-				    select [
+				    do_one_mailop [
 					right_or_wrong' ==>  do_right_or_wrong,
 					new_game'       ==>  do_new_game
 				    ];
@@ -903,38 +952,53 @@ herein
 	    };
 
 
-	fun add (xdisplay, xauthentication)
+	fun get_xdisplay_string_and_xauthentication_then_start_up_arithmetic_game_app_threads  display_name
 	    =
-	    start_up_thread_scheduler'
-		(time::from_milliseconds  20)
-	       .{ main (xdisplay, xauthentication); };
+	    {
+		(xc::get_xdisplay_string_and_xauthentication
+		    #
+		    case display_name
+			#
+			"" =>  NULL;
+			_  =>  THE display_name;
+		    esac
+		)
+		    ->
+		    ( xdisplay,								# Typically from $DISPLAY environment variable.
+                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
+                    );
 
+		start_up_arithmetic_game_app_threads (xdisplay, xauthentication);
+	    };
+
+	fun set_up_arithmetic_game_app_task  display_name
+	    =
+	    # Here we arrange that all the threads
+	    # for the application run as a task "arithmetic game app",
+	    # so that later we can shut them all down with
+	    # a simple kill_task().  We explicitly create one
+	    # root thread within the task; the rest then implicitly
+	    # inherit task membership:
+	    #
+	    {   arithmetic_game_app_task =   make_task  "arithmetic game app"  [];
+		app_task                :=   THE  arithmetic_game_app_task;
+
+		xtr::make_thread' [ THREAD_NAME "arithmetic game app",
+				    THREAD_TASK  arithmetic_game_app_task
+				  ]
+				  get_xdisplay_string_and_xauthentication_then_start_up_arithmetic_game_app_threads
+				  display_name;
+
+		wait_for_app_task_done ();
+	    };
 
 	fun do_it  display_name
 	    =
-	    {
-		xlogger::init [];
+	    {   xlogger::init [];
+		#
+		if write_tracelog   set_up_tracing ();   fi;
 
-		if write_tracelog
-		    #
-		    set_up_tracing ();
-		fi;
-
-	        my  ( xdisplay,								# Typically from $DISPLAY environment variable.
-                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
-                    )
-		    =
-		    xc::get_xdisplay_string_and_xauthentication
-			#
-			case display_name
-			    #
-			    "" =>  NULL;
-			    _  =>  THE display_name;
-			esac;
-
-	        add (xdisplay, xauthentication);
-
-		();
+		set_up_arithmetic_game_app_task  display_name;
 	    };
 
 
@@ -944,9 +1008,17 @@ herein
 
 	fun selfcheck ()
 	    =
-	    {   run_selfcheck :=  TRUE;
+	    {
+log::note .{ sprintf "%s\tselfcheck/TOP:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		reset_global_mutable_state ();
+		run_selfcheck :=  TRUE;
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
 		do_it "";
+log::note .{ sprintf "%s\tselfcheck/NNN:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+result =
 		test_stats ();
+log::note .{ sprintf "%s\tselfcheck/ZZZ:    -- arithmetic-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+result;
 	    };	
     };
 
@@ -973,4 +1045,4 @@ end;
 
 ## COPYRIGHT (c) 1996 AT&T Research.
 ## Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-## released under Gnu Public Licence version 3.
+# released under Gnu Public Licence version 3.

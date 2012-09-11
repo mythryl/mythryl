@@ -237,7 +237,7 @@ rest3:	bin/mythryl-yacc \
 	src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.lib.frozen \
 	src/lib/x-kit/tut/badbricks-game/badbricks-game-app.lib.frozen \
 	src/lib/x-kit/tut/calculator/calculator-app.lib.frozen \
-	src/lib/x-kit/tut/color-mixer/color-mixer-app.lib.frozen \
+	src/lib/x-kit/tut/colormixer/colormixer-app.lib.frozen \
 	src/lib/x-kit/tut/nbody/nbody-app.lib.frozen \
 	src/lib/x-kit/tut/plaid/plaid-app.lib.frozen \
 	src/lib/x-kit/tut/triangle/triangle-app.lib.frozen \
@@ -288,7 +288,7 @@ summary:
 		src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.lib.frozen \
 		src/lib/x-kit/tut/badbricks-game/badbricks-game-app.lib.frozen \
 		src/lib/x-kit/tut/calculator/calculator-app.lib.frozen \
-		src/lib/x-kit/tut/color-mixer/color-mixer-app.lib.frozen \
+		src/lib/x-kit/tut/colormixer/colormixer-app.lib.frozen \
 		src/lib/x-kit/tut/nbody/nbody-app.lib.frozen \
 		src/lib/x-kit/tut/plaid/plaid-app.lib.frozen \
 		src/lib/x-kit/tut/triangle/triangle-app.lib.frozen \
@@ -423,8 +423,8 @@ src/lib/x-kit/tut/badbricks-game/badbricks-game-app.lib.frozen:
 src/lib/x-kit/tut/calculator/calculator-app.lib.frozen:
 	@src/lib/x-kit/tut/calculator/build-calculator-app
 
-src/lib/x-kit/tut/color-mixer/color-mixer-app.lib.frozen:
-	@src/lib/x-kit/tut/color-mixer/build-color-mixer-app
+src/lib/x-kit/tut/colormixer/colormixer-app.lib.frozen:
+	@src/lib/x-kit/tut/colormixer/build-colormixer-app
 
 src/lib/x-kit/tut/nbody/nbody-app.lib.frozen:
 	@src/lib/x-kit/tut/nbody/build-nbody-app
@@ -694,7 +694,7 @@ rest-unfrozen:
 	@-rm -f src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.lib.frozen
 	@-rm -f src/lib/x-kit/tut/badbricks-game/badbricks-game-app.lib.frozen
 	@-rm -f src/lib/x-kit/tut/calculator/calculator-app.lib.frozen
-	@-rm -f src/lib/x-kit/tut/color-mixer/color-mixer-app.lib.frozen
+	@-rm -f src/lib/x-kit/tut/colormixer/colormixer-app.lib.frozen
 	@-rm -f src/lib/x-kit/tut/show-graph/show-graph-app.lib.frozen
 	@-rm -f src/lib/x-kit/tut/nbody/nbody-app.lib.frozen
 	@-rm -f src/lib/x-kit/tut/plaid/plaid-app.lib.frozen

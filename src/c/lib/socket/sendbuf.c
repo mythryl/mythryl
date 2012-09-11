@@ -99,15 +99,16 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     //
     {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_sendbuf", NULL );
 	    //
     /*      do { */	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//
 		n = send (socket, c_data, nbytes, flgs);
 		//
+if (errno == EINTR) puts("Error: EINTR in sendbuf.c\n");
     /*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_sendbuf" );
 //															log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
 	unbuffer_mythryl_heap_value( &data_buf );
     }

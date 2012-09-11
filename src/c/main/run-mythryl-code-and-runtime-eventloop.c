@@ -94,7 +94,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
     int		request;
 
-    Pthread* pthread  =  task->pthread;
+    Hostthread* hostthread  =  task->hostthread;
 
     Val	previous_profile_index =  IN_OTHER_CODE__CPU_USER_INDEX;				// IN_OTHER_CODE__CPU_USER_INDEX	is from   src/c/h/profiler-call-counts.h
 												// previous_profile_index is a tagged int, so it is safe from heapcleaning.
@@ -151,7 +151,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 	if (request == REQUEST_CLEANING) {
 	    //
-	    if (pthread->posix_signal_pending) {
+	    if (hostthread->posix_signal_pending) {
 		//
 		// This "request" is really a POSIX interprocess signal.
 
@@ -163,8 +163,8 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	        // Figure out which unix signal needs handling
 		// and save its (number, count) in
 		//
-                //    pthread->next_posix_signal_id,		// SIGALRM or whatever.
-                //    pthread->next_posix_signal_count		// Number of times it has happened since last being handled.
+                //    hostthread->next_posix_signal_id,		// SIGALRM or whatever.
+                //    hostthread->next_posix_signal_count		// Number of times it has happened since last being handled.
 		//
 		// choose_signal() and make_mythryl_signal_handler_arg() are both from
 		//
@@ -196,7 +196,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
                 // statement in
 		//     src/c/main/construct-runtime-package.c
 		//
-		choose_signal( pthread );
+		choose_signal( hostthread );
 		//
 		task->argument	      =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	      =  PTR_CAST( Val,  return_from_signal_handler_c );
@@ -206,9 +206,9 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		task->program_counter =
 		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
-		pthread->mythryl_handler_for_posix_signal_is_running	    = TRUE;
+		hostthread->mythryl_handler_for_posix_signal_is_running	    = TRUE;
 		//
-		pthread->posix_signal_pending= FALSE;
+		hostthread->posix_signal_pending= FALSE;
 	    }
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else if (task->software_generated_periodic_event_is_pending
@@ -216,9 +216,9 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
                  ){ 
 	      // This is a software-generated periodic event:
               //
-#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	      //
-	      // Note: Under current pthread support design,
+	      // Note: Under current hostthread support design,
 	      //       software generated periodic
               //       events are used only for garbage collection.
               //
@@ -249,7 +249,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		task->in_software_generated_periodic_event_handler =  TRUE;
 		task->software_generated_periodic_event_is_pending =  FALSE;
 
-#endif // NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#endif // NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    } 
 #endif // NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else
@@ -272,9 +272,9 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		// which is currently non-operational.
 		//
 		// We are also called by
-		//     src/c/pthread/pthread-on-posix-threads.c
-		//     src/c/pthread/pthread-on-sgi.c
-		//     src/c/pthread/pthread-on-solaris.c
+		//     src/c/hostthread/hostthread-on-posix-threads.c
+		//     src/c/hostthread/hostthread-on-sgi.c
+		//     src/c/hostthread/hostthread-on-solaris.c
 		// but that stuff is also non-operational (I think) and
 		// we're not supposed to return to caller in those cases.
 		// 
@@ -379,8 +379,8 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	    case REQUEST_RETURN_FROM_SIGNAL_HANDLER:
 #ifdef SIGNAL_DEBUG
 debug_say("REQUEST_RETURN_FROM_SIGNAL_HANDLER: arg = %#x, pending = %d, inHandler = %d, nSigs = %d/%d\n",
-task->argument, pthread->posix_signal_pending, pthread->mythryl_handler_for_posix_signal_is_running,
-pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
+task->argument, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running,
+hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_count);
 #endif
 
 	        // Throw to the fate:
@@ -390,7 +390,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 
 	        // Note that we are exiting the handler:
 		//
-		pthread->mythryl_handler_for_posix_signal_is_running = FALSE;
+		hostthread->mythryl_handler_for_posix_signal_is_running = FALSE;
 		break;
 
 

@@ -57,20 +57,23 @@ Val   _lib7_Sock_setNBIO   (Task  *task,   Val  arg)   {
 	if (GET_TUPLE_SLOT_AS_VAL(arg, 1) == HEAP_TRUE)	 n |=  O_NONBLOCK;
 	else				                 n &= ~O_NONBLOCK;
 
-    /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+/**/    do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+								// Restored   2012-08-07 CrT
 	    status = fcntl(F_SETFL, socket, n);
 
-    /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+// if (errno == EINTR) puts("Error: EINTR in setNBIO.c\n");
+  /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     #else
 	int n = (GET_TUPLE_SLOT_AS_VAL(arg, 1) == HEAP_TRUE);
 
-    /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+/**/    do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+								// Restored   2012-08-07 CrT
 
 	    status = ioctl (socket, FIONBIO, (char *)&n);
 
-    /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+// if (errno == EINTR) puts("Error: EINTR in setNBIO.c\n");
+/**/    } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
     #endif
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);

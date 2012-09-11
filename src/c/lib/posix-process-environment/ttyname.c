@@ -39,11 +39,11 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_ttyname");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_ttyname", NULL );
 	//
 	char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_ttyname" );
 
     if (name == NULL)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "not a terminal device", NULL);
     //  

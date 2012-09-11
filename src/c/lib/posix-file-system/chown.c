@@ -65,11 +65,11 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_chown", NULL );
 	    //
 	    status = chown (c_path, uid, gid);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_chown" );
 	//
 	unbuffer_mythryl_heap_value( &path_buf );
     }

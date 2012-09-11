@@ -69,11 +69,12 @@ void   die   (char *fmt, ...)   {
     vfprintf (stderr, fmt, ap);
     fprintf (stderr, "\n");
     va_end(ap);
+    fflush(stderr);
 
     // Release any platform-specific multicore-support
     // resources such as kernel locks or mmapped segments:
     //
-    pth__shut_down ();								// pth__shut_down		defined in   src/c/pthread/pthread-on-posix-threads.c
+    pth__shut_down ();								// pth__shut_down		defined in   src/c/hostthread/hostthread-on-posix-threads.c
 
     print_stats_and_exit( 1 );
 }
@@ -87,6 +88,7 @@ void   assert_fail   (const char* a,  const char* file,  int line)    {		// Used
 	// Print an assertion failure message.
 
 	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name__global, a, file, line);
+	fflush (stderr);
 
 	pth__shut_down ();
 
@@ -120,7 +122,7 @@ int log_if_fd = 0;	// Zero value means no logging. (We'd never log to stdin anyh
 // message to it, preceded by a seconds.microseconds timestamp.
 // A typical line looks like
 //
-//    time=1266769503.421967 pid=00000007 tid=00000000 name=none msg=foo.c:  The 23 zots are barred.
+//    time=1266769503.421967 pid=00000007 task=00000000 tid=00000000 name='none' msg=foo.c:  The 23 zots are barred.
 ///
 void   log_if   (const char * fmt, ...) {
     //
@@ -168,7 +170,7 @@ void   log_if   (const char * fmt, ...) {
 	// We fill in dummy tid= and (thread) name= values here to reduce
 	// the need for special-case code when processing logfiles:
 	//
-	sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08lx tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "none");
+	sprintf(buf,"timE=%10d.%06d pid=%08d ptid=%08lx task=00000000 tid=00000000 sev=0 name='none'%44s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "");
 
 	// Now write the message proper into buf[],
         // right after the timestamp:

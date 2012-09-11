@@ -58,7 +58,7 @@
     //
     // This gets used
 
-#define DEFAULT_AGEGROUP0_BUFFER_BYTESIZE	(256 * ONE_K_BINARY)				// Size-in-bytes for the per-core (well, per-pthread)
+#define DEFAULT_AGEGROUP0_BUFFER_BYTESIZE	(256 * ONE_K_BINARY)				// Size-in-bytes for the per-core (well, per-hostthread)
 												// generation-zero heap buffer.  The 256KB value is
 												// ancient (1992?), but at the moment Intel level-two
 												// cache sizes seem to range from 256KB to 1024MB, so
@@ -92,7 +92,7 @@
 
 #define  MAX_C_HEAPCLEANER_ROOTS	16							// Maximum number of global C variables that can be heapcleaner ("garbage collector") roots.
 
-#define  MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD	16							// Maximum number of additional roots that can be passed to heapcleaner.
+#define  MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD	16							// Maximum number of additional roots that can be passed to heapcleaner.
 
 // Number of potential cleaner roots.
 // This includes space for C global roots,
@@ -105,16 +105,16 @@
 #endif
 
 // 
-// We must assume that all other pthreads
-// are supplying MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD
+// We must assume that all other hostthreads
+// are supplying MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD
 // in addition to the standard roots.
 //
 // This #define is referenced only in:
 //
 //     src/c/heapcleaner/call-heapcleaner.c   						// NROOTS	is from   src/c/h/system-dependent-root-register-indices.h
 //
-#define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO(   MAX_PTHREADS    * (MAX_C_HEAPCLEANER_ROOTS + NROOTS + N_PSEUDO_ROOTS) +	\
-						   (MAX_PTHREADS-1) * MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD +1,				\
+#define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO(   MAX_HOSTTHREADS    * (MAX_C_HEAPCLEANER_ROOTS + NROOTS + N_PSEUDO_ROOTS) +	\
+						   (MAX_HOSTTHREADS-1) * MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD +1,				\
 						 8 )
 
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS  
@@ -122,7 +122,7 @@
     // This #define is referenced only in:
     //
     //     src/c/heapcleaner/call-heapcleaner.c
-    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
+    //     src/c/heapcleaner/hostthread-heapcleaner-stuff.c
     //
     #define PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS   (1 << 10)     // Must be power of 2.
 #endif

@@ -15,7 +15,7 @@
 
 #include "win32-sigtable.c"
 
-#define SELF_PTHREAD	(pth__get_pthread())
+#define SELF_HOSTTHREAD	(pth__get_hostthread())
 
 Val   list_signals__may_heapclean  (Task* task, Roots* extra_roots)   {
     //===========================
@@ -25,9 +25,9 @@ Val   list_signals__may_heapclean  (Task* task, Roots* extra_roots)   {
     return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, extra_roots);
 } 
 
-void   pause_until_signal   (Pthread* pthread) {
+void   pause_until_signal   (Hostthread* hostthread) {
     // ==================
-    // Suspend the given Pthread until a signal is received.
+    // Suspend the given Hostthread until a signal is received.
     //
     #ifdef WIN32_DEBUG
 	debug_say("win32:pause_until_signal: returning without pause\n");
@@ -35,7 +35,7 @@ void   pause_until_signal   (Pthread* pthread) {
 } 
 
 
-void   set_signal_state   (Pthread* pthread,  int signal_number,  int signal_state) {
+void   set_signal_state   (Hostthread* hostthread,  int signal_number,  int signal_state) {
     // ================
     //
     #ifdef WIN32_DEBUG
@@ -45,7 +45,7 @@ void   set_signal_state   (Pthread* pthread,  int signal_number,  int signal_sta
 
 
 
-int   get_signal_state   (Pthread* pthread, int signal_number) {
+int   get_signal_state   (Hostthread* hostthread, int signal_number) {
     //================
 
     #ifdef WIN32_DEBUG

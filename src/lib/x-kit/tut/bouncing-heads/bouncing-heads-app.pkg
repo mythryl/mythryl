@@ -25,6 +25,8 @@
 stipulate
     include threadkit;							# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
+    package ts  =  thread_scheduler;					# thread_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    #
     package cmd =  commandline;						# commandline		is from   src/lib/std/commandline.pkg
     #
     package f8b =  eight_byte_float;					# eight_byte_float	is from   src/lib/std/eight-byte-float.pkg
@@ -39,7 +41,7 @@ stipulate
     #
     tracefile   =  "bouncing-heads-app.trace.log";
     tracing     =  logger::make_logtree_leaf { parent => xlogger::xkit_logging, name => "bouncing_heads_app::tracing" };
-    trace	=  xtr::log_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+    trace	=  xtr::log_if  tracing 0;		# Conditionally write strings to tracing.log or whatever.
         #
         # To debug via tracelogging, annotate the code with lines like
 	#
@@ -51,6 +53,8 @@ herein
     package bouncing_heads_app {
 
 	write_tracelog = FALSE;
+
+	app_task =  REF (NULL: Null_Or( Apptask   ));
 
 	fun set_up_tracing ()
 	    =
@@ -71,6 +75,16 @@ herein
 	herein
 	    run_selfcheck =  REF FALSE;
 
+	    fun reset_global_mutable_state ()					# Reset above state variables to load-time values.
+		=									# This will be needed if (say) we get run multiple times interactively without being reloaded.
+		{   run_selfcheck		:=  FALSE;
+		    #
+		    app_task			:=  NULL;
+		    #
+		    selfcheck_tests_passed	:=  0;
+		    selfcheck_tests_failed	:=  0;
+		};
+
 	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
 	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
 	    #
@@ -83,6 +97,31 @@ herein
                 { passed => *selfcheck_tests_passed,
                   failed => *selfcheck_tests_failed
                 };
+
+	    fun kill_bouncing_heads_app ()
+		=
+		{
+log::note .{ sprintf "%s\tkill_bouncing_heads_app/TOP:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
+		    kill_task  { success => TRUE,  task => (the *app_task) };
+log::note .{ sprintf "%s\tkill_bouncing_heads_app/ZZZ:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
+		};
+
+	    fun wait_for_app_task_done ()
+		=
+		{
+log::note .{ sprintf "%s\twait_for_app_task_done/TOP  -- bouncing-heads-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task =  the  *app_task;
+		    #
+log::note .{ sprintf "%s\twait_for_app_task_done/BBB  -- bouncing-heads-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task_finished' =  task_done__mailop  task;
+
+log::note .{ sprintf "%s\twait_for_app_task_done/CCC  -- bouncing-heads-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    block_until_mailop_fires  task_finished';
+
+log::note .{ sprintf "%s\twait_for_app_task_done/DDD  -- bouncing-heads-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    assert (get_task's_state  task  ==  state::SUCCESS);
+log::note .{ sprintf "%s\twait_for_app_task_done/ZZZ  -- bouncing-heads-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		};
 	end;
 
 	stipulate
@@ -265,7 +304,12 @@ herein
 			    # All done -- shut everything down:
 			    #
 			    xc::close_xsession  xsession;
-			    shut_down_thread_scheduler  winix::process::success;
+
+			    sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
+
+			    kill_bouncing_heads_app ();
+
+#			    shut_down_thread_scheduler  winix::process::success;		# We used to do this before 6.3
 
 			    ();
 			};
@@ -274,22 +318,22 @@ herein
 	    fun run_bounce  display_or_null
 		=
 		{
-		    # We really should be using run_xkit here;
+		    # We really should be using run_in_x_window here;
 		    # this is probably very old code.						# XXX BUGGO FIXME.
 
-		    my  ( xdisplay,								# Typically from $DISPLAY environment variable.
+		    (xc::get_xdisplay_string_and_xauthentication  display_or_null)
+			->
+			( xdisplay,								# Typically from $DISPLAY environment variable.
 			  xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
-			)
-			=
-			xc::get_xdisplay_string_and_xauthentication  display_or_null;
+			);
 
-		    my (xsession, topwindow, from_mouse', from_other')
-			=
-			init_bounce  (xdisplay, xauthentication);
+		    (init_bounce  (xdisplay, xauthentication))
+			->
+			(xsession, topwindow, from_mouse', from_other');
 
-		    window_size = .size (xc::shape_of_window  topwindow);
+		    window_size =  (xc::shape_of_window  topwindow).size;
 
-		    draw_slot = bd::bounce_dm  topwindow;						# "dm" is probably "draw_master"
+		    draw_slot =  bd::bounce_dm  topwindow;						# "dm" is probably "draw_master"
 
 		    mailcaster = make_mailcaster ();
 
@@ -307,7 +351,7 @@ herein
 		    fun make_cursor c
 			=
 			{   cursor =  xc::get_standard_xcursor  xsession  c;
-
+			    #
 			    xc::recolor_cursor
 			      {
 				cursor,
@@ -329,10 +373,14 @@ herein
 		    fun quit ()
 			=
 			{   xc::close_xsession  xsession;
+			    #
+			    sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
 
-			    shut_down_thread_scheduler
-				#
-				winix::process::success;
+			    kill_bouncing_heads_app ();
+
+#			    shut_down_thread_scheduler
+#				#
+#				winix::process::success;
 			};
 
 		    popup_menu = menu::popup_menu  topwindow;
@@ -510,7 +558,7 @@ herein
 		    fun back_up (seqn, window_size)
 			=
 			{   set_cursor  normal_cursor;
-
+			    #
 			    wait_loop  (seqn, window_size);
 			};
 
@@ -537,14 +585,17 @@ herein
                         set_up_tracing ();
                     fi;
 
-		    start_up_thread_scheduler'
-			#
-			(time::from_milliseconds 10)
-			#
-		       .{
-			    xlogger::make_thread  "bounce"   .{  run_bounce  (display_name == "" ?? NULL :: THE display_name);  };
-			    ();
-			};
+		    bouncing_heads_app_task =   make_task  "bouncing heads app"  [];
+		    app_task               :=   THE  bouncing_heads_app_task;
+
+		    xlogger::make_thread' [ THREAD_NAME "bounce",
+					    THREAD_TASK bouncing_heads_app_task
+					  ]
+                                         .{  run_bounce  (display_name == "" ?? NULL :: THE display_name);  }
+					  ();
+
+
+		    wait_for_app_task_done ();
 
 		    winix::process::success;
 		}; 
@@ -556,9 +607,16 @@ herein
 	    fun selfcheck ()
 		=
 		{
+		    reset_global_mutable_state ();
+log::note .{ sprintf "%s\tselfcheck/TOP:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
 		    run_selfcheck :=  TRUE;
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
 		    do_it' ([], "");
+log::note .{ sprintf "%s\tselfcheck/NNN:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
+result =
 		    test_stats ();
+log::note .{ sprintf "%s\tselfcheck/ZZZ:    -- bouncing-heads-app.pkg" (ts::thread_scheduler_statestring ()); };
+result;
 		};	
 
 

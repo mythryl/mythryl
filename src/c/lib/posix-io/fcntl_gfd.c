@@ -44,12 +44,13 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_gfd", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_gfd", NULL );
 	    //
 	    flag = fcntl(TAGGED_INT_TO_C_INT(arg), F_GETFD);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_gfd" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_gfd" );
 
+if (errno == EINTR) puts("Error: EINTR in fcntl_gfd.c\n");
 /*  } while (flag < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     if (flag == -1) {

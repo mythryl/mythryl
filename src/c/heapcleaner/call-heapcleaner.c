@@ -76,8 +76,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     //
 // Currently uncommenting this here and balow yields
 // bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/runtime-signals-guts.pkg:620.25-620.120
-//    task->pthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
-//    task->pthread->all_posix_signals.seen_count++;
+//    task->hostthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
+//    task->hostthread->all_posix_signals.seen_count++;
 
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );					// check_agegroup0_overrun_tripwire_buffer		is from   src/c/heapcleaner/heap-debug-stuff.c
@@ -86,17 +86,17 @@ void   call_heapcleaner   (Task* task,  int level) {
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined	in   src/c/h/runtime-globals.h
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-    {														// Pthread support -- for background see the "Overview" comments in    src/lib/std/src/pthread.api
+    {														// Hostthread support -- for background see the "Overview" comments in    src/lib/std/src/hostthread.api
 	//
-	// Signal all pthreads to enter heapcleaner mode and
-	// select a PRIMARY_HEAPCLEANER pthread to do the heapcleaning work.
-	// That pthread returns and falls into the regular heapcleaning code;
+	// Signal all hostthreads to enter heapcleaner mode and
+	// select a PRIMARY_HEAPCLEANER hostthread to do the heapcleaning work.
+	// That hostthread returns and falls into the regular heapcleaning code;
 	// the remainder wait until heapcleaning is complete:
-														PTHREAD_LOG_IF ("initiating heapcleaning mode tid x=%lx\n", (unsigned long int) task->pthread->ptid);
+														HOSTTHREAD_LOG_IF ("initiating heapcleaning mode tid x=%lx\n", (unsigned long int) task->hostthread->ptid);
 	//
-	if (!pth__start_heapcleaning( task )) {									// pth__start_heapcleaning				def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	if (!pth__start_heapcleaning( task )) {									// pth__start_heapcleaning				def in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 	    //
-	    // Return value was FALSE, so we were a SECONDARY_HEAPCLEANER pthread,
+	    // Return value was FALSE, so we were a SECONDARY_HEAPCLEANER hostthread,
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
@@ -107,29 +107,29 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	// At this point we know that
 	// 
-	//     1) We are the PRIMARY_HEAPCLEANER pthread.
+	//     1) We are the PRIMARY_HEAPCLEANER hostthread.
 	// 
-	//     2) No (other) pthreads are using the Mythryl heap, so it is safe
+	//     2) No (other) hostthreads are using the Mythryl heap, so it is safe
 	//        to run the heapcleaner code, re-arranging the Mythryl heap.
 	//
 	// In more detail, the other threads are all
 	// at this point in one of two modes:
 	//
-	//     A) pthread->mode == PTHREAD_IS_BLOCKED
+	//     A) hostthread->mode == HOSTTHREAD_IS_BLOCKED
 	//
 	//        These threads will not touch the Mythryl heap until we set
 	//            pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF
         //        thanks to the pthread_cond_wait() loop in
 	//            recover_mythryl_heap()
-	//        in src/c/pthread/pthread-on-posix-threads.c
+	//        in src/c/hostthread/hostthread-on-posix-threads.c
 	// 
-	//     B) pthread->mode == PTHREAD_IS_SECONDARY_HEAPCLEANER
+	//     B) hostthread->mode == HOSTTHREAD_IS_SECONDARY_HEAPCLEANER
 	//
 	//	  These theads also will not touch the Mythryl heap until we set
 	//            pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF
 	//        thanks here to the pthread_cond_wait() loop in
 	//            pth__start_heapcleaning()
-	//        in src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	//        in src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 	// 
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
@@ -141,7 +141,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-    {   // Get extra roots from pthreads that entered
+    {   // Get extra roots from hostthreads that entered
 	// through call_heapcleaner_with_extra_roots
 	//
 	for (int i = 0;   pth__extra_heapcleaner_roots__global[i] != NULL;   i++) {
@@ -160,14 +160,14 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
 
     // Note heapcleaner roots from the register set(s)
-    // of the live Mythryl pthread task(s):
+    // of the live Mythryl hostthread task(s):
     //
-    {   for (int j = 0;  j < MAX_PTHREADS;  j++) {
+    {   for (int j = 0;  j < MAX_HOSTTHREADS;  j++) {
 	    //
-	    Pthread* pthread =  pthread_table__global[ j ];
-	    Task*    task    =  pthread->task;
-														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-	    if (pthread->mode != PTHREAD_IS_VOID) {
+	    Hostthread* hostthread =  hostthread_table__global[ j ];
+	    Task*    task    =  hostthread->task;
+														HOSTTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+	    if (hostthread->mode != HOSTTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
@@ -242,7 +242,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     // Reset the agegroup0 allocation pointers:
     //														// NB: Currently this code requires that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS be TRUE.
-    pth__finish_heapcleaning( task );										// Multiple pthreads, so we must reset the agegroup-0 heap allocation pointers in each of them.
+    pth__finish_heapcleaning( task );										// Multiple hostthreads, so we must reset the agegroup-0 heap allocation pointers in each of them.
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/bottom" );
 
@@ -266,15 +266,15 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     // agegroup0, then we clean one or more additional agegroups.
     // At least 'level' agegroups are cleaned.
     //
-    // NOTE: the multicore version of this may be BROKEN, since if a pthread calls this
-    // but isn't the collecting pthread, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
+    // NOTE: the multicore version of this may be BROKEN, since if a hostthread calls this
+    // but isn't the collecting hostthread, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
     // 2012-02-28 CrT: Previous two lines are 20 years old;
     //                 I believe they are no longer true.
 														ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner_with_extra_roots");
 
-														// MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD	def in   src/c/h/runtime-configuration.h
+														// MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD	def in   src/c/h/runtime-configuration.h
 														// MAX_TOTAL_CLEANING_ROOTS			def in   src/c/h/runtime-configuration.h
-    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS_PER_PTHREAD ];				// registers and globals
+    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD ];				// registers and globals
     Val** roots_ptr = roots;
 
     Heap* heap;
@@ -286,24 +286,24 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     //
 // Currently uncommenting this here and above yields
 // bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/runtime-signals-guts.pkg:620.25-620.120
-//    task->pthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
-//    task->pthread->all_posix_signals.seen_count++;
+//    task->hostthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
+//    task->hostthread->all_posix_signals.seen_count++;
 
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (agegroup-0 pass).
 
-    {														// Pthread support.
-														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid x=%lx\n", (unsigned long int) task->pthread->ptid);
-	int we_are_the_primary_heapcleaner_pthread
+    {														// Hostthread support.
+														HOSTTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid x=%lx\n", (unsigned long int) task->hostthread->ptid);
+	int we_are_the_primary_heapcleaner_hostthread
 	    =
-	    pth__start_heapcleaning_with_extra_roots (task, extra_roots);					// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	    pth__start_heapcleaning_with_extra_roots (task, extra_roots);					// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 
 
-	if (!we_are_the_primary_heapcleaner_pthread)	{
+	if (!we_are_the_primary_heapcleaner_hostthread)	{
 	    //
-	    // We are not the primary heapcleaner pthread, and our
+	    // We are not the primary heapcleaner hostthread, and our
 	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
@@ -314,9 +314,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
 	// At this point we know that
 	// 
-	//     1. We're the primary heapcleaner pthread.
+	//     1. We're the primary heapcleaner hostthread.
 	// 
-	//     2. All other pthreads have now suspended execution of
+	//     2. All other hostthreads have now suspended execution of
 	//        user code and are blocked waiting for us to
 	//	  release them via the final pth__finish_heapcleaning()
 	//        call below.
@@ -331,8 +331,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-    {														// Pthread support.
-        // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
+    {														// Hostthread support.
+        // Get extra roots from hostthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global
         // by pth__start_heapcleaning_with_extra_roots.
         //
@@ -352,18 +352,18 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     }
 
     // Note heapcleaner roots from the register set(s)
-    // of the live Mythryl pthread task(s):
+    // of the live Mythryl hostthread task(s):
     //
     {   Task*     task;
-	Pthread*  pthread;
+	Hostthread*  hostthread;
 
-	for (int j = 0;  j < MAX_PTHREADS;  j++) {
+	for (int j = 0;  j < MAX_HOSTTHREADS;  j++) {
 	    //
-	    pthread = pthread_table__global[ j ];
+	    hostthread = hostthread_table__global[ j ];
 
-	    task    = pthread->task;
-														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-	    if (pthread->mode != PTHREAD_IS_VOID) {
+	    task    = hostthread->task;
+														HOSTTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+	    if (hostthread->mode != HOSTTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
@@ -424,7 +424,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
     // Reset agegroup0 buffer:
     //
-    pth__finish_heapcleaning( task );										// Pthread support.
+    pth__finish_heapcleaning( task );										// Hostthread support.
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
 
@@ -455,13 +455,13 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
     // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
 
-    {														// Pthread support.
+    {														// Hostthread support.
         if (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF)   return TRUE;
 
-    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	return (((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))
-	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 														// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #else
 	//

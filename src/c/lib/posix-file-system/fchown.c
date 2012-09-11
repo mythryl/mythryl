@@ -48,11 +48,11 @@ Val   _lib7_P_FileSys_fchown   (Task* task,  Val arg)   {
     uid_t  uid =  TUPLE_GETWORD(         arg, 1);
     gid_t  gid =  TUPLE_GETWORD(         arg, 2);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_fchown", NULL );
 	//
         int status = fchown (fd, uid, gid);
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_fchown" );
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

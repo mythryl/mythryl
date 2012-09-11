@@ -1,12 +1,9 @@
-## maildrop.pkg
+## maildrop.pkg							# Derives from   cml/src/core-cml/sync-var.sml
 #
 # Maildrops are essentially concurrency-safe replacements for REF cells.
 
 # Compiled by:
 #     src/lib/std/standard.lib
-
-
-
 
 
 
@@ -37,10 +34,16 @@ herein
 	Maildrop(X) =   MAILDROP
 			  {
 			    priority:  Ref( Int ),
-			    read_q:    rwq::Rw_Queue( (Ref( itt::Selectrun_Status ), Fate(X)) ),
+			    read_q:    rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)) ),
 			    value:     Ref(  Null_Or(X) )
 			  };
 
+
+	fun maildrop_to_string (MAILDROP { priority => REF p, read_q, value })						# Debug support, primarily to textify mailslot state for logging via log::note or such.
+	    =
+	    {   q_len = list::length (rwq::to_list read_q);
+		sprintf "prio=%d len(in_q)=%d value is %s"  p  q_len  case *value NULL => "EMPTY"; _ => "FULL"; esac;
+	    };
 
 	fun make_cell ()
 	    =
@@ -56,19 +59,19 @@ herein
 	    v1 == v2;
 
 
-	fun make_selectrun_status ()
+	fun make_do1mailoprun_status ()
 	    =
-	    REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread()));
+	    REF (itt::DO1MAILOPRUN_IS_BLOCKED (ts::get_current_thread()));
 
 
-	fun mark_selectrun_complete_and_return_thread  (selectrun_status  as  REF  (itt::SELECTRUN_IS_BLOCKED  thread_id))
+	fun mark_do1mailoprun_complete_and_return_thread  (do1mailoprun_status  as  REF  (itt::DO1MAILOPRUN_IS_BLOCKED  thread_id))
 		=>
-		{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
+		{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    thread_id;
 		};
 
-	    mark_selectrun_complete_and_return_thread  (REF (itt::SELECTRUN_IS_COMPLETE))
+	    mark_do1mailoprun_complete_and_return_thread  (REF (itt::DO1MAILOPRUN_IS_COMPLETE))
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";			# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
@@ -84,14 +87,14 @@ herein
 	Qy_Item(X)
 	  #
 	  = NO_ITEM
-	  | ITEM  ((Ref itt::Selectrun_Status,  Fate(X)))
+	  | ITEM  ((Ref itt::Do1mailoprun_Status,  Fate(X)))
 	  ;
 
 	# Functions to clean channel input and output queues 
 	#
 	stipulate
 
-	    fun clean ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest)				# Drop any cancelled transactions at start of list.
+	    fun clean ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest)				# Drop any cancelled transactions at start of list.
 		    =>
 		    clean rest;
 
@@ -102,7 +105,7 @@ herein
 		    =>
 		    result;
 
-		clean_rev ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest,  result)
+		clean_rev ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest,  result)
 		    =>
 		    clean_rev (rest, result);
 
@@ -256,14 +259,14 @@ herein
 	    =
 	    case (clean_and_remove  read_q)
 		#
-		NO_ITEM =>   ts::reenable_thread_switching ();
+		NO_ITEM =>   ts::exit_uninterruptible_scope ();
 
-		ITEM (selectrun_status, fate)
+		ITEM (do1mailoprun_status, fate)
 		    =>
 		    call_with_current_fate
-			(fn my_fate
+			(fn old_fate
 			    =
-			    {   ts::run_thread  (mark_selectrun_complete_and_return_thread  selectrun_status,   my_fate);
+			    {   ts::enqueue_old_thread_plus_old_fate_then_install_new_thread  { new_thread => mark_do1mailoprun_complete_and_return_thread  do1mailoprun_status,   old_fate };
 				#
 				switch_to_fate  fate  msg;									# 
 			    }
@@ -292,37 +295,48 @@ herein
 	same_maildrop =  same_cell;
 
 
-	fun fill (MAILDROP { priority, read_q, value }, maildrop_value)
+	fun fill (maildrop as MAILDROP { priority, read_q, value }, maildrop_value)
 	    =
-	    {   ts::disable_thread_switching ();
+	    {
+		ts::enter_uninterruptible_scope ();
 		#
+log::note .{ sprintf "%s\tfill/AAA  %s (after entering uninterruptible mode) -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 		case *value
 		    #
 		    NULL =>
 			{   value := THE maildrop_value;
 			    #
+log::note .{ sprintf "%s\tfill/BBB  %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 			    case (clean_and_remove read_q)
 				#
-				NO_ITEM =>   ts::reenable_thread_switching ();
+				NO_ITEM =>  {
+log::note .{ sprintf "%s\tfill/CCC  %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+						ts::exit_uninterruptible_scope ();
+					    };
 
-				ITEM (selectrun_status, fate)
+				ITEM (do1mailoprun_status, fate)
 				    =>
-				    call_with_current_fate
-					#
-					(fn my_fate
-					    =
-					    {   ts::run_thread   (mark_selectrun_complete_and_return_thread  selectrun_status,   my_fate);
-						#
-						priority := 1;
+				    {
+log::note .{ sprintf "%s\tfill/MMM  %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+					call_with_current_fate
+					    #
+					    (fn old_fate
+						=
+						{   ts::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => mark_do1mailoprun_complete_and_return_thread  do1mailoprun_status,   old_fate };
+						    #
+						    priority := 1;
 
-						switch_to_fate  fate  maildrop_value;									# Resume empty' below.
-					    }
-					);
+						    switch_to_fate  fate  maildrop_value;									# Resume empty' below.
+						}
+					    );
+				    };
 			    esac;
 			};
 
 		    THE _ =>
-			{   ts::reenable_thread_switching ();
+			{
+log::note .{ sprintf "%s\tfill/QQQ  %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+			    ts::exit_uninterruptible_scope ();
 			    #
 			    raise exception MAY_NOT_FILL_ALREADY_FULL_MAILDROP;
 			};
@@ -336,8 +350,8 @@ herein
 	    where
 		fun set_up_mailopready_watch						# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,						# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,						# This typically does  selectrun_status := SELECTRUN_IS_COMPLETE;  and then sends nacks as appropriate.
+			do1mailoprun_status,						# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,						# This typically does  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and then sends nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
@@ -347,7 +361,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -359,13 +373,13 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {
 			(call_with_current_fate
 			    (fn fate
 				=
-				{   rwq::push_item_into_back_of_queue (read_q, (selectrun_status, fate));
+				{   rwq::push_item_into_back_of_queue (read_q, (do1mailoprun_status, fate));
 				    #
 				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg
 												impossible ();	# return_to__set_up_mailopready_watches__loop() should never return.
@@ -374,10 +388,10 @@ herein
 			)
 			    ->	maildrop_value;									# Execution will pick up here when fill() (above) eventually does:   switch_to_fate  fate  maildrop_value;
 
-			finish_selectrun ();									# Do stuff like   selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			finish_do1mailoprun ();									# Do stuff like   do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			value := NULL;										# Empty the maildrop.
 
-			ts::reenable_thread_switching ();							# End uninterruptable scope.
+			ts::exit_uninterruptible_scope ();							# End uninterruptible scope.
 
 			maildrop_value;										# Return value read from maildrop.
 		    };
@@ -393,7 +407,7 @@ herein
 					priority    =>   bump_priority  priority,
 
 					fire_mailop => .{   value := NULL;				# Reppy refers to 'fire_mailop' as 'doFn'.
-							    ts::reenable_thread_switching ();
+							    ts::exit_uninterruptible_scope ();
 							    v;
 							}
 				      };
@@ -403,12 +417,12 @@ herein
 
 	fun nonblocking_empty (MAILDROP { priority, read_q, value } )
 	    =
-	    {   ts::disable_thread_switching();
+	    {   ts::enter_uninterruptible_scope();
 		#
 		case *value
 		    #
 		    THE v =>    {   value := NULL;
-				    ts::reenable_thread_switching ();
+				    ts::exit_uninterruptible_scope ();
 				    THE v;
 				};
 
@@ -417,70 +431,111 @@ herein
 	    };
 
 
-	fun empty (MAILDROP { priority, read_q, value } )
+	fun empty (maildrop as MAILDROP { priority, read_q, value } )
 	    =
-	    {   ts::disable_thread_switching();
+	    {
+# printf "empty/AAA: disabling thread switching.   -- maildrop.pkg\n";
+		ts::enter_uninterruptible_scope();
+ log::note .{ sprintf "%s\tempty/AAA %s (after entering uninterruptible mode) -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/BBB: back from disabling thread switching.   -- maildrop.pkg\n";
 		#
+result =
 		case *value
 		    #
 		    NULL =>
-			{   v = call_with_current_fate
+			{
+ log::note .{ sprintf "%s\tempty/CCC %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/NULL/CCC: doing call_with_current_fate.   -- maildrop.pkg\n";
+			    v = call_with_current_fate
 				    (fn fate
 					=
-					{   rwq::push_item_into_back_of_queue (read_q, (make_selectrun_status(), fate));
+					{
+ log::note .{ sprintf "%s\tempty/DDD %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/NULL/DDD: doing rwq::push_item_into_back_of_queue (read_q, (make_do1mailoprun_status(), fate));   -- maildrop.pkg\n";
+					    rwq::push_item_into_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
 					    #
-					    ts::reenable_thread_switching_and_dispatch_next_thread ();
+ log::note .{ sprintf "%s\tempty/EEE %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/NULL/EEE: doing ts::dispatch_next_thread__usend__noreturn ();   -- maildrop.pkg\n";
+					    ts::dispatch_next_thread__usend__noreturn ();
 					}
 				    );
 
+ log::note .{ sprintf "%s\tempty/FFF %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/NULL/FFF: doing value := NULL.   -- maildrop.pkg\n";
 			    value := NULL;
-			    ts::reenable_thread_switching ();
+ log::note .{ sprintf "%s\tempty/GGG %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/NULL/GGG: doing renable_thread_switching().   -- maildrop.pkg\n";
+			    ts::exit_uninterruptible_scope ();
+# printf "empty/NULL/HHH: returning v.   -- maildrop.pkg\n";
 			    v;
 			};
 
 		    THE v =>
-			{   value := NULL;
-			    ts::reenable_thread_switching ();
+			{
+ log::note .{ sprintf "%s\tempty/MMM %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/THE/MMM: doing value := NULL.   -- maildrop.pkg\n";
+			    value := NULL;
+ log::note .{ sprintf "%s\tempty/NNN %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+# printf "empty/THE/NNN: doing renable_thread_switching().   -- maildrop.pkg\n";
+			    ts::exit_uninterruptible_scope ();
+# printf "empty/THE/OOO: returning v.   -- maildrop.pkg\n";
 			    v;
 			};
 		esac;
+# printf "empty/ZZZ: done.   -- maildrop.pkg\n";
+result;
 	    };
 
 
-	fun peek (MAILDROP { priority, read_q, value } )
+	fun peek (maildrop as MAILDROP { priority, read_q, value } )
 	    =
-	    {   ts::disable_thread_switching ();
+	    {
+		ts::enter_uninterruptible_scope ();
 		#
+log::note .{ sprintf "%s\tpeek/AAA %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+result =
 		case *value
 		    #
-		    NULL =>     {   v =  call_with_current_fate
+		    NULL =>     {
+log::note .{ sprintf "%s\tpeek/BBB %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    v =  call_with_current_fate
 					    (fn fate
 						=
-						{   rwq::push_item_into_back_of_queue (read_q, (make_selectrun_status(), fate));
+						{
+log::note .{ sprintf "%s\tpeek/CCC %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+						    rwq::push_item_into_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
 						    #
-						    ts::reenable_thread_switching_and_dispatch_next_thread ();
+log::note .{ sprintf "%s\tpeek/DDD %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+						    ts::dispatch_next_thread__usend__noreturn ();
 						}
 					    );
 
+log::note .{ sprintf "%s\tpeek/EEE %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 				    relay_msg (read_q, v);
 
+log::note .{ sprintf "%s\tpeek/FFF %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 				    v;
 				};
 
-		    THE v =>    {   ts::reenable_thread_switching ();
+		    THE v =>    {
+log::note .{ sprintf "%s\tpeek/MMM %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    ts::exit_uninterruptible_scope ();
+log::note .{ sprintf "%s\tpeek/NNN %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 				    v;
 				};
 		esac;
+log::note .{ sprintf "%s\tpeek/ZZZ %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+result;
 	    };
 
 
-	fun peek' (MAILDROP { priority, read_q, value } )
+	fun peek' (maildrop as MAILDROP { priority, read_q, value } )
 	    =
 	    {
 		fun set_up_mailopready_watch						# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,						# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,						# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,						# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop			# After starting a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
@@ -490,7 +545,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -502,12 +557,17 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
-		    {   (call_with_current_fate
+		    {
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/AAA %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+			(call_with_current_fate
 			    (fn fate
 				=
-				{   rwq::push_item_into_back_of_queue (read_q, (selectrun_status, fate));
+				{
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/BBB %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    rwq::push_item_into_back_of_queue (read_q, (do1mailoprun_status, fate));
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/CCC %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
 											    impossible ();	# return_to__set_up_mailopready_watches__loop should never return.
 				}
@@ -515,44 +575,70 @@ herein
 			)
 			    -> v;										# Execution will resume on this line when 'fate' is eventually called.
 
-			finish_selectrun();
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/DDD %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+			finish_do1mailoprun();
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/EEE %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 			relay_msg (read_q, v);
+log::note .{ sprintf "%s\tpeek'/set_up_mailopready_watch/EEE %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 			v;
 		    };
 
 		fun is_mailop_ready_to_fire ()									# Reppy refers to 'is_mailop_ready_to_fire' as 'pollFn'.
 		    =
+{
+log::note .{ sprintf "%s\tpeek'/is_mailop_ready_to_fire/AAA %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+
 		    case *value
 			#	        
-			NULL  =>    itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			NULL  =>    {
+log::note .{ sprintf "%s\tpeek'/is_mailop_ready_to_fire/BBB %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+					itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+				    };
 			#
-			THE v =>    itt::MAILOP_IS_READY_TO_FIRE
-				      {
-					priority    =>   bump_priority priority,
-					#
-					fire_mailop => .{   ts::reenable_thread_switching ();			# Reppy refers to 'fire_mailop' as 'doFn'.
-							    v;
-							}
-				      };
+			THE v =>    {
+log::note .{ sprintf "%s\tpeek'/is_mailop_ready_to_fire/CCC %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+					itt::MAILOP_IS_READY_TO_FIRE
+					  {
+					    priority    =>   bump_priority priority,
+					    #
+					    fire_mailop => .{   ts::exit_uninterruptible_scope ();			# Reppy refers to 'fire_mailop' as 'doFn'.
+								v;
+							    }
+					  };
+				    };
 		    esac;
-
+};
+log::note .{ sprintf "%s\tpeek'/is_mailop_ready_to_fire/DDD %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 		itt::BASE_MAILOPS [is_mailop_ready_to_fire];
 	    };
 
 
-	fun nonblocking_peek (MAILDROP { priority, read_q, value } )
+
+	fun nonblocking_peek (maildrop as MAILDROP { priority, read_q, value } )
 	    =
-	    {   ts::disable_thread_switching ();
+	    {   ts::enter_uninterruptible_scope ();
 		#
+log::note .{ sprintf "%s\tnonblocking_peek/AAA %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+result =
 		case *value
 		    #
-		    THE v =>    {   ts::reenable_thread_switching ();
+		    THE v =>    {
+log::note .{ sprintf "%s\tnonblocking_peek/BBB %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    ts::exit_uninterruptible_scope ();
 				    #
+log::note .{ sprintf "%s\tnonblocking_peek/CCC %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
 				    THE v;
 				};
 
-		    NULL =>     NULL;
+		    NULL =>	{
+log::note .{ sprintf "%s\tnonblocking_peek/MMM %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    ts::exit_uninterruptible_scope ();
+log::note .{ sprintf "%s\tnonblocking_peek/NNN %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+				    NULL;
+				};
 		esac;
+log::note .{ sprintf "%s\tnonblocking_peek/ZZZ %s -- maildrop.pkg"  (ts::thread_scheduler_statestring ())  (maildrop_to_string  maildrop);	};	# [5] [B]
+result;
 	    };
 
 
@@ -566,16 +652,16 @@ herein
 	#
 	fun swap (MAILDROP { priority, read_q, value }, new_v)
 	    =
-	    {   ts::disable_thread_switching ();
-
+	    {   ts::enter_uninterruptible_scope ();
+		#
 		case *value
 		    #
 		    NULL =>     {   v = call_with_current_fate
 					    (fn fate
 						=
-						{   rwq::push_item_into_back_of_queue (read_q, (make_selectrun_status(), fate));
+						{   rwq::push_item_into_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
 						    #
-						    ts::reenable_thread_switching_and_dispatch_next_thread ();
+						    ts::dispatch_next_thread__usend__noreturn ();
 						}
 					    );
 
@@ -587,7 +673,7 @@ herein
 				};
 
 		    THE v =>    {   value := THE new_v;
-				    ts::reenable_thread_switching ();
+				    ts::exit_uninterruptible_scope ();
 				    v;
 				};
 		esac;
@@ -600,8 +686,8 @@ herein
 	    where
 		fun set_up_mailopready_watch								# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,								# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,								# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,								# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,								# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop					# After starting a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
@@ -611,7 +697,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -623,12 +709,12 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {   (call_with_current_fate
 			    (fn fate
 				=
-				{   rwq::push_item_into_back_of_queue (read_q, (selectrun_status, fate));
+				{   rwq::push_item_into_back_of_queue (read_q, (do1mailoprun_status, fate));
 				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
 												impossible();	# return_to__set_up_mailopready_watches__loop() should never return.
 				}
@@ -636,7 +722,7 @@ herein
 			)
 			    -> old_maildrop_value;								# Execution picks up on this line when 'fate' eventually gets called.
 
-			finish_selectrun ();
+			finish_do1mailoprun ();
 			value := THE new_maildrop_value;
 			relay_msg (read_q, new_maildrop_value);
 			old_maildrop_value;
@@ -653,7 +739,7 @@ herein
 					priority    =>   bump_priority priority,
 					#
 					fire_mailop => .{   value := THE new_maildrop_value;				# Reppy refers to 'fire_mailop' as 'doFn'.
-							    ts::reenable_thread_switching ();
+							    ts::exit_uninterruptible_scope ();
 							    v;
 							}
 				      };

@@ -39,15 +39,16 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
     int		new_socket;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_accept", NULL );
 	//
     /*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
 
 	    new_socket = accept (socket, (struct sockaddr*) address_buf, &address_len);
 
+if (errno == EINTR) puts("Error: EINTR in accept.c\n");
     /*  } while (new_socket < 0 && errno == EINTR);	*/		/* Restart if interrupted by a SIGALRM or SIGCHLD or whatever.	*/
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_accept" );
 
     if (new_socket == -1) {
         //

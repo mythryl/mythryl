@@ -40,16 +40,16 @@ Val   _lib7_Sig_setsigstate   (Task* task,  Val arg)   {
     int signal_number =  GET_TUPLE_SLOT_AS_INT( sig, 0 );				// Last use of 'sig'.
     int signal_state  =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_setsigstate", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate", NULL );
 	//
 	set_signal_state(								// set_signal_state	def in    src/c/machine-dependent/posix-signal.c
 	    //
-	    task->pthread,
+	    task->hostthread,
 	    signal_number,
 	    signal_state
 	);
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_setsigstate" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate" );
 
     return HEAP_VOID;
 }

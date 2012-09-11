@@ -89,16 +89,22 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     struct timeval  tv;
     struct timeval* tvp;
 
+// printf("src/c/lib/posix-os/poll.c: _lib7_OS_poll/TOP\n"); fflush(stdout);
     if (timeout == OPTION_NULL) {
         //
         tvp = NULL;
         //
     } else {
         //
-        timeout	= OPTION_GET( timeout );				// OPTION_GET	is from   src/c/h/make-strings-and-vectors-etc.h
+        timeout	= OPTION_GET( timeout );				// OPTION_GET			is from   src/c/h/make-strings-and-vectors-etc.h
 
-        tv.tv_sec	= TUPLE_GET_INT1(       timeout, 0 );
-        tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );
+									// TUPLE_GET_INT1		is from   src/c/h/make-strings-and-vectors-etc.h
+									// GET_TUPLE_SLOT_AS_INT	is from   src/c/h/runtime-values.h
+
+        tv.tv_sec	= TUPLE_GET_INT1(        timeout, 0 );		// Yes, we really are passing tv_sec as a tagged int
+        tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );		// but passing tv_usec as a boxed unt.
+									// Is this sane?  Deponent declines to declare.
+// printf("src/c/lib/posix-os/poll.c: _lib7_OS_poll: tv.tv_sec d=%ld tv.tv_usec d=%ld sec*1000000+usec d=%ld\n", tv.tv_sec, tv.tv_usec, tv.tv_sec*1000000+tv.tv_usec); fflush(stdout);
 
         tvp = &tv;
     }
@@ -135,6 +141,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     Val l;
     Val item;
 
+// printf("src/c/lib/posix-os/poll.c: Using 'poll' implementation\n"); fflush(stdout);
     if (timeout == NULL)   tout = -1;
     else	           tout = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);        // Convert to miliseconds.
 
@@ -166,15 +173,16 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     {   int status;
 
 
-/*      do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", NULL );
-		//
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll", NULL );
+	    //
+/**/        do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+								// Restored   2012-06-11 CrT as an experiment.
 		status = poll (fds, nfds, tout);
 		//
-	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll" );
+/**/        } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    //
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll" );
 
-/*      } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	if (status < 0) {
 	    //
@@ -207,7 +215,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 }
 
 #else // HAS_SELECT
-#include <fcntl.h>/* 2008-03-15 CrT BUGGO -- DELETEME! Temporary debug hack. */
+// #include <fcntl.h>/* 2008-03-15 CrT BUGGO -- DELETEME! Temporary debug hack. */
 
 
 static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
@@ -222,9 +230,9 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     int		maxFD, status, fd, flag;
     Val	l, item;
 
-/*printf("src/c/lib/posix-os/poll.c: Using 'select' implementation\n");*/
+// printf("src/c/lib/posix-os/poll.c: Using 'select' implementation\n"); fflush(stdout);
     rfds = wfds = efds = NULL;
-    maxFD = 0;
+    maxFD = -1;								// When using select() just to sleep, first arg to select() should be zero.
     for (l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
 	item	= LIST_HEAD(l);
 	fd	= GET_TUPLE_SLOT_AS_INT(item, 0);
@@ -235,7 +243,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		rfds = &rset;
 		FD_ZERO(rfds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);*/
+/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);  fflush(stdout); */
 	    FD_SET (fd, rfds);
 	}
 	if ((flag & WRITABLE_BIT) != 0) {
@@ -243,7 +251,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		wfds = &wset;
 		FD_ZERO(wfds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for writability.\n",fd);*/
+/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for writability.\n",fd);  fflush(stdout); */
 	    FD_SET (fd, wfds);
 	}
 	if ((flag & OOBDABLE_BIT) != 0) {
@@ -251,36 +259,37 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		efds = &eset;
 		FD_ZERO(efds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for oobdability.\n",fd);*/
+/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for oobdability.\n",fd);   fflush(stdout); */
 	    FD_SET (fd, efds);
 	}
 	if (fd > maxFD) maxFD = fd;
     }
 
-/*printf("src/c/lib/posix-os/poll.c: maxFD d=%d timeout x=%x.\n",maxFD,timeout);*/
+// printf("src/c/lib/posix-os/poll.c: maxFD d=%d\n",maxFD); fflush(stdout);
 
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+/**/  do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+											// Restored 2012-08-07 CrT
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", &arg );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll", &arg );
 	    //
 	    status = select (maxFD+1, rfds, wfds, efds, timeout);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll" );
 
-/*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+ /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);		// Re-fetch poll_list because heapcleaner may have moved it between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP.
 
-/*printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status);*/
+// printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status); fflush(stdout);
 
     if (status < 0)
         return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     else if (status == 0)
 	return LIST_NIL;
     else {
-	Val	*resVec = MALLOC_VEC(Val, status);
-	int		i;
-	int		resFlag;
+	Val*	resVec = MALLOC_VEC(Val, status);
+	int	i;
+	int	resFlag;
 
 	for (i = 0, l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
 	    item	= LIST_HEAD(l);
@@ -288,16 +297,16 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 	    flag	= GET_TUPLE_SLOT_AS_INT(item, 1);
 	    resFlag	= 0;
 	    if (((flag & READABLE_BIT) != 0) && FD_ISSET(fd, rfds)) {
-/*int fd_flags = fcntl(fd,F_GETFL,0);*/
-/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact readable. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);*/
+// int fd_flags = fcntl(fd,F_GETFL,0);
+// printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact readable. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK); fflush(stdout);
 		resFlag |= READABLE_BIT;
             }
 	    if (((flag & WRITABLE_BIT) != 0) && FD_ISSET(fd, wfds)) {
-/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact writable.\n",fd);*/
+/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact writable.\n",fd);  fflush(stdout);*/
 		resFlag |= WRITABLE_BIT;
             }
 	    if (((flag & OOBDABLE_BIT) != 0) && FD_ISSET(fd, efds)) {
-/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact oobdable.\n",fd);*/
+/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact oobdable.\n",fd);  fflush(stdout);*/
 		resFlag |= OOBDABLE_BIT;
             }
 	    if (resFlag != 0) {

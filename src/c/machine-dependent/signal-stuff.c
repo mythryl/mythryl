@@ -13,7 +13,7 @@
 #include "system-signals.h"
 
 
-void   choose_signal   (Pthread* pthread)   {
+void   choose_signal   (Hostthread* hostthread)   {
     // =============
     // 
     // Caller guarantees that at least one Unix signal has been
@@ -51,7 +51,7 @@ void   choose_signal   (Pthread* pthread)   {
     //
     // For fairness we scan for signals round-robin style, using
     //
-    //     pthread->posix_signal_rotor
+    //     hostthread->posix_signal_rotor
     //
     // to remember where we left off scanning, so we can pick
     // up from there next time:	
@@ -60,9 +60,9 @@ void   choose_signal   (Pthread* pthread)   {
     int j = 0;
     #endif
 
-    int i = pthread->posix_signal_rotor;
+    int i = hostthread->posix_signal_rotor;
     do {
-	ASSERT (j++ < MAX_POSIX_SIGNALS);				// At worst we have to search all the way through pthread->posix_signal_counts[MAX_POSIX_SIGNALS].
+	ASSERT (j++ < MAX_POSIX_SIGNALS);				// At worst we have to search all the way through hostthread->posix_signal_counts[MAX_POSIX_SIGNALS].
 
 	i++;
 
@@ -73,35 +73,35 @@ void   choose_signal   (Pthread* pthread)   {
 
 	// Does this signal have pending work? (Nonzero == "yes"):
 	//
-	delta = pthread->posix_signal_counts[i].seen_count - pthread->posix_signal_counts[i].done_count;
+	delta = hostthread->posix_signal_counts[i].seen_count - hostthread->posix_signal_counts[i].done_count;
 
     } while (delta == 0);
 
-    pthread->posix_signal_rotor = i;					// Next signal to scan on next call to this fn.
+    hostthread->posix_signal_rotor = i;					// Next signal to scan on next call to this fn.
 
     // Record the signal to process
     // and how many times it has fired
     // since last being handled at the
     // Mythryl level:
     //
-    pthread->next_posix_signal_id    = i;
-    pthread->next_posix_signal_count = delta;
+    hostthread->next_posix_signal_id    = i;
+    hostthread->next_posix_signal_count = delta;
 
 //    log_if(
 //        "signal-stuff.c/choose_signal: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
 //        i,
-//        pthread->posix_signal_counts[i].seen_count,
-//        pthread->posix_signal_counts[i].done_count,
-//        pthread->posix_signal_counts[i].seen_count - pthread->posix_signal_counts[i].done_count
+//        hostthread->posix_signal_counts[i].seen_count,
+//        hostthread->posix_signal_counts[i].done_count,
+//        hostthread->posix_signal_counts[i].seen_count - hostthread->posix_signal_counts[i].done_count
 //    );
 
     // Mark this signal as 'done':
     //
-    pthread->posix_signal_counts[i].done_count  += delta;
-    pthread->all_posix_signals.done_count       += delta;
+    hostthread->posix_signal_counts[i].done_count  += delta;
+    hostthread->all_posix_signals.done_count       += delta;
 
     #ifdef SIGNAL_DEBUG
-        debug_say ("choose_signal: sig = %d, count = %d\n", pthread->next_posix_signal_id, pthread->next_posix_signal_count);
+        debug_say ("choose_signal: sig = %d, count = %d\n", hostthread->next_posix_signal_id, hostthread->next_posix_signal_count);
     #endif
 }
 
@@ -173,7 +173,7 @@ Val   make_mythryl_signal_handler_arg   (
     // NOTE: Maybe this should be combined with choose_signal???	XXX BUGGO FIXME
 
 
-    Pthread* pthread = task->pthread;
+    Hostthread* hostthread = task->hostthread;
 
     Val run_fate =  make_resumption_fate( task,  resume_after_handling_signal );
 
@@ -181,8 +181,8 @@ Val   make_mythryl_signal_handler_arg   (
     //
     Val arg = make_three_slot_record( task, 
 	//
-	TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_id	),
-        TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_count	),
+	TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_id	),
+        TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_count	),
 	run_fate
     );
 

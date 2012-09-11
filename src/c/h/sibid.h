@@ -1,12 +1,17 @@
 // sibid.h
 //
-// Definitions for sib IDs ("sibids") and for mapping from 64K ram "boooks" to sib IDs.
+// Definitions for sib IDs ("sibids") and for mapping from 64K ram "books" to sib IDs.
 //
 // For nomenclature, motivation and overview see:
 //
 //     src/A.HEAP.OVERVIEW
 
-
+/*
+###			"Some books are to be tasted, others to be swallowed,
+###			 and some few to be chewed and digested."
+###
+###						-- Francis Bacon, Sr.
+*/
 
 #ifndef SIBID_H
 #define SIBID_H

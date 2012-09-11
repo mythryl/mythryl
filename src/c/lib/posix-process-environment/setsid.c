@@ -35,11 +35,11 @@ Val   _lib7_P_ProcEnv_setsid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setsid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setsid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setsid", NULL );
 	//
 	pid_t pid =  setsid ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setsid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setsid" );
 
     RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, pid, NULL);
 }

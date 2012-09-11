@@ -52,12 +52,13 @@ Val   _lib7_P_FileSys_mkstemp   (Task* task,  Val arg)   {
 
 /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "", NULL );
 	//
 	fd  =  mkstemp( buf );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
+if (errno == EINTR) puts("Error: EINTR in mkstemp.c\n");
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever. HAVEN"T CHECKED WHETHER mkstemp IS INTERRUPTABLE -- this is copied blindly from openf.c.
 
 

@@ -16,10 +16,12 @@
 stipulate
     include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
+    package ts  =  thread_scheduler;			# thread_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    #
     package xg  =  xgeometry;				# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
     package xc  =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
     #
-    package rx  =  run_xkit;				# run_xkit		is from   src/lib/x-kit/widget/lib/run-xkit.pkg
+    package rx  =  run_in_x_window;			# run_in_x_window	is from   src/lib/x-kit/widget/lib/run-in-x-window.pkg
     #
     package top =  topwindow;				# topwindow		is from   src/lib/x-kit/widget/basic/topwindow.pkg
     package wg  =  widget;				# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
@@ -32,7 +34,7 @@ stipulate
     #
     tracefile   =  "calculator-app.trace.log";
     tracing     =  logger::make_logtree_leaf { parent => xlogger::xkit_logging, name => "calculator_app::tracing" };
-    trace	=  xtr::log_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+    trace	=  xtr::log_if  tracing 0;		# Conditionally write strings to tracing.log or whatever.
         #
         # To debug via tracelogging, annotate the code with lines like
 	#
@@ -45,265 +47,362 @@ herein
 	#
 	write_tracelog = FALSE;
 
-	stipulate
-	    #
-	    run_selfcheck =  REF FALSE;
 
-	    stipulate
-		selfcheck_tests_passed =  REF 0;
-		selfcheck_tests_failed =  REF 0;
-	    herein
-		fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
-		fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	#
+
+	######## Begin mutable selfcheck globals ########
+	#
+
+	app_task			=  REF (NULL: Null_Or( Apptask   ));
+
+#	selfcheck_thread		=  REF (NULL: Null_Or( Appthread ));
+#	accumulator_thread		=  REF (NULL: Null_Or( Appthread ));				# Gets created in  src/lib/x-kit/tut/calculator/accumulator.pkg
+#	printer_thread			=  REF (NULL: Null_Or( Appthread ));				# Gets created in  src/lib/x-kit/tut/calculator/calculator.pkg
+
+	selfcheck_tests_passed		=  REF 0;
+	selfcheck_tests_failed		=  REF 0;
+
+	run_selfcheck			=  REF FALSE;
+
+	#
+	######## End mutable selfcheck globals ########
+
+#	all_app_threads = [ accumulator_thread,
+#			    printer_thread
+#			  ];
+
+	fun reset_global_mutable_state ()					# Reset above state variables to load-time values.
+	    =									# This will be needed if (say) we get run multiple times interactively without being reloaded.
+	    {   run_selfcheck					:=  FALSE;
 		#
-		fun assert bool    =  if bool   test_passed ();
-				      else      test_failed ();
-				      fi;				
+		app_task					:=  NULL;
 		#
-		fun test_stats  ()
+#		apply' all_app_threads
+#		       (fn thread =    thread :=  NULL);
+#		#
+#		selfcheck_thread				:=  NULL;
+		#
+		selfcheck_tests_passed				:=  0;
+		selfcheck_tests_failed				:=  0;
+	    };
+
+	fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	#
+	fun assert bool    =  if bool   test_passed ();
+			      else      test_failed ();
+			      fi;				
+	#
+	fun test_stats  ()
+	    =
+	    { passed => *selfcheck_tests_passed,
+	      failed => *selfcheck_tests_failed
+	    };
+
+
+	fun kill_calculator_app ()
+	    =
+	    {
+log::note .{ sprintf "%s\tkill_calculator_app/TOP:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+		kill_task  { success => TRUE,  task => (the *app_task) };
+log::note .{ sprintf "%s\tkill_calculator_app/ZZZ:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+	    };
+
+	fun wait_for_app_task_done ()
+	    =
+	    {
+log::note .{ sprintf "%s\twait_for_app_task_done/TOP  -- calculator-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		task =  the  *app_task;
+		#
+log::note .{ sprintf "%s\twait_for_app_task_done/BBB  -- calculator-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		task_finished' =  task_done__mailop  task;
+
+log::note .{ sprintf "%s\twait_for_app_task_done/CCC  -- calculator-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		block_until_mailop_fires  task_finished';
+
+log::note .{ sprintf "%s\twait_for_app_task_done/DDD  -- calculator-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		assert (get_task's_state  task  ==  state::SUCCESS);
+log::note .{ sprintf "%s\twait_for_app_task_done/ZZZ  -- calculator-app.pkg"  (ts::thread_scheduler_statestring ()); };
+	    };
+
+
+	# Thread to exercise the app by simulating user
+	# mouseclicks and verifying their effects:
+	#
+	fun make_selfcheck_thread
+	      { topwindow,
+		widgettree,
+		selfcheck_interface => { buttons, display_update' }
+	      }
+	    =
+	    xtr::make_thread  "calculator-app selfcheck"  selfcheck
+	    where
+		# Figure midpoint of window and also
+		# a small box centered on the midpoint:
+		#
+		fun midwindow window
 		    =
-		    { passed => *selfcheck_tests_passed,
-		      failed => *selfcheck_tests_failed
+		    {
+			# Get size of drawing window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row, col, high, wide };
+
+			# Define midpoint of drawing window,
+			# and a 9x9 box enclosing it:
+			#
+			stipulate
+			    row =  high / 2;
+			    col =  wide / 2;
+			herein
+			    midpoint =  xg::POINT { row, col };
+			    midbox   =  xg::BOX { row => row - 4, col => col - 4, high => 9, wide => 9 };
+			end;
+
+			(midpoint, midbox);
 		    };
-	    end;
 
-	    # Thread to exercise the app by simulating user
-	    # mouseclicks and verifying their effects:
-	    #
-	    fun make_selfcheck_thread
-                  { topwindow,
-                    widgettree,
-                    selfcheck_interface => { buttons, display_update' }
-                  }
-		=
-		xtr::make_thread "calculator-app selfcheck" selfcheck
-		where
-		    # Figure midpoint of window and also
-		    # a small box centered on the midpoint:
-		    #
-		    fun midwindow window
-			=
-			{
-			    # Get size of drawing window:
+		# Figure points just outside and inside window:
+		#
+		fun bordering_points window
+		    =
+		    {
+			# Get size of drawing window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row => in_row, col => in_col, ... };
+
+			stipulate
+			    out_row =  in_row - 1;
+			    out_col =  in_col - 1;
+			herein
+			    inpoint  =  xg::POINT { row =>  in_row, col =>  in_col };
+			    outpoint =  xg::POINT { row => out_row, col => out_col };
+			end;
+
+			{ inpoint, outpoint };
+		    };
+
+		# Simulate a mouseclick in center of window:
+		#
+		fun click_window  window
+		    =
+		    {   button = xc::MOUSEBUTTON 1;
+
+			(midwindow        window) -> ( midpoint, _);
+			(bordering_points window) -> { inpoint, outpoint };
+
+			xc::send_''mouse_enter''_xevent     { window,         point => inpoint  };
+			xc::send_mousebutton_press_xevent   { window, button, point => midpoint };
+			xc::send_mousebutton_release_xevent { window, button, point => midpoint };
+			xc::send_''mouse_leave''_xevent     { window,         point => outpoint };
+		    };	
+
+		fun press_button  button_name
+		    =
+		    {
+			case (string_map::get (buttons, button_name))
 			    #
-			    (xc::get_window_site  window)
-				->
-				xg::BOX { row, col, high, wide };
-
-			    # Define midpoint of drawing window,
-			    # and a 9x9 box enclosing it:
+			    NULL => test_failed ();				# No button by that name -- major oops.
 			    #
-			    stipulate
-				row =  high / 2;
-				col =  wide / 2;
-			    herein
-				midpoint =  xg::POINT { row, col };
-				midbox   =  xg::BOX { row => row - 4, col => col - 4, high => 9, wide => 9 };
-			    end;
+			    THE button
+				=>
+				{   test_passed ();				# We at least found the button as expected.  ;-)
 
-			    (midpoint, midbox);
-			};
+				    widget = pushbuttons::as_widget  button;
+				    window = widget::window_of       widget;
 
-		    # Figure points just outside and inside window:
-		    #
-		    fun bordering_points window
-			=
-			{
-			    # Get size of drawing window:
-			    #
-			    (xc::get_window_site  window)
-				->
-				xg::BOX { row => in_row, col => in_col, ... };
-
-			    stipulate
-				out_row =  in_row - 1;
-				out_col =  in_col - 1;
-			    herein
-				inpoint  =  xg::POINT { row =>  in_row, col =>  in_col };
-				outpoint =  xg::POINT { row => out_row, col => out_col };
-			    end;
-
-			    { inpoint, outpoint };
-			};
-
-		    # Simulate a mouseclick in center of window:
-		    #
-		    fun click_window  window
-			=
-			{   button = xc::MOUSEBUTTON 1;
-
-			    (midwindow        window) -> ( midpoint, _);
-                            (bordering_points window) -> { inpoint, outpoint };
-
-			    xc::send_''mouse_enter''_xevent     { window,         point => inpoint  };
-			    xc::send_mousebutton_press_xevent   { window, button, point => midpoint };
-			    xc::send_mousebutton_release_xevent { window, button, point => midpoint };
-			    xc::send_''mouse_leave''_xevent     { window,         point => outpoint };
-			};	
-
-		    fun press_button  button_name
-			=
-			{
-			    case (string_map::get (buttons, button_name))
-				#
-				NULL => test_failed ();				# No button by that name -- major oops.
-				#
-				THE button
-				    =>
-				    {   test_passed ();				# We at least found the button as expected.  ;-)
-
-					widget = pushbuttons::as_widget  button;
-					window = widget::window_of       widget;
-
-					click_window  window;
-				    };
-			    esac;
-			};
-
-		    fun selfcheck ()
-			=
-			{   # Wait until the widgettree is realized and running:
-			    # 
-			    get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);
-
-			    # Evidently the above is not really sufficient;
-			    # without the following sleep_for, the selfcheck
-			    # run locks up about half the time with '0' showing
-			    # on the calculator.  Presumably some initialization
-			    # race condition.  This needs to be root-caused and		XXX BUGGO FIXME
-			    # fixed, but for now just sleeping a bit suffices
-			    # as a workaround:
-			    #	
-			    sleep_for  (time::from_milliseconds 250);
-
-			    # Set up access to the accumulator window contents:
-			    #
-			    my from_display_mailqueue:  Mailqueue(String) =   make_mailqueue ();
-
-			    display_update' :=  THE from_display_mailqueue;
-
-			    fun calculator_window ()
-				=
-				{
-                                    result = pull from_display_mailqueue;
-				    result;	
+				    click_window  window;
 				};
+			esac;
+		    };
 
-			    press_button  "6";		assert (calculator_window() ==   "6");
-			    press_button  "5";		assert (calculator_window() ==  "65");
- 			    press_button  "4";		assert (calculator_window() == "654");
+		fun selfcheck ()
+		    =
+		    {   # Wait until the widgettree is realized and running:
+			# 
+			get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);
 
-			    press_button  "+";		assert (calculator_window() ==   "0");
+			# Evidently the above is not really sufficient;
+			# without the following sleep_for, the selfcheck
+			# run locks up about half the time with '0' showing
+			# on the calculator.  Presumably some initialization
+			# race condition.  This needs to be root-caused and		XXX BUGGO FIXME
+			# fixed, but for now just sleeping a bit suffices
+			# as a workaround:
+			#	
+			sleep_for  (time::from_milliseconds 250);
 
-			    press_button  "1";		assert (calculator_window() ==   "1");
-			    press_button  "2";		assert (calculator_window() ==  "12");
- 			    press_button  "3";		assert (calculator_window() == "123");
-
-			    press_button  "=";		assert (calculator_window() == "777");
-
-
-			    # Tell calculator.pkg that we are
-			    # done with display mailqueue:
-			    #
-			    display_update' :=  NULL;		# Not really necessary, but let's be clean.
-
-			    # All done -- shut everything down:
-			    #
-			    (xc::xsession_of_window  (wg::window_of widgettree)) ->  xsession;
-			    xc::close_xsession  xsession;
-			    shut_down_thread_scheduler  winix::process::success;
-			};
-		end;						# fun make_selfcheck_thread
-
-	    resources
-		=
-		[ "*background: gray" ];
-
-	    fun calculator_app root_window
-		=
-		{   fun quit ()
-			=
-			{   wg::delete_root_window root_window;
-			    shut_down_thread_scheduler  winix::process::success;
-			};
-
-		    style = wg::style_from_strings (root_window, resources);
-
-		    name = wy::make_view
-			     {
-			       name    =>   wy::style_name [],
-			       aliases => [ wy::style_name [] ]
-			     };
-
-		    view = (name, style);
-
-		    my { widgettree, selfcheck_interface }
-			=
-			cal::make_calculator (root_window, view, []);
-
-		    topwindow_args
-			=
-			[ (wa::title,      wa::STRING_VAL "calculator"),
-			  (wa::icon_name,  wa::STRING_VAL "calculator")
-			];
-
-		    topwindow = top::topwindow  (root_window, view, topwindow_args)  widgettree;
-
-		    top::start  topwindow;
-
-		    if *run_selfcheck
+			# Set up access to the accumulator window contents:
 			#
-			make_selfcheck_thread  { topwindow, widgettree, selfcheck_interface };
-			();
-		    fi;
+			from_display_mailqueue =  make_mailqueue ()
+                                               :  Mailqueue(String);
 
+			display_update' :=  THE from_display_mailqueue;
+
+			fun calculator_window ()
+			    =
+			    {   result = pull from_display_mailqueue;
+				result;	
+			    };
+
+			press_button  "6";		assert (calculator_window() ==   "6");
+			press_button  "5";		assert (calculator_window() ==  "65");
+			press_button  "4";		assert (calculator_window() == "654");
+
+			press_button  "+";		assert (calculator_window() ==   "0");
+
+			press_button  "1";		assert (calculator_window() ==   "1");
+			press_button  "2";		assert (calculator_window() ==  "12");
+			press_button  "3";		assert (calculator_window() == "123");
+
+			press_button  "=";		assert (calculator_window() == "777");
+
+
+			# Tell calculator.pkg that we are
+			# done with display mailqueue:
+			#
+			display_update' :=  NULL;		# Not really necessary, but let's be clean.
+
+			# All done -- shut everything down:
+			#
+			(xc::xsession_of_window  (wg::window_of widgettree)) ->  xsession;
+			xc::close_xsession  xsession;
+
+			sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_calculator_app ();
+
+#			shut_down_thread_scheduler  winix::process::success;
+		    };
+	    end;						# fun make_selfcheck_thread
+
+	resources
+	    =
+	    [ "*background: gray" ];
+
+
+	fun start_up_calculator_app_threads root_window
+	    =
+	    {   fun quit ()
+		    =
+		    {   wg::delete_root_window root_window;
+#			    shut_down_thread_scheduler  winix::process::success;
+		    };
+
+		style = wg::style_from_strings (root_window, resources);
+
+		name = wy::make_view
+			 {
+			   name    =>   wy::style_name [],
+			   aliases => [ wy::style_name [] ]
+			 };
+
+		view = (name, style);
+
+		my { widgettree, selfcheck_interface }
+		    =
+		    cal::make_calculator (root_window, view, []);
+
+		topwindow_args
+		    =
+		    [ (wa::title,      wa::STRING_VAL "calculator"),
+		      (wa::icon_name,  wa::STRING_VAL "calculator")
+		    ];
+
+		topwindow =  top::topwindow  (root_window, view, topwindow_args)   widgettree;
+
+		top::start  topwindow;
+
+		if *run_selfcheck
+		    #
+		    make_selfcheck_thread  { topwindow, widgettree, selfcheck_interface };
+		    #
 		    ();
-		};
-	herein
+		fi;
 
-	    fun do_it' (debug_flags, server)
-		=
-		{   xlogger::init debug_flags;
+		();
+	    };
 
-		    rx::run_xkit'
-			calculator_app
-			{ display => THE server,
-			  time_quantum_in_milliseconds  => NULL
-			};
-		};
 
-	    fun do_it ()
-		=
-		{   if write_tracelog
-			#
-			# Open tracelog file and select tracing level.
-			# We don't need to truncate any existing file
-			# because that is already done by the logic in
-			#     src/lib/std/src/posix/winix-text-file-io-driver-for-posix.pkg
-			#
-			include logger;					# logger			is from   src/lib/src/lib/thread-kit/src/lib/logger.pkg
-			#
-			set_logger_to  (file::LOG_TO_FILE tracefile);
-			#
+	fun set_up_calculator_app_task  root_window
+	    =
+	    # Here we arrange that all the threads
+	    # for the application run as a task "calculator app",
+	    # so that later we can shut them all down with
+	    # a simple kill_task().  We explicitly create one
+	    # root thread within the task; the rest then implicitly
+	    # inherit task membership:
+	    #
+	    {   calculator_app_task =   (the *app_task);
+		#
+		xtr::make_thread' [ THREAD_NAME "calculator app",
+				    THREAD_TASK  calculator_app_task
+				  ]
+				  start_up_calculator_app_threads
+				  root_window;
+		();
+	    };
+
+	fun do_it' (debug_flags, server)
+	    =
+	    {   xlogger::init debug_flags;
+		#
+		calculator_app_task =   make_task  "calculator app"  [];
+		app_task      :=   THE  calculator_app_task;
+
+		rx::run_in_x_window'  set_up_calculator_app_task  [ rx::DISPLAY server ];
+
+		wait_for_app_task_done ();
+	    };
+
+	fun do_it ()
+	    =
+	    {   if write_tracelog
+		    #
+		    # Open tracelog file and select tracing level.
+		    # We don't need to truncate any existing file
+		    # because that is already done by the logic in
+		    #     src/lib/std/src/posix/winix-text-file-io-driver-for-posix.pkg
+		    #
+		    include logger;					# logger			is from   src/lib/src/lib/thread-kit/src/lib/logger.pkg
+		    #
+		    set_logger_to  (file::LOG_TO_FILE tracefile);
+		    #
 #			enable file::all_logging;				# Gross overkill.
-		    fi;
+		fi;
 
-		    rx::run_xkit  calculator_app;
-		};
+		calculator_app_task =   make_task  "calculator app"  [];
+		app_task      :=   THE  calculator_app_task;
 
-	    fun main (program, server ! _) =>  do_it' ([], server);
-		main _                     =>  do_it  ();
-	    end;
+		rx::run_in_x_window  set_up_calculator_app_task;
 
-	    fun selfcheck ()
-		=
-		{   run_selfcheck :=  TRUE;
-		    do_it ();
-		    test_stats ();
-		};	
+		wait_for_app_task_done ();
+	    };
+
+	fun main (program, server ! _) =>  do_it' ([], server);
+	    main _                     =>  do_it  ();
+	end;
+
+	fun selfcheck ()
+	    =
+	    {
+log::note .{ sprintf "%s\tselfcheck/TOP:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+		reset_global_mutable_state ();						# Don't depend on load-time state initialization -- we might get run multiple times interactively, say.
+		run_selfcheck :=  TRUE;
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+		do_it ();
+log::note .{ sprintf "%s\tselfcheck/NNN:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+result =
+		test_stats ();
+log::note .{ sprintf "%s\tselfcheck/ZZZ:    -- calculator-app.pkg" (ts::thread_scheduler_statestring ()); };
+result;
+	    };	
 
 
-	end;			# stipulate
+
     };				# package calc_test 
 end;
 

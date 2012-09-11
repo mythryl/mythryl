@@ -51,11 +51,11 @@ Val   _lib7_P_TTY_tcsetpgrp   (Task* task,  Val arg)   {
     int fd     = GET_TUPLE_SLOT_AS_INT(arg, 0);
     int pgrp   = GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetpgrp", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_TTY_tcsetpgrp", NULL );
 	//
 	int status = tcsetpgrp( fd, pgrp );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetpgrp" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_TTY_tcsetpgrp" );
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

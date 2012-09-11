@@ -17,8 +17,8 @@ typedef struct {
 } Time;
 
 extern void  get_cpu_time             (Time* user_t,  Time* sys_t);
-extern void  start_heapcleaning_timer (Pthread* pthread);
-extern void  stop_heapcleaning_timer  (Pthread* pthread, long* time);
+extern void  start_heapcleaning_timer (Hostthread* hostthread);
+extern void  stop_heapcleaning_timer  (Hostthread* hostthread, long* time);
 
 #endif // RUNTIME_TIMER_H
 

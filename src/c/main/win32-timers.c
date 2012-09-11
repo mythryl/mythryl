@@ -24,7 +24,7 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"
 
-#define SELF_PTHREAD	(pth__get_pthread())
+#define SELF_HOSTTHREAD	(pth__get_hostthread())
 
 static struct _timeb start_timeb;				// For computing times.
 
@@ -67,7 +67,7 @@ static BOOL   create_win32_timer    (
   ct->action = f;
   return ((ct->handle = CreateThread(NULL,
 				     0,     // Default stack size
-				     (LPTHREAD_START_ROUTINE) timer,
+				     (LHOSTTHREAD_START_ROUTINE) timer,
 				     ct,
 				     suspend ? CREATE_SUSPENDED : 0,
 				     &ct->id)) != NULL);
@@ -104,15 +104,15 @@ Bool   win32StartTimer   (int milli_secs)   {
 
 static void   win32_fake_sigalrm  () {
     //
-    Pthread* pthread = SELF_PTHREAD;
+    Hostthread* hostthread = SELF_HOSTTHREAD;
 
-    if (SuspendThread(win32_LIB7_thread_handle) == 0xffffffff) {
+    if (SuspendThread(win32_LIB7_appthread) == 0xffffffff) {
       die ("win32_fake_sigalrm: unable to suspend Lib7 thread");
     }
 
     win32_generic_handler(SIGALRM);
 
-    if (ResumeThread(win32_LIB7_thread_handle) == 0xffffffff) {
+    if (ResumeThread(win32_LIB7_appthread) == 0xffffffff) {
       die ("win32_fake_sigalrm: unable to resume Lib7 thread");
     }
 }

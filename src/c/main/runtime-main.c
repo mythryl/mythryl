@@ -72,7 +72,7 @@ char*  mythryl_script__global = NULL;				// Contents of MYTHRYL_SCRIPT environme
 								// This gets exported to the C level via get_script_name in src/c/lib/kludge/libmythryl-kludge.c
 
 Bool   saw_shebang_line__global = FALSE;			// Intended only for debug, currently used nowhere.
-Bool   running_script__global   = FALSE;			// As of 2012-04-04 this is currently used only for debugging log_if()s and only in   src/c/pthread/pthread-on-posix-threads.c
+Bool   running_script__global   = FALSE;			// As of 2012-04-04 this is currently used only for debugging log_if()s and only in   src/c/hostthread/hostthread-on-posix-threads.c
 
 // Local variables:
 //
@@ -81,7 +81,7 @@ static char*	heap_image_to_run_filename = DEFAULT_IMAGE;	// The path name of the
 		   
 static char*	compiled_files_to_load_filename = NULL;
 
-static int num_procs = 1;					// Pthread support.  Set by --runtime-nprocs=12, not otherwise used.
+static int num_procs = 1;					// Hostthread support.  Set by --runtime-nprocs=12, not otherwise used.
 
 static void   process_environment_options (Heapcleaner_Args** heapcleaner_args);
 static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** heapcleaner_args);
@@ -117,15 +117,15 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
     process_environment_options( &heapcleaner_args );
 
     if (verbosity__global > 0) {
-	printf("\n");
-	printf("--------------------------------------------------------\n");
-	printf("mythryl-runtime-intel32:    src/c/main/runtime-main.c:   %d args:\n",argc);
+	printf("\n");										fflush(stdout);
+	printf("--------------------------------------------------------\n");			fflush(stdout);
+	printf("mythryl-runtime-intel32:    src/c/main/runtime-main.c:   %d args:\n",argc);	fflush(stdout);
 	{   int  i;
 	    for (i = 0; i < argc; ++i) {
-		printf("                                                %s\n", argv[i]);
+		printf("                                                %s\n", argv[i]);	fflush(stdout);
 	    }
 	}
-	printf("\n");
+	printf("\n");										fflush(stdout);
     }
     DebugF = stderr;
 
@@ -137,7 +137,7 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
-    pth__start_up();													// pth__start_up					def in    src/c/pthread/pthread-on-posix-threads.c
+    pth__start_up();													// pth__start_up					def in    src/c/hostthread/hostthread-on-posix-threads.c
 
     return heapcleaner_args;
 }
@@ -145,7 +145,7 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 static void   do_end_of_world_stuff_and_exit   (void)  {
     //        ==============================
     //
-    pth__shut_down();
+    pth__shut_down();													// pth__shut_down					is from   src/c/hostthread/hostthread-on-posix-threads.c
     print_stats_and_exit( 0 );												// Never returns.
     exit( 0 );														// Redundant -- just to suppress gcc warning.
 }
@@ -180,7 +180,7 @@ static void   handle_mythryl_script_environment_variable   (void)   {
 	//
 	mythryl_script__global						// mythryl_script__global gets passed via   do_get_script_name	in   src/c/lib/kludge/libmythryl-kludge.c
 	    =								// and get_script_name	in   src/lib/src/kludge.pkg
-	    (char*)								// to  main		in   src/lib/core/internal/mythryld-app.pkg
+	    (char*)							// to  main		in   src/lib/core/internal/mythryld-app.pkg
 	    malloc(
 		strlen( mythryl_script )  +1				// '+1' for terminal '\0'.
 	     );
@@ -193,13 +193,13 @@ static void   handle_mythryl_script_environment_variable   (void)   {
 									// setting then gets inherited by subprocesses,
 									// with unpleasantly mysterious results.
 
-	running_script__global = TRUE;					// Used only to control debugging log_if()s, and only in   src/c/pthread/pthread-on-posix-threads.c
+	running_script__global = TRUE;					// Used only to control debugging log_if()s, and only in   src/c/hostthread/hostthread-on-posix-threads.c
     }
     //
     if (running_script__global) {
 	if (!log_if_fd)   log_if_fd = open("script.log",  O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
     }
-    if     (!log_if_fd)   log_if_fd = open("unknown.log", O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
+    if     (!log_if_fd)   log_if_fd = open("mythryl.log", O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
 }
 
 
@@ -306,6 +306,7 @@ static void   process_commandline_options   (
 			"Looks like a shebang invocation -- heap_image_to_run_filename set to '%s'\n",
 			heap_image_to_run_filename
 		    );
+                    fflush(stderr);
                 }
 	    }
         }
@@ -320,7 +321,8 @@ static void   process_commandline_options   (
     raw_commandline_args__global =   argv;						// Used (only) in   src/c/lib/heap/libmythryl-heap.c
 
     if (verbosity__global > 0) {
-        printf("             src/c/main/runtime-main.c:   Constructing a %d-slot commandline_arguments perlvector...\n",argc);
+	//
+        printf("             src/c/main/runtime-main.c:   Constructing a %d-slot commandline_arguments perlvector...\n",argc);		fflush(stdout);
     }
 
     commandline_args_without_argv0_or_runtime_args__global
@@ -328,7 +330,8 @@ static void   process_commandline_options   (
 	MALLOC_VEC(char*, argc);
 
     if (verbosity__global > 0) {
-        printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name__global to '%s'...\n",*argv);
+	//
+        printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name__global to '%s'...\n",*argv);			fflush(stdout);
     }
 
     mythryl_program_name__global = *argv++;
@@ -341,7 +344,7 @@ static void   process_commandline_options   (
 	#define CHECK(opt)	{									\
 				    if (option_arg[0] == '\0') {					\
 					seen_error = TRUE;						\
-					say_error( "Missing argument for \"%s\" option\n", opt );		\
+					say_error( "Missing argument for \"%s\" option\n", opt );	\
 					continue;							\
 				    }									\
 				}
@@ -351,7 +354,7 @@ static void   process_commandline_options   (
         //
         //     --runtime-
         //
-	if (is_runtime_option(arg, option, &option_arg)) {	// is_runtime_option	is from   src/c/main/runtime-options.c
+	if (is_runtime_option(arg, option, &option_arg)) {		// is_runtime_option	is from   src/c/main/runtime-options.c
 	    //
 	    if (MATCH("compiledfiles-to-load")) {
 		CHECK("compiledfiles-to-load");
@@ -359,7 +362,8 @@ static void   process_commandline_options   (
 		compiled_files_to_load_filename = option_arg;
 
                 if (verbosity__global > 0) {
-                    printf("             src/c/main/runtime-main.c:   --runtime-compiledfiles-to-load setting compiled_files_to_load_filename to '%s'...\n",compiled_files_to_load_filename);
+		    //
+                    printf("             src/c/main/runtime-main.c:   --runtime-compiledfiles-to-load setting compiled_files_to_load_filename to '%s'...\n",compiled_files_to_load_filename);		fflush(stdout);
                 }
 
 	    } else if (MATCH("heap-image-to-run")) {
@@ -367,7 +371,8 @@ static void   process_commandline_options   (
 		CHECK("heap-image-to-run");
 		heap_image_to_run_filename = option_arg;
                 if (verbosity__global > 0) {
-                    printf("             src/c/main/runtime-main.c:   --runtime-heap-image-to-run setting heap_image_to_run_filename to '%s'...\n", heap_image_to_run_filename);
+		    //
+                    printf("             src/c/main/runtime-main.c:   --runtime-heap-image-to-run setting heap_image_to_run_filename to '%s'...\n", heap_image_to_run_filename);			fflush(stdout);
                 }
 
 	    } else if (MATCH("cmdname")) {
@@ -375,7 +380,8 @@ static void   process_commandline_options   (
 		CHECK("cmdname");
 		mythryl_program_name__global = option_arg;
                 if (verbosity__global > 0) {
-                    printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);
+		    //
+                    printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);				fflush(stdout);
                 }
 
 	    } else if (MATCH("nprocs")) {
@@ -388,8 +394,8 @@ static void   process_commandline_options   (
 		//
 		if      (num_procs < 0)
 		         num_procs = 0;
-		else if (num_procs > MAX_PTHREADS)
-		         num_procs = MAX_PTHREADS;
+		else if (num_procs > MAX_HOSTTHREADS)
+		         num_procs = MAX_HOSTTHREADS;
 
 	    } else if (MATCH("verbosity")) {
 
@@ -427,13 +433,14 @@ static void   process_commandline_options   (
             }
 	} else {
             if (verbosity__global > 0) {
-                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_args_without_argv0_or_runtime_args__global,arg);
+		//
+                printf("             src/c/main/runtime-main.c:   Setting commandline_arguments[%d] to '%s'...\n", next_arg-commandline_args_without_argv0_or_runtime_args__global,arg);		fflush(stdout);
             } 
 	    *next_arg++ = arg;
 	}
     }
 
-    if (verbosity__global > 0)   printf("\n");
+    if (verbosity__global > 0)   { printf("\n"); fflush(stdout); }
     *next_arg = NULL;
 
     if (seen_error)   print_stats_and_exit( 1 );
@@ -446,15 +453,20 @@ void   print_stats_and_exit   (int code)   {
     //
     // Exit from the Mythryl system.
     //
+// printf("print_stats_and_exit/AAA   -- runtime-main.c\n"); fflush(stdout);
     #if COUNT_REG_MASKS
 	dump_masks();
     #endif
 
+// printf("print_stats_and_exit/BBB   -- runtime-main.c\n");  fflush(stdout);
     if (heapcleaner_statistics_fd__global >= 0) {
+// printf("print_stats_and_exit/CCC   -- runtime-main.c\n");  fflush(stdout);
 	STATS_FLUSH_BUF();
+// printf("print_stats_and_exit/DDD   -- runtime-main.c\n");  fflush(stdout);
 	close (heapcleaner_statistics_fd__global);
     }
 
+// printf("print_stats_and_exit/ZZZ calling exit(code)  -- runtime-main.c\n");  fflush(stdout);
     exit( code );
 }
 

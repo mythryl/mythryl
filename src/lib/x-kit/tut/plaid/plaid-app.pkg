@@ -30,10 +30,12 @@
 stipulate
     include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
+    package ts  =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    #
     package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
     package xc  =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
     #
-    package rx  =  run_xkit;				# run_xkit			is from   src/lib/x-kit/widget/lib/run-xkit.pkg
+    package rx  =  run_in_x_window;			# run_in_x_window		is from   src/lib/x-kit/widget/lib/run-in-x-window.pkg
     #
     package top =  topwindow;				# topwindow			is from   src/lib/x-kit/widget/basic/topwindow.pkg
     package wg  =  widget;				# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
@@ -46,7 +48,7 @@ stipulate
     #
     tracefile   =  "plaid-app.trace.log";
     tracing     =  logger::make_logtree_leaf { parent => xlogger::xkit_logging, name => "plaid_app::tracing" };
-    trace	=  xtr::log_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+    trace	=  xtr::log_if  tracing 0;		# Conditionally write strings to tracing.log or whatever.
         #
         # To debug via tracelogging, annotate the code with lines like
 	#
@@ -73,25 +75,71 @@ herein
 #		enable  file::all_logging;				# Gross overkill.
 	    };
 
-	stipulate
-	    selfcheck_tests_passed =  REF 0;
-	    selfcheck_tests_failed =  REF 0;
-	herein
-	    run_selfcheck =  REF FALSE;
+	######## Begin mutable selfcheck globals ########
+	#
 
-	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
-	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
-	    #
-	    fun assert bool    =  if bool   test_passed ();
-				  else      test_failed ();
-				  fi;				
-	    #
-	    fun test_stats  ()
-		=
-                { passed => *selfcheck_tests_passed,
-                  failed => *selfcheck_tests_failed
-                };
-	end;
+	app_task			=  REF (NULL: Null_Or( Apptask   ));
+
+	selfcheck_tests_passed		=  REF 0;
+	selfcheck_tests_failed		=  REF 0;
+
+	run_selfcheck 			=  REF FALSE;
+
+	#
+	######## End mutable selfcheck globals ########
+
+
+
+
+	fun reset_global_mutable_state ()					# Reset above state variables to load-time values.
+	    =									# This will be needed if (say) we get run multiple times interactively without being reloaded.
+	    {   run_selfcheck					:=  FALSE;
+		#
+		app_task					:=  NULL;
+		#
+		selfcheck_tests_passed				:=  0;
+		selfcheck_tests_failed				:=  0;
+	    };
+
+	fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	#
+	fun assert bool    =  if bool   test_passed ();
+			      else      test_failed ();
+			      fi;				
+	#
+	fun test_stats  ()
+	    =
+	    { passed => *selfcheck_tests_passed,
+	      failed => *selfcheck_tests_failed
+	    };
+
+
+	fun kill_plaid_app ()
+	    =
+	    {
+log::note .{ sprintf "%s\tkill_plaid_app/TOP:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
+		kill_task  { success => TRUE,  task => (the *app_task) };
+log::note .{ sprintf "%s\tkill_plaid_app/ZZZ:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
+	    };
+
+	fun wait_for_app_task_done ()
+	    =
+	    {
+log::note .{ sprintf "%s\twait_for_app_task_done/TOP  -- plaid-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		task =  the  *app_task;
+		#
+log::note .{ sprintf "%s\twait_for_app_task_done/BBB  -- plaid-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		task_finished' =  task_done__mailop  task;
+
+log::note .{ sprintf "%s\twait_for_app_task_done/CCC  -- plaid-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		block_until_mailop_fires  task_finished';
+
+log::note .{ sprintf "%s\twait_for_app_task_done/DDD  -- plaid-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		assert (get_task's_state  task  ==  state::SUCCESS);
+log::note .{ sprintf "%s\twait_for_app_task_done/ZZZ  -- plaid-app.pkg"  (ts::thread_scheduler_statestring ()); };
+	    };
+
 
 	# This maildrop gives the selfcheck code
 	# access to the main drawing window:
@@ -152,7 +200,8 @@ herein
 
 		fun realize_plaid { window, window_size, kidplug }
 		    =
-		    {   make_thread "plaid" .{ do_active window_size;  };
+		    {   make_thread  "plaid"  .{  do_active window_size;  };
+			#
 			();
 		    }
 		    where
@@ -265,14 +314,16 @@ herein
 				also
 				fun active_loop state
 				    = 
-				    select [    timeout'     ==>  .{  active_loop (step_state state);  },
-						from_other'  ==>  do_mom o xc::envelope_contents,
-						from_mouse'  ==>  (fn mail =  case (xc::envelope_contents  mail)
-										  #
-										  xc::MOUSE_FIRST_DOWN _ =>  do_idle      size;
-										  _                      =>  active_loop  state;
-									      esac
-								  )
+				    do_one_mailop [
+					#
+					timeout'     ==>  .{  active_loop (step_state state);  },
+					from_other'  ==>  do_mom o xc::envelope_contents,
+					from_mouse'  ==>  (fn mail =  case (xc::envelope_contents  mail)
+									  #
+									  xc::MOUSE_FIRST_DOWN _ =>  do_idle      size;
+									  _                      =>  active_loop  state;
+								      esac
+							  )
 				    ]
 
 				also
@@ -331,15 +382,17 @@ herein
 
 				fun idle_loop ()
 				    = 
-				    select [ from_other' ==>  idle_loop  o  do_mom  o  xc::envelope_contents,
-					     #
-					     from_mouse' ==>  (fn envelope = case (xc::envelope_contents  envelope)
-										  #
-										  xc::MOUSE_FIRST_DOWN _ =>  do_active size;
-										  _                      =>  idle_loop ();
-									      esac
+				    do_one_mailop [
+					#
+					from_other' ==>  idle_loop  o  do_mom  o  xc::envelope_contents,
+					#
+					from_mouse' ==>  (fn envelope = case (xc::envelope_contents  envelope)
+									     #
+									     xc::MOUSE_FIRST_DOWN _ =>  do_active size;
+									     _                      =>  idle_loop ();
+									 esac
 
-							      )
+							 )
 
 				    ];
 			    end;					# fun do_idle
@@ -352,7 +405,10 @@ herein
 	#
 	fun make_selfcheck_thread  { topwindow, widgettree }
 	    =
-	    xtr::make_thread "plaid-app selfcheck" selfcheck
+	    {   xtr::make_thread  "plaid-app selfcheck"  selfcheck;
+		#
+		();
+	    }	
 	    where
 		# Figure midpoint of window and also
 		# a small box centered on the midpoint:
@@ -418,12 +474,18 @@ herein
 			# All done -- shut everything down:
 			#
 			(xc::xsession_of_window  (wg::window_of widgettree)) ->  xsession;
+
 			xc::close_xsession  xsession;
-			shut_down_thread_scheduler  winix::process::success;
+
+			sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_plaid_app ();
+
+#			shut_down_thread_scheduler  winix::process::success;			# We did this prior to 6.3
 		    };
 	    end;						# fun make_selfcheck_thread
 
-	fun plaid_app root_window
+	fun start_up_plaid_app_threads  root_window
 	    =
 	    {   name = wy::make_view
 			 { name    =>   wy::style_name [],
@@ -448,17 +510,23 @@ herein
 
 		close_window' =  top::get_''close_window''_mailop  topwindow;
 
-		make_thread "window closer" .{
+		make_thread  "window closer"  .{
 		    #
-		    select [
+		    do_one_mailop [
+			#
 			close_window'
 			    ==>
-			   .{
-				topwindow::destroy  topwindow;
-				shut_down_thread_scheduler  winix::process::success;
+			   .{   topwindow::destroy  topwindow;
+				#
+				sleep_for (time::from_milliseconds 200);		# Give previous time to complete. Need something cleaner here. XXX SUCKO FIXME.
+				#
+				kill_plaid_app ();
+				#
+#				shut_down_thread_scheduler  winix::process::success;	# This is what we did pre-6.3.
 			    }
 		    ];	
 		};
+
 
 		if *run_selfcheck
 		    #
@@ -468,21 +536,41 @@ herein
 
 
 		();
-	    };							# fun plaid_app
+	    };							# fun start_up_plaid_app_threads
+
+	fun set_up_plaid_app_task  root_window
+	    =
+	    # Here we arrange that all the threads
+	    # for the application run as a task "plaid app",
+	    # so that later we can shut them all down with
+	    # a simple kill_task().  We explicitly create one
+	    # root thread within the task; the rest then implicitly
+	    # inherit task membership:
+	    #
+	    {   plaid_app_task =   (the *app_task);
+		#
+		xtr::make_thread' [ THREAD_NAME "plaid app",
+				    THREAD_TASK  plaid_app_task
+				  ]
+				  start_up_plaid_app_threads
+				  root_window;
+		();
+	    };
 
 	fun do_it' (debug_flags, server)
 	    =
 	    {   xlogger::init debug_flags;
-
+		#
 		if write_tracelog   set_up_tracing ();   fi;
 
-		rx::run_xkit'
-		    #
-		    plaid_app
-		    #
-		    { display => (server == "" ?? NULL :: THE server),
-		      time_quantum_in_milliseconds => NULL
-		    };
+		plaid_app_task =   make_task  "plaid app"  [];
+		app_task      :=   THE  plaid_app_task;
+
+		rx::run_in_x_window'  set_up_plaid_app_task  [ rx::DISPLAY server ];			# if (server=="") it will be ignored.
+
+		sleep_for (time::from_milliseconds 500);
+
+		wait_for_app_task_done ();
 	    };
 
 
@@ -490,15 +578,31 @@ herein
 	    =
 	    {   if write_tracelog   set_up_tracing ();   fi;
 		#
-		rx::run_xkit  plaid_app;
+		plaid_app_task =   make_task  "plaid app"  [];
+		app_task      :=   THE  plaid_app_task;
+
+		rx::run_in_x_window  set_up_plaid_app_task;
+
+		wait_for_app_task_done ();
 	    };
 
 
 	fun selfcheck ()
 	    =
-	    {   run_selfcheck :=  TRUE;
+	    {
+log::note .{ sprintf "%s\tselfcheck/TOP:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
+		reset_global_mutable_state ();						# Don't depend on load-time state initialization -- we might get run multiple times interactively, say.
+		#
+		run_selfcheck :=  TRUE;
+
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
 		do_it' ([], "");
+log::note .{ sprintf "%s\tselfcheck/NNN:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
+
+result =
 		test_stats ();
+log::note .{ sprintf "%s\tselfcheck/ZZZ:    -- plaid-app.pkg" (ts::thread_scheduler_statestring ()); };
+result;
 	    };	
 
 

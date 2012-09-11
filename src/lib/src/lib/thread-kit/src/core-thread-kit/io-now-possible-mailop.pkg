@@ -30,9 +30,9 @@ herein
 	Ioplea_Item
 	    =
 	    { ioplea:		wio::Ioplea,					# Ioplea =  { io_descriptor: Iod, readable: Bool, writable: Bool, oobdable: Bool };
-	      selectrun_status:	Ref( itt::Selectrun_Status ),			# Selectrun_Status = SELECTRUN_IS_COMPLETE | SELECTRUN_IS_BLOCKED  Thread; selectrun_status is a mutex enforcing the one-mailop-fires-per-select() rule.
+	      do1mailoprun_status:	Ref( itt::Do1mailoprun_Status ),			# Do1mailoprun_Status = DO1MAILOPRUN_IS_COMPLETE | DO1MAILOPRUN_IS_BLOCKED  Thread; do1mailoprun_status is a mutex enforcing the one-mailop-fires-per-select() rule.
 	      #
-	      finish_selectrun:	Void -> Void,					# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+	      finish_do1mailoprun:	Void -> Void,					# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 	      fate:		fat::Fate( wio::Ioplea_Result )
 	    };
 
@@ -41,6 +41,8 @@ herein
 	#
 	fun check_for_io_opportunities  wait_requests
 	    =
+{
+printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pkg: check_for_io_opportunities: calling wio::wait_for_io_opportunity\n";
 	    wio::wait_for_io_opportunity					# In some OSs (e.g., Linux) this may raise an EINTR error even though it is non-blocking.
 	      {
 		wait_requests,
@@ -48,10 +50,11 @@ herein
 	      }
 	    except
 		_ = [];
+};
 
 										# NOTE:  As in the case of condition variables -- see 
 										#     src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
-										# -- we need to do the finish_selectrun routine when we enable the
+										# -- we need to do the finish_do1mailoprun routine when we enable the
 										# io_mailop (instead of in the mailop-now-ready-to-fire fate).
 	#
 	fun io_now_possible_on'  ioplea						# This fn is called (only) from   src/lib/std/src/threadkit/posix/threadkit-winix-io.pkg
@@ -61,8 +64,8 @@ herein
 
 		fun set_up_mailopready_watch					# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,					# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,					# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,					# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,					# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop		# After setting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
@@ -72,7 +75,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -84,7 +87,7 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    an_ioplea							
 		    where
@@ -92,7 +95,7 @@ herein
 			    (
 			     fn fate
 				=
-				{   item =  { ioplea, selectrun_status, finish_selectrun, fate };
+				{   item =  { ioplea, do1mailoprun_status, finish_do1mailoprun, fate };
 				    #
 				    waiting_queue__local :=  item  !  *waiting_queue__local;
 				    #
@@ -104,12 +107,12 @@ herein
 			    )
 			)
 			    -> an_ioplea;									# Execution will pick up on this like when 'fate' is eventually invoked.
-														# This will happen below in   add_any_new_fd_io_opportunities_to_run_queue()  after a C-level
+														# This will happen below in   add_any_new_fd_io_opportunities_to_run_queue__usmid()  after a C-level
 		    end;											# select()/poll() indicates that fd read/write is possible (i.e., data in input buffer or space in output buffer).
 
 		fun is_mailop_ready_to_fire ()									# Reppy refers to 'is_mailop_ready_to_fire' calls this 'pollFn'.
-		    =												# If it returns MAILOP_IS_READY_TO_FIRE   then the mailop is     a candidate to fire in the select [] call.
-		    case (check_for_io_opportunities  [ioplea])							# If it returns MAILOP_IS_NOT_READY_TO_FIRE then the mailop is not a candidate to fire in the select [] call.
+		    =												# If it returns MAILOP_IS_READY_TO_FIRE   then the mailop is     a candidate to fire in the do_one_mailop [] call.
+		    case (check_for_io_opportunities  [ioplea])							# If it returns MAILOP_IS_NOT_READY_TO_FIRE then the mailop is not a candidate to fire in the do_one_mailop [] call.
 			#
 			[an_ioplea]
 			    =>
@@ -117,7 +120,7 @@ herein
 				  {
 				    priority	=>   -1,
 				    #
-				    fire_mailop	=> .{   ts::reenable_thread_switching ();			# Reppy refers to 'fire_mailop' as 'doFn'.
+				    fire_mailop	=> .{   ts::exit_uninterruptible_scope ();			# Reppy refers to 'fire_mailop' as 'doFn'.
 							an_ioplea;
 						    }
 				  };
@@ -146,7 +149,7 @@ herein
 			=>
 			(wait_requests, wait_queue);		    											# Done.
 
-		    drop_cancelled_mailops' ({ selectrun_status => REF itt::SELECTRUN_IS_COMPLETE, ... } ! rest,   wait_requests,   wait_queue)
+		    drop_cancelled_mailops' ({ do1mailoprun_status => REF itt::DO1MAILOPRUN_IS_COMPLETE, ... } ! rest,   wait_requests,   wait_queue)
 			=>
 			drop_cancelled_mailops' (rest, wait_requests, wait_queue);									# Drop completed/cancelled mailop.
 
@@ -163,8 +166,8 @@ herein
 
 	fun push_io_onto_run_queue									# Private to this file.
 		(
-		  { selectrun_status  as  REF (itt::SELECTRUN_IS_BLOCKED thread),			# The wait_queue entry corresponding to 'an_ioplea'.
-		    finish_selectrun,									# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+		  { do1mailoprun_status  as  REF (itt::DO1MAILOPRUN_IS_BLOCKED thread),			# The wait_queue entry corresponding to 'an_ioplea'.
+		    finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 		    fate,
 		    ioplea
 		  },
@@ -195,7 +198,7 @@ herein
 				    (fn fate_ioplea							# 'fate_ioplea' represents the computation  'switch_to_fate fate ioplea'.
 					=								# (Since switch_to_fate never returns, that is the whole of 'fate_ioplea'.)
 					switch_to_fate  main_fate  fate_ioplea);			# This arranges for the main fate to execute as expected.  Without this line
-				#									# we'd immediately run off and do  'switch_to_fate fate ioplea' and the selectrun_status := ... ; ... stuff would never execute.
+				#									# we'd immediately run off and do  'switch_to_fate fate ioplea' and the do1mailoprun_status := ... ; ... stuff would never execute.
 				switch_to_fate  fate  an_ioplea;
 			    }
 			)
@@ -203,20 +206,20 @@ herein
 			-> fate_ioplea;									# Execution picks up here when someone eventually calls main_fate with an argument.
 													
 													# 'fate_ioplea' is essentially 'fate ioplea'.  It has type  Fate(Void).
-		    selectrun_status :=  itt::SELECTRUN_IS_COMPLETE;
+		    do1mailoprun_status :=  itt::DO1MAILOPRUN_IS_COMPLETE;
 
-		    finish_selectrun ();
+		    finish_do1mailoprun ();
 
 		    ts::push_into_run_queue (thread, fate_ioplea);
 		};
 
-	    push_io_onto_run_queue ( { selectrun_status => REF itt::SELECTRUN_IS_COMPLETE, ... }, _)
+	    push_io_onto_run_queue ( { do1mailoprun_status => REF itt::DO1MAILOPRUN_IS_COMPLETE, ... }, _)
 		=>
 		();
 	end;
 
 
-	fun add_any_new_fd_io_opportunities_to_run_queue ()						# This is an external entrypoint into this file.
+	fun add_any_new_fd_io_opportunities_to_run_queue__usmid ()					# This is an external entrypoint into this file.
 	    =												# This fn is called (only) from:	src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
 	    case (drop_cancelled_mailops  *waiting_queue__local)
 		#	  
@@ -250,7 +253,7 @@ herein
 					      filter (an_ioplea ! iopleas,  items,  item ! result_wait_queue);	# Not the right item -- move it to result_wait_queue and keep searching down wait_queue.
 					  fi;
 
-				      filter _ =>   raise exception  FAIL "Compiler bug: Unsupported case in add_any_new_fd_io_opportunities_to_run_queue/filter.";
+				      filter _ =>   raise exception  FAIL "Compiler bug: Unsupported case in add_any_new_fd_io_opportunities_to_run_queue__usmid/filter.";
 				  end;
 			      end;
 		    esac;

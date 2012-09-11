@@ -9,16 +9,19 @@
 										# winix_guts						is from   src/lib/std/src/posix/winix-guts.pkg
 										# winix_process						is from   src/lib/std/src/posix/winix-process.pkg
 stipulate
+    package at  =  run_at;							# run_at						is from   src/lib/std/src/nj/run-at.pkg
     package cu  =  threadkit_startup_and_shutdown_hooks;			# threadkit_startup_and_shutdown_hooks			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-startup-and-shutdown-hooks.pkg
     package fat =  fate;							# fate							is from   src/lib/std/src/nj/fate.pkg
+    package itt =  internal_threadkit_types;					# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
     package ri  =  runtime_internals;						# runtime_internals					is from   src/lib/std/src/nj/runtime-internals.pkg
     package rs  =  runtime_signals;						# runtime_signals					is from   src/lib/std/src/nj/runtime-signals.pkg
     package sig =  runtime_signals;						# runtime_signals					is from   src/lib/std/src/nj/runtime-signals.pkg
-    package thr =  thread;							# thread						is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+    package th  =  appthread;							# appthread						is from   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
     package ts  =  thread_scheduler;						# thread_scheduler					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
     package tsr =  thread_scheduler_is_running;					# thread_scheduler_is_running				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler-is-running.pkg
     package uns =  unsafe;							# unsafe						is from   src/lib/std/src/unsafe/unsafe.pkg
     package wnx =  winix;							# winix							is from   src/lib/std/winix.pkg
+    package wxp =  winix::process;						# winix::process					is from   src/lib/std/src/posix/winix-process.pkg
     #
     package ci  =  unsafe::mythryl_callable_c_library_interface;		# unsafe						is from   src/lib/std/src/unsafe/unsafe.pkg
 										# mythryl_callable_c_library_interface			is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
@@ -56,7 +59,7 @@ herein
 	#
 	exception NO_SUCH_ACTION		=  cu::NO_SUCH_ACTION;
 	When					== cu::When;
-	at_all					=  cu::at_all;
+	when_to_string				=  cu::when_to_string;
 	note_startup_or_shutdown_action		=  cu::note_startup_or_shutdown_action;
 	forget_startup_or_shutdown_action	=  cu::forget_startup_or_shutdown_action;
 	note_mailqueue				=  cu::note_mailqueue;
@@ -77,31 +80,34 @@ herein
 	herein									# 
 
 
+	    saved_interrupt_handler =  REF sig::IGNORE;
+
+	    saved_print_function    =  REF *ri::print_hook;			# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
+
+#	    is_running
+#		=
+#		tsr::thread_scheduler_is_running;
 
 
+#	    fun thread_scheduler_is_running ()
+#		=
+#		tsr::thread_scheduler_is_running ();
 
-	    is_running
+	    #
+	    fun shut_down_thread_scheduler  status				# This is currently called at the end of all threadkit-using applications.
 		=
-		tsr::thread_scheduler_is_running;
-
-
-	    fun thread_scheduler_is_running ()
-		=
-		*is_running;
-
-	    fun shut_down_thread_scheduler  status
-		=
-		if *is_running
+		if (tsr::thread_scheduler_is_running ()
+                and (not *tsr::started_thread_scheduler_shutdown))
 		    #
-		    fat::switch_to_fate  *ts::shutdown_hook  (TRUE, status);	# 
+		    fat::switch_to_fate  *ts::thread_scheduler_shutdown_hook  (TRUE, status);	# 
 		else
-		    raise exception FAIL "threadkit is not running";
+		    raise exception FAIL "threadkit is not running";		# It is too hard to avoid calling this redundantly during shutdown, at least at the moment.    -- 2012-08-02 CrT
 		fi;
 
 	    #
 	    fun dummy_print _							# Dummy print function, in case the user's program doesn't reference threadkit's file package directly.
 		=
-		raise exception  FAIL "print called without loading threadkit's file";
+		raise exception  FAIL "print called without loading threadkit's file  -- thread-scheduler-control-g.pkg";
 
 
 	    interrupt_fate
@@ -110,38 +116,50 @@ herein
 		:
 		fat::Fate( Void );
 
-
-	    fun start_up_thread_scheduler''
+	    #
+	    fun start_up_thread_scheduler''					# This is an internal routine -- not externally visible.
 		( first_thread_thunk,						# Thunk for initial thread to run.
 		  time_quantum							# THE timeslicing time quantum. If NULL, defaults to 20 milliseconds.
 		)
 		=
 		{   saved_interrupt_handler
-			=
-			sig::get_signal_handler
-			    sig::interrupt_signal;
+			:=
+			sig::get_signal_handler   sig::interrupt_signal;
 
 		    saved_print_function
-			=
+			:=
 			*ri::print_hook;					# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
 
 
-		    if *is_running
+# printf "start_up_thread_scheduler''/AAA  mode d=%d   -- thread-scheduler-control-g.pkg\n"   (ts::get_uninterruptible_scope_nesting_depth());
+		    if (tsr::thread_scheduler_is_running ())
+			#
 			raise exception FAIL "threadkit is already running";
 		    fi;
 
-		    is_running := TRUE;
+# printf "start_up_thread_scheduler''/BBB mode d=%d   -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		    tsr::thread_scheduler_is_running_as_pid			# Remember that thread scheduler is now running.
+			:=
+			THE (wxp::get_process_id ());
 
-		    thr::reset_thread_package { running => TRUE };
+# printf "start_up_thread_scheduler''/CCC mode d=%d   -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		    tsr::started_thread_scheduler_shutdown
+			:=
+			FALSE;
 
+# printf "start_up_thread_scheduler''/DDD: mode d=%d  th::reset_thread_package { }    -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		    th::reset_thread_package { running => TRUE };
+
+# printf "start_up_thread_scheduler''/EEE: mode d=%d drv::start_threadkit_driver { }    -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
 		    drv::start_threadkit_driver ();			# Empty out the timeout queue.
 									# threadkit_driver_for_posix							is from   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
 
-									# wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_children__fate	is from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+									# wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate	is from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 									# no_runnable_threads_left__fate						is from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 
-		    ts::switch_to_next_runnable_thread__hook :=  bas::wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_children__fate;
-		    ts::no_runnable_threads_left__hook       :=  bas::no_runnable_threads_left__fate;
+# printf "start_up_thread_scheduler''/FFF: mode d=%d setting hooks    -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		    ts::run_next_runnable_thread__usend__hook :=  bas::wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate;
+		    ts::no_runnable_threads_left__hook :=  bas::no_runnable_threads_left__fate;
 
 		    my  (clean_up, status)
 			=
@@ -153,7 +171,7 @@ herein
 					      sig::HANDLER (fn _ =  interrupt_fate)
 					    );
 
-					ts::shutdown_hook :=   done_fate;
+					ts::thread_scheduler_shutdown_hook :=   done_fate;
 
 					ri::print_hook    :=   dummy_print;
 
@@ -164,7 +182,9 @@ herein
 					esac;
 
 
-					cu::do_actions_for  cu::STARTUP;
+# file::print "start_up_thread_scheduler''/MMM: doing cu::do_actions_for cu::COMPILER_STARTUP         ";   ts::print_thread_scheduler_state();  file::print "\n";
+					cu::do_actions_for  cu::COMPILER_STARTUP;
+# file::print "start_up_thread_scheduler''/NNN: done  cu::do_actions_for cu::COMPILER_STARTUP         ";   ts::print_thread_scheduler_state();  file::print "\n";
 
 
 					#####################################
@@ -174,9 +194,20 @@ herein
 					# running the first_thread_thunk:
 					#####################################
 					#
-					thr::make_thread  "thread_scheduler_control start_up"  first_thread_thunk;
+# file::print "start_up_thread_scheduler''/OOO: Creating 'default thread'                             ";   ts::print_thread_scheduler_state();  file::print "\n";
+#					th::make_thread  "default thread"  first_thread_thunk;
+
+					itt::default_task -> itt::APPTASK { alive_threads_count, ... };
+
+					ts::enter_uninterruptible_scope ();
 					#
-					ts::dispatch_next_thread ();
+					alive_threads_count :=  *alive_threads_count + 1;
+
+					th::run_thread__usend  itt::default_thread  first_thread_thunk  ();
+
+# file::print "start_up_thread_scheduler''/PPP: Dispatching next thread                               ";   ts::print_thread_scheduler_state();  file::print "\n";
+					#
+					ts::dispatch_next_thread__noreturn ();
 				    }
 			    );
 
@@ -187,59 +218,107 @@ herein
 		    # single-threaded operation.
 		    #####################################
 
-		    cu::do_actions_for  cu::THREADKIT_SHUTDOWN;
-
-		    drv::stop_threadkit_driver      ();
-		    ts::stop_thread_scheduler_timer ();
-
-		    thr::reset_thread_package { running => FALSE };
-
-		    is_running := FALSE;
-
-
-		    ri::print_hook
-			:=
-			saved_print_function;
-
-
-		    sig::set_signal_handler
+# file::print "start_up_thread_scheduler''/shutdown half/AAA                                          ";   ts::print_thread_scheduler_state();  file::print "\n";
+		    if (tsr::thread_scheduler_is_running ()			# Try to be robust against different shutdown sequences etc.
+		    and (not *tsr::started_thread_scheduler_shutdown)
+		    )	
 			#
-			(sig::interrupt_signal, saved_interrupt_handler);
+			tsr::started_thread_scheduler_shutdown :=  TRUE;
+										# Compare this block with corresponding block in   wrap_for_export()   from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+										#
+# printf "start_up_thread_scheduler'' shutdown half/BBB:   mode d=%d  cu::do_actions_for  cu::THREADKIT_SHUTDOWN\n"  (ts::get_uninterruptible_scope_nesting_depth()); 
+			cu::do_actions_for  cu::THREADKIT_SHUTDOWN;		# Lets various imps clean up, for example by closing X sockets in   src/lib/x-kit/xclient/pkg/wire/socket-closer-imp.pkg
+# printf "start_up_thread_scheduler'' shutdown half/CCC:   mode d=%d  drv::stop_threadkit_driver      ()\n"   (ts::get_uninterruptible_scope_nesting_depth()); 
+			drv::stop_threadkit_driver      ();			# Merely clears the timeout-mailop.pkg list of threads waiting for timeouts.
+			#							#
+# printf "start_up_thread_scheduler'' shutdown half/DDD:   mode d=%d  ts::stop_thread_scheduler_timer ()\n"   (ts::get_uninterruptible_scope_nesting_depth()); 
+			ts::stop_thread_scheduler_timer ();			# Stops 50Hz SIGALRM, sets alarm_signal handler to IGNORE.
+# printf "start_up_thread_scheduler'' shutdown half/EEE:   mode d=%d  th::reset_thread_package { running => FALSE }\n"   (ts::get_uninterruptible_scope_nesting_depth()); 
+			th::reset_thread_package { running => FALSE };		# appthread.pkg:  tid_count :=  0;   thread-scheduler.pkg: Clears hooks, queues, cached time, current thread.
+
+			tsr::thread_scheduler_is_running_as_pid			# Thread scheduler is no longer running.
+			    :=
+			    NULL;
+
+
+			ri::print_hook
+			    :=
+			    *saved_print_function;
+
+
+			sig::set_signal_handler
+			    #
+			    (sig::interrupt_signal, *saved_interrupt_handler);
+
+			();
+# else
+# printf "start_up_thread_scheduler'' shutdown half/BBB  mode d=%d:   thread scheduler was not running.\n"  (ts::get_uninterruptible_scope_nesting_depth()); 
+		    fi;
+# printf "start_up_thread_scheduler'' shutdown half/ZZZ  mode d=%d\n"   (ts::get_uninterruptible_scope_nesting_depth()); 
 
 		    status;
 		};
 
-
-	    fun start_up_thread_scheduler
-		    first_thread_thunk
+	    #
+	    fun start_up_thread_scheduler					# Exported.
+		    (first_thread_thunk: Void -> Void)
 		=
-		start_up_thread_scheduler'' 
-		  ( first_thread_thunk,		# Thunk for initial thread to run.
-		    NULL				# THE timeslicing time quantum. If NULL, defaults to 20 milliseconds.
-		  );
+{
+# printf "start_up_thread_scheduler/TOP mode d=%d -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		if (tsr::thread_scheduler_is_running ())
+		    #
+# printf "start_up_thread_scheduler/AAA: mode d=%d thread scheduler is running, calling first_thread_thunk -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+		    {   first_thread_thunk ();
+# printf "start_up_thread_scheduler/BBB: mode d=%d  thread scheduler is running, back from calling first_thread_thunk -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+			winix::process::success;
+		    }
+		    except
+			_ = winix::process::failure;
 
+		else
+# printf "start_up_thread_scheduler/MMM: mode d=%d thread scheduler is NOT running, calling start_up_thread_scheduler''  thunk -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+result =
+		    start_up_thread_scheduler'' 
+		      ( first_thread_thunk,					# Thunk for initial thread to run.
+			NULL							# THE timeslicing time quantum. If NULL, defaults to 20 milliseconds.
+		      );
+# printf "start_up_thread_scheduler/NNN: mode d=%d thread scheduler is NOT running, back from calling start_up_thread_scheduler''  thunk -- thread-scheduler-control-g.pkg\n"  (ts::get_uninterruptible_scope_nesting_depth());
+result;
+		fi;
+};
 
-	    fun start_up_thread_scheduler'
+	    #
+	    fun start_up_thread_scheduler'					# Exported.
 		    time 
-		    first_thread_thunk
+		    (first_thread_thunk: Void -> Void)
 		=
-		start_up_thread_scheduler'' 
-		  ( first_thread_thunk,		# Thunk for initial thread to run.
-		    THE time			# THE timeslicing time quantum. If NULL, defaults to 20 milliseconds.
-		  );
+		if (tsr::thread_scheduler_is_running ())
+		    #
+		    {   first_thread_thunk ();
+			winix::process::success;
+		    }
+		    except
+			_ = winix::process::failure;
+		else
+		    start_up_thread_scheduler'' 
+		      ( first_thread_thunk,					# Thunk for initial thread to run.
+			THE time						# THE timeslicing time quantum. If NULL, defaults to 20 milliseconds.
+		      );
+		fi;
 
 	    # Run given first_thread_thunk with
 	    # threadkit concurrency support.
+	    #
 	    # Make life easy for the user by
 	    # nesting cleanly -- we start up
 	    # threadkit only if needed, if it
 	    # is already running we just run
 	    # the thunk and return:
 	    #
-	    fun thread_scheduler
+	    fun run_under_thread_scheduler
 		    first_thread_thunk
 		=
-		if *is_running
+		if (tsr::thread_scheduler_is_running ())
 		    #
 		    first_thread_thunk ();
 
@@ -256,6 +335,93 @@ herein
 		fi;
 
 
+
+	    #################################################################3
+	    # This stuff added 2012-07-29 CrT to make Mythryl
+	    # multi-threaded by default instead of optionally:
+	    #
+ 												my _ =
+ 	    {
+ if TRUE
+ 		fun start_up_thread_scheduler''' ()
+ 		    =
+ 		    fat::call_with_current_fate
+ 			(fn my_fate
+ 			    =
+ 			    {   fun my_thunk ()
+ 				    =
+ 				    fat::switch_to_fate  my_fate  ();
+ 
+# printf "start_up_thread_scheduler''' calling start_up_thread_scheduler'' ... \n";
+ 				result
+				    =
+				    start_up_thread_scheduler'' (my_thunk, NULL);
+# printf "start_up_thread_scheduler''' back from calling start_up_thread_scheduler'', now calling  ====> winix::process::exit <====... \n";
+
+ 				winix::process::exit  result;
+ 
+ 				();
+ 			    }
+ 			);
+
+ 		fun start_up_thread_scheduler'''' _						# The ignored arg here will be at::STARTUP_PHASE_12_START_THREAD_SCHEDULER.
+ 		    =
+{
+# printf "start_up_thread_scheduler''''/top mode d=%d\n" (ts::get_uninterruptible_scope_nesting_depth());
+ 		    start_up_thread_scheduler''' ();
+};
+ 
+ 		fun shut_down_thread_scheduler'''' _						# The ignored arg here will be at::SHUTDOWN_PHASE_3_STOP_THREAD_SCHEDULER.
+ 		    =
+		    {
+# printf "shut_down_thread_scheduler''''/TOP\n"; 
+			if (tsr::thread_scheduler_is_running ()			# Try to be robust against different shutdown sequences etc.
+			and (not *tsr::started_thread_scheduler_shutdown)
+			)	
+			    #
+			    tsr::started_thread_scheduler_shutdown :=  TRUE;
+										    # Compare this block with corresponding block in   wrap_for_export()   from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+										    #
+# printf "shut_down_thread_scheduler''''/AAA:   cu::do_actions_for  cu::THREADKIT_SHUTDOWN\n"; 
+			    cu::do_actions_for  cu::THREADKIT_SHUTDOWN;		# Lets various imps clean up, for example by closing X sockets in   src/lib/x-kit/xclient/pkg/wire/socket-closer-imp.pkg
+# printf "shut_down_thread_scheduler''''/BBB:   drv::stop_threadkit_driver      ()\n"; 
+			    drv::stop_threadkit_driver      ();			# Merely clears the timeout-mailop.pkg list of threads waiting for timeouts.
+			    #							#
+# printf "shut_down_thread_scheduler''''/CCC:   ts::stop_thread_scheduler_timer ()\n"; 
+			    ts::stop_thread_scheduler_timer ();			# Stops 50Hz SIGALRM, sets alarm_signal handler to IGNORE.
+#  printf "shut_down_thread_scheduler''''/DDD:   th::reset_thread_package { running => FALSE }\n"; 
+			    th::reset_thread_package { running => FALSE };		# appthread.pkg:  tid_count :=  0;   thread-scheduler.pkg: Clears hooks, queues, cached time, current thread.
+
+			    tsr::thread_scheduler_is_running_as_pid			# Thread scheduler is no longer running.
+				:=
+				NULL;
+
+
+			    ri::print_hook
+				:=
+				*saved_print_function;
+
+
+			    sig::set_signal_handler
+				#
+				(sig::interrupt_signal, *saved_interrupt_handler);
+
+# printf "shut_down_thread_scheduler''''/ZZZ\n"; 
+			    ();
+			fi;
+		    };
+# OLD -- doesn't return, and to run all shutdown actions in sequence various places we need this to return
+# 		    shut_down_thread_scheduler  winix::process::success;	
+ 
+ 		at::schedule  ("thread-scheduler-control-g.pkg:   start up thread scheduler",      [ at::STARTUP_PHASE_12_START_THREAD_SCHEDULER ],  start_up_thread_scheduler''''	);
+ 		at::schedule  ("thread-scheduler-control-g.pkg:   shut down thread scheduler",     [ at::SHUTDOWN_PHASE_3_STOP_THREAD_SCHEDULER  ],  shut_down_thread_scheduler''''	);
+ (); fi;
+ 	    };
+	    #
+	    #################################################################3
+
+
+
 	    stipulate
 		Cmdt = bas::Pair (String, List( String ))
 		       ->
@@ -265,50 +431,50 @@ herein
 		spawn_to_disk' =   cfun "spawn_to_disk" :   (String, Cmdt) -> Void;
 	    end;
 
-
+	    #
 	    fun spawn_to_disk (file_name, main, time_q)
 		=
-		{   if (not *is_running)
-			#
-			is_running := TRUE;
-		    else
-			raise exception  FAIL "Cannot spawn_to_disk while threadkit is running";
-		    fi;
+		{   if (tsr::thread_scheduler_is_running ())   raise exception  FAIL "Cannot spawn_to_disk while threadkit is running";   fi;
+		    #
+		    tsr::thread_scheduler_is_running_as_pid						# Remember that thread scheduler is now running.
+			:=										# (WTF?! -- 2012-07-21 CrT)
+			THE (wxp::get_process_id ());
 
 		    rs::mask_signals  rs::MASK_ALL;
 
-		    # Run the Lib7 SPAWN_TO_DISK at-functions
-		    # to avoid some space-leaks:
-		    #
-		    ri::at::run_functions_scheduled_to_run
-			#
-			ri::at::SPAWN_TO_DISK;
+		    ri::at::run_functions_scheduled_to_run   ri::at::SPAWN_TO_DISK;			# Avoid some space-leaks.
 
-		    # Strip out any unecessary stuff from
-		    # the threadkit Cleanup state: 
-		    #
-		    cu::export_fn_cleanup ();
+		    cu::export_fn_cleanup ();								# Strip out any unecessary stuff from the threadkit Cleanup state.
 
-		    # Unlink the SML print function: 
-		    #
-		    ri::print_hook
-			:=
-			(fn _ = ());
+		    ri::print_hook :=   (fn _ = ());							# Unlink the SML print function. 
 
-		    # Clear the pervasive package list
-		    # of picklehash-pickle pairs:
-		    #
-		    uns::pervasive_package_pickle_list__global
+		    uns::pervasive_package_pickle_list__global						# Clear the pervasive package list of picklehash-pickle pairs.
 			:=
 			uns::p::NIL;
 
-		    # Now export the wrapped main function: 
-		    #
-		    spawn_to_disk'  (file_name,  bas::wrap_for_export (main, time_q));
+		    spawn_to_disk'  (file_name,  bas::wrap_for_export (main, time_q));			# Export the wrapped main function.
 		};
-	end;											# stipulate
+	end;												# stipulate
     };
 end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
 
 ## COPYRIGHT (c) 1989-1991 John H. Reppy
 ## COPYRIGHT (c) 1996 AT&T Research.

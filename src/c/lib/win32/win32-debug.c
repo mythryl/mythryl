@@ -15,7 +15,7 @@
  */
 Val _lib7_win32_debug(Task *task, Val arg)
 {
-  printf("%s",arg);
+  printf("%s",arg);	fflush(stdout);
   return HEAP_VOID;
 }
 

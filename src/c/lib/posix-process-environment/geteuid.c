@@ -36,11 +36,11 @@ Val   _lib7_P_ProcEnv_geteuid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_geteuid");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_geteuid", NULL );
 	//
 	int euid = geteuid ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_geteuid" );
 
     return  make_one_word_unt(task,  (Vunt)euid  );
 }

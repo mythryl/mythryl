@@ -63,11 +63,11 @@ Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
 	unsigned long   net  =  TUPLE_GETWORD(         arg, 0 );
 	int		type =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "", NULL );
 	    //
 	    struct netent* result =  getnetbyaddr(net, type);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
 	return _util_NetDB_mknetent (task, result);
     #endif

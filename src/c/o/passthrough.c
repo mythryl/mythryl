@@ -1,5 +1,7 @@
 // passthrough.c, a trivial app which echoes stdin to stdout.
 
+// History:
+// 2012-07-04 CrT: No longer in use. I believe this was an experiment prior to writing   src/c/o/mythryl.c
 // 2007-03-13 CrT: Created.
 
 #include "../mythryl-config.h"

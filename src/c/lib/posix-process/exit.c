@@ -8,6 +8,8 @@
 #include "raise-error.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -16,14 +18,16 @@
 #include <stdlib.h>
 #endif
 
+
 /*
-###     "We pray for one last landing
-###        on the globe that gave us birth;
-###      Let us rest our eyes on the fleecy skies
-###        and the cool, green hills of Earth."
+###		     "We pray for one last landing
+###		        on the globe that gave us birth;
+###		      Let us rest our eyes on the fleecy skies
+###		        and the cool, green hills of Earth."
 ###
-###                  -- "Noisy" Rhysling
+###		                  -- "Noisy" Rhysling
 */
+
 
 Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     //====================
@@ -43,6 +47,7 @@ Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     // before calling 'terminate'.)
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_exit");
 
+// printf("calling print_stats_and_exit   -- exit.c\n"); fflush(stdout);
     print_stats_and_exit( TAGGED_INT_TO_C_INT( arg ) );				// Doesn't return.	def in   src/c/main/runtime-main.c
 
     exit(0);									// Cannot execute; just to suppress a gcc warning.

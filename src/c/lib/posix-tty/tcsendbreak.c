@@ -48,11 +48,11 @@ Val   _lib7_P_TTY_tcsendbreak   (Task* task,  Val arg)   {
     int fd       =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int duration =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsendbreak", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_TTY_tcsendbreak", NULL );
 	//
 	int status = tcsendbreak( fd, duration );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsendbreak" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_TTY_tcsendbreak" );
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

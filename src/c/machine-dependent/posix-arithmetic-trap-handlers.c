@@ -22,7 +22,7 @@
 
 // This is temporary:					XXX BUGGO FIXME
 //
-#define SELF_PTHREAD	(pthread_table__global[ 0 ])			// Note that we have switched to  #define SELF_PTHREAD	(pth__get_pthread())    in   src/c/machine-dependent/posix-signal.c
+#define SELF_HOSTTHREAD	(hostthread_table__global[ 0 ])			// Note that we have switched to  #define SELF_HOSTTHREAD	(pth__get_hostthread())    in   src/c/machine-dependent/posix-signal.c
 
 
 static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg code, Signal_Handler_Context_Arg* scp */);
@@ -56,22 +56,24 @@ void   set_up_fault_handlers   (Task* task)   {
 	//
 	ucontext_t* scp = (ucontext_t*) c;
 
-	Task*  task =   SELF_PTHREAD->task;
+	Task*  task =   SELF_HOSTTHREAD->task;
 
 	extern Vunt   request_fault[]; 
 
 	int code =  GET_SIGNAL_CODE( si, scp );
 
 	#ifdef SIGNAL_DEBUG
-	    debug_say ("Fault handler: sig = %d, inLib7 = %d\n", signal, SELF_PTHREAD->executing_mythryl_code);
+	    debug_say ("Fault handler: signal = %d, inLib7 = %d\n", signal, SELF_HOSTTHREAD->executing_mythryl_code);
 	#endif
 
-	if (! SELF_PTHREAD->executing_mythryl_code) {
+	if (! SELF_HOSTTHREAD->executing_mythryl_code) {
   	    //
-	    fprintf(stderr, "Dumping heap due to bogus fault not in Mythryl sig = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
-	    dump_all( SELF_PTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
+	    fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
+	    fprintf(stderr, "error: Dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));fflush(stderr);
+	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
   	    //
-	    die ("Exiting due to bogus fault not in Mythryl: sig = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
+            fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
+	    die ("Exiting due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
 	}
 
 	// Map the signal to the appropriate Mythryl exception:
@@ -108,21 +110,24 @@ void   set_up_fault_handlers   (Task* task)   {
 	    Signal_Handler_Context_Arg*   scp
 	#endif
     ){
-	Task* task =  SELF_PTHREAD->task;
+	Task* task =  SELF_HOSTTHREAD->task;
 
 	extern Vunt   request_fault[]; 
 
 	int code =  GET_SIGNAL_CODE( info, scp );
 
 	#ifdef SIGNAL_DEBUG
-	    debug_say ("Fault handler: sig = %d, inLib7 = %d\n", signal, SELF_PTHREAD->executing_mythryl_code);
+	    debug_say ("Fault handler: signal = %d, inLib7 = %d\n", signal, SELF_HOSTTHREAD->executing_mythryl_code);
 	#endif
 
-        if (! SELF_PTHREAD->executing_mythryl_code) {
+        if (! SELF_HOSTTHREAD->executing_mythryl_code) {
 	    //
-	    fprintf(stderr, "dumping heap due to bogus fault not in Mythryl sig = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
-	    dump_all( SELF_PTHREAD->task, "arithmetic_fault_handler" );			// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
-	    die ("exiting due to bogus fault not in Mythryl: sig = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
+	    fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
+	    fprintf(stderr, "error: [not] dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));fflush(stderr);
+// Commented out for the moment to save time, since I'm not actually using the output: -- 2012-07-03 CrT
+//	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );			// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
+            fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
+	    die ("exiting due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
         }
 
         // Map the signal to the appropriate Mythryl exception:

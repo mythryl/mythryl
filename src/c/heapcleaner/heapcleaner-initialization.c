@@ -220,7 +220,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    =
             obtain_quire_from_os(
 		//
-		MAX_PTHREADS * params->agegroup0_buffer_bytesize
+		MAX_HOSTTHREADS * params->agegroup0_buffer_bytesize
                 +
                 book2sibid_bytesize
            );
@@ -251,7 +251,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     for (int age = 0;  age < MAX_AGEGROUPS;  age++) {
 	//
-	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );	// MAX_SZ1 just multiplies by 6 (why??) -- def in  src/c/h/runtime-configuration.h
+	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_HOSTTHREADS );	// MAX_SZ1 just multiplies by 6 (why??) -- def in  src/c/h/runtime-configuration.h
 	} else {          max_size = (5 * max_size)/2;
 	    //
 	    if (max_size > 64 * ONE_MEG_BINARY)  {				// WTF? This silliness probably needs to Just Die.  XXX BUGGO FIXME. -- 2011-11-01 CrT
@@ -338,8 +338,8 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     heap->agegroup0_master_buffer_bytesize
         =
-        params->agegroup0_buffer_bytesize * MAX_PTHREADS;			// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS separate buffers by
-										// partition_agegroup0_buffer_between_pthreads() in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+        params->agegroup0_buffer_bytesize * MAX_HOSTTHREADS;			// "* MAX_HOSTTHREADS" because it gets partitioned into MAX_HOSTTHREADS separate buffers by
+										// partition_agegroup0_buffer_between_hostthreads() in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
     //
     set_book2sibid_entries_for_range (
 	//
@@ -390,7 +390,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    heap->agegroup[ 0 ]->sib[ s ]->tospace.bytesize
                 =
-                BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS) );
+                BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_HOSTTHREADS) );
 	}
 
 	if (set_up_tospace_sib_buffers_for_agegroup( heap->agegroup[0] ) == FALSE)	    die ("unable to allocate initial agegroup 1 buffer\n");
@@ -409,7 +409,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     task->heap	                          =  heap;
     task->heap_allocation_buffer          =  task->heap->agegroup0_master_buffer;
     task->heap_allocation_pointer         =  task->heap->agegroup0_master_buffer;
-    task->heap_allocation_buffer_bytesize =  heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS; 
+    task->heap_allocation_buffer_bytesize =  heap->agegroup0_master_buffer_bytesize / MAX_HOSTTHREADS; 
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

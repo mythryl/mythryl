@@ -59,7 +59,7 @@ typedef struct {				// The magic number and other version info.
 //
 typedef struct {
     //
-    int pthread_count;							// The number of Pthreads.
+    int hostthread_count;							// The number of Hostthreads.
     int active_agegroups;						// The number of heap generations.
     int smallchunk_sibs_count;						// The number of small-chunk sibs (one each for pairs, records, strings, vectors).
     int hugechunk_sibs_count;						// The number of hugechunk kinds (currently 1 -- codechunks).
@@ -92,7 +92,7 @@ typedef struct {
 } Externs_Header;
 
 
-// Image of a Mythryl Pthread.
+// Image of a Mythryl Hostthread.
 // The live registers are those specified
 // by RET_MASK plus current_thread,
 // exception_fate and pc:
@@ -108,7 +108,7 @@ typedef struct {
     Val	current_thread;
     Val	calleeSave[ CALLEE_SAVED_REGISTERS_COUNT ];			// callee_saved_registers (should rename)
     //
-} Pthread_Image;
+} Hostthread_Image;
 
 
 // The heap header consists of 'active_agegroups' agegroup descriptions,

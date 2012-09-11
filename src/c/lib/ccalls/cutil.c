@@ -8,7 +8,7 @@
 char *ptos(void *p)
 {
 #ifdef DEBUG_C_CALLS
-    printf("in ptos with string \"%s\"",(char *)p);
+    printf("in ptos with string \"%s\"",(char *)p);	fflush(stdout);
 #endif
     return (char *) p;
 }

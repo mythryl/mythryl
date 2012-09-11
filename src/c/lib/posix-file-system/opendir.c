@@ -61,11 +61,11 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_opendir", NULL );
 	    //
 	    dir = opendir( c_path );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_opendir" );
 	//
 	unbuffer_mythryl_heap_value( &path_buf );
     }

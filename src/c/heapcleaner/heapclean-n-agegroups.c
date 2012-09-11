@@ -438,10 +438,10 @@ static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap
     #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
 	if (heapcleaner_messages_are_enabled__global) {
 	    long	                         cleaning_time;
-	    stop_heapcleaning_timer (task->pthread, &cleaning_time);				// stop_heapcleaning_timer	is from   src/c/main/timers.c
+	    stop_heapcleaning_timer (task->hostthread, &cleaning_time);				// stop_heapcleaning_timer	is from   src/c/main/timers.c
 	    debug_say (" (%d ms)\n",             cleaning_time);
 	} else {
-	    stop_heapcleaning_timer (task->pthread, NULL);
+	    stop_heapcleaning_timer (task->hostthread, NULL);
 	}
     #endif
 }
@@ -453,7 +453,7 @@ static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val**
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS								// Don't do timing when collecting pause data.
 	//
-	start_heapcleaning_timer( task->pthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
+	start_heapcleaning_timer( task->hostthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
     #endif
 
     #if NEED_HUGECHUNK_REFERENCE_STATISTICS
@@ -722,7 +722,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 	bytes_of_seniorchunks_in_next_younger_agegroup[ s ]
 	    =
             heap->agegroup0_master_buffer_bytesize;			// This value doesn't seem right, but it works and my attention is elsewhere, so for the moment I'm going to accept this as Black Magic.  -- 2012-01-31 CrT
-//          heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;	// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
+//          heap->agegroup0_master_buffer_bytesize / MAX_HOSTTHREADS;	// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
 //	    task->heap_allocation_buffer_bytesize;			// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
 //	    agegroup0_buffer_size_in_bytes( task );			// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
 

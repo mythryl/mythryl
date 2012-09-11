@@ -44,11 +44,11 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
     off_t offset =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     int   whence =  GET_TUPLE_SLOT_AS_INT( arg, 2 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "", NULL );
 	//
 	off_t pos = lseek(fd, offset, whence);
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
     RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, pos, NULL);
 }

@@ -1,0 +1,267 @@
+# I think we should:
+#
+#
+#
+#
+#  o Crowbar the thread-scheduler logic to never kill
+#    a task while it is in a critical section.  This
+#    probably means that we need a new state
+#       ALIVE_UNTIL_EXIT_FROM_UNINTERRUPTIBLE_SCOPE Exception
+#
+#  o An uncaught exception exception within an uninterruptible
+#    scope needs to shut down the entire process.
+#
+#  o We need a narration function which is notified
+#    of all events which terminate a thread or task.
+#    It should report unanticipated events to stderr:
+#      * Uncaught exceptions.
+#      * Thread or task killed.
+#
+#  o We need a hook so that the narration function can
+#    be replaced at runtime.
+#
+#  o We probably need a per-thread cleanup function. We
+#    may want separate end_thread()/end_task() calls
+#    for this, to reflect the different semantics.
+#    We probably need a separate WRAPPING_UP state
+#    for this, distinct from regular ALIVE, for
+#    example to prevent running wrap-up code twice.
+#
+#  o I don't think we want a per-task cleanup function;
+#    for starters, it wouldn't have a natural thread
+#    in which to run.  Running code is for threads,
+#    not tasks.
+#
+#  o We need to document the thread state transitions
+#    with a diagram.
+
+## appthread.api
+#
+# The is the main application-programmer interface for
+# creating and managing application threads.
+#
+# The main point of interest here is the
+# relationship between tasks and threads:
+#
+#  o  A "task" represents a set of cooperating threads.
+#
+#  o  Threads and tasks both begin in state ALIVE.
+#
+#  o  Every thread is a belongs to exactly one task.
+#     At start-up all threads belong to the default
+#     task, which is special in that it never dies
+#     (never leaves state::ALIVE).
+#
+#  o  A thread which exits by calling thread_exit { success => TRUE  } enters state::SUCCESS.
+#  o  A thread which exits by calling thread_exit { success => FALSE } enters state::FAILURE.
+#
+#  o  If any thread in a task enters state:FAILURE,
+#     the task enters state::FAILURE, shutting down
+#     all remaining threads in the task.
+#
+#  o  The default task is an exception:  It remains
+#     ALIVE no matter what happens to its threads.
+#
+#  o  If all threads in a task end in state::SUCCESS,
+#     the task enters state::SUCCESS.
+#
+#  o  Thread and tasks states are both allowed to make
+#     exactly one transition, from ALIVE to one of
+#         state::SUCCESS
+#         state::FAILURE
+#         state::FAILURE_DUE_TO_UNCAUGHT_EXCEPTION  Exception
+#
+#  o  Each thread and task has  a condvar.  
+#     Client code can wait on the condvar,
+#     which will result in them blocking until
+#     it exits ALIVE state.  They can then check
+#     to see whether final state was state::SUCCESS.
+#     (if they care).  Such waiting/blocking is done
+#     via thread_done__mailop and
+#     ane   task_done__mailop.
+#
+#  o  Each task keeps a count of ALIVE threads
+#     that belong to it.  In general, the task
+#     goes from ALIVE to SUCCESS state (and
+#     fires its condvar) when its count of
+#     ALIVE threads goes to zero.
+#
+#  o  Any uncaught exception kills both the thread
+#     throwing the exception and also its task; both
+#     go to state FAILURE_DUE_TO_UNCAUGHT_EXCEPTION  Exception
+#     and set their condvars.  The "Exception"
+#     argument records the fatal exception.
+#         Other threads in the task will never be
+#     scheduled to run again, but do not immediately
+#     cease to be ALIVE.  They exit ALIVE state one
+#     by one as they come due to execute, firing their
+#     condvars as they do so.
+#         A thread  waiting on an event which never
+#     comes may stay ALIVE indefinitely, albeit without
+#     doing anything.
+#
+#  o  A task may be explicitly killed via the
+#     kill_task() call.
+#       *  If the task state is not ALIVE this is a no-op.
+#       *  If the task state is ALIVE it causes the
+#          task to transition to state::FAILURE.
+#          and fire its condvar.  Again, threads
+#          belonging to the task to not exit ALIVE
+#          state immediately;  rather as they come
+#          due to execute they enter the same state
+#          as the task, firing their condvar as they
+#          do so.
+#       *  The Exception may be used to record arbitrary
+#          information about why the task was killed.
+#          No exception is thrown; it serves simply
+#          as a data container.
+#
+#  o  A thread may be explicitly killed via the
+#     kill_thread() call.
+#       *  If the thread state is not ALIVE this is a no-op.
+#       *  If the thread state is ALIVE it causes the
+#          thread to transition to state::FAILURE.
+#          and fire its condvar.  
+#
+#  o By default make_thread() and make_thread'() produce
+#    new threads belonging to the same task as the currently
+#    running thread.  This may be overridden by suppling an
+#    explicit THREAD_TASK parameter to make_thread'().
+#
+#  o The make_task[] call can be used to create a new task;
+#    it optionally can be used to create one or more threads
+#    as members of that task as part of the same call.
+#
+#  o No method is provided for killing a thread which is looping
+#    in an uninterruptible scope ("critical section" -- i.e., with
+#    between    a call to enter_uninterruptible_scope()
+#    and the next call to exit_uninterruptible_scope().
+#    Such calls are used to indicate that the heap is in an
+#    inconsistent state in which other threads cannot safely
+#    run, so it makes no sense to kill such a thread and
+#    continue.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# See also higher-level functionality defined in:
+#     src/lib/src/lib/thread-kit/src/core-thread-kit/task-junk.api
+
+stipulate
+    package mop =  mailop;							# mailop		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+herein
+
+    # This api is implemented in:
+    #     src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
+
+    api Appthread {
+	#
+	exception THREAD_SCHEDULER_NOT_RUNNING;
+
+	package state: api  {   State = ALIVE
+				      | SUCCESS
+				      | FAILURE
+				      | FAILURE_DUE_TO_UNCAUGHT_EXCEPTION	# No Exception value here.  This is the crucial difference from itt::state,
+				      ;						# which makes this state an equality type -- much for convenient for client code.
+			    };
+
+	Apptask;								# A task represents one or more threads; it provides an easy way to kill them all with one call.
+	Appthread;								# This contains the state of a thread other than the actual fate ("continuation") for that thread.
+
+	get_current_thread:         Void -> Appthread;				# A thread uses this to get its own Appthread record.
+	get_current_thread's_name:  Void -> String;				# A thread uses this to get its own name.
+	get_current_thread's_id:    Void -> Int;				# A thread uses this to get its own unique ID.
+
+	get_task's_id:		         Apptask -> Int;			# Unique id of task.
+	get_task's_name:                 Apptask -> String;			# Caller-assigned human-readable name of task.
+	get_task's_state:                Apptask -> state::State;		# 
+	get_task's_alive_threads_count:  Apptask -> Int;			# Number of threads currently in this task and in ALIVE state.
+
+	same_task:       (Apptask, Apptask) -> Bool;
+	compare_task:    (Apptask, Apptask) -> Order;
+
+	same_thread:     (Appthread, Appthread) -> Bool;
+	compare_thread:  (Appthread, Appthread) -> Order;
+	hash_thread:      Appthread -> Unt;
+
+	kill_thread:	{ success: Bool, thread: Appthread } -> Void; 		# If given thread is ALIVE, make it a SUCCESS or FAILURE. FAILURE kills its task (if not the default task) and thus all other threads in the task.
+	kill_task:	{ success: Bool, task:   Apptask   } -> Void;		# If given task   is ALIVE, make it a SUCCESS or FAILURE. Kills all threads in task.
+
+	get_thread's_id:	    Appthread -> Int;				# Unique id of thread.
+	get_thread's_id_as_string:  Appthread -> String;			# Unique id of thread as a string -- "003141" or such.
+	get_thread's_name:          Appthread -> String;			# Caller-assigned human-readable name of thread.
+	get_thread's_state:         Appthread -> state::State;			# 
+	get_thread's_task:	    Appthread -> Apptask;
+
+	get_exception_that_killed_thread:  Appthread -> Null_Or( Exception );	# NULL if not in state::FAILURE_DUE_TO_UNCAUGHT_EXCEPTION.
+	get_exception_that_killed_task:    Apptask   -> Null_Or( Exception );	# NULL if not in state::FAILURE_DUE_TO_UNCAUGHT_EXCEPTION.
+
+	Make_Thread_Args =  THREAD_NAME  String					# Future-proofing:  we can add additional options here in future without breaking existing code.
+			 |  THREAD_TASK  Apptask				# New thread will be a member of this task (instead of defaulting to same task as parent thread).
+	  		 ;
+
+	#               Name etc for threadThread   Thread body      Arg for Body     Result
+	#               -------------------         -----------      ------------     -----------
+	make_thread':   List(Make_Thread_Args)  ->  (X -> Void)  ->  X             -> Appthread;		# Given a fn f and arg x for it, run f(x) as a thread and return the appthread for that thread.
+
+	#               Name      Thread body            Result
+	#               ------    ------------------     ---------
+	make_thread:    String -> (Void -> Void)      -> Appthread;		# A convenience version of above for common case where f is Void->Void.
+										# fun make_thread name f = make_thread f () [ THREAD_NAME name ];
+	#                                Thread   
+	#               Name             name     Thread body        Result
+	#               ------    -------------------------------    ------
+	make_task:	String -> List( (String, (Void -> Void))) -> Apptask;
+
+	thread_exit:  { success: Bool } -> X;					# A thread calls this when done; the call never returns.
+										# If 'success' is TRUE  task final state will be state::SUCCESS.
+										# If 'success' is FALSE task final state will be state::FAILURE and its task will be terminated in state::FAILURE,
+										# except the default task never dies and never exits state::ALIVE.
+
+
+	thread_done__mailop:  Appthread -> mop::Mailop( Void );			# A thread uses this to be notified of the death of another thread.
+										# For example:   src/lib/src/lib/thread-kit/src/lib/thread-deathwatch.pkg
+
+	task_done__mailop:      Apptask -> mop::Mailop( Void );			# A thread uses this to be notified of the death of a task.
+
+	yield:  Void -> Void;							# A thread calls this to let another thread run.  Used mostly for benchmarking.
+
+
+	run_thread__usend
+	    :
+	    Appthread -> (X -> Void) -> X -> Void;
+
+	# Thread-local data support:
+
+	make_per_thread_property
+	    :
+	    (Void -> X)
+	    ->
+	    { clear:  Void -> Void,						# Clear current thread's property. 
+
+	      get:    Void -> X,						# Get current thread's property;
+										# If the property is not defined
+										# then set it using the initialization 
+										# function. 
+
+	      peek:  Void -> Null_Or(X),					# Return the property's value, if any. 
+
+	      set:   X -> Void							# Set the property's value for the current thread. 
+	    };
+
+	make_boolean_per_thread_property
+	    :
+	    Void
+	    ->
+	    { get:  Void -> Bool,
+	      set:  Bool -> Void
+	    };
+
+    };
+end;
+
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+## released under Gnu Public Licence version 3.

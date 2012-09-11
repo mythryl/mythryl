@@ -46,11 +46,11 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
         //
 	socklen_t opt_size = sizeof( int );
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_rcvbuf_option", NULL );
 	    //
 	    status = getsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, &opt_size);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_rcvbuf_option" );
 
 	ASSERT((status < 0) || (opt_size == sizeof(int)));
 
@@ -58,11 +58,11 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
 
 	size = TAGGED_INT_TO_C_INT( OPTION_GET( ctl ));
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_rcvbuf_option", NULL );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, sizeof(int));
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_rcvbuf_option" );
     }
 
     if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);

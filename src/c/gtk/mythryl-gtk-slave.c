@@ -604,10 +604,11 @@ set_trie( Trie_Node*trie, char* name, Trie_Fn trie_fn )
 static void
 do_test( int argc, unsigned char** argv )
 {
-    printf ("TEST argc d=%d\n", argc);
+    printf ("TEST argc d=%d\n", argc);								fflush(stdout);
 
     for (int i = 0; i < argc; ++i) {
-      printf ("ARG argv[%d] s='%s' (len d=%d)\n", i, argv[i], strlen( (char*) (argv[i])) );
+	//
+	printf ("ARG argv[%d] s='%s' (len d=%d)\n", i, argv[i], strlen( (char*) (argv[i])) );	fflush(stdout);
     }
 }
 

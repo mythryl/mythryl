@@ -54,11 +54,11 @@ Val   _lib7_P_FileSys_access   (Task* task,  Val arg) {
 
     {	char* c_path = buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_access", NULL );
 	    //
 	    status =  access( c_path, mode );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_access" );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }

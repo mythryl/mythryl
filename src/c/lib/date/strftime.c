@@ -61,11 +61,11 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
 		(void*) HEAP_STRING_AS_C_STRING(fmt),
 		 strlen(HEAP_STRING_AS_C_STRING(fmt) ) +1		// '+1' for terminal NUL on string.
 	     );
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_strftime", NULL );
 	    //
 	    size = strftime (buf, sizeof(buf), c_fmt, &tm);							// This call might not be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_strftime" );
 	//
 	unbuffer_mythryl_heap_value( &fmt_buf );    
     }

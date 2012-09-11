@@ -8,8 +8,8 @@
 #  1)  An  is_mailop_ready_to_fire(), fire_mailop()
 #      or set_up_mailopready_watch() fn
 #      is always called from inside an uninterruptible scope.			# "uninterruptible scope" == "critical section" == "atomic region" == ...
-#										# In practice it means that thread_scheduler::thread_scheduler_state is either IN_UNINTERRUPTABLE_SCOPE or
-#										# IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH, either of which prevents thread switching.
+#										# In practice it means that thread_scheduler::thread_scheduler_state is either IN_UNINTERRUPTIBLE_SCOPE or
+#										# IN_UNINTERRUPTIBLE_SCOPE_WITH_PENDING_THREADSWITCH, either of which prevents thread switching.
 #  2)  An is_mailop_ready_to_fire() returns an integer priority.		
 #      This is   0 when not enabled,
 #	        -1 for fixed priority and
@@ -24,7 +24,7 @@
 #      A fire_mailop should NOT end the uninterruptible scope.
 #
 #  4)  Each set_up_mailopready_watch fn is responsible for executing
-#      the "finish_selectrun" action prior to ending the uninterruptible scope.
+#      the "finish_do1mailoprun" action prior to ending the uninterruptible scope.
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -50,8 +50,8 @@ herein
 			    api {
 				include Mailop;					# Mailop			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.api
 				#
-				set_condvar_in_uninterruptible_scope:   itt::Condition_Variable -> Void;
-				wait_on_condvar':			itt::Condition_Variable -> Mailop( Void );	# Exported for use in   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+				set_condvar__usmid:   itt::Condition_Variable -> Void;
+				wait_on_condvar':			itt::Condition_Variable -> Mailop( Void );	# Exported for use in   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
 			    }
     {
 	call_with_current_control_fate	=  fat::call_with_current_control_fate;
@@ -107,10 +107,10 @@ herein
 	# atomic regions we have to use different
 	# conventions for clean-up, etc.  Instead
 	# of requiring the set_up_mailopready_watch fate
-	# to call the finish_selectrun fn and to end
-	# the uninterruptible scope, we call the finish_selectrun
+	# to call the finish_do1mailoprun fn and to end
+	# the uninterruptible scope, we call the finish_do1mailoprun
 	# function when setting the condition variable
-	# (in set_condvar_in_uninterruptible_scope), and have the invariant
+	# (in set_condvar__usmid), and have the invariant
 	# that the set_up_mailopready_watch fate is dispatched
 	# outside the atomic region.
 
@@ -120,54 +120,58 @@ herein
 									# "atomic" is literally correct ("a-tomic" == "not cuttable" -- indivisible) but the modern reader is not
 									# likely to take it in that sense at first blush.  And neither "section" nor "region" are as apropos as "scope".
 	# Set a condition variable.
-	# We assume that this function is always
+	# Caller guarantees that this function is always
 	# executed in an uninterruptible scope.
 	#
-	fun set_condvar_in_uninterruptible_scope (itt::CONDITION_VARIABLE state)
+	set_condvar__usmid
 	    =
-	    case *state
-		#
-		itt::CONDVAR_IS_NOT_SET  waiting_threads									# waiting_threads is the list of threads sitting
-		    =>														# blocked waiting for this condvar to be set.
-		    {   ts::foreground_run_queue ->  rwq::RW_QUEUE { back, ... };
-			#
-			state :=    itt::CONDVAR_IS_SET  1;									# Set the condition variable.  NB: The '1' is a priority, not its (non-existent) value.
-			#
-			back :=     run  waiting_threads									# Add to foreground run queue all threads that were waiting for condvar to be set.
-				    where
-					fun run [] =>   *back;
-					    #
-					    run ( { selectrun_status=>REF itt::SELECTRUN_IS_COMPLETE, ... } ! rest)
-						=>
-						run rest;									# Drop completed selectrun.
+	    ts::set_condvar__usmid;
 
-					    run ( { selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED thread), finish_selectrun, fate } ! rest)
-						=>
-						{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
-						    #
-						    finish_selectrun ();							# Do stuff like   selectrun_status := SELECTRUN_IS_COMPLETE;   and sending nacks.
-
-						    (thread, fate)  !  (run rest);
-						};
-					end;
-				    end;
-		    };
-
-		 _ => error "condvar already set";
-	    esac;
+#	fun set_condvar__usmid (itt::CONDITION_VARIABLE state)						# Only external call is in   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
+#	    =
+#	    case *state
+#		#
+#		itt::CONDVAR_IS_NOT_SET  waiting_threads									# waiting_threads is the list of threads sitting
+#		    =>														# blocked waiting for this condvar to be set.
+#		    {   ts::foreground_run_queue ->  rwq::RW_QUEUE { back, ... };
+#			#
+#			state :=    itt::CONDVAR_IS_SET  1;									# Set the condition variable.  NB: The '1' is a priority, not its (non-existent) value.
+#			#
+#			back :=     run  waiting_threads									# Add to foreground run queue all threads that were waiting for condvar to be set.
+#				    where
+#					fun run [] =>   *back;
+#					    #
+#					    run ( { do1mailoprun_status=>REF itt::DO1MAILOPRUN_IS_COMPLETE, ... } ! rest)
+#						=>
+#						run rest;									# Drop completed do1mailoprun.
+#
+#					    run ( { do1mailoprun_status as REF (itt::DO1MAILOPRUN_IS_BLOCKED thread), finish_do1mailoprun, fate } ! rest)
+#						=>
+#						{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
+#						    #
+#						    finish_do1mailoprun ();							# Do stuff like   do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;   and sending nacks.
+#
+#						    (thread, fate)  !  (run rest);
+#						};
+#					end;
+#				    end;
+#		    };
+#
+#		 _ => error "condvar already set";
+#	    esac;
 
 
 	# The mailop constructor for
 	# waiting on a condition variable:
 	#
-	fun wait_on_condvar' (itt::CONDITION_VARIABLE  condvar_state)								# This fn is used (only) below and in   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+	fun wait_on_condvar' (itt::CONDITION_VARIABLE  condvar_state)								# This fn is used (only) below and in   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
 	    =
 	    BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where 
 		fun set_up_mailopready_watch											# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,											# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,											# Does stuff like  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks.
+			do1mailoprun_status,											# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,											# Does stuff like  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks.
 			return_to__set_up_mailopready_watches__loop
 		      }
 		    =
@@ -183,7 +187,7 @@ herein
 					itt::CONDVAR_IS_SET _			=>   raise exception FAIL "Bug in wait_on_condvar'";
 				    esac;					#    Above exception should not happen:  is_mailop_ready_to_fire() only queues us up if *condvar_state is not CONDVAR_IS_SET.
 				#
-				waiting_thread =  { selectrun_status,  finish_selectrun,  fate };
+				waiting_thread =  { do1mailoprun_status,  finish_do1mailoprun,  fate };
 
 				condvar_state :=  itt::CONDVAR_IS_NOT_SET (waiting_thread ! waiting_threads);			# Add ourself to list of threads waiting for condvar to be set.
 
@@ -205,7 +209,7 @@ herein
 					=
 					{   condvar_state :=  itt::CONDVAR_IS_SET  1;						# Set condvar priority back to minimum.
 					    #
-					    ts::reenable_thread_switching ();							# End uninterruptable scope.
+					    ts::exit_uninterruptible_scope ();							# End uninterruptible scope.
 					};
 				end;
 			    };
@@ -226,7 +230,7 @@ herein
 	      [
 		fn () = itt::MAILOP_IS_READY_TO_FIRE
 			  { priority	=> -1,
-			    fire_mailop	=> fn () =  {   ts::reenable_thread_switching ();					# Reppy refers to fire_mailop as 'doFn'.
+			    fire_mailop	=> fn () =  {   ts::exit_uninterruptible_scope ();					# Reppy refers to fire_mailop as 'doFn'.
 							result;
 						    }
 			  }
@@ -237,7 +241,7 @@ herein
 	never' = BASE_MAILOPS [];												# Used in:	src/lib/x-kit/widget/basic/topwindow.pkg
 																#		src/lib/x-kit/xclient/pkg/window/widget-cable.pkg
 																
-	# These generate mailops on-the-fly while 'select' is running.
+	# These generate mailops on-the-fly while 'do_one_mailop' is running.
 	# The second is given a mailop with which to detect client
 	# abort of the generated mailop:
 	#
@@ -283,7 +287,7 @@ herein
 
 	fun make_compound_mailop (mailop, added_action)
 	    =
-	    # Here we implement the "==>" op used in select[...] rules.
+	    # Here we implement the "==>" op used in do_one_mailop [...] rules.
 	    # This op takes two arguments
 	    #
 	    #     mailop:        Mailop(X)
@@ -385,7 +389,7 @@ herein
 	# Prepare mailop expression to run.
         # In particular, this evaluates all
         # dynamic rules to generate the actual
-	# final rules to select between:
+	# final rules to do_one_mailop between:
 	#
 	fun prepare (BASE_MAILOPS l)
 		=>
@@ -497,22 +501,22 @@ herein
 	     end;
 	end;
 	#
-	fun make__selectrun_status__and__finish_selectrun ()
+	fun make__do1mailoprun_status__and__finish_do1mailoprun ()
 	    =
-	    {   selectrun_status =    REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread()));
+	    {   do1mailoprun_status =    REF (itt::DO1MAILOPRUN_IS_BLOCKED (ts::get_current_thread()));
 		#
-		finish_selectrun    =    .{   selectrun_status :=  itt::SELECTRUN_IS_COMPLETE;  };
+		finish_do1mailoprun    =    .{   do1mailoprun_status :=  itt::DO1MAILOPRUN_IS_COMPLETE;  };
 
-		{ selectrun_status, finish_selectrun };
+		{ do1mailoprun_status, finish_do1mailoprun };
 	    };
 
 
 	stipulate
-	    # When we have exactly one mailop in the select[...] we can use simple logic:
+	    # When we have exactly one mailop in the do_one_mailop[...] we can use simple logic:
 	    #
 	    fun do_one_mailop  (is_mailop_ready_to_fire:  Base_Mailop(X))
 		=
-		{   ts::disable_thread_switching ();
+		{   ts::enter_uninterruptible_scope ();
 		    #
 		    case (is_mailop_ready_to_fire ())
 			#	      
@@ -522,16 +526,16 @@ herein
 
 			MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch
 			    =>
-			    {   (make__selectrun_status__and__finish_selectrun ())
+			    {   (make__do1mailoprun_status__and__finish_do1mailoprun ())
 				    ->
-				    { selectrun_status, finish_selectrun };
+				    { do1mailoprun_status, finish_do1mailoprun };
 				#
 				set_up_mailopready_watch
-				  { selectrun_status,
-				    finish_selectrun,
+				  { do1mailoprun_status,
+				    finish_do1mailoprun,
 				    return_to__set_up_mailopready_watches__loop
 					=>
-					ts::reenable_thread_switching_and_dispatch_next_thread						# Since we have only one mailop, we do not need to actually loop here.
+					ts::dispatch_next_thread__usend__noreturn						# Since we have only one mailop, we do not need to actually loop here.
 				  };
 			    };
 		    esac;
@@ -552,19 +556,19 @@ herein
 	    #
 	    # It also handles NEVER.
 	    #
-	    fun do_nackfree_mailops []       =>  ts::dispatch_next_thread ();							# 'select' with empty rule list -- nothing to do.
+	    fun do_nackfree_mailops []       =>  ts::dispatch_next_thread__noreturn ();						# 'do_one_mailop' with empty rule list -- nothing to do.
 		do_nackfree_mailops [mailop] =>  do_one_mailop  mailop;								# This is the only call to   do_one_mailop().
 		#
 		do_nackfree_mailops  mailops
 		    =>
 		    {
-		        ts::disable_thread_switching ();									# Start uninterruptible scope. (Aka "critical section", "atomic region" etc.)
+		        ts::enter_uninterruptible_scope ();									# Start uninterruptible scope. (Aka "critical section", "atomic region" etc.)
 			#
 			case (test_mailops_for_readiness_to_fire (mailops, []))
 			    #
 			    READY_MAILOPS { fire_mailop_fns, n }
 				=>
-				{   fire_mailop =   pick_highest_priority_mailop_breaking_ties_fairly  (fire_mailop_fns, n);	# Pick a select[....] mailop to fire ...
+				{   fire_mailop =   pick_highest_priority_mailop_breaking_ties_fairly  (fire_mailop_fns, n);	# Pick a do_one_mailop[....] mailop to fire ...
 				    #
 				    fire_mailop ();										# ... and then fire it.
 				};
@@ -582,19 +586,19 @@ herein
 					where
 					    switch_to_control_fate =  switch_to_control_fate  fate;
 					    #
-					    (make__selectrun_status__and__finish_selectrun ())
+					    (make__do1mailoprun_status__and__finish_do1mailoprun ())
 						->
-						{ selectrun_status, finish_selectrun };
+						{ do1mailoprun_status, finish_do1mailoprun };
 					    #
-					    fun set_up_mailopready_watches__loop [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
+					    fun set_up_mailopready_watches__loop [] =>   ts::dispatch_next_thread__usend__noreturn ();
 						#
 						set_up_mailopready_watches__loop (set_up_mailopready_watch ! rest)
 						    =>
 						    switch_to_control_fate
 							#
 							(set_up_mailopready_watch
-							  { selectrun_status,
-							    finish_selectrun,
+							  { do1mailoprun_status,
+							    finish_do1mailoprun,
 							    return_to__set_up_mailopready_watches__loop				# maildrop.pkg, mailslot.pkg etc call this to return control to us.
 								=>
 								fn () =  set_up_mailopready_watches__loop rest
@@ -765,7 +769,7 @@ herein
 	    #
 	    fun do_nackfull_mailops  group
 		=
-		{   ts::disable_thread_switching ();							# Start uninterruptible scope (aka "critical section" aka "atomic region"...)
+		{   ts::enter_uninterruptible_scope ();							# Start uninterruptible scope (aka "critical section" aka "atomic region"...)
 		    #
 		    case (test_mailops_for_readiness_to_fire (mailops, []))
 			#
@@ -787,23 +791,23 @@ herein
 			    call_with_current_control_fate
 				(fn fate
 				    =
-				    {   set_up_mailopready_watches__loop  start_mailop_watch__fns;						# Ask each mailop in the select[...] list to enqueue itself as appropriate. 
+				    {   set_up_mailopready_watches__loop  start_mailop_watch__fns;						# Ask each mailop in the do_one_mailop [...] list to enqueue itself as appropriate. 
 					#
 					error "[set_up_mailopready_watches__loop]";								# This cannot happen -- set_up_mailopready_watches__loop() runs next thread when done.
 				    }
 				    where
 					switch_to_control_fate =  switch_to_control_fate  fate;
 					#
-					selectrun_status =   REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread ()));			# 'selectrun_status' is basically a mutex ensuring exactly one mailop fires per selectrun.
+					do1mailoprun_status =   REF (itt::DO1MAILOPRUN_IS_BLOCKED (ts::get_current_thread ()));			# 'do1mailoprun_status' is basically a mutex ensuring exactly one mailop fires per do1mailoprun.
 					#
-					fun finish_selectrun_fn  flag  ()									# This will be called by the first mailop to fire. 
+					fun finish_do1mailoprun_fn  flag  ()									# This will be called by the first mailop to fire. 
 					    =
-					    {   selectrun_status := itt::SELECTRUN_IS_COMPLETE;
+					    {   do1mailoprun_status := itt::DO1MAILOPRUN_IS_COMPLETE;
 						flag := TRUE;
 						send_nacks_as_appropriate ();
 					    };
 					#
-					fun set_up_mailopready_watches__loop [] =>   ts::reenable_thread_switching_and_dispatch_next_thread ();
+					fun set_up_mailopready_watches__loop [] =>   ts::dispatch_next_thread__usend__noreturn ();
 					    #
 					    set_up_mailopready_watches__loop ((set_up_mailopready_watch, flag)  !  rest)
 						=>
@@ -811,8 +815,8 @@ herein
 						    (
 							set_up_mailopready_watch
 							  {
-							    selectrun_status,
-							    finish_selectrun =>  finish_selectrun_fn flag,
+							    do1mailoprun_status,
+							    finish_do1mailoprun =>  finish_do1mailoprun_fn flag,
 							    return_to__set_up_mailopready_watches__loop						# maildrop.pkg, mailslot.pkg etc call this to return control to us.
 								=>
 								fn () =  set_up_mailopready_watches__loop rest
@@ -831,7 +835,7 @@ herein
 		    #
 		    fun send_nacks_as_appropriate ()
 			=
-			apply  check_condvar  nackstates						# NB: We capture 'nackstates' here for later use in 'finish_selectrun_fn'.
+			apply  check_condvar  nackstates						# NB: We capture 'nackstates' here for later use in 'finish_do1mailoprun_fn'.
 			where
 			    # check_condvar checks the flags of a nackstate.
 			    # If they are all FALSE then the
@@ -844,7 +848,7 @@ herein
 				where
 				    fun check_flags ((REF TRUE) ! _) =>	 ();
 					check_flags (_ ! rest)	     =>	 check_flags  rest;
-					check_flags []		     =>	 set_condvar_in_uninterruptible_scope  condvar;
+					check_flags []		     =>	 set_condvar__usmid  condvar;
 				    end;
 				end;
 			end;
@@ -863,7 +867,7 @@ herein
 		    end
 
 		    also
-		    fun test_mailops_for_readiness_to_fire' ((is_mailop_ready_to_fire, flag) ! rest, fire_mailop_fns, n)			# In this loop we have found at least one select[...] mailop ready to fire.
+		    fun test_mailops_for_readiness_to_fire' ((is_mailop_ready_to_fire, flag) ! rest, fire_mailop_fns, n)			# In this loop we have found at least one do_one_mailop[...] mailop ready to fire.
 			    =>
 			    case (is_mailop_ready_to_fire ())
 				#
@@ -874,7 +878,7 @@ herein
 				_   =>   test_mailops_for_readiness_to_fire'  (rest,  fire_mailop_fns,  n);
 			    esac;
 
-			test_mailops_for_readiness_to_fire' ([], fire_mailop_fns, n)								# Done -- pick one select[...] mailop to fire and then fire it.
+			test_mailops_for_readiness_to_fire' ([], fire_mailop_fns, n)								# Done -- pick one do_one_mailop[...] mailop to fire and then fire it.
 			    =>
 			    READY_MAILOPS { fire_mailop_fns,  n };
 		    end;
@@ -898,11 +902,11 @@ herein
 	    esac;
 
 
-															# 'select' is our core entrypoint, the 'select' used by clients
+															# 'do_one_mailop' is our core entrypoint, the 'do_one_mailop' used by clients
 															# to do style handle-multiple-mail-sources thread I/O via
 															# statements looking like
 															#
-															#     select [
+															#     do_one_mailop [
 															#	  foo' ==> .{ do_this (); },
 															#	  bar' ==> .{ do_that (); },
 															#         ...
@@ -911,7 +915,7 @@ herein
 															# We have two main cases:
 															#  1) If one or more mailops in the list is ready to fire, we pick one and fire it.
 															#  2) If no mailop in the list is ready to fire, we must block until one becomes ready, then continue as in 1).
-	fun select mailops
+	fun do_one_mailop  mailops
 	    =
 	    case (prepare_mailops (mailops, []))
 		#
@@ -922,7 +926,7 @@ herein
  		# Preparation.  During this phase we need to:
 		#
 		#  o Expand DYNAMIC_MAILOP										# These are essentially hacks to allow generating
-		#    and    DYNAMIC_MAILOP_WITH_NACK clauses.								# mailops on the fly while 'select' is running.
+		#    and    DYNAMIC_MAILOP_WITH_NACK clauses.								# mailops on the fly while 'do_one_mailop' is running.
 		#
 		#  o Figure out whether we have any WITH_NACK clauses,
 		#    which complicate things.
@@ -931,7 +935,7 @@ herein
 		#  we return NACKFREE_MAILOPS _, otherwise    
 		#  we return NACKFULL_MAILOPS _ or WITHNACK_MAILOP _.
 		# 
-	        fun prepare_mailops  (mailop ! rest,  mailops')								# prepare_mailops          handles the nice simple nack-free case;
+		fun prepare_mailops  (mailop ! rest,  mailops')								# prepare_mailops          handles the nice simple nack-free case;
 			=>												# prepare_nackfull_mailops handles the case where one or more WITH_NACK clauses are present.
 			case (prepare_one_mailop  mailop)
 			    #
@@ -963,7 +967,7 @@ herein
 		also
 		fun prepare_one_mailop (BASE_MAILOPS  	mailops)     =>   NACKFREE_MAILOPS mailops;
 		    prepare_one_mailop (CHOOSE_MAILOP	mailops)     =>   prepare_mailops (mailops, []);
-		    prepare_one_mailop (DYNAMIC_MAILOP	make_mailop) =>   prepare_one_mailop (make_mailop ());				# Generate a select[...] mailop on the fly, then recursively prepare it.
+		    prepare_one_mailop (DYNAMIC_MAILOP	make_mailop) =>   prepare_one_mailop (make_mailop ());				# Generate a do_one_mailop[...] mailop on the fly, then recursively prepare it.
 		    #
 		    prepare_one_mailop (DYNAMIC_MAILOP_WITH_NACK make_mailop)								# Like as DYNAMIC_MAILOP but with a nack mailop to signal client-code abort.
 			=>
@@ -973,7 +977,7 @@ herein
 			};
 
 		end;
-	    end;			# fun select
+	    end;			# fun do_one_mailop
     };					# package mailop
 end;
 

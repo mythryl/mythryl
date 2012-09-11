@@ -52,7 +52,7 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Process			)		// Libmythryl_Win32_Pr
 
 #endif
 
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Pthread				)		// Libmythryl_Pthread			def in    src/c/lib/pthread/libmythryl-pthread.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Hostthread				)		// Libmythryl_Hostthread			def in    src/c/lib/hostthread/libmythryl-hostthread.c
 
 #ifdef C_CALLS										// C_CALLS is nowhere defined; it is referenced only here and in   src/c/heapcleaner/call-heapcleaner.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ccalls				)		// Libmythryl_Ccalls			def in    src/c/lib/ccalls/libmythryl-ccalls.c

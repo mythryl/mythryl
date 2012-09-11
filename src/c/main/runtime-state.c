@@ -15,9 +15,9 @@
 #include "runtime-configuration.h"
 
 
-												// struct pthread_state_struct { 			def in   src/c/h/runtime-base.h
-												// typedef struct pthread_state_struct	Pthread;	def in   src/c/h/runtime-base.h
-Pthread*   pthread_table__global[  MAX_PTHREADS  ];						// pthread_table__global[] is exported			via      src/c/h/runtime-base.h
+												// struct hostthread_state_struct { 			def in   src/c/h/runtime-base.h
+												// typedef struct hostthread_state_struct	Hostthread;	def in   src/c/h/runtime-base.h
+Hostthread*   hostthread_table__global[  MAX_HOSTTHREADS  ];						// hostthread_table__global[] is exported			via      src/c/h/runtime-base.h
     //     =====================
     //
     // Table of all active posix threads in process.
@@ -28,11 +28,11 @@ Pthread*   pthread_table__global[  MAX_PTHREADS  ];						// pthread_table__globa
     //
     // In multithreaded operation this table is modified
     // by the heapcleaner -- of course -- but otherwise
-    // only by code in   src/c/pthread/pthread-on-posix-threads.c
-    // serialized by the pthread_table_mutex__local.
+    // only by code in   src/c/hostthread/hostthread-on-posix-threads.c
+    // serialized by the hostthread_table_mutex__local.
 
 
-static void   set_up_pthread_state   (Pthread* pthread);
+static void   set_up_hostthread_state   (Hostthread* hostthread);
 
 Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //  =========
@@ -47,109 +47,109 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     Task* task =  NULL;
 
     //
-    for (int i = 0;   i < MAX_PTHREADS;   i++) {
+    for (int i = 0;   i < MAX_HOSTTHREADS;   i++) {
 	//
-	if (((pthread_table__global[i] = MALLOC_CHUNK(Pthread)) == NULL)
+	if (((hostthread_table__global[i] = MALLOC_CHUNK(Hostthread)) == NULL)
 	||  ((task = MALLOC_CHUNK(Task)) == NULL)
 	){
-	    die ("runtime-state.c: unable to allocate pthread_table__global entry");
+	    die ("runtime-state.c: unable to allocate hostthread_table__global entry");
 	}
 
-	pthread_table__global[i]->task =  task;
+	hostthread_table__global[i]->task =  task;
     }
-    task =  pthread_table__global[0]->task;
+    task =  hostthread_table__global[0]->task;
 
     // Allocate and initialize the heap data structures:
     //
     set_up_heap( task, is_boot, cleaner_args );							// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     // 'set_up_heap' has created an agegroup0 buffer;
-    //  partition it between our MAX_PTHREADS pthreads:
+    //  partition it between our MAX_HOSTTHREADS hostthreads:
     //
-    partition_agegroup0_buffer_between_pthreads( pthread_table__global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+    partition_agegroup0_buffer_between_hostthreads( hostthread_table__global );			// partition_agegroup0_buffer_between_hostthreads	def in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 
-    // Initialize the per-Pthread Mythryl state:
+    // Initialize the per-Hostthread Mythryl state:
     //
-    for (int i = 0;  i < MAX_PTHREADS;  i++) {
+    for (int i = 0;  i < MAX_HOSTTHREADS;  i++) {
 	//
-	set_up_pthread_state( pthread_table__global[i] );
+	set_up_hostthread_state( hostthread_table__global[i] );
 
 	// Single timers are currently shared
-	// among multiple pthreads:
+	// among multiple hostthreads:
 	//
 	if (i != 0) {
-	    pthread_table__global[ i ] -> cpu_time_at_start_of_last_heapclean
-	  = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_heapclean;
+	    hostthread_table__global[ i ] -> cpu_time_at_start_of_last_heapclean
+	  = hostthread_table__global[ 0 ] -> cpu_time_at_start_of_last_heapclean;
 	    //
-	    pthread_table__global[ i ] -> cumulative_cleaning_cpu_time
-	  = pthread_table__global[ 0 ] -> cumulative_cleaning_cpu_time;
+	    hostthread_table__global[ i ] -> cumulative_cleaning_cpu_time
+	  = hostthread_table__global[ 0 ] -> cumulative_cleaning_cpu_time;
 	}
     }
 
-    // Initialize the first Pthread here:
+    // Initialize the first Hostthread here:
     //
-    pthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_pthread_id () returns huge numbers, this gives us small pthread ids.
-    pthread_table__global[0]->ptid =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
-    pthread_table__global[0]->mode =  PTHREAD_IS_RUNNING;
+    hostthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_hostthread_id () returns huge numbers, this gives us small hostthread ids.
+    hostthread_table__global[0]->ptid =  pth__get_hostthread_id ();				// pth__get_hostthread_id				def in    src/c/hostthread/hostthread-on-posix-threads.c
+    hostthread_table__global[0]->mode =  HOSTTHREAD_IS_RUNNING;
 
     // Initialize the timers:
     //
-    reset_timers( pthread_table__global[0] );						// "Pthread support note: For now, only Pthread 0 has timers." (Ancient comment, not sure it is true. -- 2012-03-02 CrT)
+    reset_timers( hostthread_table__global[0] );						// "Hostthread support note: For now, only Hostthread 0 has timers." (Ancient comment, not sure it is true. -- 2012-03-02 CrT)
 
     return task;
 }							// fun make_task
 
 
 
-static void   set_up_pthread_state   (Pthread* pthread)   {
+static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     //        ====================
     //
-    pthread->heap				= pthread->task->heap;
-    pthread->task->pthread			= pthread;
+    hostthread->heap				= hostthread->task->heap;
+    hostthread->task->hostthread			= hostthread;
     //
-    pthread->executing_mythryl_code		= FALSE;
-    pthread->posix_signal_pending		= FALSE;
-    pthread->mythryl_handler_for_posix_signal_is_running		= FALSE;
+    hostthread->executing_mythryl_code		= FALSE;
+    hostthread->posix_signal_pending		= FALSE;
+    hostthread->mythryl_handler_for_posix_signal_is_running		= FALSE;
     //
-    pthread->all_posix_signals.seen_count	= 0;
-    pthread->all_posix_signals.done_count	= 0;
-    pthread->next_posix_signal_id		= 0;
-    pthread->next_posix_signal_count			= 0;
+    hostthread->all_posix_signals.seen_count	= 0;
+    hostthread->all_posix_signals.done_count	= 0;
+    hostthread->next_posix_signal_id		= 0;
+    hostthread->next_posix_signal_count			= 0;
     //
-    pthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
+    hostthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
     //
-    pthread->heapcleaning_done_signal_handler_state		= LIB7_SIG_IGNORE;
-    pthread->thread_scheduler_timeslice_signal_handler_state	= LIB7_SIG_IGNORE;
+    hostthread->heapcleaning_done_signal_handler_state		= LIB7_SIG_IGNORE;
+    hostthread->thread_scheduler_timeslice_signal_handler_state	= LIB7_SIG_IGNORE;
     //
-    pthread->cpu_time_at_start_of_last_heapclean		= MALLOC_CHUNK(Time);
-    pthread->cumulative_cleaning_cpu_time			= MALLOC_CHUNK(Time);
+    hostthread->cpu_time_at_start_of_last_heapclean		= MALLOC_CHUNK(Time);
+    hostthread->cumulative_cleaning_cpu_time			= MALLOC_CHUNK(Time);
 
     for (int i = 0;  i < MAX_POSIX_SIGNALS;  i++) {
 	//
-	pthread->posix_signal_counts[i].seen_count = 0;
-	pthread->posix_signal_counts[i].done_count = 0;
+	hostthread->posix_signal_counts[i].seen_count = 0;
+	hostthread->posix_signal_counts[i].done_count = 0;
     }
 
     // Initialize the Mythryl state, including the roots:
     //
-    initialize_task( pthread->task );
+    initialize_task( hostthread->task );
     //
-    pthread->task->argument			= HEAP_VOID;
-    pthread->task->fate				= HEAP_VOID;
-    pthread->task->current_closure		= HEAP_VOID;
-    pthread->task->link_register		= HEAP_VOID;
-    pthread->task->program_counter		= HEAP_VOID;
-    pthread->task->exception_fate		= HEAP_VOID;
-    pthread->task->current_thread		= HEAP_VOID;
-    pthread->task->callee_saved_registers[0]	= HEAP_VOID;
-    pthread->task->callee_saved_registers[1]	= HEAP_VOID;
-    pthread->task->callee_saved_registers[2]	= HEAP_VOID;
-    pthread->task->heapvoid			= HEAP_VOID;			// Something for protected_c_arg to point to when not being used.
-    pthread->task->protected_c_arg		= &pthread->task->heapvoid;	// Support for  RELEASE_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
+    hostthread->task->argument			= HEAP_VOID;
+    hostthread->task->fate				= HEAP_VOID;
+    hostthread->task->current_closure		= HEAP_VOID;
+    hostthread->task->link_register		= HEAP_VOID;
+    hostthread->task->program_counter		= HEAP_VOID;
+    hostthread->task->exception_fate		= HEAP_VOID;
+    hostthread->task->current_thread		= HEAP_VOID;
+    hostthread->task->callee_saved_registers[0]	= HEAP_VOID;
+    hostthread->task->callee_saved_registers[1]	= HEAP_VOID;
+    hostthread->task->callee_saved_registers[2]	= HEAP_VOID;
+    hostthread->task->heapvoid			= HEAP_VOID;			// Something for protected_c_arg to point to when not being used.
+    hostthread->task->protected_c_arg		= &hostthread->task->heapvoid;	// Support for  RELEASE_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
 
-    pthread->ptid		= 0;						// Note that '0' works as an initializer whether pthread_t is an int or pointer on the host OS.
-    pthread->mode		= PTHREAD_IS_VOID;
-}										// fun set_up_pthread_state
+    hostthread->ptid		= 0;						// Note that '0' works as an initializer whether pthread_t is an int or pointer on the host OS.
+    hostthread->mode		= HOSTTHREAD_IS_VOID;
+}										// fun set_up_hostthread_state
 
 void   initialize_task   (Task* task)   {
     // ===============

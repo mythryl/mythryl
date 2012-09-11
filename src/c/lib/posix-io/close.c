@@ -44,15 +44,17 @@ Val   _lib7_P_IO_close   (Task* task,  Val arg)   {
 
     int  fd = TAGGED_INT_TO_C_INT(arg);
 
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+/**/ do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+											// Restored 2012-08-07 CrT
 
-        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_close", NULL );
+// printf("closing fd %d  -- close.c thread id %lx\n",fd, pth__get_hostthread_id); fflush( stdout );
+        RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_close", NULL );
 	    //
 	    status = close( fd );
 	    //
-        RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_close" );
+        RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_close" );
 
-/*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+/**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

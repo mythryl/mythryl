@@ -60,8 +60,8 @@ FILE* edits;
 FILE* edited;
 
 void usage(void) {
-
-    fprintf (stderr,"usage:  %s foo.bar\n");
+    //
+    fprintf (stderr,"usage:  %s foo.bar\n");	fflush(stderr);
     exit(1);
 }
 
@@ -75,12 +75,13 @@ FILE* file_open( char* file_name, char* mode ) {
             file_name,
             strerror(errno)
         );
+	fflush(stderr);
     }
     return result;
 }
 
 void init(int argc, char** argv) {
-
+    //
     char buf[ 1024 ];
 
     if (argc != 2)   usage();
@@ -105,11 +106,11 @@ char to_string[ 128 ];
 
 void require_char( int c0, int c1 ) {
     if (c1 == EOF) {
-        fprintf(stderr,"Unexpected EOF in edits file\n");
+        fprintf(stderr,"Unexpected EOF in edits file\n");  fflush(stderr);
         exit(1);
     }
     if (c0 != c1) {
-        fprintf (stderr,"Got %c when %c was expected while reading edits file\n", c0, c1 );
+        fprintf (stderr,"Got %c when %c was expected while reading edits file\n", c0, c1 );  fflush(stderr);
         exit(1);
     }
 }
@@ -169,7 +170,7 @@ int read_edit_spec(void) {
 int file_getc( FILE* fd ) {
     int result = fgetc( text );
     if (result == EOF) {
-	fprintf(stderr,"%s: Unexpected EOF on %s\n",program_name, file_name);
+	fprintf(stderr,"%s: Unexpected EOF on %s\n",program_name, file_name);  fflush(stderr);
 	exit(1);
     }
     return result;
@@ -207,6 +208,7 @@ int edit(char* filename) {
                         *to_match,
                         from_string   
                     );
+		    fflush(stderr);
                     exit(1);
                 }
                 ++offset_in_text;
@@ -236,7 +238,7 @@ int edit(char* filename) {
     fclose( text );
     fclose( edits );
 
-    fprintf(stderr, "%s: %d edits done.\n", program_name, edits_done); 
+    fprintf(stderr, "%s: %d edits done.\n", program_name, edits_done); 	fflush(stderr);
 }
 
 main( int argc, char** argv ) {

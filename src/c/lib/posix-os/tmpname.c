@@ -54,11 +54,11 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
     int c1 = ++call_number;			// Try to make our filename unique.
     
     if (!pid) {
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_tmpname", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_tmpname", NULL );
 	    //
 	    pid = getpid();				// Try to harder to make our filename unique.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_tmpname" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_tmpname" );
     }
 
     int c2 = ++call_number;			// Try to harder yet to make our filename unique. :-)

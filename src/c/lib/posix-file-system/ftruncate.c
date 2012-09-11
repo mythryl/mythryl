@@ -47,12 +47,13 @@ Val   _lib7_P_FileSys_ftruncate   (Task* task,  Val arg)   {
 
 /*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate", NULL );
+        RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_ftruncate", NULL );
 	    //
 	    status = ftruncate (fd, len);						// This call can return EINTR, so it is officially "slow".
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_ftruncate" );
 
+if (errno == EINTR) puts("Error: EINTR in ftrucate.c\n");
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);

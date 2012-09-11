@@ -39,26 +39,26 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     Val		sys_seconds;
     Val		gc_seconds;
 
-    Pthread*	pthread = task->pthread;
+    Hostthread*	hostthread = task->hostthread;
 
 								// On posix: get_cpu_time()	def in   src/c/main/posix-timers.c
 								// On win32: get_cpu_time()     def in   src/c/main/win32-timers.c
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Time_gettime", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_gettime", NULL );
 	//
 	get_cpu_time (&usr, &sys);
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Time_gettime" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_gettime" );
 
     usr_seconds =  make_one_word_int(task, usr.seconds            );
     sys_seconds =  make_one_word_int(task, sys.seconds            );
-    gc_seconds  =  make_one_word_int(task, pthread->cumulative_cleaning_cpu_time->seconds );
+    gc_seconds  =  make_one_word_int(task, hostthread->cumulative_cleaning_cpu_time->seconds );
 
     return  make_six_slot_record(task,
 		//
 		usr_seconds, TAGGED_INT_FROM_C_INT( usr.uSeconds ),
 		sys_seconds, TAGGED_INT_FROM_C_INT( sys.uSeconds ),
-		gc_seconds,  TAGGED_INT_FROM_C_INT( pthread->cumulative_cleaning_cpu_time->uSeconds )
+		gc_seconds,  TAGGED_INT_FROM_C_INT( hostthread->cumulative_cleaning_cpu_time->uSeconds )
 	    );
 }
 

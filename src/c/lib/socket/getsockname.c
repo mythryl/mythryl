@@ -45,11 +45,11 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
     char	address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getsockname", NULL );
 	//
 	int status = getsockname (socket, (struct sockaddr*) address_buf, &address_len);
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getsockname" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getsockname" );
 
     if (status == -1)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 

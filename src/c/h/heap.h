@@ -66,9 +66,9 @@ typedef   struct agegroup          Agegroup;						// Defined below.
 											// struct quire	def in    src/c/ram/get-quire-from-win32.c
 
 
-// A heap consists of one agegroup0 buffer per pthread
+// A heap consists of one agegroup0 buffer per hostthread
 // plus one or more older agegroups, which are shared
-// between all pthreads.
+// between all hostthreads.
 //
 struct heap {
     Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.

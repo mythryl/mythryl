@@ -51,7 +51,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/lib/gtk/gtk-driver.c: %s  exit(1)ing.\n", text_buf );
+    printf( "FATAL src/c/lib/gtk/gtk-driver.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
 }
 

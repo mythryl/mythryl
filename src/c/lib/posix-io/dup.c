@@ -44,12 +44,13 @@ Val   _lib7_P_IO_dup   (Task* task,  Val arg)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_dup", NULL );
 	    //
 	    fd1 = dup( fd0 );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_dup" );
 
+if (errno == EINTR) puts("Error: EINTR in dup.c\n");
 /*  } while (fd1 < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd1, NULL);

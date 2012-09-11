@@ -45,7 +45,7 @@ typedef struct tms time_struct_t;
 // calls to getrusage.  To avoid problems in the Lib7 code, which assumes that
 // time is monotonically increasing, we latch the time values.
 //
-// NOTE: this should probably be move to the Pthread package to avoid problems
+// NOTE: this should probably be move to the Hostthread package to avoid problems
 // on multicore machines.                   XXX BUGGO FIXME
 //
 static Time lastU;

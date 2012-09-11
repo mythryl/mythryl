@@ -131,13 +131,13 @@ Val _lib7_win32_FS_get_file_attributes(Task *task, Val arg)
 
   if (w != 0xffffffff) {
 #ifdef DEBUG_WIN32
-    printf("_lib7_win32_FS_get_file_attributes: returning file attributes for <%s> as THE %x\n",HEAP_STRING_AS_C_STRING(arg),w);
+    printf("_lib7_win32_FS_get_file_attributes: returning file attributes for <%s> as THE %x\n",HEAP_STRING_AS_C_STRING(arg),w); fflush(stdout);
 #endif
     ml_w =  make_one_word_unt(task, w );
     return OPTION_THE(task,ml_w);
   } else {
 #ifdef DEBUG_WIN32
-    printf("returning NULL as attributes for <%s>\n",HEAP_STRING_AS_C_STRING(arg));
+    printf("returning NULL as attributes for <%s>\n",HEAP_STRING_AS_C_STRING(arg)); fflush(stdout);
 #endif
     return OPTION_NULL;
   }

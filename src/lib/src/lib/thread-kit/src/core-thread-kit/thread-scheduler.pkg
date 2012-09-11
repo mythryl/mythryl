@@ -1,7 +1,20 @@
-## thread-scheduler.pkg
+## thread-scheduler.pkg								# Derives from cml/src/core-cml/scheduler.sml 
 #
 # This module implements the scheduling queues
 # and preemption mechanisms.
+#
+#
+# Nomenclature
+# ============
+#
+# It is critically important to track uninterruptible
+# scopes (== dynamic scopes where switching threads is
+# forbidden, implemented by nonzero value of uninterruptible_scope_mutex)
+# so we adopt the following convention for function name suffixes:
+#
+#    __usbeg	# This function begins uninterruptible scope -- i.e., increments *uninterruptible_scope_mutex.
+#    __usmid    # Fn must be called in uninterruptible scope -- i.e., when       *uninterruptible_scope_mutex is nonzero.
+#    __usend	# This function exits  uninterruptible scope -- i.e., decrements *uninterruptible_scope_mutex.
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -16,21 +29,23 @@
 
 
 stipulate
-    package cpu =  cpu_bound_task_pthreads;				# cpu_bound_task_pthreads	is from   src/lib/std/src/pthread/cpu-bound-task-pthreads.pkg
-    package fat =  fate;						# fate				is from   src/lib/std/src/nj/fate.pkg
-    package frq =  set_sigalrm_frequency;				# set_sigalrm_frequency		is from   src/lib/std/src/nj/set-sigalrm-frequency.pkg
-    package thd =  threadkit_debug;					# threadkit_debug		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
-    package io  =  io_bound_task_pthreads;				# io_bound_task_pthreads	is from   src/lib/std/src/pthread/io-bound-task-pthreads.pkg
-    package iow =  io_wait_pthread;					# io_wait_pthread		is from   src/lib/std/src/pthread/io-wait-pthread.pkg
-    package itt =  internal_threadkit_types;				# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
-    package pth =  pthread;						# pthread			is from   src/lib/std/src/pthread.pkg
-    package sig =  runtime_signals;					# runtime_signals		is from   src/lib/std/src/nj/runtime-signals.pkg
-    package tim =  time;						# time				is from   src/lib/std/time.pkg
-    package rwq =  rw_queue;						# rw_queue			is from   src/lib/src/rw-queue.pkg
-    package wxp =  winix::process;					# winix::process		is from   src/lib/std/src/posix/winix-process.pkg
+    package at  =  run_at;							# run_at			is from	  src/lib/std/src/nj/run-at.pkg
+    package cpu =  cpu_bound_task_hostthreads;					# cpu_bound_task_hostthreads	is from   src/lib/std/src/hostthread/cpu-bound-task-hostthreads.pkg
+    package fat =  fate;							# fate				is from   src/lib/std/src/nj/fate.pkg
+    package frq =  set_sigalrm_frequency;					# set_sigalrm_frequency		is from   src/lib/std/src/nj/set-sigalrm-frequency.pkg
+    package thd =  threadkit_debug;						# threadkit_debug		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
+    package io  =  io_bound_task_hostthreads;					# io_bound_task_hostthreads	is from   src/lib/std/src/hostthread/io-bound-task-hostthreads.pkg
+    package iow =  io_wait_hostthread;						# io_wait_hostthread		is from   src/lib/std/src/hostthread/io-wait-hostthread.pkg
+    package itt =  internal_threadkit_types;					# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+#   package mop =  mailop;							# mailop			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+    package pth =  hostthread;							# hostthread			is from   src/lib/std/src/hostthread.pkg
+    package sig =  runtime_signals;						# runtime_signals		is from   src/lib/std/src/nj/runtime-signals.pkg
+    package tim =  time;							# time				is from   src/lib/std/time.pkg
+    package rwq =  rw_queue;							# rw_queue			is from   src/lib/src/rw-queue.pkg
+    package wxp =  winix::process;						# winix::process		is from   src/lib/std/src/posix/winix-process.pkg
     #
-    Fate(X) =  fat::Fate(X);
-    Thread  =  itt::Thread_State;
+    Fate(X)     =  fat::Fate(X);
+    Appthread   =  itt::Appthread;
     #
     call_with_current_fate =  fat::call_with_current_fate;
     switch_to_fate         =  fat::switch_to_fate;
@@ -38,16 +53,16 @@ herein
 
 
     package   thread_scheduler	
-    : (weak)  Thread_Scheduler						# Thread_Scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.api
+    : (weak)  Thread_Scheduler							# Thread_Scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.api
     {
 	##################################################
 	# This section contains (partial) support for
-	# inter-pthread communication per
+	# inter-hostthread communication per
 	#
-	#     src/lib/std/src/pthread/template-pthread.pkg
+	#     src/lib/std/src/hostthread/template-hostthread.pkg
 	#
 	pid = REF 0;								# pid of current process while server is running, otherwise zero.
-
+	#
 	fun is_running ()
 	    =
 	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
@@ -55,7 +70,7 @@ herein
 	mutex   =  pth::make_mutex   (); 
 	condvar =  pth::make_condvar ();  
 
-	# One record for each pthread-level
+	# One record for each hostthread-level
 	# request supported by the server:
 	#
 	Do_Echo =  { what: String,	reply: String -> Void };
@@ -65,20 +80,21 @@ herein
 		|  DO_TIMESLICE
 		; 
 
-	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client pthreads.
-
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client hostthreads.
+	#
 	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
 	    =									# because Request is not an equality type. (The 'reply' fields are functions
 	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
 	                           _  => FALSE;
 	    esac;
 
-
-	fun do_timeslice ()							# Internal fn -- will execute in context of server pthread.
+	#
+	fun do_timeslice ()							# Internal fn -- will execute in context of server hostthread.
 	    =
-	    ();
-
-	fun timeslice ()
+	    ();		# THIS IDEA DOES NOT WORK. We can't wake up the thread scheduler via inter-hostthread queue, we have to go via the signal-handler mechanism...?
+			# Except if main hostthread is blocked on queue, we do indeed have to use this mechanism. HRM.
+	#
+	fun timeslice ()							# Exported.
 	    = 
 	    {   pth::acquire_mutex mutex;  
 		    # 
@@ -92,12 +108,12 @@ herein
 
 
 
-
-	fun do_thunk (thunk: Void -> Void)					# Internal fn -- will execute in context of server pthread.
+	#
+	fun do_thunk (thunk: Void -> Void)					# Internal fn -- will execute in context of server hostthread.
 	    =
 	    thunk ();
-
-	fun do  (thunk: Void -> Void)						# External fn -- will execute in context of client pthread.
+	#
+	fun do  (thunk: Void -> Void)						# Exported -- will execute in context of client hostthread.
 	    = 
 	    {   pth::acquire_mutex mutex;  
 		    # 
@@ -109,12 +125,12 @@ herein
 	    };           
 
 
-
-	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server pthread.
+	#
+	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server hostthread.
 	    =
 	    r.reply  r.what;
-
-	fun echo  (request: Do_Echo)						# External fn -- will execute in context of client pthread.
+	#
+	fun echo  (request: Do_Echo)						# Exported -- will execute in context of client hostthread.
 	    = 
 	    { 
 		pth::acquire_mutex mutex;  
@@ -126,40 +142,50 @@ herein
 		pth::release_mutex mutex;  
 	    };           
 
-
-	fun get_new_inter_pthread_requests  () 
+	#
+	fun get_any_new_inter_hostthread_requests  () 
 	    = 
 	    { 
 		pth::acquire_mutex mutex;  
 		    # 
-#		    for (request_queue_is_empty()) {				# DO NOT DELETE THIS CLAUSE!
-#			#							# Eventually we should execute it when both run queues are empty
-#			pth::wait_on_condvar (condvar, mutex);			# (while awaiting new work from worker pthreads).
-#		    };
-
 		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
 		    # 
 		    request_queue := []; 
 		    # 
 		pth::release_mutex  mutex;  
 		# 
-		new_requests; 
+		new_requests; 							# It is ok if new_requests == [].
 	    };           
 
-	fun service_inter_pthread_requests  (request ! rest) 
+
+	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
+	    =									# a graceful way to block until we have something to do.
+	    {
+		pth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {				# 
+			#							# 
+			pth::wait_on_condvar (condvar, mutex);			# 
+		    };
+		    # 
+		pth::release_mutex  mutex;  
+	    };
+
+	#
+	fun service_inter_hostthread_requests  (request ! rest) 
 		=> 
-		{   service_inter_pthread_request  request; 
+		{   service_inter_hostthread_request  request; 
 		    #
-		    service_inter_pthread_requests rest; 
+		    service_inter_hostthread_requests rest; 
 		} 
 		where 
-		    fun service_inter_pthread_request (DO_ECHO  r)  =>   do_echo  r;
-			service_inter_pthread_request (DO_THUNK t)  =>   do_thunk t;
-			service_inter_pthread_request  DO_TIMESLICE =>   do_timeslice ();
+		    fun service_inter_hostthread_request (DO_ECHO  r)  =>   do_echo  r;
+			service_inter_hostthread_request (DO_THUNK t)  =>   do_thunk t;
+			service_inter_hostthread_request  DO_TIMESLICE =>   do_timeslice ();
 		    end;
 		end;
 
-	    service_inter_pthread_requests  [] 
+	    service_inter_hostthread_requests  [] 
 		=> 
 		(); 
 	end; 
@@ -167,29 +193,32 @@ herein
 	# REMAINING WORK:	
 	# I put 
 	#
-	#    service_inter_pthread_requests (get_new_inter_pthread_requests()); 
+	#    service_inter_hostthread_requests (get_any_new_inter_hostthread_requests()); 
 	#
 	# in alarm_handler() because that is the only place in this file
 	# which can guarantee a response in a bounded amount of time,
 	# but we probably also want to opportunistically do the same in
 	# some of our other thread-switch functions.
 	#
-	# ALSO, when both run queues are empty, we should eventually
-	# block by executing the wait_on_condvar logic in get_new_inter_pthread_requests().
-	# (Maybe we need separate blocking and nonblocking versions of it?)
+	# When both run queues are empty, we should block by calling
+	#     block_until_inter_hostthread_request_queue_is_nonempty()
+	# At present this is done in
+	#     no_runnable_threads_left__fate
+	# in  src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	# -- there may be other places we should be doing this... ?
+	#                              -- 2012-07-21 CrT
 	#
-	#
-	# End of pthread-support section
+	# End of hostthread-support section
 	##################################################
 
 
 
-	trace_backpatchfn =   REF (fn _ = ()) :   Ref( (Void -> String) -> Void );
+	trace_backpatchfn =   REF (fn _ = ()) :   Ref( (Void -> String) -> Void );	# Exported.
 	    #
 	    # Conditionally write strings to tracing.log or whatever.
 	    # Normally we'd write here
 	    #
-	    #     trace =  tr::log_if  tr::make_logtree_leaf { parent => tr::all_logging, name => "thread_scheduler_logging" };
+	    #     trace =  tr::log_if  tr::make_logtree_leaf  0  { parent => tr::all_logging, name => "thread_scheduler_logging" };
 	    #
 	    # but that produces a package cycle, so instead we set up a
 	    # refcell with a dummy initial value that we backpatch in
@@ -208,122 +237,108 @@ herein
 	end;
 
 
-	get_current_thread =  unsafe::get_current_thread_register:  Void -> Thread;	# CALLING THIS (AND USING RETURN VALUE) WHEN THREAD SCHEDULER IS NOT RUNNING CAN SEGV!! XXX BUGGO FIXME
-	set_current_thread =  unsafe::set_current_thread_register:  Thread -> Void;
+	get_current_thread =  unsafe::get_current_thread_register:  Void -> Appthread;	# Exported.  CALLING THIS (AND USING RETURN VALUE) WHEN THREAD SCHEDULER IS NOT RUNNING CAN SEGV!! XXX BUGGO FIXME
+	set_current_thread =  unsafe::set_current_thread_register:  Appthread -> Void;	# Exported.
 	    #
 	    # The current thread is represented using a globally allocated register.
 	    # This is a real register on RISC architectures but a memory location
 	    # on the register-starved intel32 architecture -- see current_thread_ptr in src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 
+	#
+	fun bogus _
+	    =
+	    {
+printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
+		raise exception  FAIL  "should never see this ";
+	    };
 
-	fun bogus _ =   raise exception  FAIL  "should never see this ";
-
-	bogus_hook          =   fat::make_isolated_fate  bogus :   Fate( Void );
-	bogus_shutdown_hook =   fat::make_isolated_fate  bogus :   Fate( (Bool, winix::process::Status) );
-
-	no_runnable_threads_left__hook       =  REF bogus_hook;				# Later this will get set to   no_runnable_threads_left__fate  from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
-											# by start_up_thread_scheduler'' in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
-
-	switch_to_next_runnable_thread__hook =  REF bogus_hook;				# reset_thread_scheduler sets this to default_scheduler_hook (== dispatch_next_thread).
-											# This is set to wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_children__fate (see below)
-											# by start_up_thread_scheduler'' in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
-											# Later this will get set to   wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_children__fate
-											#   from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	bogus_void_fate     =   fat::make_isolated_fate  bogus :   Fate( Void );
+	bogus_shutdown_fate =   fat::make_isolated_fate  bogus :   Fate( (Bool, wxp::Status) );
 
 
-	shutdown_hook  =  REF bogus_shutdown_hook;
+
+
+	######################################################################################################################################################################################
+	# The scheduler defines three fate "hooks":
+	#
+	thread_scheduler_shutdown_hook =  REF bogus_shutdown_fate;						# Exported.
+	no_runnable_threads_left__hook =  REF bogus_void_fate;							# Exported.
+	run_next_runnable_thread__usend__hook =  REF bogus_void_fate;						# Exported.
 	    #
-	    # The scheduler defines three fate "hooks":
 	    #
-	    #   switch_to_next_runnable_thread__hook
-	    #			   This points to a fate that gets dispatched
-	    #			   when a thread attempts to exit a critical
-	    #			   section and there is a signal pending.
-	    #                          It is invoked after re-enabling thread scheduling,
-	    #			   which is to say, after leaving the critical section.
+	    # thread_scheduler_shutdown_hook
+	    #		points to a fate that gets invoked when
+	    #		the system is deadlocked, by
+	    #               no_runnable_threads_left__fate	set up by   wrap_for_export	from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	    #           or when one of
+	    #               exit  or  exit_uncleanly		from   src/lib/std/src/posix/threadkit-winix-process.pkg
+	    #		    shut_down_thread_scheduler		from   src/lib/src/lib/thread-kit/src/posix/thread-scheduler-control.pkg
+	    #		is called (typically at the end of a threadkit app).
+	    #
+	    #		It takes two arguments:
+	    #	 	  o A boolean flag that says whether to do clean-up.
+	    #		  o The integer exit status ala unix.
+	    #
+	    #		This hook gets set mainly in	start_up_thread_scheduler''	in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    #		but also in			wrap_for_export			in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	    #
+	    # run_next_runnable_thread__usend__hook
+	    #		points to a fate that gets dispatched
+	    #		when a thread attempts to exit a critical
+	    #		section and there is a signal pending.
+	    #
+	    #           It is invoked after re-enabling thread scheduling,
+	    #		which is to say, after leaving the critical section.
+	    #
+	    #		reset_thread_scheduler sets this to default_scheduler_fate (== dispatch_next_thread__noreturn).
+	    #	        This is set to wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate (see below)
+	    #		by start_up_thread_scheduler'' in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    #	        and wrap_for_export            in   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
+	    #		Later this will get set to
+	    #		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate	from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	    #		which mostly wraps
+	    #		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses		from   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
+	    #
 	    #
 	    #   no_runnable_threads_left__hook
-	    #   		   This points to a fate that gets invoked when
-	    #			   there is nothing else to do.
+	    #		points to a fate that gets invoked when
+	    #		there is nothing else to do.
 	    #
-	    #   shutdown_hook	-- This points to a fate that gets invoked when
-	    #			   the system is deadlocked, or when
-	    #
-	    #                          run_threadkit::exit_threadkit
-	    #
-	    #			   is called.  It takes two arguments: the first is a
-	    #			   boolean flag that says whether to do clean-up and
-	    #			   the second is the integer exit status ala unix.
+	    #		Later this will get set to   no_runnable_threads_left__fate	from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	    #		by start_up_thread_scheduler''					in     src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
 
 
-	# The dummy thread Id.
+
+
+
 	#
-	# This is used when an Thread_State value
-	# is needed just to get the types right:
-	#
-	dummy_thread
-	    =
-	    itt::THREAD_STATE
-	      {
-		name      =>  "thread_scheduler dummy",
-		thread_id =>  -1,
-		didmail  =>  REF FALSE,
-		#
-		exception_handler => REF (fn _ = ()),
-		#
-		properties        => REF [],
-		dead              => itt::CONDITION_VARIABLE (REF (itt::CONDVAR_IS_NOT_SET []))
-	      };
-
-	# The error thread.
-	# This thread is used to trap attempts
-	# to run threadkit without proper initialization 
-	# (i.e., via thread_scheduler_control::start_up_threadkit).				# thread_scheduler_control	is from   src/lib/src/lib/thread-kit/src/posix/thread-scheduler-control.pkg
-	# This thread is enqueued by reset_thread_scheduler.
-	#
-	error_thread
-	    =
-	    itt::THREAD_STATE
-	      {
-		name       =>  "thread_scheduler error imp",
-		thread_id  =>  -2,
-
-		didmail   =>  REF FALSE,
-		properties =>  REF [],
-		dead       =>  itt::CONDITION_VARIABLE (REF (itt::CONDVAR_IS_NOT_SET [])),
-
-		exception_handler => REF (fn _ = ())
-	      };
-
-	error_fate
-	    =
-	    fat::make_isolated_fate 
-		(
-		    fn _ =  {   thd::say_debug "**** Must do run_threadkit() before using threadkit concurrency support. ****\n";
-				#
-				raise exception  FAIL "threadkit not initialized";
-			    }
-		)
-		:  Fate( Void );
-
-
-	fun set_didmail_flag   (itt::THREAD_STATE r) =   r.didmail := TRUE;
-	fun clear_didmail_flag (itt::THREAD_STATE r) =   r.didmail := FALSE;
-	fun thread_did_mail    (itt::THREAD_STATE r) =  *r.didmail;
+	fun set_didmail_flag   (itt::APPTHREAD thread) =   thread.didmail := TRUE;
+	fun clear_didmail_flag (itt::APPTHREAD thread) =   thread.didmail := FALSE;
+	fun thread_did_mail    (itt::APPTHREAD thread) =  *thread.didmail;
 	    #
 	    # Per-thread mail-activity tracking.
 	    #
 	    # We use this to attempt to distinguish
-	    # I/O bound interactive foreground threads from
+	    # mail-bound interactive foreground threads from
 	    # CPU-bound background threads, with the
 	    # idea of increasing system responsiveness
 	    # by giving scheduling priority to foreground
-	    # threads:
+	    # threads.
 
 
-	background_run_queue =   rwq::make_rw_queue () :   rwq::Rw_Queue( (itt::Thread_State, Fate(Void)) );
-	foreground_run_queue =   rwq::make_rw_queue () :   rwq::Rw_Queue( (itt::Thread_State, Fate(Void)) );
+													# Nomenclature: What I'm calling "uninterruptible mode" is usually called "critical section" or "atomic region"
+													# in the literature.  I dislike "critical" because it is vague. ("critical" in what sense? Who knows?)
+													# "atomic" is literally correct ("a-tomic" == "not cuttable" -- indivisible) but the modern reader is not
+													# likely to take it in that sense at first blush.  And neither "section" nor "region" nore "scope" as apropos as "mode".
+	#
+	uninterruptible_scope_mutex				  =  REF 0;				# Iff this counter > 0 then thread scheduler is in "uninterruptible mode" (aka "critical section", "atomic region" ...).
+	need_to_switch_threads_when_exiting_uninterruptible_scope =  REF FALSE;
+	
+
+
+	background_run_queue =   rwq::make_rw_queue () :   rwq::Rw_Queue( (itt::Appthread, Fate(Void)) );
+	foreground_run_queue =   rwq::make_rw_queue () :   rwq::Rw_Queue( (itt::Appthread, Fate(Void)) );			# Exported.
 	    #
 	    # The thread ready queues:
 	    #
@@ -337,44 +352,276 @@ herein
 	    #        This is for CPU-intensive jobs not needing
 	    #        quick response.
 	    #
-	    # In practice we consider a job to be 'interactive' if
+	    # In practice we consider a job to be 'mailbound' if
 	    # we see it do a mailop in a given timeslice, otherwise
 	    # we consider it to be CPU bound.  We guarantee the
-	    # 'interactive' jobs half the available cycles.
+	    # 'mailbound' jobs half the available cycles.
+
 
 	
+	#########################################################################
+	# Debug support
+	# =====================
+
+	fun thread_scheduler_statestring ()
+	    =
+	    # Construct and return a string summarizing the state
+	    # of the thread scheduler, looking something like:
+	    #
+	    #     "{ mutex=1 3:1 fg_q=[5:1|6:1] bg_q[8:2 9:2|] schwantzstucker }"
+	    #
+	    # which decodes as:
+	    #
+	    #     mutex=1		uninterruptible_scope_mutex is 1 -- we're in a "critical section".
+	    #     3:1		        Currently running appthread has thread_id=3 and belongs to task with task_id=1
+	    #     fg_q=[5:1|6:1]        The foreground run queue has thread #5 (of task 1) in front half and thread #6 in back half.
+	    #     bg_q=[8:2 9:2|]	The background run queue has threads #8 and #9 in the front half and nothing in back half.
+	    #     schwantzstucker       Name of currently running appthread.
+	    #
+	    # This string is expected to be used primarily in the construction of
+	    # messages to be logged via log::note() or logger::log_if() or such.
+	    {
+		sprintf "{ mutex=%d %-5s fg_q=[%s] bg_q=[%s] }"						# We don't include name of current-thread here because log::note already records it.
+			*uninterruptible_scope_mutex
+			(sprint_self())
+			(sprint_runqueue  foreground_run_queue)
+			(sprint_runqueue  background_run_queue);
+	    }
+	    where
+		fun sprint_thread  thread
+		    =
+		    {   thread -> itt::APPTHREAD { thread_id, task, ... };
+			task   -> itt::APPTASK   { task_name, task_id, ... };
+			#
+			sprintf "%d:%d"  thread_id  task_id;
+		    };
+
+		fun sprint_self ()
+		    =
+		    sprint_thread (get_current_thread());
+
+		fun sprint_runqueue q
+		    = 
+		    {	(string::join  " "  (map  sprint_q_entry (rwq::frontq q)))
+			+
+			"|"
+			+
+			(string::join  " "  (map  sprint_q_entry (rwq::backq  q)));
+		    }
+		    where
+		        fun sprint_q_entry  q_entry
+			    =
+			    {   q_entry -> (thread, fate);
+				sprint_thread  thread;
+			    };	
+		    end;
+	    end;
+	#
+	#########################################################################
+
+	#########################################################################
+	# Low-garbage debug support
+	# =========================
+	# The point of the following routines is/was to print debugging info to stdout
+	# while generating a minimum of garbage, for use in parts of the thread scheduler
+	# where an untimely garbage collection might trigger an untimely thread switch
+	# resulting in unanticipated new problems -- it is depressing when the debug
+	# logic produces even more buggy behavior.
+
+	fun print_int width i					# Re-inventing int::to_string here to reduce amount of garbage generated.
+	    =
+	    {
+		if (i < 10)
+		    #	
+		    for (j = width; j > 1; --j) { file::print " "; };
+		    #
+		    if   (i == 0) file::print "0";
+		    elif (i == 1) file::print "1";
+		    elif (i == 2) file::print "2";
+		    elif (i == 3) file::print "3";
+		    elif (i == 4) file::print "4";
+		    elif (i == 5) file::print "5";
+		    elif (i == 6) file::print "6";
+		    elif (i == 7) file::print "7";
+		    elif (i == 8) file::print "8";
+		    else          file::print "9";
+		    fi;
+		else
+		    print_int (width - 1) (i / 10);
+		    print_int 0           (i % 10);
+		fi;
+	    };
+
+	fun print_thread_scheduler_state ()
+	    =
+	    {   file::print "{ mutex="; print_int 1 *uninterruptible_scope_mutex;
+		file::print " running=";  print_self ();
+		file::print " fg_q=["; print_runqueue  foreground_run_queue; file::print "]";
+		file::print " bg_q=["; print_runqueue  background_run_queue; file::print "]";
+		file::print " }";
+	    }  
+	where
+	    fun print_thread thread
+		=
+		{
+		    thread -> itt::APPTHREAD { name, thread_id, task, ... };
+		    task   -> itt::APPTASK   { task_name, task_id, ... };
+		    print_int 2 thread_id; file::print ":";	print_int 1 task_id;
+		    file::print " ";
+		};
+
+	    fun print_thread' thread
+		=
+		{
+		    thread -> itt::APPTHREAD { name, thread_id, task, ... };
+		    task   -> itt::APPTASK   { task_name, task_id, ... };
+		    print_int 2 thread_id; file::print ":";	print_int 1 task_id;
+		    file::print "(";
+		    file::print name;
+		    file::print ") ";
+		    for (i = 60 - string::length name; i > 0; --i) { file::print " "; };
+		};
+
+	    fun print_self ()
+		=
+		print_thread' (get_current_thread());
+
+	    fun print_runqueue q
+		= 
+		{   fun print_entry  q_entry
+			=
+			{   q_entry -> (thread, fate);
+			    print_thread  thread;
+			};	
+
+		    frontq = rwq::frontq q;
+		    backq  = rwq::backq  q;
+		    #
+		    apply'  frontq  print_entry;
+		    file::print "|";
+		    apply'  backq   print_entry;
+		};
+	end;
+
+	#
+	#########################################################################
+
+
+
+	# Set a condition variable.
+	# Caller guarantees that this function is always
+	# executed in an uninterruptible scope.
+	#
+	fun set_condvar__usmid (itt::CONDITION_VARIABLE state)									# Only external call is in   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
+	    =
+	    case *state
+		#
+		itt::CONDVAR_IS_NOT_SET  waiting_threads									# waiting_threads is the list of threads sitting
+		    =>														# blocked waiting for this condvar to be set.
+		    {   foreground_run_queue ->  rwq::RW_QUEUE { back, ... };
+			#
+			state :=    itt::CONDVAR_IS_SET  1;									# Set the condition variable.  NB: The '1' is a priority, not its (non-existent) value.
+			#
+			back :=     run  waiting_threads									# Add to foreground run queue all threads that were waiting for condvar to be set.
+				    where
+					fun run [] =>   *back;
+					    #
+					    run ( { do1mailoprun_status=>REF itt::DO1MAILOPRUN_IS_COMPLETE, ... } ! rest)
+						=>
+						run rest;									# Drop completed do1mailoprun.
+
+					    run ( { do1mailoprun_status as REF (itt::DO1MAILOPRUN_IS_BLOCKED thread), finish_do1mailoprun, fate } ! rest)
+						=>
+						{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
+						    #
+						    finish_do1mailoprun ();							# Do stuff like   do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;   and sending nacks.
+
+						    (thread, fate)  !  (run rest);
+						};
+					end;
+				    end;
+		    };
+
+		 _ => raise exception FAIL  "condvar already set";
+	    esac;
+
+
 	stipulate
 	    foreground_run_queue
 		->
 		rwq::RW_QUEUE  q;
+
+	    fun crash_if_thread_is_already_in_run_queues (itt::APPTHREAD { thread_id => id, name, ... }, _)
+		=
+		{   crash_if_thread_is_already_in  foreground_run_queue;
+		    crash_if_thread_is_already_in  background_run_queue;
+		}
+		where
+		    fun crash_if_dup (itt::APPTHREAD { thread_id, ... }, _)
+			=
+			if (thread_id == id)
+			    #
+			    log::fatal												# DOES NOT RETURN!
+			       .{   sprintf "%s\tAttempted to run thread (%d=='%s') already in run queue!"
+					    (thread_scheduler_statestring())
+					    id
+					    name;
+				};	
+			fi;
+
+		    fun crash_if_thread_is_already_in  (rwq::RW_QUEUE { back, front })
+			=
+			{   apply crash_if_dup  *back;
+			    apply crash_if_dup  *front;
+			};
+		end;
 	herein
 	    #
 	    fun push_thread_into_foreground_run_queue  p
 		=
-		q.back :=  p ! *q.back;									# Enqueue a ready thread.
+		{
+crash_if_thread_is_already_in_run_queues p;
+		    q.back :=  p ! *q.back;								# Enqueue a ready thread.
+		};
 
 	    #
-	    fun set_didmail_flag_and_push_thread_into_foreground_run_queue (p as (id, _))
+	    fun set_didmail_flag_and_push_thread_into_foreground_run_queue (p as (appthread, _))	# Exported (as push_into_run_queue).
 		=
-		{   set_didmail_flag  id;
+		{   set_didmail_flag  appthread;
 		    #
-		    q.back :=  p ! *q.back;
+crash_if_thread_is_already_in_run_queues p;
+		    q.back :=  p ! *q.back;								# Should call this only with thread-switching disabled...?
 		};
 	end;
 
-	push_into_run_queue =  set_didmail_flag_and_push_thread_into_foreground_run_queue;
+	push_into_run_queue =  set_didmail_flag_and_push_thread_into_foreground_run_queue;		# Exported.
 
 	#
-	fun run_thread (thread, fate)									# Enqueue the current thread, and make the given thread ID be the current one.
-	    =
-	    {   set_didmail_flag_and_push_thread_into_foreground_run_queue (get_current_thread(), fate);	# Set mail flag (== high priority) and add to run queue.
+	fun enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread, old_fate }		# Exported. Enqueue (old thread, old_fate), and make new_thread the current thread.	Reppy's enqueueAndSwitchCurThread
+	    =												# New fate is whatever caller does upon our return.
+	    {   set_didmail_flag_and_push_thread_into_foreground_run_queue
+		    #
+		    (get_current_thread(), old_fate);							# Set mail flag (== high priority) and add to run queue.
 		#
-		set_current_thread  thread;								# Make it the currently executing thread.
+		set_current_thread  new_thread;								# Make it the currently executing thread.
 	    };
 
 
+
 	#
-	fun dequeue_io_bound_thread ()									# Dequeue a thread from the queue for 'I/O bound' threads:
+	fun promote_some_background_thread_to_foreground ()						# Promote a thread from the 'cpu-bound' queue to the 'io-bound'  queue.		Derived from Reppy's promote().
+	    =
+	    case (rwq::pull_item_from_front_of_queue  background_run_queue)
+		#
+		THE x =>  push_thread_into_foreground_run_queue x;
+		NULL  =>  ();
+	    esac;
+
+
+
+
+	#
+	fun dequeue_thread_preferably_an_io_bound_one ()						# Try to de-queue a thread from the queue for 'I/O bound' threads:			Reppy's dequeue1().
 	    =
 	    case foreground_run_queue
 		#
@@ -399,19 +646,48 @@ herein
 		rwq::RW_QUEUE { front as (REF (first ! rest)), ... }
 		    =>
 		    {   front :=  rest;
-			first;
-		    };
+			#
+			case first
+			    #
+			    ( itt::APPTHREAD  { state         as REF itt::state::ALIVE,
+                                                task          => itt::APPTASK { task_state, alive_threads_count, ... },
+                                                done_condvar,
+						...
+					      },
+                              _														# Thread fate.
+                            )
+				=>  case *task_state
+					#
+					itt::state::ALIVE =>   first;									# ALIVE thread in ALIVE task -- go ahead and run it.
+
+					deadstate  =>   {   state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
+							    alive_threads_count := *alive_threads_count - 1;				# One less ALIVE thread in this task.
+							    set_condvar__usmid  done_condvar;						# Tell the world the thread is now non-ALIVE.
+							    dequeue_thread_preferably_an_io_bound_one ();				# Thread is not ALIVE, so drop it on the floor and try again.
+							};
+				    esac;
+
+			    _	=>			{
+# file::print "dequeue_thread_preferably_an_io_bound_one dropping dead thread                         ";  print_thread_scheduler_state (); file::print "\n";
+							    dequeue_thread_preferably_an_io_bound_one ();				# Thread is not ALIVE, so drop it on the floor and try again.
+							};
+			esac;														# 
+		    };															# 
 	    esac
 
 	#
 	also
-	fun dequeue_cpu_bound_thread ()									# Remove a thread from the background queue, which holds 'cpu-bound' threads.
-	    =												# We assume the foreground (mail-bound) thread queue is empty:
+	fun dequeue_cpu_bound_thread ()													# Remove a thread from the background queue, which holds 'cpu-bound' threads.	Reppy's dequeue2().
+	    =																# We will be called only if the io-bound thread queue is empty:
 	    case background_run_queue
 		#
 		rwq::RW_QUEUE { front => REF [], back => REF [] }
 		    =>
-		    (dummy_thread, *no_runnable_threads_left__hook);
+		    {
+# printf "dequeue_cpu_bound_thread():  NOTHING TO RUN, returning *no_runnable_threads_left__hook   -- thread-scheduler.pkg\n";
+log::note .{ sprintf "%s\tdequeue_cpu_bound_thread returning (itt::thread_scheduler_temporary_thread, *no_runnable_threads_left__hook)" (thread_scheduler_statestring()); };
+			(itt::thread_scheduler_temporary_thread, *no_runnable_threads_left__hook);
+		    };	
 
 		rwq::RW_QUEUE { front as REF [], back as REF l }
 		    =>
@@ -423,40 +699,35 @@ herein
 		rwq::RW_QUEUE { front as REF (first ! rest), ... }
 		    =>
 		    {   front :=  rest;
-			first;
+			#
+			case first
+			    #
+			    ( itt::APPTHREAD  { state         as  REF itt::state::ALIVE,
+                                                task          =>  itt::APPTASK { task_state, alive_threads_count, ... },
+                                                done_condvar,
+						...
+					      },
+                              _														# Thread fate.
+                            )
+				=>  case *task_state
+					#
+					itt::state::ALIVE =>   first;									# ALIVE thread in ALIVE task -- go ahead and run it.
+
+					deadstate  =>   {   state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
+							    alive_threads_count :=  *alive_threads_count - 1;				# One less ALIVE thread in this task.
+							    set_condvar__usmid  done_condvar;						# Tell the world the thread is now non-ALIVE.
+							    dequeue_cpu_bound_thread ();						# Thread is not ALIVE, so drop it on the floor and try again.
+							};
+				    esac;
+
+
+			    _ =>  			{
+# file::print "dequeue_cpu_bound_thread dropping dead thread                                          ";  print_thread_scheduler_state (); file::print "\n";
+							    dequeue_cpu_bound_thread ();						# Thread is not ALIVE, so drop it on the floor and try again.
+							};
+			esac;
 		    };
 	    esac;
-
-
-	#
-	fun promote_some_background_thread_to_foreground ()						# Promote a thread from the 'cpu-bound' queue to the 'io-bound'  queue.
-	    =
-	    case (rwq::pull_item_from_front_of_queue  background_run_queue)
-		#
-		THE x =>  push_thread_into_foreground_run_queue x;
-		NULL  =>  ();
-	    esac;
-
-
-													# Nomenclature: What I'm calling "indivisible scope" is usually called "critical section" or "atomic region"
-													# in the literature.  I dislike "critical" because it is vague. ("critical" in what sense? Who knows?)
-													# "atomic" is literally correct ("a-tomic" == "not cuttable" -- indivisible) but the modern reader is not
-													# likely to take it in that sense at first blush.  And neither "section" nor "region" are as apropos as "scope".
-													# (If we were going to use the term a lot I might favor "unit scope", but I do not expect we will.)
-	Thread_Scheduler_State
-	    #
-	    = NORMAL_STATE										# Normal state.
-	    | IN_UNINTERRUPTABLE_SCOPE									# We are in a critical section -- switching threads is Not Ok.
-	    | IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH					# We had a switch-threads request while in a critical section -- need to switch as soon as we exit the critical section.
-	    ;
-	#
-	thread_scheduler_state = REF NORMAL_STATE;							# Global flag for implementing critical sections,
-													# which is to say, enabling and disabling thread switching.
-	#
-	fun dispatch_via_scheduler_hook ()								# NB: We do not need to clear thread_scheduler_state here because
-	    =												# the hook will immediately do a disable_thread_switching.
-	    switch_to_fate  *switch_to_next_runnable_thread__hook ();					# 
-
 
 #	fun enqueueSchedulerHook () =  let
 #	      myfate
@@ -470,128 +741,216 @@ herein
 #		front := (dummyTid, myfate) ! *front
 #	      end
 
-	#
-	fun disable_thread_switching ()									# Enter a critical section.
+	fun get_uninterruptible_scope_nesting_depth ()							# A unit-test support hack of no general interest.
 	    =
-	    thread_scheduler_state :=  IN_UNINTERRUPTABLE_SCOPE;						# Until further notice, switching threads is Not Ok.
-
+	    *uninterruptible_scope_mutex;
 
 	#
-	fun reenable_thread_switching ()								# Exit a critical section.
+	fun enter_uninterruptible_scope ()								# Exported.  Enter a critical section.		Derived from Reppy's atomicBegin.
 	    =
-	    case *thread_scheduler_state
+	    uninterruptible_scope_mutex									# Until further notice, switching threads is Not Ok.
+		:=											# Reppy used a boolean here, but Dijkstra-style P/V counters
+		*uninterruptible_scope_mutex + 1;							# nest better -- and in fact would have prevented a bug I found in his code.     -- CrT 2012-08-16
+
+	#
+	fun run_next_runnable_thread__usend ()				# XXX OLD COMMENNT: We do not need to clear uninterruptible mode here because			Derived from Reppy's dispatchSchedulerHook.
+	    =												# the hook will immediately do a enter_uninterruptible_scope.
+{
+# file::print "run_next_runnable_thread__usend ...  (calling switch_to_fate *run_next_runnable...)    "; print_thread_scheduler_state(); file::print "\n";
+
+	    switch_to_fate  *run_next_runnable_thread__usend__hook ();						# 
+};
+
+
+
+	#
+	fun exit_uninterruptible_scope ()								# Exported.  Exit a critical section.		Derived from Reppy's atomicEnd.
+	    =
+	    if (not *need_to_switch_threads_when_exiting_uninterruptible_scope
+            or      *uninterruptible_scope_mutex > 1)
 		#
-		IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH
-		    =>
-		    call_with_current_fate
-			(
-			 fn fate =  {   push_thread_into_foreground_run_queue (get_current_thread(), fate);
-					#
-					dispatch_via_scheduler_hook ();
-				    }
-			);
+		uninterruptible_scope_mutex :=  *uninterruptible_scope_mutex - 1;
+	    else
+		need_to_switch_threads_when_exiting_uninterruptible_scope := FALSE;
 
-		_ =>   thread_scheduler_state :=  NORMAL_STATE;						# "NOTE: There is a race condition between testing  *thread_scheduler_state
-													#  above setting of it to NORMAL_STATE here but this is not a problem in
-													#  practice because there are no garbage collector tests between these
-													#  and thus no preemption, due to the runtime system's implementation
-													#  of preemption."  -- John H Reppy
-	    esac;
+		call_with_current_fate
+		    (
+		     fn fate =  {   push_thread_into_foreground_run_queue (get_current_thread(), fate);
+				    #
+				    run_next_runnable_thread__usend ();
+				}
+		    );
+	    fi;
+
 
 	#
-	fun reenable_thread_switching_and_dispatch_next_thread ()
+	fun dispatch_next_thread__usend__noreturn ()								# Exported.  NEVER RETURNS TO CALLER.		# Derived from Reppy's atomicDispatch.
 	    =
-	    case *thread_scheduler_state
+	    # This is the standard exit-to-thread-scheduler call used by packages like
+	    # maildrop or mailqueue when they are in an uninterruptible scope and must	
+	    # block the current thread due (e.g.) to being empty:  They put the executing
+	    # thread in a wait queue and then call us to exit the uninterruptible scope and
+	    # then find a new thread to run.
+	    {
+log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__noreturn/AAA"; };
+# file::print "dispatch_next_thread__usend__noreturn/AAA:   "; print_thread_scheduler_state(); file::print "\n";
+
+		if (*uninterruptible_scope_mutex != 1)
+		    bar = "===============================================================================================================================================\n";
+
+		    print "\n";
+		    print bar;
+		    print bar;
+		    print bar;
+
+		    printf "dispatch_next_thread__usend__noreturn: THREADKIT INTERNAL BUG: *uninterruptible_scope_mutex has bogus value d=%d (should be 1) so shutting down.\n"
+                           *uninterruptible_scope_mutex;
+
+		    print bar;
+		    print bar;
+		    print bar;
+
+		    wxp::exit_uncleanly  wxp::failure;							# A clean exit would try to run more timeslicing-based exit code, which isn't a good idea with timeslicing bollixed this badly.
+		fi;
+
+		if (/* *uninterruptible_scope_mutex == 1 and */						# Above check makes this redundant.
+		    *need_to_switch_threads_when_exiting_uninterruptible_scope)
+		    #
+		    need_to_switch_threads_when_exiting_uninterruptible_scope := FALSE;
+
+# file::print "dispatch_next_thread__usend__noreturn/BBB:   "; print_thread_scheduler_state(); file::print "\n";
+		    run_next_runnable_thread__usend ();
+		fi;
+# printf "dispatch_next_thread__usend__noreturn/CCC: mode d=%d\n" *uninterruptible_scope_mutex;
+
+
+										# The main idea of the next two lines is that when
+										#
+										#     no_runnable_threads_left__fate
+										# in
+										#     src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+										#
+										# does   ts::block_until_inter_hostthread_request_queue_is_nonempty ();
+										#	 ts::dispatch_next_thread__usend__noreturn  ();
+										#
+										# that here we want to process any inter-hostthread requests before
+										# running dequeue_thread_preferably_an_io_bound_one, since the inter-hostthread requests
+										# may queue up threads for us to process in an otherwise thread-starved
+										# situation.  I hope setting thread_scheduler_state to IN_UNINTERRUPTIBLE_SCOPE
+										# will make this work:
+										#				-- 2012-07-21 CrT
+										# 
+								#		thread_scheduler_state :=  IN_UNINTERRUPTIBLE_SCOPE;			
+								#		service_inter_hostthread_requests (get_any_new_inter_hostthread_requests());		# Locks up in badbricks about 25% of the time with this line in.
+
+		(dequeue_thread_preferably_an_io_bound_one ())
+		    ->
+		    (thread, fate);
+
+		set_current_thread  thread;
+
 		#
-		IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH
-		    =>
-		    dispatch_via_scheduler_hook ();
+# file::print "dispatch_next_thread__usend__noreturn/CCC:   "; print_thread_scheduler_state(); file::print "\n";
+		uninterruptible_scope_mutex :=  0;
 
-	       _ => {   (dequeue_io_bound_thread ())
-			    ->
-			    (thread, fate);
-
-			set_current_thread  thread;
-
-			thread_scheduler_state :=  NORMAL_STATE;			# But what about here? Above comment does not seem to apply.  -- 2012-03-20 CrT
-
-			switch_to_fate  fate  ();					# 
-		    };
-	    esac;
-
-	#
-	fun dispatch_next_thread ()
-	    =
-	    {   disable_thread_switching ();
-		#
-		reenable_thread_switching_and_dispatch_next_thread ();
+		switch_to_fate  fate  ();								# 
 	    };
 
 	#
-	fun reenable_thread_switching_and_switch_to_thread (thread, fate, x)
-	    =
+	fun dispatch_next_thread__noreturn ()								# Exported.  NEVER RETURNS TO CALLER.					Derived from Reppy's dispatch().
+	    =												# Called when NOT in a critical section.
+	    {
+		enter_uninterruptible_scope ();
+# file::print "dispatch_next_thread__noreturn...                                                      ";  print_thread_scheduler_state (); file::print "\n";
+		#
+		dispatch_next_thread__usend__noreturn ();
+	    };
+
+	#
+	fun switch_to_thread__usend (thread, fate, x)							# Exported.  Switch to given thread while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
+	    =												# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
+{
+# file::print "switch_to_thread__usend/AAA...                                                        ";  print_thread_scheduler_state (); file::print "\n";
 	    call_with_current_fate (
 		#
 		fn current_fate
 		    =
-		    {   case *thread_scheduler_state
+		    {   mode =  *uninterruptible_scope_mutex;
+			#
+			if (mode == 1  and  *need_to_switch_threads_when_exiting_uninterruptible_scope)
 			    #
-			    IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH
-				=> 
-				call_with_current_fate
-				    (
-				     fn fate'
-					=
-					{   push_thread_into_foreground_run_queue (thread, fate');
-					    push_thread_into_foreground_run_queue (get_current_thread(), current_fate);
-					    dispatch_via_scheduler_hook ();
-					}
+			    call_with_current_fate
+				(
+				 fn fate'
+				    =
+				    {
+# file::print "switch_to_thread__usend/BBB...                                                        ";  print_thread_scheduler_state (); file::print "\n";
+					push_thread_into_foreground_run_queue (thread, fate');
+# file::print "switch_to_thread__usend/CCC...                                                        ";  print_thread_scheduler_state (); file::print "\n";
+					push_thread_into_foreground_run_queue (get_current_thread(), current_fate);
+
+					need_to_switch_threads_when_exiting_uninterruptible_scope :=  FALSE;
+
+# file::print "switch_to_thread__usend/DDD... (calling run_next_runnable_thread__usend):             ";  print_thread_scheduler_state (); file::print "\n";
+					run_next_runnable_thread__usend ();
+				    }
 				);
+			fi;
 
-			    _   =>      {   run_thread (thread, current_fate);
-					    #
-					    thread_scheduler_state :=  NORMAL_STATE;
-					};
-			esac;
+# file::print "switch_to_thread__usend/PPP... (calling run_next_runnable_thread__usend):        ";  print_thread_scheduler_state (); file::print "\n";
+			enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread => thread,  old_fate => current_fate };
 
-			switch_to_fate  fate  x;							# 
+			uninterruptible_scope_mutex :=  mode - 1;
+
+# file::print "switch_to_thread__usend/QQQ... (calling siwtch_to_fate):                         ";  print_thread_scheduler_state (); file::print "\n";
+			switch_to_fate  fate  x;								# 
 		    }
 	    );
+};
 	#
-	fun reenable_thread_switching_and_yield_to_next_thread   fate
+	fun yield_to_next_thread__usend   fate						# Exported.	Derived from Reppy's atomicYield.
 	    =
 	    {   set_didmail_flag_and_push_thread_into_foreground_run_queue  (get_current_thread (),  fate);
 		#
-		reenable_thread_switching_and_dispatch_next_thread ();
+# file::print "yield_to_next_thread__usend...                                                   ";  print_thread_scheduler_state (); file::print "\n";
+		dispatch_next_thread__usend__noreturn ();
 	    };
 
-	# Create a temporary thread (with dummy ID) to run
+
+	# Use the "thread_scheduler temporary" thread
 	# the given Void -> Void function and then exit.
+	#
+	# At present this is (only) used in:   src/lib/src/lib/thread-kit/src/process-deathwatch.pkg
 	#
 	# NB: The thread is jumped directly the head of the run queue,
 	#     instead of the usual procedure of starting at the back
 	#     of the queue and waiting its turn.
 	#
-	fun run_thunk_immediately  f
+	fun run_thunk_immediately  f										# Exported.	Derived from Reppy's enqueueTmpThread.
 	    =
 	    {
+log::note .{ sprintf "%s\trun_thunk_immediately/TOP" (thread_scheduler_statestring()); };
 		# "We should do this, but the overhead
 		#  is too high right now:"		      XXX SUCKO FIXME
 		#
-    #	    myfate = fat::make_isolated_fate f
+#		myfate = fat::make_isolated_fate f
 		#	
 		# so instead we do this:
 		#
 		myfate =    call_with_current_fate
 				(fn fate
 				    =
-				    {   call_with_current_fate  (fn fate' =  switch_to_fate  fate  fate');		# 
+				    {
+log::note .{ sprintf "%s\trun_thunk_immediately/MMM" (thread_scheduler_statestring()); };
+					call_with_current_fate  (fn fate' =  switch_to_fate  fate  fate');		# 
 					#
+log::note .{ sprintf "%s\trun_thunk_immediately/NNN" (thread_scheduler_statestring()); };
 					f ()
 					except
 					    _ = ();
 
-					dispatch_next_thread ();
+log::note .{ sprintf "%s\trun_thunk_immediately/QQQ" (thread_scheduler_statestring()); };
+					dispatch_next_thread__noreturn ();
 				    }
 				);
 
@@ -599,12 +958,13 @@ herein
 		    ->
 		    rwq::RW_QUEUE q;
 
-		q.front :=    (dummy_thread, myfate)  !  *q.front;		# Jump dummy_thread directly to the head of the run queue.
+log::note .{ sprintf "%s\trun_thunk_immediately enqueing (itt::thread_scheduler_temporary_thread, myfate)" (thread_scheduler_statestring()); };
+		q.front :=    (itt::thread_scheduler_temporary_thread, myfate)  !  *q.front;			# Jump thread_scheduler_temporary_thread directly to the head of the run queue.
 	    };
 
-	default_scheduler_hook
+	default_scheduler_fate
 	    =
-	    fat::make_isolated_fate   dispatch_next_thread
+	    fat::make_isolated_fate   dispatch_next_thread__usend__noreturn
 	    :
 	    Fate( Void );
 
@@ -636,14 +996,14 @@ herein
 	    # the result in this variable before
 	    # returning it.
 
-							# Time		is from   src/lib/std/src/time.api
-							# time		is from   src/lib/std/time.pkg
-							# time_guts	is from   src/lib/std/src/time-guts.pkg
+										# Time		is from   src/lib/std/src/time.api
+										# time		is from   src/lib/std/time.pkg
+										# time_guts	is from   src/lib/std/src/time-guts.pkg
 	# Return an approximation of the
 	# current time of day. This is at
 	# least as accurate as the time quantum:
 	#
-	fun get_approximate_time ()
+	fun get_approximate_time ()						# Exported.
 	    =
 	    case *cached_approximate_time
 		#
@@ -660,23 +1020,32 @@ herein
 	    esac;
 
 	#
-	fun preempt  current_fate		#  preempt the current thread (i.e. 'with fate k). 
+	fun preempt__usbeg  current_fate			# Preempt the current thread (i.e. 'with fate k). 
 	    =
-	    {   current_thread =  get_current_thread ();
-		#
-		current_p =  (current_thread, current_fate);
-
-		if (thread_did_mail  current_thread)
+	    {
+		enter_uninterruptible_scope ();						# Reppy didn't have this, but that looks like a bug, or at least undocumented fragility.
 		    #
-		    clear_didmail_flag  current_thread;
-		    promote_some_background_thread_to_foreground ();
-		    push_thread_into_foreground_run_queue current_p;
-		else
-		    rwq::push_item_into_back_of_queue (background_run_queue, current_p);
-		fi;
-	    };
+# file::print "preempt__usbeg/AAA                                                                     ";  print_thread_scheduler_state (); file::print "\n";
+		    current_thread =  get_current_thread ();
+		    #
+		    current_p =  (current_thread, current_fate);
 
-
+		    if (thread_did_mail  current_thread)
+			#
+			clear_didmail_flag  current_thread;
+			promote_some_background_thread_to_foreground ();
+			push_thread_into_foreground_run_queue current_p;
+# file::print "preempt__usbeg/XXX                                                                     ";  print_thread_scheduler_state (); file::print "\n";
+		    else
+			rwq::push_item_into_back_of_queue (background_run_queue, current_p);
+# file::print "preempt__usbeg/YYY                                                                     ";  print_thread_scheduler_state (); file::print "\n";
+		    fi;
+		    #
+#		exit_uninterruptible_scope ();						# We cannot do this here because we must remain in uninterruptible mode until we have
+	    };										# pulled the next job to run out of the run queues.  Otherwise, we can wind up pushing
+											# the current thread on the runq two or more times before we get around to unqueueing a thread.
+											# (During debugging I have observed the system locking up due to doing this hundreds of times. -- CrT)
+											# So we depend upon our caller to exit uninterruptible mode.
 	# This is the function which
 	# drives timeslicing.  It is
 	# invoked at (typically) 50Hz
@@ -710,10 +1079,11 @@ herein
             )
 	    =
 	    {
-		service_inter_pthread_requests (get_new_inter_pthread_requests()); 
+# THIS SUCKS -- WE COULD BE IN AN UNITERRUPTIBLE_SCOPE, FOR STARTERS
+#		service_inter_hostthread_requests (get_any_new_inter_hostthread_requests()); 
 		    #
 		    # This is the only place we can put this call
-		    # to ensure that inter-pthread requests are
+		    # to ensure that inter-hostthread requests are
 		    # guaranteed to be handled in a bounded amount
 		    # of time.
 
@@ -727,38 +1097,32 @@ herein
 		    # clear it -- we no longer
 		    # know what time it is.
 
-		case   *thread_scheduler_state
-		    #	      
-		    NORMAL_STATE
-			=>
-			{   preempt  current_fate;	# Put current thread to sleep so we can give someone else a chance to run.
-			    #
-			    *switch_to_next_runnable_thread__hook;		# Invoke scheduler thread, which will then select next user thread to run.
-			};
+		if (*uninterruptible_scope_mutex == 0)
+		    #
+# file::print "\nalarm_handler/AAA... calling preempt_after_entering_                                   ";  print_thread_scheduler_state (); file::print "\n";
+# file::print "\nalarm_handler/AAA\n";
+		    preempt__usbeg  current_fate;							# Put current thread to sleep so we can give someone else a chance to run.
+# file::print "\nalarm_handler/BBB...                                                                   ";  print_thread_scheduler_state (); file::print "\n";
 
-		    IN_UNINTERRUPTABLE_SCOPE
-			=>
-			{
-			    # We're in a critical section
-			    # (in plain English: thread switching
-			    # is disabled), so we cannot preempt
-			    # the currently running thread.
-			    #
-			    # So instead we make a note to
-			    # preempt the current thread
-			    # as soon as it exits the
-			    # critical section (which is to
-			    # say, re-enables thread switching)
-			    # and then continue running the
-			    # current thread:
-			    #
-			    thread_scheduler_state :=  IN_UNINTERRUPTABLE_SCOPE_WITH_PENDING_THREADSWITCH;
-			    #
-			    current_fate;
-			};
+		    *run_next_runnable_thread__usend__hook;						# Invoke scheduler thread, which will then select next user thread to run.
+		else
 
-		    _   =>   current_fate;
-		esac;
+		    # We're in a critical section
+		    # (in plain English: thread switching
+		    # is disabled), so we cannot preempt
+		    # the currently running thread.
+		    #
+		    # So instead we continue running the
+		    # the current thread after making a note
+		    # to preempt the current thread
+		    # as soon as it exits the critical section
+		    # (which is to say, re-enables thread switching):
+		    #
+# file::print "\nalarm_handler/MMM...                                                                   ";  print_thread_scheduler_state (); file::print "\n";
+		    need_to_switch_threads_when_exiting_uninterruptible_scope :=  TRUE;		# Might already be TRUE; thass ok.
+		    #
+		    current_fate;
+		fi;
 	    };
 
 
@@ -776,50 +1140,135 @@ herein
 	    REF  default_time_quantum;
 
 
-
-	fun start_supporting_pthreads ()				# Private to this file; called only from  start_thread_scheduler_timer  (below).
-	    =
-	    # For now we start these but never stop them, and piggyback
-	    # it on the regular start_thread_scheduler_timer call to
-	    # avoid changing the externally visible api.	
+	stipulate
+	    supporting_hostthreads_are_running =  REF FALSE;
 	    #
-	    # This call is designed to be a no-op
-	    # on second and subsequent calls:
-	    {
-		# For a first try at least, we'll start
-		# one fewer cycleserver pthreads than we
-		# have cores (to leave one core available
-		# for foreground processing) and use the
-		# the same number of io pthreads (for lack
-		# of a better idea).
+	    per_who =  "thread-scheduler";							# Log our actions under this name.
 
-		corecount =  pth::get_cpu_core_count ();
+	herein	    
 
-		pthreads_to_start =  max (1, corecount - 1);		# We need at least one cpu- and io- pthread running!
+	    #
+	    fun start_supporting_hostthreads_if_not_running ()					# Private to this file; called only from  start_thread_scheduler_timer  (below).
+		=
+		# For now we start these but never stop them, and piggyback
+		# it on the regular start_thread_scheduler_timer call to
+		# avoid changing the externally visible api.	
+		#
+		# This call is designed to be a no-op
+		# on second and subsequent calls:
+		#
+		if *supporting_hostthreads_are_running
+		    #
+		    ();
+		else
+		    # For a first try at least, we'll start
+		    # one fewer cycleserver hostthreads than we
+		    # have cores (to leave one core available
+		    # for foreground processing) and use the
+		    # the same number of io hostthreads (for lack
+		    # of a better idea).
 
-		cpu_pthreads_count =  cpu::get_count_of_live_pthreads ();		
-		 io_pthreads_count =   io::get_count_of_live_pthreads ();		
+		    hostthreads_to_start =   max  (1,  pth::get_cpu_core_count() - 1);		# We need at least one cpu- and io- hostthread running!
 
-		iow::start  "thread-scheduler";				# String arg just logs us as party responsible for start-up.  This is a no-op if it is already running.  
 
-		for  (i =  cpu_pthreads_count;
-                      i <  pthreads_to_start;
-		    ++i
-		){
-		    cpu::start  "thread-scheduler";			# String arg just logs us as party responsible for start-up.
+		    iow::start_server_hostthread_if_not_running  per_who;
+
+		    supporting_hostthreads_are_running :=   TRUE;
+		fi;
+
+	    #
+	    fun stop_supporting_hostthreads_if_running ()						# Private to this file; called only from  start_thread_scheduler_timer  (below).
+		=
+		# Our charter here is to undo whatever the above
+		# start_supporting_hostthreads_if_running () did.
+		#
+		if *supporting_hostthreads_are_running
+		    #
+# printf "ts::Supporting threads ARE running, stopping io-wait hostthread...   -- ts::stop_supporting_hostthreads_if_running\n";
+		    iow::stop_server_hostthread_if_running  {  per_who,  reply => (fn _ = ())  };	# Stop the thread that sits in a loop doing C select() calls.
+
+# printf "stopping cpu hostthreads  --    -- ts::stop_supporting_hostthreads_if_running...\n";
+		    cpu::change_number_of_server_hostthreads_to  per_who  0;			# Stop cpu-server hostthreads.
+# printf "stopping io  hostthreads  --    -- ts::stop_supporting_hostthreads_if_running...\n";
+		     io::change_number_of_server_hostthreads_to  per_who  0;			# Stop  io-server hostthreads.
+# printf "Done.   -- ts::stop_supporting_hostthreads_if_running...\n";
+
+		    supporting_hostthreads_are_running :=   FALSE;
+		else
+# printf "Supporting threads are NOT running.\n";
+		    ();
+		fi;
+
+	    #
+	    fun startup_phase_11_fn _								# Our arg will be   at::STARTUP_PHASE_11_START_SUPPORT_HOSTTHREADS
+		=
+		{
+		    open_main_log ();								# Try to ensure that log is open before anything that might log starts executing.
+		    file::set_logger_to  (file::LOG_TO_FILE "mythryl.log");
+
+# printf "ts::startup_phase_11_fn/CCC calling start_supporting_hostthreads_if_not_running\n";
+		    start_supporting_hostthreads_if_not_running ();
+# printf "ts::startup_phase_11_fn/ZZZ\n";
+		}
+		where
+		    fun open_main_log ()
+			=
+			{
+			    fd = file::open_for_append "main.log~";
+			    file::write       (fd, "src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg: startup_phase_11_fn\n"); 
+			    file::flush        fd;
+			    file::close_output fd;
+			};
+		end;
+
+	    fun shutdown_phase_4_fn _								# Our arg will be   at::SHUTDOWN_PHASE_4_STOP_SUPPORT_HOSTTHREADS
+		=
+		{
+# printf "ts::shutdown_phase_4_fn/AAA calling    stop_supporting_hostthreads_if_running\n";
+		    stop_supporting_hostthreads_if_running ();
+# printf "ts::shutdown_phase_4_fn/ZZZ back from  stop_supporting_hostthreads_if_running\n";
 		};
 
-		for  (i =  io_pthreads_count;
-                      i <  pthreads_to_start;
-		    ++i
-		){
-		    io::start  "thread-scheduler";			# String arg just logs us as party responsible for start-up.
-		};
-	    };
+
+#####
+													my _ =		# "my _ =" is needed because only declarations are syntactically legal here.
+	    start_supporting_hostthreads_if_not_running ();
+
+									my _ =	# Needed because only declarations are syntactically legal here.
+	    at::schedule
+	      (
+		"thread-scheduler: Clear state vars",				# Arbitrary label for debugging displays.
+		#
+		[ at::STARTUP_PHASE_1_RESET_STATE_VARIABLES ],			# When to run the function.
+		#
+		fn _ = {							# Ignored arg is at::STARTUP_PHASE_1_RESET_STATE_VARIABLES
+
+#		    request_queue :=  [];						# I'm not sure this is needed or even a good idea...
+
+# printf "thread-scheduler/startup-phase-1 setting uninterruptible-mode-counter to 0...\n";
+		    pid								:=  0;
+		    uninterruptible_scope_mutex					:=  0;
+		    need_to_switch_threads_when_exiting_uninterruptible_scope	:=  FALSE;
+		    cached_approximate_time					:=  NULL;
+		    supporting_hostthreads_are_running				:=  FALSE;
+		    file::current_thread_info__hook				:=  NULL;				# This gets set (only) in   reset_thread_scheduler()   (below).
+		}
+	      );
+
+																					my _ =
+	    at::schedule  ("thread-scheduler.pkg: start support hostthreads",      [ at::STARTUP_PHASE_11_START_SUPPORT_HOSTTHREADS   ],  startup_phase_11_fn);		my _ =
+	    at::schedule  ("thread-scheduler.pkg: stop  support hostthreads",      [ at::SHUTDOWN_PHASE_4_STOP_SUPPORT_HOSTTHREADS    ],  shutdown_phase_4_fn);
+#####
+
+	end;	
+
 	#
-	fun start_thread_scheduler_timer  new_time_quantum
+	fun start_thread_scheduler_timer  new_time_quantum								# Exported.  Called from all over.
 	    =
-	    {   start_supporting_pthreads ();
+	    {
+# printf "ts::start_thread_scheduler_timer/AAA -- calling start_supporting_hostthreads_if_not_running()\n";
+		start_supporting_hostthreads_if_not_running ();
+# printf "ts::start_thread_scheduler_timer/BBB -- called  start_supporting_hostthreads_if_not_running()\n";
 		#
 		new_time_quantum
 		    =
@@ -840,7 +1289,7 @@ herein
 	    };
 
 	#
-	fun stop_thread_scheduler_timer ()
+	fun stop_thread_scheduler_timer ()										# Exported.
 	    =
 	    {   frq::set_sigalrm_frequency  NULL;
 		#
@@ -850,30 +1299,49 @@ herein
 	    };
 
 	#
-	fun restart_thread_scheduler_timer ()
+	fun restart_thread_scheduler_timer ()										# Exported.
 	    =
 	    start_thread_scheduler_timer  *time_quantum;
 
 
 	# Reset various pieces of state 
 	#
-	fun reset_thread_scheduler  running						# This fn is called (only) below at link time
-	    =										# and in   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
-	    {   set_current_thread  dummy_thread;					# and in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
-		#									# as part of start-of-world/end-of-world type stuff.
-		no_runnable_threads_left__hook     :=  bogus_hook;
-		shutdown_hook  :=  bogus_shutdown_hook;
+	fun reset_thread_scheduler  running										# Exported.  This fn is called (only) below at link time
+	    =														# and in   src/lib/src/lib/thread-kit/src/core-thread-kit/appthread.pkg
+	    {														# and in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+															# as part of start-of-world/end-of-world type stuff.
 
-		switch_to_next_runnable_thread__hook :=  default_scheduler_hook;
+		set_current_thread  itt::thread_scheduler_temporary_thread;						# Initialize current_thread register to a valid value.
+															# We don't expect this to be used for anything, but we
+															# like not segfaulting if someone references the register.
+		no_runnable_threads_left__hook		:=  bogus_void_fate;
+		thread_scheduler_shutdown_hook		:=  bogus_shutdown_fate;
+		run_next_runnable_thread__usend__hook	:=  default_scheduler_fate;
 
 		cached_approximate_time :=   NULL;
 
 		rwq::clear_queue_to_empty  foreground_run_queue;
 		rwq::clear_queue_to_empty  background_run_queue;
 
+		file::current_thread_info__hook										# Give the logger access to current thread id.
+		    :=													# We cannot set this non-NULL until  set_current_thread  call above -- we'll segfault if we do.
+		    if (not running)
+			#	
+			NULL;
+		    else
+			THE (fn ()  =   {   (get_current_thread()) ->  thread;
+					    #
+					    thread -> itt::APPTHREAD { thread_id, name, task, ... };
+					    task   -> itt::APPTASK   { task_id, ... };
+					    #
+					    (thread_id, name, task_id);
+					}
+			    );
+		    fi;
+
 		if (not running)
 		    #
-		    push_into_run_queue (error_thread, error_fate);
+		    push_into_run_queue (itt::error_thread, itt::error_fate);
 		fi;
 	   };
 

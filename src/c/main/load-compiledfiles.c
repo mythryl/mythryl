@@ -2,14 +2,21 @@
 //
 // This file implements the core Mythryl linker functionality
 // which combines .compiled files to produce a Mythryl "executable"
-// (actually a heap image with a #!/usr/bin/mythryl-runtime-intel32 shebang line
-// at the top).
+// -- actually a heap image with a
+//
+//     #!/usr/bin/mythryl-runtime-intel32
+//
+// "shebang" line at the top).
+//
 //
 // Our primary entrypoint is
 //
 //      load_compiled_files__may_heapclean (),
 //
-// which is invoked from src/c/main/runtime-main.c:main()
+// which is invoked from
+//
+//     src/c/main/runtime-main.c:main()
+//
 // when mythryl-runtime-intel32 is given the "--runtime-compiledfiles-to-load=filename"
 // commandline switch, where the "filename"
 // parameter is the name of a file containing a
@@ -123,7 +130,7 @@ static void   open_logfile   () {
 
     log_fd = fopen( filename, "w" );
 
-    fprintf(stderr, "\n                    load-compiledfiles.c:   Writing load log to     %s\n\n", filename);
+    fprintf(stderr, "\n                    load-compiledfiles.c:   Writing load log to     %s\n\n", filename);    fflush(stderr);
 }
 
 
@@ -202,9 +209,7 @@ void   load_compiled_files__may_heapclean   (
 
     Roots roots1 = { &compiled_file_list, extra_roots };
 
-    // This space is ultimately wasted:           XXX BUGGO FIXME
-    //
-    if (! (filename_buf = MALLOC( max_boot_path_len ))) {
+    if (! (filename_buf = MALLOC( max_boot_path_len ))) {		// This space is ultimately wasted.	XXX SUCKO FIXME
 	//
 	die ("unable to allocate space for boot file names");
     }
@@ -281,12 +286,14 @@ void   load_compiled_files__may_heapclean   (
 		    picklehash.bytes[i] = (hex(c1) << 4) + hex(c2);
 		}
 	    }
-	    fprintf(
-		log_fd ? log_fd : stderr,
-		"\n                    load-compiledfiles.c:   Runtime system picklehash is      %s\n\n",
-		filename
-	    );
-
+	    {   FILE* fd = log_fd ? log_fd : stderr;
+	        //
+		fprintf( fd,
+		    "\n                    load-compiledfiles.c:   Runtime system picklehash is      %s\n\n",
+		    filename
+		);
+		fflush(fd);
+	    }
 	    register_compiled_file_exports__may_heapclean( task, &picklehash, runtime_package__global, &roots1 );
 
 	    seen_runtime_package_picklehash = TRUE;							// Make sure that we register the runtime system picklehash only once.
@@ -327,6 +334,7 @@ static Val   read_in_compiled_file_list__may_heapclean   (
         "                    load-compiledfiles.c:   Reading   file          %s\n",
         compiled_files_to_load_filename
     );
+    fflush( stderr );
 
     if (log_fd) {
 	//
@@ -335,6 +343,7 @@ static Val   read_in_compiled_file_list__may_heapclean   (
 	    "                    load-compiledfiles.c:   Reading   file                    %s\n",
 	    compiled_files_to_load_filename
 	);
+	fflush( log_fd );
     }
 
     Val  file_list = LIST_NIL;			Roots roots1 = { &file_list, extra_roots };
@@ -442,7 +451,9 @@ static Val   read_in_compiled_file_list__may_heapclean   (
 		call_heapcleaner_with_extra_roots( task,  0, &roots1 );
 	    }
 
-	    Val file_name = make_ascii_string_from_c_string__may_heapclean(task, p, &roots1 );
+	    Val file_name
+		=
+		make_ascii_string_from_c_string__may_heapclean(task, p, &roots1 );
 
 	    file_list = LIST_CONS(task, file_name, file_list);
 	}
@@ -618,8 +629,8 @@ static FILE*   open_file   (
 //  data segment will be executed only once at link-time. Thus, it can
 //  then be garbage-collected immediately. (In the future it is possible that
 //  the data segment will not contain executable code at all but some form
-//  of bytecode that is to be interpreted separately.)
-//
+//  of bytecode that is to be interpreted separately.)					// My impression is that this is now true -- see src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+//											//     -- 2012-06-02 CrT
 //  In the .compiled file, each code segment is represented by its size s and its
 //  entry point offset (in bytes -- written as 4-byte big-endian integers)
 //  followed by s bytes of machine- (or byte-) code. The total length of all
@@ -631,7 +642,7 @@ static FILE*   open_file   (
 //
 //  Linking is achieved by executing all code segments in sequential order.
 //
-//  The first code segment (i.e., the "data" segment) receives unit as
+//  The first code segment (i.e., the "data" segment) receives Void as
 //  its single argument.
 //
 //  The second code segment receives a record as its single argument.
@@ -641,7 +652,7 @@ static FILE*   open_file   (
 //  component is the result from executing the data segment.
 //
 //  All other code segments receive a single argument which is the result
-//  of the preceding segment.
+//  of the preceding segment.								// My impression is that in general there are only ever two code segments at present.	-- 2012-06-02 CrT
 //
 //  The result of the last segment represents the exports of the compilation
 //  unit.  It is to be paired up with the export picklehash and stored in the
@@ -671,7 +682,7 @@ static void   read_n_bytes_from_file   (FILE* file,  void* buf,  int nbytes,  co
 
 
 static Int1   read_packed_int1   (FILE* file,  const char* filename)   {
-    //         =================
+    //        ================
     //
     // Read an integer in "packed" format.
     // (Small numbers only require 1 byte.)
@@ -683,12 +694,9 @@ static Int1   read_packed_int1   (FILE* file,  const char* filename)   {
     // Most significant byte comes first:
     //
     for (;;) {
-
+        //
         Unt8 c;
-
-			        // XXX BUGGO FIXME  One subroutine call per byte?! Lordy, what fools these mortals be.
-
-	read_n_bytes_from_file( file, &c, sizeof(c), filename );
+	read_n_bytes_from_file( file, &c, sizeof(c), filename );		// XXX SUCKO FIXME  One subroutine call per byte?! Lordy, what fools these mortals be.
 
 	n = (n << 7) | (c & 0x7f);
 
@@ -709,11 +717,13 @@ static Int1   read_packed_int1   (FILE* file,  const char* filename)   {
 static int   fetch_imports   (
     //       =============
     //
-    Task* task,
-    FILE*          file,
-    const char*    filename,
-    int            next_import_record_slot_to_fill,
-    Val    tree_node
+    Task*	    task,
+    //
+    FILE*           file,
+    const char*     filename,
+    //
+    int             next_import_record_slot_to_fill,
+    Val		    tree_node
 ) {
     //////////////////////////////////////////////////////
     // We are traversing a Mythryl heap tree of records
@@ -729,7 +739,7 @@ static int   fetch_imports   (
     // constructed on the heap.
     //
     // Our guide is a list of 'kid_count' selectors
-    // (slot numbers within tree_node) which we read
+    // (slot numbers within tree_node) which we
     // read from the compiledfile being loaded.
     //
     // If this list is empty, then 'tree_node' is
@@ -749,12 +759,10 @@ static int   fetch_imports   (
 
     // How many children of 'tree_node' should we visit?
     //
-    Int1  kid_count
-        =
-        read_packed_int1 (file, filename);
+    Int1  kid_count =   read_packed_int1 (file, filename);
 
     if (!kid_count) {
-
+        //
         // Save tree_node in the import record...
         //
 	set_slot_in_nascent_heapchunk( task, next_import_record_slot_to_fill, tree_node );
@@ -857,23 +865,26 @@ static void   load_compiled_file__may_heapclean   (
 
     // Log all files loaded, for diagnostic/information purposes:
     //
-    if (!archive_offset) {
-        //
-	fprintf (
-	    log_fd ? log_fd : stderr,
-	    "                    load-compiledfiles.c:   Loading   object file   %s\n",
-		   filename
-	);
+    {	FILE* fd =  log_fd ? log_fd : stderr;
+	//
+	if (!archive_offset) {
+	    //
+	    fprintf( fd,
+		"                    load-compiledfiles.c:   Loading   object file   %s\n",
+		       filename
+	    );
 
-    } else {
+	} else {
 
-	fprintf (
-	    log_fd ? log_fd : stderr,
-	    "                    load-compiledfiles.c:   Loading   offset        %8d in lib  %s  \tnamely object file %s\n",
-	    archive_offset,
-	    filename,
-	    compiledfile_filename
-	);
+	    fprintf( fd,
+		"                    load-compiledfiles.c:   Loading   offset        %8d in lib  %s  \tnamely object file %s\n",
+		archive_offset,
+		filename,
+		compiledfile_filename
+	    );
+	}
+
+	fflush( fd );
     }
 
     // Open the file:
@@ -881,9 +892,9 @@ static void   load_compiled_file__may_heapclean   (
     file = open_file( filename, TRUE );            if (!file)   print_stats_and_exit( 1 );
 
     // If an offset is given (which is to say, if we are loading
-    // an compiledfile packed within a library archive) then
-    // then seek to the beginning of the section that contains
-    // the image of our compiledfile:
+    // a compiledfile packed within a library archive) then
+    // seek to the beginning of the section that contains the
+    // image of our compiledfile:
     //
     if (archive_offset) {
         //
@@ -910,12 +921,11 @@ static void   load_compiled_file__may_heapclean   (
     header.bytes_of_compiled_code		= BIGENDIAN_TO_HOST( header.bytes_of_compiled_code		);
     header.bytes_of_symbolmapstack		= BIGENDIAN_TO_HOST( header.bytes_of_symbolmapstack		);
 
-    // XXX SUCKO FIXME These days 99% of the market is little-endian,
-    // so should either change to always little-endian, or else
-    // (better) always use host system's native byte ordering.
-    // Ideally we should be able to just mmap the .compiledfile into
-    // memory and be ready to go, with no bit-fiddling needed at all.
-
+															// XXX SUCKO FIXME These days 99% of the market is little-endian,
+															// so should either change to always little-endian, or else
+															// (better) always use host system's native byte ordering.
+															// Ideally we should be able to just mmap the .compiledfile into
+															// memory and be ready to go, with no bit-fiddling needed at all.
 
 
     // Read the 'import tree' and locate all the thus-specified
@@ -937,7 +947,11 @@ static void   load_compiled_file__may_heapclean   (
     // Write the header for our 'import record', which will be 
     // a Mythryl record with 'imports_record_slot_count' slots:
     //
-    set_slot_in_nascent_heapchunk (task, 0, MAKE_TAGWORD(imports_record_slot_count, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk(											// set_slot_in_nascent_heapchunk	is from   src/c/h/make-strings-and-vectors-etc.h
+	task,
+	0,
+	MAKE_TAGWORD(imports_record_slot_count, PAIRS_AND_RECORDS_BTAG)
+    );
 
     // Locate all the required import values and
     // save them in our nascent on-heap 'import record':
@@ -977,7 +991,9 @@ static void   load_compiled_file__may_heapclean   (
     // Complete the above by actually allocating
     // the 'import record' on the Mythryl heap:
     //
-    Val import_record =  commit_nascent_heapchunk( task, imports_record_slot_count );			// Contains all the values we import from other compiled_files.
+    Val import_record									// Contains all the values we import from other compiled_files.
+	=
+	commit_nascent_heapchunk( task, imports_record_slot_count );			// commit_nascent_heapchunk	is from   src/c/h/make-strings-and-vectors-etc.h
 
     Roots roots1 = { &import_record, extra_roots };
 
@@ -993,7 +1009,7 @@ static void   load_compiled_file__may_heapclean   (
     // during loading.)
     //
     if (header.number_of_exported_picklehashes == 1) {
-
+        //
 	bytes_of_exports = sizeof( Picklehash );
 
 	read_n_bytes_from_file( file, &export_picklehash, bytes_of_exports, filename );
@@ -1001,6 +1017,7 @@ static void   load_compiled_file__may_heapclean   (
     } else if (header.number_of_exported_picklehashes != 0) {
 
 	die ("Number of exported picklehashes is %d (should be 0 or 1)",
+	    //
             (int)header.number_of_exported_picklehashes
         );
     }
@@ -1046,8 +1063,8 @@ static void   load_compiled_file__may_heapclean   (
     // the code segments.
     //
     // In practice, we currently always have exactly two
-    // code segments, the first of which contains the byte-
-    // coded logic constructing our literals (constants
+    // code segments, the first of which contains the
+    // byte-coded logic constructing our literals (constants
     // -- see src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c)
     // and the second of which contains all our compiled
     // native code for the compiledfile, including that
@@ -1080,7 +1097,7 @@ static void   load_compiled_file__may_heapclean   (
     }
 
 
-    Val	    mythryl_result = HEAP_VOID;
+    Val   mythryl_result =   HEAP_VOID;
 
 
     if (segment_bytesize > 0) {
@@ -1143,11 +1160,13 @@ static void   load_compiled_file__may_heapclean   (
         // or at least not without manually  flushing the
         // instruction cache this way.)
 	//
-	flush_instruction_cache (PTR_CAST(char*, code_chunk), segment_bytesize);
-      
+	flush_instruction_cache (PTR_CAST(char*, code_chunk), segment_bytesize);					// flush_instruction_cache is a no-op on intel32
+															// flush_instruction_cache	is from   src/c/h/flush-instruction-cache-system-dependent.h 
         // Create closure, taking entry point into account:
 	//
-	{   Val closure = make_one_slot_record(  task,  PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes)  );
+	{   Val closure
+		=
+		make_one_slot_record(  task,  PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes)  );
 
 	    // Apply the closure to the import picklehash vector.
 	    //
@@ -1209,15 +1228,17 @@ static void   register_compiled_file_exports__may_heapclean   (
     Roots roots1 = { &exports_tree, extra_roots };
 
     ///////////////////////////////////////////////////////////
-    // Add a picklehash/exports_tree key/val naming pair
-    // to our heap-allocated list of loaded compiled_files.
+    // Add a picklehash/exports_tree key/val pair to our
+    // heap-allocated list of loaded compiled_files.
     ///////////////////////////////////////////////////////////
 
     // Copy the picklehash naming this compiledfile
     // into the Mythryl heap, so that we can use
     // it in a Mythryl-heap record:
     //
-    Val heap_picklehash = allocate_nonempty_ascii_string__may_heapclean( task,  PICKLEHASH_BYTES, &roots1 );	// allocate_nonempty_ascii_string__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val heap_picklehash
+	=
+	allocate_nonempty_ascii_string__may_heapclean( task,  PICKLEHASH_BYTES, &roots1 );	// allocate_nonempty_ascii_string__may_heapclean	def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 												
     memcpy( HEAP_STRING_AS_C_STRING(heap_picklehash), (char*)c_picklehash, PICKLEHASH_BYTES );
 

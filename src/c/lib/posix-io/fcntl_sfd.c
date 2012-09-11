@@ -46,15 +46,16 @@ Val   _lib7_P_IO_fcntl_sfd   (Task* task,  Val arg)   {
     Vunt   flag = TUPLE_GETWORD(         arg, 1 );
 
 
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfd", NULL );
+    do {						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+							// Restored   2012-09-03 CrT
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_sfd", NULL );
 	    //
 	    status = fcntl(fd0, F_SETFD, flag);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfd" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_sfd" );
 
-/*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+// if (errno == EINTR) puts("Error: EINTR in fcntl_sfd.c\n");
+    } while (status < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

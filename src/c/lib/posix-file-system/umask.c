@@ -44,11 +44,11 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_umask");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_umask", NULL );
 	//
 	mode_t omask = umask(WORD_LIB7toC(arg));
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_umask" );
 
     return  make_one_word_unt(task, (Vunt) omask  );
 }

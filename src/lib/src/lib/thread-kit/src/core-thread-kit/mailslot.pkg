@@ -1,18 +1,49 @@
-## mailslot.pkg
+## mailslot.pkg						# Derives from   cml/src/core-cml/channel.sml
 #
 # Mailslots implement synchronous message sends -- both
 # threads must be ready before either can proceed.
 #
-# To ensure that we always leave the atomic region exactly once, we
-# require that the blocking operation be responsible for leaving the
-# atomic region (in the mailop case, it must also execute the clean-up
-# action).  The fire_mailop fn always transfers control to the blocked thread
-# without leaving the atomic region.  Note that the give (and give')
-# set_up_mailopready_watch()s run using the receiver's thread state.
+# Despite being the most basic mail exchange mechanism,
+# mailslots have the most intricate implementation,
+# precisely because they involve a two-thread RENDEZVOUS
+# rather than just two threads doing different things
+# at different times.
+#
+# The rendezvous aspect means that the implementation
+# is crucially about two threads doing something
+# "at the same time".  (By the time you really understand
+# this package, you will have a very good grasp of using
+# call_with_current_fate ("call/cc") in a practical setting!)
+#
+# In practice, in our current timeslicing implementation,
+# we never have two appthreads running at the same time,
+# so what has to actually happen is that the first thread
+# to arrive at the mailslot blocks and gets put on one of
+# its wait queues;  when the second thread arrives the
+# message transfer takes place and both threads are then
+# free to proceed.  In practice one will exit actually running,
+# while the other will be moved from the mailslot wait queue
+# to the thread_scheduler run queue.
+#
+#
+#     "To ensure that we always leave the atomic region exactly once, we
+#      require that the blocking operation be responsible for leaving the
+#      atomic region (in the mailop case, it must also execute the clean-up
+#      action).  The fire_mailop fn always transfers control to the blocked thread
+#      without leaving the atomic region.  Note that the give (and give')
+#      set_up_mailopready_watch()s run using the receiver's thread state."
+#                                       -- John H Reppy
 
 # Compiled by:
 #     src/lib/std/standard.lib
 
+
+
+
+
+###				"Two men enter -- one man leaves."
+###
+###					-- Max Max: Beyond Thunderdome
 
 
 
@@ -23,7 +54,6 @@ stipulate
     package rwq =  rw_queue;				# rw_queue			is from   src/lib/src/rw-queue.pkg
     package itt =  internal_threadkit_types;		# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
     package ts  =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
-    package t = thread;					# thread			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
     #
     Fate(X) =   fat::Fate(X);
     #
@@ -31,17 +61,14 @@ stipulate
     switch_to_fate         =  fat::switch_to_fate;
 herein
 
-    package mailslot: (weak)
-    api {
+    package mailslot: (weak)    api {
+				    Mailop(X);
+				    #
+				    include Mailslot;				# Mailslot			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.api
 
-	Mailop(X);
+				    reset_mailslot:  Mailslot(X) -> Void;
 
-	include Mailslot;				# Mailslot			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.api
-
-	reset_mailslot:  Mailslot(X) -> Void;
-
-    }
-
+				}
     {
 	Mailop(X) =  mop::Mailop(X);
 
@@ -55,9 +82,16 @@ herein
 	    =
 	    MAILSLOT
 	      { priority:  Ref( Int ),
-		in_q:      rwq::Rw_Queue( (Ref( itt::Selectrun_Status ), Fate(X)) ),
-		out_q:     rwq::Rw_Queue( (Ref( itt::Selectrun_Status ), Fate( (itt::Thread_State, Fate(X)) )) )
+		in_q:      rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)) ),
+		out_q:     rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate( (itt::Appthread, Fate(X)) )) )
 	      };													# The above two should probably be records not tuples. XXX SUCKO FIXME.
+
+	fun mailslot_to_string (MAILSLOT { priority => REF p, in_q, out_q })						# Debug support, primarily to textify mailslot state for logging via log::note or such.
+	    =
+	    {   i_len = list::length (rwq::to_list  in_q);
+		o_len = list::length (rwq::to_list out_q);
+		sprintf "prio=%d len(in_q)=%d len(out_q)=%d"  p  i_len  o_len;
+	    };
 
 	fun reset_mailslot (MAILSLOT { priority, in_q, out_q } )
 	    =
@@ -85,34 +119,34 @@ herein
 
 	fun make__mailop_done__refcell ()
 	    =
-	    REF (itt::SELECTRUN_IS_BLOCKED (ts::get_current_thread()) );
+	    REF (itt::DO1MAILOPRUN_IS_BLOCKED (ts::get_current_thread()) );
 
 
-	fun end_transaction_and_return_thread_state (selectrun_status as REF (itt::SELECTRUN_IS_BLOCKED thread_id))
+	fun end_do1mailoprun_and_return_thread (do1mailoprun_status as REF (itt::DO1MAILOPRUN_IS_BLOCKED thread_id))
 		=>
-		{   selectrun_status :=   itt::SELECTRUN_IS_COMPLETE;
+		{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    thread_id;
 		};
 
-	    end_transaction_and_return_thread_state  (REF (itt::SELECTRUN_IS_COMPLETE))
+	    end_do1mailoprun_and_return_thread  (REF (itt::DO1MAILOPRUN_IS_COMPLETE))
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";			# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
 
-	# Given a selectrun_status refcell
+	# Given a do1mailoprun_status refcell
 	# set the current thread
 	# to its thread state and
 	# mark it complete:
 	#
-	fun set_current_thread  selectrun_status
+	fun set_current_thread  do1mailoprun_status
 	    =
-	    ts::set_current_thread  (end_transaction_and_return_thread_state  selectrun_status);
+	    ts::set_current_thread  (end_do1mailoprun_and_return_thread  do1mailoprun_status);
 
 	Queue_Item(X)
 	  = NO_ITEM
-	  |    ITEM  (Ref(itt::Selectrun_Status), Fate(X))
-	  ;													# ITEM should probably host a record not a tuple.  XXX SUCK FIXME.
+	  |    ITEM  (Ref(itt::Do1mailoprun_Status), Fate(X))
+	  ;															# ITEM should probably host a record not a tuple.  XXX SUCKO FIXME.
 
 	# Bump a priority value by one,
 	# returning the old value:
@@ -127,19 +161,20 @@ herein
 	#
 	stipulate
 
-	    fun clean ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest)
+	    fun clean ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest)
 		    =>
 		    clean rest;
 
 		clean l  => l;
 	    end;
 
-	    fun clean_rev ((REF itt::SELECTRUN_IS_COMPLETE, _) ! rest,  l)
+	    fun clean_rev ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest,  l)
 		    =>
 		    clean_rev (rest, l);
 
 		clean_rev (x ! rest,  l)
-		    =>  clean_rev (rest,  x ! l);
+		    =>
+		    clean_rev (rest,  x ! l);
 
 		clean_rev ([], l)
 		    =>
@@ -232,13 +267,13 @@ herein
 			    {   back :=  [];
 				#
 				case (clean_rev (r, []))
-
+				    #
 				    []  => NO_ITEM;
 
 				    item ! rest
 					=>
 					{   front := rest;
-					    ITEM item;
+					    ITEM  item;
 					};
 				 esac;
 			    };
@@ -261,70 +296,88 @@ herein
 	    raise exception  FAIL "Slot: impossible";
 
 
-	fun give (MAILSLOT { priority, in_q, out_q }, msg)
+	fun give (mailslot as MAILSLOT { priority, in_q, out_q }, msg)							# Derives from Reppy's send()
 	    =
-	    {   ts::disable_thread_switching ();
+	    {
+		ts::enter_uninterruptible_scope ();
+# log::note .{ "give/AAA (after entering uninterruptible mode)";	};	# [5] [B]
+ log::note .{ sprintf "%s\tgive/AAA %s (after entering uninterruptible mode)"  (ts::thread_scheduler_statestring ())  (mailslot_to_string  mailslot);	};	# [5] [B]
 		#
 		case (clean_and_remove  in_q)
 		    #
-		    ITEM (rid, rfate)
+		    ITEM (do1mailoprun_status, take_fateq)
 			=>
+{
+# log::note .{ "give/ITEM/BBB";	};					# [6]
+ log::note .{ sprintf "%s\tgive/ITEM %s"  (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};					# [6]
 			call_with_current_fate
-			    (fn put_fate =  {   ts::run_thread   (end_transaction_and_return_thread_state  rid,    put_fate);
+			    (fn give_fatep = {   ts::enqueue_old_thread_plus_old_fate_then_install_new_thread			# 'give' thread doesn't need to block, just yield to waiting 'take' thread.
+						  {
+						    new_thread =>  end_do1mailoprun_and_return_thread  do1mailoprun_status,
+						    old_fate   =>  give_fatep
+						  };
 						#
 						priority := 1;
 
-						switch_to_fate  rfate  msg;
+# log::note .{ "give/ITEM/JJJ (just before switch_to_fate)";	};	# [7]
+ log::note .{ sprintf "%s\tgive/ITEM/JJJ %s (just before switch_to_fate)"  (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};	# [7]
+						switch_to_fate  take_fateq  msg;						# take_fateq_revival_point.  This will canonically jump to take_fateq_resumption_point below.
 					    }
 			    );
+};
 
 		    NO_ITEM
 			=>
-			{   my (get_id, get_fate)
-				= 
-				call_with_current_fate
-				    (fn put_fate
-					=
-					{   enqueue (out_q, (make__mailop_done__refcell(), put_fate));
-					    #
-					    ts::reenable_thread_switching_and_dispatch_next_thread ();
-					}
-				    );
+			{
+# log::note .{ "give/NO_ITEM/MMM";	};					#    [C]
+ log::note .{ sprintf "%s\tgive/NO_ITEM/MMM %s"  (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};					#    [C]
+			    (call_with_current_fate
+				(fn give_fateq									# give_fateq will canonically be revived at  give_fateq_revival_point  below.
+				    =
+				    {   enqueue (out_q, (make__mailop_done__refcell(), give_fateq));		# refcell saves give_thread.
+					#
+					ts::dispatch_next_thread__usend__noreturn ();
+				    }
+				)
+			    ) -> (take_thread, take_fatep);							# give_fateq_resumption_point:   When above give_fateq is eventually invoked we'll wind up here.
 
-			    ts::reenable_thread_switching_and_switch_to_thread
-			      (get_id, get_fate, msg);
+														#     [G] 
+# log::note .{ "give/NO_ITEM/QQQ (calling switch_to_thread__usend (take_thread, take_fate, msg))"; };
+ log::note .{ sprintf "%s\tgive/NO_ITEM/QQQ %s (calling switch_to_thread__usend (take_thread, take_fate, msg))"  (ts::thread_scheduler_statestring ())  (mailslot_to_string  mailslot); };
+			    ts::switch_to_thread__usend
+			      (take_thread, take_fatep, msg);							# take_fatep_revival_point
 			};
 		esac;
 	    };
 
 
-	fun give' (MAILSLOT { priority, in_q, out_q }, msg)
+	fun give' (MAILSLOT { priority, in_q, out_q }, msg)							# Derives from Reppy's sendEvt().
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
-		fun fire_mailop ()								# Reppy refers to 'fire_mailop' as 'doFn'.
+		fun fire_mailop ()										# Reppy refers to 'fire_mailop' as 'doFn'.
 		    =
 		    {   (the (rwq::pull_item_from_front_of_queue  in_q))
 			    ->
-			    (selectrun_status,  rfate);
+			    (do1mailoprun_status,  take_fate);
 			    
 
 			call_with_current_fate
-			    (fn put_fate
+			    (fn give_fate
 				=
-				{   ts::run_thread   (end_transaction_and_return_thread_state  selectrun_status,    put_fate);
+				{   ts::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => end_do1mailoprun_and_return_thread  do1mailoprun_status,    old_fate => give_fate };
 				    #
 				    priority := 1;
 
-				    switch_to_fate  rfate  msg;					# 
+				    switch_to_fate  take_fate  msg;					# 
 				}
 			    );
 		    };
 
 		fun set_up_mailopready_watch							# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,							# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,							# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,							# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,							# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop				# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
@@ -334,7 +387,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -346,23 +399,23 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {   
 			(call_with_current_fate
-			    (fn put_fate
+			    (fn give_fate
 				=
-				{   clean_and_enqueue (out_q, (selectrun_status, put_fate));
+				{   clean_and_enqueue (out_q, (do1mailoprun_status, give_fate));
 				    return_to__set_up_mailopready_watches__loop();			# Return control to mailop.pkg.
 										    impossible ();	# return_to__set_up_mailopready_watches__loop() should never return.
 				}
 			    )
 			)
-			    -> (get_id, get_fate);							# Execution will pick up on this line when 'put_fate' is eventually called.
+			    -> (take_thread, take_fate);						# Execution will pick up on this line when 'give_fate' is eventually called.
 
-			finish_selectrun();
+			finish_do1mailoprun();
 
-			ts::reenable_thread_switching_and_switch_to_thread (get_id, get_fate, msg);
+			ts::switch_to_thread__usend (take_thread, take_fate, msg);
 		    };
 
 		fun is_mailop_ready_to_fire ()
@@ -375,27 +428,31 @@ herein
 		    esac;
 	    end;
 
-	fun nonblocking_give (MAILSLOT { priority, in_q, out_q }, msg)
+	fun nonblocking_give (MAILSLOT { priority, in_q, out_q }, msg)					# Derives from Reppy's sendPoll().
 	    =
 	    call_with_current_fate
 		(
-		 fn put_fate
+		 fn give_fate										# Is this 'give_fate' really simply discarded?
 		    =
-		    {   ts::disable_thread_switching ();
+		    {   ts::enter_uninterruptible_scope ();
 			#
 			case (clean_and_remove  in_q)
 			    #
-			    ITEM (rid, rfate)
+			    ITEM (rid, take_fate)
 				=>
 				{   call_with_current_fate
 					(
-					 fn put_fate
+					 fn give_fate
 					    =
-					    {   ts::run_thread   (end_transaction_and_return_thread_state  rid,   put_fate);
+					    {   ts::enqueue_old_thread_plus_old_fate_then_install_new_thread
+						  {
+						    new_thread =>  end_do1mailoprun_and_return_thread  rid,
+						    old_fate   =>  give_fate
+						  };
 						#
 						priority :=  1;
 
-						switch_to_fate  rfate  msg;							# NB: switch_to_fate never returns.
+						switch_to_fate  take_fate  msg;				# NB: switch_to_fate never returns.
 					    }
 					);
 
@@ -404,7 +461,7 @@ herein
 
 			    NO_ITEM
 				=>
-				{   ts::reenable_thread_switching ();
+				{   ts::exit_uninterruptible_scope ();
 				    #
 				    FALSE;
 				};
@@ -412,38 +469,128 @@ herein
 		    }
 		);
 
-	fun take (MAILSLOT { priority, in_q, out_q } )
+	fun take (mailslot as MAILSLOT { priority, in_q, out_q } )							# Derives from Reppy's recv().
 	    =
-	    call_with_current_fate
-		(
-		 fn get_fate
-		    =
-		    {   ts::disable_thread_switching ();
-			#
-			case (clean_and_remove out_q)
+	    {
+		ts::enter_uninterruptible_scope ();
+ log::note .{ sprintf "%s\ttake/TOP  MAILSLOT=%s" (ts::thread_scheduler_statestring ())  (mailslot_to_string  mailslot);		};		# [1] [D]
+		#
+		case (clean_and_remove  out_q)
+		    #
+		    ITEM (do1mailoprun_status, give_fateq)
+			=>
+			{
+# I believe this is the problematic halfpath -- we get an increment but not decrement.
+ log::note .{ sprintf "%s\ttake/ITEM/AAA %s" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};			#     [E]
+			    take_thread =  ts::get_current_thread ();
 			    #
-			    ITEM (selectrun_status, put_fate)
-				=>
-				{   my_id =  ts::get_current_thread ();
-				    #
-				    set_current_thread  selectrun_status;
+			    set_current_thread  do1mailoprun_status;					# Make 'give' thread the current thread.
 
-				    priority := 1;
+			    priority := 1;
 
-				    switch_to_fate  put_fate  (my_id, get_fate);			# 
-				};
+ log::note .{ sprintf "%s\ttake/ITEM/DDD %s (doing switch_to_fate give_fateq)" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};	#    [F]
+			    (call_with_current_fate
+			      (
+				fn take_fatep
+				    =	
+				    switch_to_fate  give_fateq  (take_thread, take_fatep)		# give_fateq_revival_point:  this is canonically a jump to give_fateq_resumption_point above.
+													# The fate passed here must NOT exit UNINTERRUPTIBLE MODE because take_thread_revival_point
+													# invokes it via ts::switch_to_thread__usend.
+			      )
+			    ) -> result;								# take_fatep_resumption_point:  take_fatep above will resume here once revived.	
 
-			    NO_ITEM
-				=>
-				{   enqueue (in_q, (make__mailop_done__refcell(), get_fate));
-				    #
-				    ts::reenable_thread_switching_and_dispatch_next_thread ();
-				};
-			esac;
-		    }
-		);
+#			    ts::exit_uninterruptible_scope ();
 
-	fun take' (MAILSLOT { priority, in_q, out_q } )
+ log::note .{ sprintf "%s\ttake/YYY %s" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);		};		#     [H]
+			    result;
+			};
+
+		    NO_ITEM
+			=>
+			{
+ log::note .{ sprintf "%s\ttake/NO_ITEM/AAA %s" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};		# [2]
+			    (call_with_current_fate
+			      (
+				fn take_fateq
+				    =
+				    {   do1mailoprun_status =  make__mailop_done__refcell();
+					#
+					enqueue (in_q, (do1mailoprun_status, take_fateq));			# take_fateq will canonically be revived at  take_fateq_revival_point  above.
+													# The fate enqueued here needs to EXIT UNINTERRUPTIBLE MODE
+ log::note .{ sprintf "%s\ttake/NO_ITEM/BBB %s" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};		# [3]
+					#
+					ts::dispatch_next_thread__usend__noreturn ();
+				    }
+			      )
+			    ) -> result;								# take_fateq_resumption_point:  take_fateq above will resume here once revived.
+
+			    ts::exit_uninterruptible_scope ();
+ log::note .{ sprintf "%s\ttake/ZZZ %s" (ts::thread_scheduler_statestring ()) (mailslot_to_string  mailslot);	};			# [8]
+			    result;
+			};
+		esac;
+	    };
+
+# At the moment a/the problematic sequence is:
+#
+#
+#
+#
+# [A] give/TOP mode d=0  (about to enter uninterruptible mode)
+# [B] give/AAA mode d=1  (after entering uninterruptible mode)
+# [C] give/NO_ITEM/MMM mode d=1
+#     dispatch_next_thread__usend__noreturn/AAA: mode d=1
+#     dispatch_next_thread__usend__noreturn/CCC: mode d=1
+#     test_basic_mailslot_functionality_a/AAA (above take):  ts::get_uninterruptible_scope_nesting_depth () d=0
+# [D] take/TOP mode d=0
+# [E] take/ITEM/AAA mode d=1
+# [F] take/ITEM/DDD mode d=1 (doing switch_to_fate give_fate)
+# [G] give/NO_ITEM/QQQ mode d=1 (calling switch_to_thread__usend (take_thread, take_fate, msg))
+# [H] take/YYY mode d=-1
+#
+# [1] take/TOP mode d=0
+# [2] take/NO_ITEM/AAA mode d=1
+# [3] take/NO_ITEM/BBB mode d=1
+#     dispatch_next_thread__usend__noreturn/AAA: mode d=1
+#     dispatch_next_thread__usend__noreturn/CCC: mode d=1
+#     test_basic_mailslot_functionality_b/send LUP(7)post-give:  ts::get_uninterruptible_scope_nesting_depth () d=0
+#     test_basic_mailslot_functionality_b/send LUP(8)TOP:        ts::get_uninterruptible_scope_nesting_depth () d=0
+# [4] give/TOP mode d=0  (about to enter uninterruptible mode)
+# [5] give/AAA mode d=1  (after entering uninterruptible mode)
+# [6] give/ITEM mode d=1
+# [7] give/ITEM/JJJ mode d=1  (just before switch_to_fate)
+#     wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate mode d=1
+#     dispatch_next_thread__usend__noreturn/AAA: mode d=2
+#     dispatch_next_thread__usend__noreturn/CCC: mode d=2
+#
+#     take/TOP mode d=0
+#     take/NO_ITEM/AAA mode d=1
+#     take/NO_ITEM/BBB mode d=1
+#     dispatch_next_thread__usend__noreturn/AAA: mode d=1
+#     dispatch_next_thread__usend__noreturn/CCC: mode d=1
+#     test_basic_mailslot_functionality_b/send LUP(1)post-give:  ts::get_uninterruptible_scope_nesting_depth () d=0
+#     test_basic_mailslot_functionality_b/send LUP(2)TOP:        ts::get_uninterruptible_scope_nesting_depth () d=0
+#     give/TOP mode d=0  (about to enter uninterruptible mode)
+#     give/AAA mode d=1  (after entering uninterruptible mode)
+#     give/ITEM mode d=1
+#     give/ITEM/JJJ mode d=1  (just before switch_to_fate)
+#     take/ZZZ mode d=1
+#
+#
+# [1] take/TOP mode d=0
+# [2] take/NO_ITEM/AAA mode d=1
+# [3] take/NO_ITEM/BBB mode d=1
+#     dispatch_next_thread__usend__noreturn/AAA: mode d=1
+#     dispatch_next_thread__usend__noreturn/CCC: mode d=1
+#     test_basic_mailslot_functionality_b/send LUP(1)post-give:  ts::get_uninterruptible_scope_nesting_depth () d=0
+#     test_basic_mailslot_functionality_b/send LUP(2)TOP:        ts::get_uninterruptible_scope_nesting_depth () d=0
+# [4] give/TOP mode d=0  (about to enter uninterruptible mode)
+# [5] give/AAA mode d=1  (after entering uninterruptible mode)
+# [6] give/ITEM mode d=1
+# [7] give/ITEM/JJJ mode d=1  (just before switch_to_fate)
+# [8] take/ZZZ mode d=1
+
+	fun take' (MAILSLOT { priority, in_q, out_q } )							# Derives from Reppy's recvEvt().
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
@@ -451,26 +598,26 @@ herein
 		    =
 		    {   (rwq::pull_item_from_front_of_queue_or_raise_exception  out_q)
 			    ->
-			    (selectrun_status, put_fate);
+			    (do1mailoprun_status, give_fate);
 
 			my_id =  ts::get_current_thread ();
 
-			set_current_thread  selectrun_status;
+			set_current_thread  do1mailoprun_status;
 
 			priority := 1;
 
 			call_with_current_fate
 			    #
-			    (fn get_fate
+			    (fn take_fate
 				=
-				switch_to_fate  put_fate  (my_id,  get_fate)				# 
+				switch_to_fate  give_fate  (my_id,  take_fate)				# 
 			    );
 		    };
 
 		fun set_up_mailopready_watch								# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			selectrun_status,								# 'select' is supposed to fire exactly one mailop: 'selectrun_status' is basically a mutex enforcing this.
-			finish_selectrun,								# Do any required end-of-selectrun work such as  selectrun_status := SELECTRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			do1mailoprun_status,								# 'select' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,								# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 			return_to__set_up_mailopready_watches__loop					# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
@@ -480,7 +627,7 @@ herein
 		    #
 		    # when a
 		    #
-		    #     select [ ... ]
+		    #     do_one_mailop [ ... ]
 		    #
 		    # call has no mailops ready to fire.  'select' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
@@ -492,13 +639,13 @@ herein
 		    #
 		    # The first mailop to fire cancels the rest by doing
 		    #
-		    #     selectrun_status :=  SELECTRUN_IS_COMPLETE;
+		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {   (call_with_current_fate
 			    (
-			     fn get_fate
+			     fn take_fate
 				=
-				{   clean_and_enqueue  (in_q,  (selectrun_status, get_fate));
+				{   clean_and_enqueue  (in_q,  (do1mailoprun_status, take_fate));
 				    #
 				    return_to__set_up_mailopready_watches__loop ();			# Return control to mailop.pkg.
 											impossible();	# return_to__set_up_mailopready_watches__loop () should never return.
@@ -507,9 +654,9 @@ herein
 			)
 			    -> msg;									# Execution will pick up on this line when 'fate' is eventually called.
 
-			finish_selectrun ();
+			finish_do1mailoprun ();
 
-			ts::reenable_thread_switching ();
+			ts::exit_uninterruptible_scope ();
 
 			msg;
 		    };
@@ -524,30 +671,30 @@ herein
 		    esac;
 	    end;
 
-	fun nonblocking_take (MAILSLOT { priority, in_q, out_q } )
+	fun nonblocking_take (MAILSLOT { priority, in_q, out_q } )					# Derives from Reppy's recvPoll(0.
 	    =
-	    {   ts::disable_thread_switching ();
+	    {   ts::enter_uninterruptible_scope ();
 		#
 		case (clean_and_remove out_q)
 		    #
-		    ITEM (selectrun_status, put_fate)
+		    ITEM (do1mailoprun_status, give_fate)
 			=>
 			THE (call_with_current_fate
-				(fn get_fate
+				(fn take_fate
 				    =
 				    {   my_id =  ts::get_current_thread ();
 					#
-					set_current_thread  selectrun_status;
+					set_current_thread  do1mailoprun_status;
 
 					priority := 1;
 
-					switch_to_fate  put_fate  (my_id,  get_fate);		# 
+					switch_to_fate  give_fate  (my_id,  take_fate);		# 
 				    }
 			    )   );
 
 		    NO_ITEM
 			=>
-			{   ts::reenable_thread_switching ();
+			{   ts::exit_uninterruptible_scope ();
 			    #
 			    NULL;
 			};

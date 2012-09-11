@@ -1,17 +1,19 @@
 #!/usr/bin/mythryl
 
-{
-    file::set_logger_to  (file::LOG_TO_FILE  "x.log");
-    file::log_if file::compiler_logging .{ "Foo!\n"; };
+stipulate
+    package u1w =  one_word_unt;			# two_word_unt		is from   src/lib/std/src/two-word-unt.pkg
+herein
+#    (&)  =  two_word_unt::bitwise_and;
+#    (<<) =  two_word_unt::(<<);
 
-    mutex = file::mutex;
-    with_mutex_do = pthread::with_mutex_do;
+    one  = u1w::from_multiword_int  (the (multiword_int::from_string   "1"));
+    zero = u1w::from_multiword_int  (the (multiword_int::from_string   "0"));
 
-    with_mutex_do mutex .{  printf "This is not a test 1\n"; };
-    with_mutex_do mutex .{  printf "This is not a test 2\n"; };
-    with_mutex_do mutex .{  printf "This is not a test 3\n"; };
-};
+    fun testbit(value: u1w::Unt, bit) =  (value & (one << bit)) != zero; 
 
-
-
+    a =  u1w::from_multiword_int  (the (multiword_int::from_string "255"));
+    b =  unt::from_multiword_int  (the (multiword_int::from_string   "1"));
+    
+    printf "testbif(0xff,0x1) == %b\n" (testbit(a, b));
+end;
 

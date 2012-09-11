@@ -29,7 +29,7 @@ extern Val	pervasive_package_pickle_list_refcell__global	[];
 // Incoming posix signals are noted by   c_signal_handler   in
 //     src/c/machine-dependent/posix-signal.c
 // which sets a
-//     pthread->posix_signal_pending
+//     hostthread->posix_signal_pending
 // flag which gets noticed next pass through by the logic in
 //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // which then (via our pointer here) arranges to 'return' to

@@ -91,11 +91,11 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 	errno = 0;
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_connect", NULL );
 	    //
 	    status =  connect (socket, (struct sockaddr*)buf, addrlen );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_connect" );
     }
 
 
@@ -127,11 +127,11 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 	    errno = 0;
 
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", NULL );
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_connect", NULL );
 		//
 		status = select(maxfd, &read_set, &write_set, NULL, NULL); 
 		//
-	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_connect" );
 
             ++eintr_count;
 

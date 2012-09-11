@@ -3,7 +3,7 @@
 // Support functions which mostly create various kinds of
 // strings and vectors on the Mythryl heap.
 //
-// Multicore (pthread) note: when invoking the heapcleaner
+// Multicore (hostthread) note: when invoking the heapcleaner
 // we add the requested size to requested_extra_free_bytes,
 // so that multiple processors can request space at the same time.
 
@@ -61,9 +61,9 @@
 
 // A cleaning-needed check.
 // On multicore systems this needs to be
-// a loop because other pthreads may
+// a loop because other hostthreads may
 // steal the memory before the checking
-// pthread can use it.
+// hostthread can use it.
 																// sib_is_active		def in    src/c/h/heap.h
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
 
@@ -203,7 +203,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	pthread_mutex_lock( &pth__mutex );								// Agegroup1 is shared with other pthreads, so grab the lock on it.
+	pthread_mutex_lock( &pth__mutex );								// Agegroup1 is shared with other hostthreads, so grab the lock on it.
 	    //
 	    WHILE_INSUFFICIENT_FREESPACE_IN_SIB(sib, bytesize+task->heap_allocation_buffer_bytesize) {
 
@@ -225,7 +225,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
 	    /////////////////////////////////////////////////////////	
 	    // We now have enough sib space to create our vector.
 	    // We cannot release the lock yet, because some other
-	    // pthread might steal the freespace out from under us.
+	    // hostthread might steal the freespace out from under us.
 	    /////////////////////////////////////////////////////////	
 	
 	    *(sib->tospace.used_end++) = tagword;							// Lay down the vector tagword.
@@ -474,7 +474,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 
 	pthread_mutex_lock( &pth__mutex );
 
-	    clean_check: ;						// Pthread support jumps to here to recheck for heapcleaning.
+	    clean_check: ;						// Hostthread support jumps to here to recheck for heapcleaning.
 
 	    // If the agegroup1 sib we want to allocate in
 	    // has not been created or does not have enough
@@ -502,7 +502,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 		pthread_mutex_lock( &pth__mutex );
 		ap->requested_extra_free_bytes = 0;
 
-		// Check again to insure that we have sufficient space:					// Pthread support.
+		// Check again to insure that we have sufficient space:					// Hostthread support.
 		//
 		gc_level = -1;
 		goto clean_check;
@@ -594,7 +594,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 		clean_level = 1;										// Heapclean agegroup0 and agegroup1 too.
 	    }
 
-	    clean_check: ;											// Pthread support jumps to here to redo the garbage collection.
+	    clean_check: ;											// Hostthread support jumps to here to redo the garbage collection.
 
 	    ap->requested_extra_free_bytes += bytesize;
 	    pthread_mutex_unlock( &pth__mutex );
@@ -605,7 +605,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 
 	    ap->requested_extra_free_bytes = 0;
 
-	    {   // Check again to ensure that we have sufficient space:						// Pthread support.
+	    {   // Check again to ensure that we have sufficient space:						// Hostthread support.
 		//
 		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap_allocation_buffer_bytesize)   goto clean_check;
 	    }

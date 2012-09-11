@@ -70,11 +70,11 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
     int pid =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int sig =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_kill", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill", NULL );
 	//
 	int status = kill( pid, sig );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_kill" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill" );
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

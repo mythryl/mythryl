@@ -129,7 +129,7 @@ typedef  Int1  Status;
     typedef   Valchunk*   Val;					// Only place Valchunk type is used.
 #endif
 //
-typedef struct pthread_state_struct	Pthread;		// struct pthread_state_struct	def in   this file.
+typedef struct hostthread_state_struct	Hostthread;		// struct hostthread_state_struct	def in   this file.
 typedef struct task			Task;			// struct task			def in   this file.
 typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 
@@ -145,8 +145,8 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
 
 #else
 
-  // OpenBSD pthreads does not include pthread barriers so we need to provide our own.
-  // Blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-pthreads
+  // OpenBSD hostthreads does not include hostthread barriers so we need to provide our own.
+  // Blatantly stolen from here: http://www.howforge.com/implementing-barrier-in-hostthreads
   typedef struct {
     //
     int    needed;
@@ -163,7 +163,7 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
 
   // Barrier functions:
 #   define pthread_barrier_init(b,a,n) barrier_init_emulation(b,n)
-#   define pthread_barrier_destroy(b) barrier_destroy_emulation(b)
+#   define hostthread_barrier_destroy(b) barrier_destroy_emulation(b)
 #   define pthread_barrier_wait(b) barrier_wait_emulation(b)
   int barrier_init_emulation ( Barrier * barrier, int needed );
   int barrier_destroy_emulation ( Barrier * barrier );
@@ -176,11 +176,11 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
 #endif
 
 
-typedef pthread_t 			Ptid;			// A pthread id.
+typedef pthread_t 			Ptid;			// A hostthread id.
     //
     // NB; Tid MUST be pthread_t from <pthread.h> because in
-    // pth__pthread_create from src/c/pthread/pthread-on-posix-threads.c
-    // we pass a pointer to task->pthread->pid as pthread_t*.
+    // pth__pthread_create from src/c/hostthread/hostthread-on-posix-threads.c
+    // we pass a pointer to task->hostthread->pid as pthread_t*.
 
 // System_Constant
 //
@@ -257,12 +257,12 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 
 
 /* typedef  struct task  Task; */					// Defined in runtime-base.h
-									// Initialized by   set_up_pthread_state   in   src/c/main/runtime-state.c
+									// Initialized by   set_up_hostthread_state   in   src/c/main/runtime-state.c
 struct task {
     //
     Heap*	heap;							// The heap for this Mythryl task.
-    Pthread* 	pthread;						// The Pthread on which it is running. If you change the offset of this field you'll probably need to change:
-									//     pthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+    Hostthread* 	hostthread;						// The Hostthread on which it is running. If you change the offset of this field you'll probably need to change:
+									//     hostthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
     // Mythryl registers:
     //
     Val*	heap_allocation_buffer;					// The agegroup0 buffer.
@@ -287,8 +287,8 @@ struct task {
 									// holds the same value as the link_register.			program_counter, so presumably it always points into the same <something>. -- 2011-11-15 CrT
 
     Val		exception_fate;						// Exception handler (?)
-    Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Thread.  Type
-									// Thread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Appthread.  Type
+									// Appthread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
     Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
 
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.
@@ -312,36 +312,36 @@ struct task {
 //
 typedef enum {
     //
-    HEAPCLEANER_IS_OFF,			// No heapcleaner activity; all pthreads running mythryl code (or blocked).
-    HEAPCLEANER_IS_STARTING,		// One pthread has set mode = PTHREAD_IS_HEAPCLEANING and become primary heapcleaner; it is waiting for PTHREAD_IS_RUNNING count to drop to zero.
-    HEAPCLEANER_IS_RUNNING		// No PTHREAD_IS_RUNNING pthreads; primary heapcleaner pthread is heapcleaning, secondary mode = PTHREAD_IS_HEAPCLEANING pthreads are waiting for it to finish and set HEAPCLEANER_IS_OFF.
+    HEAPCLEANER_IS_OFF,			// No heapcleaner activity; all hostthreads running mythryl code (or blocked).
+    HEAPCLEANER_IS_STARTING,		// One hostthread has set mode = HOSTTHREAD_IS_HEAPCLEANING and become primary heapcleaner; it is waiting for HOSTTHREAD_IS_RUNNING count to drop to zero.
+    HEAPCLEANER_IS_RUNNING		// No HOSTTHREAD_IS_RUNNING hostthreads; primary heapcleaner hostthread is heapcleaning, secondary mode = HOSTTHREAD_IS_HEAPCLEANING hostthreads are waiting for it to finish and set HEAPCLEANER_IS_OFF.
     //
 } Heapcleaner_State;
 
-// Type of a pthread->mode field:
+// Type of a hostthread->mode field:
 //
 typedef enum {
     //
-    PTHREAD_IS_RUNNING,			// Normal state of a running Mythryl pthread.
-    PTHREAD_IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
-    PTHREAD_IS_PRIMARY_HEAPCLEANER,	// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning. It initiated this heapcleaning and will do the actual work.
-    PTHREAD_IS_SECONDARY_HEAPCLEANER,	// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning. It did not initiate this heapcleaning and will do no actual heapcleaning work.
-    PTHREAD_IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
+    HOSTTHREAD_IS_RUNNING,		// Normal state of a running Mythryl hostthread.
+    HOSTTHREAD_IS_BLOCKED,		// For when a hostthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    HOSTTHREAD_IS_PRIMARY_HEAPCLEANER,	// Hostthread has suspended HOSTTHREAD_IS_RUNNING mode for duration of heapcleaning. It initiated this heapcleaning and will do the actual work.
+    HOSTTHREAD_IS_SECONDARY_HEAPCLEANER,// Hostthread has suspended HOSTTHREAD_IS_RUNNING mode for duration of heapcleaning. It did not initiate this heapcleaning and will do no actual heapcleaning work.
+    HOSTTHREAD_IS_VOID			// No kernel thread allocated -- unused slot in hostthread table.
     //
-} Pthread_Mode;
+} Hostthread_Mode;
     //
-    // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
-    // Mode of a Pthread.		// pthread_state_struct is defined in   this file
+    // See comments at bottom of   src/c/hostthread/hostthread-on-posix-threads.c
+    // Mode of a Hostthread.		// hostthread_state_struct is defined in   this file
     //
-    // To switch a pthread between the two
+    // To switch a hostthread between the two
     // RUNNING modes, use the macros
     //
-    //     RELEASE_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING  ->  PTHREAD_IS_BLOCKED  state transition.
-    //     RECOVER_MYTHRYL_HEAP		// PTHREAD_IS_BLOCKED  ->  PTHREAD_IS_RUNNING  state transition.
+    //     RELEASE_MYTHRYL_HEAP		// HOSTTHREAD_IS_RUNNING  ->  HOSTTHREAD_IS_BLOCKED  state transition.
+    //     RECOVER_MYTHRYL_HEAP		// HOSTTHREAD_IS_BLOCKED  ->  HOSTTHREAD_IS_RUNNING  state transition.
 
 
 ///////////////////////////////////////////////////////////////////
-// State of a 'Pthread', the Mythryl wrapper for a
+// State of a 'Hostthread', the Mythryl wrapper for a
 // posix thread sharing access to the Mythryl heap.
 
 #include "system-dependent-signal-stuff.h"
@@ -352,15 +352,15 @@ typedef enum {
 
 // Define our per-posix-thread state information:
 //
-struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread	  def above.
+struct hostthread_state_struct {					// typedef struct hostthread_state_struct	Hostthread	  def above.
     //
     Heap* heap;		  					// The heap for this Mythryl task.
 								// 'Heap' is defined in	  src/c/h/runtime-base.h
 
     Task* task;							// The state of the Mythryl task that is
-				        			// running on this Pthread.  Eventually	
+				        			// running on this Hostthread.  Eventually	
 				        			// we will support multiple Mythryl tasks
-				        			// per Pthread.
+				        			// per Hostthread.
     // Signal related fields:
     //
     Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.
@@ -386,15 +386,15 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
 
-    Pthread_Mode  mode;						// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
-								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
+    Hostthread_Mode  mode;						// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
+								// Valid values for 'mode' are HOSTTHREAD_IS_RUNNING/HOSTTHREAD_IS_BLOCKED/HOSTTHREAD_IS_HEAPCLEANING/HOSTTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 
     int		id;						// Our own private small-int id for the record. We assign these sequentailly starting at 1.
-    Ptid	ptid;	       					// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+    Ptid	ptid;	       					// Our os-assigned hostthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	//
 	// NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
-	//     because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
-	//     we pass a pointer to task->pthread->tid as pthread_t* to avoid race conditions.
+	//     because in  pth__pthread_create   from   src/c/hostthread/hostthread-on-posix-threads.c
+	//     we pass a pointer to task->hostthread->tid as pthread_t* to avoid race conditions.
 	//
 	// Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
 
@@ -452,7 +452,7 @@ extern void set_up_timers ();
 
 extern Val    run_mythryl_function__may_heapclean (Task *task, Val f, Val arg, Bool use_fate, Roots*);		// run_mythryl_function__may_heapclean				def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
-extern void   reset_timers (Pthread* pthread);
+extern void   reset_timers (Hostthread* hostthread);
 extern void   run_mythryl_task_and_runtime_eventloop__may_heapclean (Task* task, Roots*);			// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 extern void   raise_mythryl_exception (Task* task, Val exn);							// raise_mythryl_exception					def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 extern void   handle_uncaught_exception   (Val e);								// handle_uncaught_exception					def in   src/c/main/runtime-exception-stuff.c
@@ -473,26 +473,26 @@ extern void   set_up_fault_handlers ();										// set_up_fault_handlers				def
 // is that while we are doing a slow syscall (or just a
 // slow C op, like compressing a largish string) we cannot
 // respond to a request to enter heapcleaner mode,
-// and consequently all other pthreads could wind up blocked
+// and consequently all other hostthreads could wind up blocked
 // waiting for us to join them in heapcleaner mode -- thus
 // defeating much of the point of having multiple kernel threads
 // running. (Minor heapcleanings happen about 200 times per second.)
 //
 // Our basic solution is that before doing such an op we
-// reliquish heap access rights by changing our pthread
-// status from PTHREAD_IS_RUNNING to PTHREAD_IS_BLOCKED;
-// the other pthreads then know we're out of the loop and can go
+// reliquish heap access rights by changing our hostthread
+// status from HOSTTHREAD_IS_RUNNING to HOSTTHREAD_IS_BLOCKED;
+// the other hostthreads then know we're out of the loop and can go
 // ahead and do a heapcleaning without us.
 //
 // Our solution creates the problem that any Mythryl heap values
 // used by the slow system call or C function must therefor be
 // copied out of the Mythryl heap, since heapcleaning may move
 // them around arbitrarily without warning so long as we have
-// PTHREAD_IS_BLOCKED set.
+// HOSTTHREAD_IS_BLOCKED set.
 //
 // So here we implement functionality to copy values out of the
 // Mythryl heap.  Obviously, we cannot use static buffers, since
-// they would be shared between all pthreads;  we have to use
+// they would be shared between all hostthreads;  we have to use
 // either stack storage or malloc()ed storage.  Malloc()ing is
 // slow and stack storage is fixed-size (unless we use nonstandard
 // gcc features) so we use stack storage for small stuff and
@@ -534,26 +534,26 @@ extern Bool   heapcleaner_messages_are_enabled__global;				// Set               
 extern Bool   unlimited_heap_is_enabled__global;				// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 extern Bool   saw_shebang_line__global;						// Intended only for debug; currently never used; set	     in   src/c/main/runtime-main.c
 extern Bool   running_script__global;						// Used only for debug;  set				     in   src/c/main/runtime-main.c
-										//                       read				     in   src/c/pthread/pthread-on-posix-threads.c	
+										//                       read				     in   src/c/hostthread/hostthread-on-posix-threads.c	
 
-extern Pthread*	pthread_table__global [];					// pthread_table__global	def in   src/c/main/runtime-state.c
+extern Hostthread*	hostthread_table__global [];					// hostthread_table__global	def in   src/c/main/runtime-state.c
     //
     // Table of all active posix threads in process.
     // (Or at least, all posix threads running Mythryl
     // code or accessing the Mythryl heap.)
     //
     // In multithreaded operation this table is modified
-    // only by code in   src/c/pthread/pthread-on-posix-threads.c
+    // only by code in   src/c/hostthread/hostthread-on-posix-threads.c
     // serialized by the pth__mutex
     // in that file.     
 
 extern Heapcleaner_State  pth__heapcleaner_state__global;			// Grab pth__mutex before changing this.
-extern int                pth__running_pthreads_count__global;			// Grab pth__mutex before changing this.
+extern int                pth__running_hostthreads_count__global;			// Grab pth__mutex before changing this.
     //
-    // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
-    // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
+    // These are both defined in   src/c/hostthread/hostthread-on-posix-threads.c
+    // See comments at bottom of   src/c/hostthread/hostthread-on-posix-threads.c
 
-extern void   pth__validate_running_pthreads_count (void);		// Explicitly verify that pth__running_pthreads_count__global is correct by looping over pthread_table__global[].
+extern void   pth__validate_running_hostthreads_count (void);		// Explicitly verify that pth__running_hostthreads_count__global is correct by looping over hostthread_table__global[].
 
 
 // log_if declaration.
@@ -601,16 +601,16 @@ extern int    log_if_fd;
 //   RELEASE_MYTHRYL_HEAP
 //   RECOVER_MYTHRYL_HEAP
 // calls.  This has the effect of removing
-// the blocked pthread from the set of RUNNING
-// pthreads, allowing the remaining pthreads
+// the blocked hostthread from the set of RUNNING
+// hostthreads, allowing the remaining hostthreads
 // to do heapcleanings ("garbage collections")
 // in a timely manner:
 //
-extern void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  );		// release_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
-extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name             );		// recover_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
+extern void release_mythryl_heap(  Hostthread* hostthread,  const char* fn_name,  Val* arg  );		// release_mythryl_heap		def in   src/c/hostthread/hostthread-on-posix-threads.c
+extern void recover_mythryl_heap(  Hostthread* hostthread,  const char* fn_name             );		// recover_mythryl_heap		def in   src/c/hostthread/hostthread-on-posix-threads.c
 //
-#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )	release_mythryl_heap(  pthread,  fn_name,  arg  )
-#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name        )
+#define RELEASE_MYTHRYL_HEAP( hostthread, fn_name, arg )	release_mythryl_heap(  hostthread,  fn_name,  arg  )
+#define RECOVER_MYTHRYL_HEAP( hostthread, fn_name      )	recover_mythryl_heap(  hostthread,  fn_name        )
     //
     // For background comments see Note[1]
 
@@ -631,7 +631,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     // functions; tracking them would not aid debugging.
 
 #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
- || !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+ || !NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
     //
     #error Multicore runtime currently requires polling support.
 #endif
@@ -655,8 +655,8 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 ////////////////////////////////////////////////////////////////////////////
 // Statically pre-allocated mutexs, condvars and such:
 //
-extern Mutex	    pth__mutex;							// Governs  pthread->mode, pth__heapcleaner_state__global, pth__running_pthreads_count__global ... -- see  src/c/pthread/pthread-on-posix-threads.c
-extern Condvar	    pth__condvar;						// Waits on pthread->mode, pth__heapcleaner_state__global, pth__running_pthreads_count__global ... -- see  src/c/pthread/pthread-on-posix-threads.c
+extern Mutex	    pth__mutex;							// Governs  hostthread->mode, pth__heapcleaner_state__global, pth__running_hostthreads_count__global ... -- see  src/c/hostthread/hostthread-on-posix-threads.c
+extern Condvar	    pth__condvar;						// Waits on hostthread->mode, pth__heapcleaner_state__global, pth__running_hostthreads_count__global ... -- see  src/c/hostthread/hostthread-on-posix-threads.c
 //
 //
 
@@ -670,15 +670,15 @@ extern void     pth__shut_down		(void);					// Called once just before calling e
 
 
 ////////////////////////////////////////////////////////////////////////////
-// PTHREAD START/STOP/ETC SUPPORT
+// HOSTTHREAD START/STOP/ETC SUPPORT
 //
-extern char*    pth__pthread_create	( int* pthread_table_slot,
+extern char*    pth__pthread_create	( int* hostthread_table_slot,
 					  Val thread,
 					  Val closure
-					);						// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
-//											// Returns FALSE if we're already maxed out on allowed number of pthreads.
-//											// This gets exported to the Mythryl level as  "pthread", "make_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
-//											// and instantiated   at the Mythryl leval as  "make_pthread"             in    src/lib/std/src/pthread.pkg
+					);						// Called with (thread, closure) and if a hostthread is available starts closure running on a new hostthread and returns TRUE.
+//											// Returns FALSE if we're already maxed out on allowed number of hostthreads.
+//											// This gets exported to the Mythryl level as  "hostthread", "make_hostthread"  via   src/c/lib/hostthread/libmythryl-hostthread.c
+//											// and instantiated   at the Mythryl leval as  "make_hostthread"             in    src/lib/std/src/hostthread.pkg
 //
 extern void     pth__pthread_exit		(Task* task);				// Reverse of above, more or less.
 //											// On Solaris this appears to actually stop and kill the thread.
@@ -686,20 +686,20 @@ extern void     pth__pthread_exit		(Task* task);				// Reverse of above, more or
 //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
 // 
 //
-extern char*    pth__pthread_join		(Task* task, Val pthread_table_slot);	// Wait until subthread exits.
+extern char*    pth__pthread_join		(Task* task, Val hostthread_table_slot);	// Wait until subthread exits.
 // 
-extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
-//											// Pthread is typedef'ed in src/c/h/runtime-base.h
+extern Hostthread* pth__get_hostthread		(void);					// Needed to find record for current hostthread in contexts like signal handlers where it is not (otherwise) available.
+//											// Hostthread is typedef'ed in src/c/h/runtime-base.h
 //
-extern Ptid	pth__get_pthread_id		(void);					// Used to initialize pthread_table__global[0]->pid in   src/c/main/runtime-state.c
-//											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
-//											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
+extern Ptid	pth__get_hostthread_id		(void);					// Used to initialize hostthread_table__global[0]->pid in   src/c/main/runtime-state.c
+//											// This just calls getpid()  in                         src/c/hostthread/hostthread-on-sgi.c
+//											// This returns thr_self() (I don't wanna know) in      src/c/hostthread/hostthread-on-solaris.c
 
 
 ////////////////////////////////////////////////////////////////////////////
-// PTHREAD GARBAGE COLLECTION SUPPORT
+// HOSTTHREAD GARBAGE COLLECTION SUPPORT
 //
-extern void  partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]);
+extern void  partition_agegroup0_buffer_between_hostthreads   (Hostthread *hostthread_table[]);
 extern int   pth__start_heapcleaning    (Task*);
 extern void  pth__finish_heapcleaning   (Task*);
 
@@ -714,12 +714,12 @@ extern Val*  pth__extra_heapcleaner_roots__global [];
 //
 // We use our "mutex" locks to perform mutual exclusion,
 // ensuring consistency of shared mutable datastructures
-// by ensuring that at most one pthread at a time is
+// by ensuring that at most one hostthread at a time is
 // updating that datastructure.  Typically we allocate
 // one such mutex for each major shared mutable datastructure,
 // which persists for as long as that datastructure.
 //
-// Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#Mutexes
+// Tutorial:   https://computing.llnl.gov/tutorials/hostthreads/#Mutexes
 //
 
 extern Vunt	pth__mutex_make    (void);
@@ -734,11 +734,11 @@ extern char*		pth__mutex_trylock	(Task* task, Vunt mutex_id, Bool* result);	// h
 //                   CONDITIONAL VARIABLES
 //
 // Condition variables (in conjunction with mutexes)
-// provide a way for a pthread to wait for (typically)
+// provide a way for a hostthread to wait for (typically)
 // a particular variable to assume a particular value,
 // without having to poll.
 //
-// Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
+// Tutorial:   https://computing.llnl.gov/tutorials/hostthreads/#ConditionVariables
 //
 extern Vunt	pth__condvar_make    (void);
 
@@ -761,7 +761,7 @@ extern char*   pth__condvar_destroy		(Task* task, Vunt condvar_id);		// http://p
     //    one may call  pth__condvar_init on it; all other operations are undefined.
     //
     //  o Behavior is undefined if pth__condvar_destroy()
-    //    is called when a pthread is blocked on the condition variable.
+    //    is called when a hostthread is blocked on the condition variable.
 
 extern char*   pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     //
@@ -771,20 +771,20 @@ extern char*   pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id);
 
 extern char*   pth__condvar_signal   (Task* task, Vunt condvar_id);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     //
-    // Unblock at least one pthread waiting on condvar,
-    // except no effect if no pthreads are blocked on condvar,
+    // Unblock at least one hostthread waiting on condvar,
+    // except no effect if no hostthreads are blocked on condvar,
     //
-    // If more than one pthread is blocked on condvar the scheduling
+    // If more than one hostthread is blocked on condvar the scheduling
     // policy determines the order in which threads are unblocked.
     //
-    // If multiple pthreads are unblocked, they compete for the
+    // If multiple hostthreads are unblocked, they compete for the
     // associated mutex as though they had call called pth__mutex_lock().
 
 extern char*   pth__condvar_broadcast   (Task* task, Vunt condvar_id);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     //
-    // Unblock all pthreads waiting on condvar, which might be none.
+    // Unblock all hostthreads waiting on condvar, which might be none.
     //
-    // If multiple pthreads are unblocked, they compete for the
+    // If multiple hostthreads are unblocked, they compete for the
     // associated mutex as though they had all called pth__mutex_lock().
 
 
@@ -794,7 +794,7 @@ extern char*   pth__condvar_broadcast   (Task* task, Vunt condvar_id);			// http
 //
 // We use our "barriers" to perform essentially the
 // opposite of mutual exclusion, ensuring that all
-// pthreads in a set have completed their part of
+// hostthreads in a set have completed their part of
 // a shared task before any of them are allowed to
 // proceed past the "barrier".
 //
@@ -802,12 +802,12 @@ extern char*   pth__condvar_broadcast   (Task* task, Vunt condvar_id);			// http
 //
 //  o Call pth__barrier_init() before doing anything else.
 //
-//  o Call pth__barrier_wait() to synchronize multiple pthreads.
+//  o Call pth__barrier_wait() to synchronize multiple hostthreads.
 //
 //  o Call pth__barrier_detroy() before calling pth__barrier_init() again.
 //
 //  o Never call  pth__barrier_init() or pth__barrier_detroy()
-//    while pthreads are blocked on the barrier.
+//    while hostthreads are blocked on the barrier.
 //
 extern Vunt	pth__barrier_make    (void);
 extern char*	pth__barrier_free    (Task* task, Vunt barrier_id);
@@ -824,17 +824,17 @@ extern char*    pth__barrier_init 	(Task* task, Vunt barrier_id, int threads);	/
     //   (Call pth__barrier_destroy first.)
     //
     //  o Behavior is undefined if pth__barrier_init()
-    //    is called when a pthread is blocked on the barrier.
-    //    (That is, if some pthread has not returned from
+    //    is called when a hostthread is blocked on the barrier.
+    //    (That is, if some hostthread has not returned from
     //    pth__barrier_wait)
 
 extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     //
-    // Block currently executing pthread until the proper
-    // number of pthreads are waiting at the barrier.
+    // Block currently executing hostthread until the proper
+    // number of hostthreads are waiting at the barrier.
     // This number is specified via pth__barrier_init().
     //
-    // When released, one pthread at barrier gets a TRUE
+    // When released, one hostthread at barrier gets a TRUE
     // back pth__barrier_wait(), the others  get a FALSE;
     // this lets them easily "elect a leader" if desired.
     // (This is particularly useful for ensuring that
@@ -878,7 +878,7 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
 #define RAMLOG_MASK		(RAMLOG_ENTRIES-1)					// construct a mask to implement fast queue wrap-around.
 
 typedef struct {
-    int   id;										// task->pthread->id which made the ramlog entry.
+    int   id;										// task->hostthread->id which made the ramlog entry.
     char* fn_name;
 } Ramlog_Entry;
 
@@ -894,12 +894,12 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
     //       =====================
     //
     int e = ramlog_next_entry_to_write;
-    ramlog_next_entry_to_write =   ramlog_next( e );					// No pthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
+    ramlog_next_entry_to_write =   ramlog_next( e );					// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
     //
     Ramlog_Entry* r =  &ramlog_circular_queue[  e ];
     //
     r->fn_name = fn_name;
-    r->id      = task->pthread->id;
+    r->id      = task->hostthread->id;
 }
 
 #endif // _ASM_ 
@@ -926,25 +926,25 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 //     RECOVER_MYTHRYL_HEAP
 //
 // The problem to be solved here is that when
-// multiple pthreads (kernel threads) share the
+// multiple hostthreads (kernel threads) share the
 // Mythryl heap, all threads must enter heapcleaning
 // mode before heapcleaning can begin, which happens
-// about 200 times per second:  If one pthread is
+// about 200 times per second:  If one hostthread is
 // blocked in a sleep() or select() or whatever for
 // a long time (on the millisecond scale), all other
-// pthreads will wind up dead in the water until the
-// offending pthread finally wakes up, defeating much
-// of the point of having multiple pthreads running.
+// hostthreads will wind up dead in the water until the
+// offending hostthread finally wakes up, defeating much
+// of the point of having multiple hostthreads running.
 //
-// Our solution is that any pthread starting a potentially
+// Our solution is that any hostthread starting a potentially
 // lengthy C operation (which does not involve the Mythryl heap!)
 // should do
 //
-//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", &arg );		// Pass &arg if 'arg' (or any part of it) is live at this point, else NULL.
+//     RELEASE_MYTHRYL_HEAP( task->hostthread, "foo", &arg );		// Pass &arg if 'arg' (or any part of it) is live at this point, else NULL.
 //         //
 //         slow_c_operation_not_using_mythryl_heap();
 //         //
-//     RECOVER_MYTHRYL_HEAP( task->pthread, "foo" );
+//     RECOVER_MYTHRYL_HEAP( task->hostthread, "foo" );
 //
 //  (These are expected to be used in one of the 
 //  Mythryl/C interface fns taking (Task* task, Val arg)
@@ -952,12 +952,12 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
 //  elsewhere -- there may be Val args in the caller which
 //  are unprotected from the heapcleaner!)
 //
-// Those macros can then explicitly remove the pthread from
-// the 'active' set (by changing pthread->mode from
-// PTHREAD_IS_RUNNING to PTHREAD_IS_BLOCKED) before
-// the slow operation and then changing pthread->mode back to
-// PTHREAD_IS_RUNNING afterward, with of course proper
-// mutex protection on the latter to assure that the pthread
+// Those macros can then explicitly remove the hostthread from
+// the 'active' set (by changing hostthread->mode from
+// HOSTTHREAD_IS_RUNNING to HOSTTHREAD_IS_BLOCKED) before
+// the slow operation and then changing hostthread->mode back to
+// HOSTTHREAD_IS_RUNNING afterward, with of course proper
+// mutex protection on the latter to assure that the hostthread
 // does not attempt to resume using the heap during heapcleaning.
 //
 // NB: Because the heapcleaner (garbage collector) may move

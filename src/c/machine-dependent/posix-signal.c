@@ -25,12 +25,12 @@
 
 
 
-// SELF_PTHREAD is used in
+// SELF_HOSTTHREAD is used in
 //
 //     arithmetic_fault_handler					// arithmetic_fault_handler	def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 //
-// to supply the SELF_PTHREAD->task
-// and           SELF_PTHREAD->->executing_mythryl_code
+// to supply the SELF_HOSTTHREAD->task
+// and           SELF_HOSTTHREAD->->executing_mythryl_code
 // values for handling
 // a divide-by-zero or whatever.
 //
@@ -38,11 +38,11 @@
 // it means a divide-by-zero in any thread will always
 // be reported as being in thread zero.
 //
-// (Can't we just map our pid to our pthread_table__global entry,
+// (Can't we just map our pid to our hostthread_table__global entry,
 // by linear scan if nothing else?  -- 2011-11-03 CrT)
 // 
 // 
-#define SELF_PTHREAD	(pth__get_pthread())			// Note that we still have   #define SELF_PTHREAD	(pthread_table__global[ 0 ])   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
+#define SELF_HOSTTHREAD	(pth__get_hostthread())			// Note that we still have   #define SELF_HOSTTHREAD	(hostthread_table__global[ 0 ])   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 
 
 #ifdef USE_ZERO_LIMIT_PTR_FN
@@ -60,15 +60,15 @@ Val   list_signals__may_heapclean   (Task* task, Roots* extra_roots)   {				// C
     return dump_table_as_system_constants_list__may_heapclean (task, &SigTable, extra_roots);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
-void   pause_until_signal   (Pthread* pthread) {
+void   pause_until_signal   (Hostthread* hostthread) {
     // ==================
     //
-    // Suspend the given Pthread
+    // Suspend the given Hostthread
     // until a signal is received:
     pause ();												// pause() is a clib function, see pause(2).
 }
 
-void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
+void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_state) {
     // ================
     //
     // QUESTIONS:
@@ -84,12 +84,12 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
 	//
     case RUNSIG_HEAPCLEANING_DONE:
         //
-	pthread->heapcleaning_done_signal_handler_state =  signal_state;
+	hostthread->heapcleaning_done_signal_handler_state =  signal_state;
 	break;
 
     case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
         //
-	pthread->thread_scheduler_timeslice_signal_handler_state =  signal_state;
+	hostthread->thread_scheduler_timeslice_signal_handler_state =  signal_state;
 	break;
 
     default:
@@ -122,18 +122,18 @@ void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
 }
 
 
-int   get_signal_state   (Pthread* pthread,  int sig_num)   {
+int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {
     //================
     //
     switch (sig_num) {
         //
     case RUNSIG_HEAPCLEANING_DONE:
         //
-	return pthread->heapcleaning_done_signal_handler_state;
+	return hostthread->heapcleaning_done_signal_handler_state;
 
     case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
         //
-	return pthread->thread_scheduler_timeslice_signal_handler_state;
+	return hostthread->thread_scheduler_timeslice_signal_handler_state;
 
     default:
 	if (!IS_SYSTEM_SIG(sig_num))   die ("get_signal_state: unknown signal %d\n", sig_num);
@@ -166,7 +166,7 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
         =
         (ucontext_t*) c;
 
-    Pthread* pthread = SELF_PTHREAD;
+    Hostthread* hostthread = SELF_HOSTTHREAD;
 
 
     // Sanity check:  We compile in a MAX_POSIX_SIGNALS value but
@@ -183,19 +183,19 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //
     //     src/c/machine-dependent/signal-stuff.c
     //
-    pthread->posix_signal_counts[sig].seen_count++;
-    pthread->all_posix_signals.seen_count++;
+    hostthread->posix_signal_counts[sig].seen_count++;
+    hostthread->all_posix_signals.seen_count++;
 
 //    log_if(
 //        "posix-signal.c/c_signal_handler: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",
 //        sig,
-//        pthread->posix_signal_counts[sig].seen_count,
-//        pthread->posix_signal_counts[sig].done_count,
-//        pthread->posix_signal_counts[sig].seen_count - pthread->posix_signal_counts[sig].done_count
+//        hostthread->posix_signal_counts[sig].seen_count,
+//        hostthread->posix_signal_counts[sig].done_count,
+//        hostthread->posix_signal_counts[sig].seen_count - hostthread->posix_signal_counts[sig].done_count
 //    );
 
     #ifdef SIGNAL_DEBUG
-    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, pthread->posix_signal_pending, pthread->mythryl_handler_for_posix_signal_is_running);
+    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -203,17 +203,17 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     // doing it anyway in all other cases will
     // not hurt:
     //
-    pthread->ccall_limit_pointer_mask = 0;
+    hostthread->ccall_limit_pointer_mask = 0;
 
-    if (  pthread->executing_mythryl_code
-    &&  ! pthread->posix_signal_pending
-    &&  ! pthread->mythryl_handler_for_posix_signal_is_running
+    if (  hostthread->executing_mythryl_code
+    &&  ! hostthread->posix_signal_pending
+    &&  ! hostthread->mythryl_handler_for_posix_signal_is_running
     ){
-	pthread->posix_signal_pending = TRUE;
+	hostthread->posix_signal_pending = TRUE;
 
 	#ifdef USE_ZERO_LIMIT_PTR_FN
 	    //
-	    SIG_SavePC( pthread->task, scp );
+	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp, Zero_Heap_Allocation_Limit );
 	#else
 	    SIG_Zero_Heap_Allocation_Limit( scp );			// OK to adjust the heap limit directly.
@@ -238,14 +238,14 @@ static void   c_signal_handler   (
 	Signal_Handler_Context_Arg*  scp =  &sc;
     #endif
 
-    Pthread*  pthread =  SELF_PTHREAD;
+    Hostthread*  hostthread =  SELF_HOSTTHREAD;
 
-    pthread->posix_signal_counts[sig].seen_count++;
-    pthread->all_posix_signals.seen_count++;
+    hostthread->posix_signal_counts[sig].seen_count++;
+    hostthread->all_posix_signals.seen_count++;
 
     #ifdef SIGNAL_DEBUG
     debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n",
-    sig, pthread->posix_signal_pending, pthread->mythryl_handler_for_posix_signal_is_running);
+    sig, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -253,18 +253,18 @@ static void   c_signal_handler   (
     // doing it anyway in all other cases will
     // not hurt:
     //
-    pthread->ccall_limit_pointer_mask = 0;
+    hostthread->ccall_limit_pointer_mask = 0;
 
-    if (  pthread-> executing_mythryl_code
-    && (! pthread-> posix_signal_pending)
-    && (! pthread-> mythryl_handler_for_posix_signal_is_running)
+    if (  hostthread-> executing_mythryl_code
+    && (! hostthread-> posix_signal_pending)
+    && (! hostthread-> mythryl_handler_for_posix_signal_is_running)
     ){
         //
-	pthread->posix_signal_pending =  TRUE;
+	hostthread->posix_signal_pending =  TRUE;
 
 	#ifdef USE_ZERO_LIMIT_PTR_FN
 	    //
-	    SIG_SavePC( pthread->task, scp );
+	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp, Zero_Heap_Allocation_Limit );
 	#else
 	    SIG_Zero_Heap_Allocation_Limit( scp );		// OK to adjust the heap limit directly.
@@ -327,11 +327,11 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //
 //  log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x", mask );	// Commented out because it floods mythryl.compile.log -- 2011-10-10 CrT
     //
-    RELEASE_MYTHRYL_HEAP( task->pthread, "set_signal_mask", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "set_signal_mask", NULL );
 	//
 	SET_PROCESS_SIGNAL_MASK( mask );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "set_signal_mask" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "set_signal_mask" );
 }
 
 
@@ -352,7 +352,7 @@ Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)
     int		i;
     int		n;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_getsigmask", NULL );
 	//
 	GET_PROCESS_SIGNAL_MASK( mask );
 	//
@@ -363,7 +363,7 @@ Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)
 	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id))   n++;
 	}
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_getsigmask" );
 
     if (n == 0)   return OPTION_NULL;
 

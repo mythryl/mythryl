@@ -166,11 +166,11 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
 										if (0)	log_if( "socket.c/top: domain d=%d (%s) type d=%d (%s) protocol d=%d\n", domain, domain_name(domain), type, type_name(type), protocol );
     errno = 0;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socket", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_socket", NULL );
 	//
 	int sock =  socket (domain, type, protocol);				// socket	documented in   man 2 socket
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socket" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_socket" );
 //										log_if( "socket.c/bot: socket d=%d errno d=%d\n", sock, errno );
     if (sock < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// RAISE_SYSERR__MAY_HEAPCLEAN is defined in src/c/lib/raise-error.h
 										// 'status' looks bogus here (ignored except on MacOS). XXX BUGGO FIXME

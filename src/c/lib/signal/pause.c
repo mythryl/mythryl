@@ -45,11 +45,11 @@ Val   _lib7_Sig_pause   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sig_pause");
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_pause", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_pause", NULL );
 	//
-	pause_until_signal( task->pthread );			//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
+	pause_until_signal( task->hostthread );			//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_pause" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_pause" );
 
 
     return HEAP_VOID;

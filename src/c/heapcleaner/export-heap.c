@@ -28,7 +28,7 @@
 //     Heap image
 //
 //
-// Note that this will change once multiple Pthreads are supported.	XXX BUGGO FIXME
+// Note that this will change once multiple Hostthreads are supported.	XXX BUGGO FIXME
 
 
 /*
@@ -75,7 +75,7 @@ Status   export_heap_image   (Task* task,  FILE* file) {
     //
     // This fn gets bound to   export_heap   in:
     //
-    //     src/lib/std/src/nj/export.pkg
+    //     src/lib/std/src/nj/save-heap-to-disk.pkg
     //
     // via
     //
@@ -98,11 +98,11 @@ Status   export_fn_image   (
     //
     // This fn gets exported to the Mythryl level as   spawn_to_disk'   via:
     //
-    //     src/c/lib/heap/export-fun.c
+    //     src/c/lib/heap/libmythryl-heap.c
     //
     // and then
     //
-    //     src/lib/std/src/nj/export.pkg 
+    //     src/lib/std/src/nj/save-heap-to-disk.pkg 
 
     task->argument =   function;
 
@@ -114,7 +114,7 @@ Status   export_fn_image   (
     task->callee_saved_registers[0]	= HEAP_VOID;
     task->callee_saved_registers[1]	= HEAP_VOID;
     task->callee_saved_registers[2]	= HEAP_VOID;
-											// EXPORT_HEAP_IMAGE		def in    src/c/heapcleaner/runtime-heap-image.hexpor
+											// EXPORT_HEAP_IMAGE		def in    src/c/heapcleaner/runtime-heap-image.h
     return   write_heap_image_to_file( task, EXPORT_FN_IMAGE, file );			// write_heap_image_to_file	def below.
 }
 
@@ -153,7 +153,7 @@ static Status   write_heap_image_to_file   (
 
     {   Heap_Header	hh;
 	//
-	hh.pthread_count		= 1;
+	hh.hostthread_count		= 1;
 	hh.active_agegroups		= heap->active_agegroups;
 	//
 	hh.smallchunk_sibs_count	= MAX_PLAIN_SIBS;						// MAX_PLAIN_SIBS			def in    src/c/h/sibid.h
@@ -187,7 +187,7 @@ static Status   write_heap_image_to_file   (
 
     // Export the Mythryl state info:
     //
-    {   Pthread_Image	image;
+    {   Hostthread_Image	image;
 
         // Save the live registers:
 	//
@@ -228,7 +228,7 @@ static Status   write_heap_image_to_file   (
     //
     if (write_heap(wr, heap) == FALSE)   status = FALSE;
 
-    if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );
+    if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );					// repair_heap() is below.
 
     WR_FREE( wr );
 

@@ -81,7 +81,7 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     //
     {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-      RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbufto", &arg );			// 'arg' is still live here!
+      RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_sendbufto", &arg );			// 'arg' is still live here!
 	    //
 	/*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
@@ -94,9 +94,10 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
 			sockaddr_len
 		    );
 
+if (errno == EINTR) puts("Error: EINTR in sendbufto.c\n");
 	/*  } while (n < 0 && errno == EINTR);	*/						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbufto" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_sendbufto" );
 
 	unbuffer_mythryl_heap_value( &data_buf );
     }

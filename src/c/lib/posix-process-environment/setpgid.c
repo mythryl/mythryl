@@ -41,11 +41,11 @@ Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
     int pid  =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int pgid =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setpgid", NULL );
 	//
 	int status =  setpgid( pid, pgid );
 	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setpgid" );
 
     RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }

@@ -69,7 +69,7 @@ static void   register_fn_as_cleaning_root   (
     mythryl_functions_referenced_from_c_code__global = LIST_CONS(task, (Val)rp, mythryl_functions_referenced_from_c_code__global);
     //
     #ifdef DEBUG_C_CALLS
-	printf("register_fn_as_cleaning_root: added %x\n", rp);
+	printf("register_fn_as_cleaning_root: added %x\n", rp);	fflush(stdout);
     #endif
 }
 
@@ -109,7 +109,7 @@ static Val   save_state   (
     #endif
 
     #ifdef DEBUG_C_CALLS
-	printf("save_state: size %d\n", n);
+	printf("save_state: size %d\n", n);	fflush(stdout);
     #endif
 
     int index = 0;		// Initialization is redundant but a good precaution.
@@ -169,7 +169,7 @@ static void   restore_state   (
     int index = !!holds_fate;               // Maybe skip function pointer. 
 
     #ifdef DEBUG_C_CALLS
-	printf("restore_state: state size %d\n", n);
+	printf("restore_state: state size %d\n", n);	fflush(stdout);
     #endif
 
     task -> lib7_liveRegMask	= GET_TUPLE_SLOT_AS_INT( state, index++ );
@@ -268,11 +268,11 @@ int   no_args_entry   (void)   {
     // Entry points;  Must be visible to c-entry.asm.
 
     #ifdef DEBUG_C_CALLS
-	printf("no_args_entry: entered\n");
+	printf("no_args_entry: entered\n");	fflush(stdout);
     #endif
 	last_code_header_used__local = CODE_HDR_START(last_entry);
     #ifdef DEBUG_C_CALLS
-	printf("no_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);
+	printf("no_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);	fflush(stdout);
     #endif
 
     // Set up task for run_mythryl_task_and_runtime_eventloop__may_heapclean evaluation of (f LIST_NIL):
@@ -282,14 +282,14 @@ int   no_args_entry   (void)   {
     // Call Mythryl fn, returns an Val (which is cdata):
     //
     #ifdef DEBUG_C_CALLS
-	printf("no_arg_entry: calling Mythryl from C\n");
+	printf("no_arg_entry: calling Mythryl from C\n");	fflush(stdout);
     #endif
     //
     run_mythryl_task_and_runtime_eventloop__may_heapclean( visible_task__local, NULL );				// run_mythryl_task_and_runtime_eventloop__may_heapcledan	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     
     #ifdef DEBUG_C_CALLS
-	printf("no_args_entry: return value is %d\n", visible_task__local->argument);
+	printf("no_args_entry: return value is %d\n", visible_task__local->argument);	fflush(stdout);
     #endif
 
     Val result = visible_task__local->argument;
@@ -315,12 +315,12 @@ int   some_args_entry   (Vunt first, ... )   {
     Val   args   [N_ARGS];
 
 #ifdef DEBUG_C_CALLS
-    printf("some_args_entry: entered\n");
+    printf("some_args_entry: entered\n");	fflush(stdout);
 #endif
     last_code_header_used__local = CODE_HDR_START(last_entry);
 #ifdef DEBUG_C_CALLS
-    printf("some_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);
-    printf("arg 0: %x\n",first);
+    printf("some_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);	fflush(stdout);
+    printf("arg 0: %x\n",first);								fflush(stdout);
 #endif
     result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[0],first,&lp);
     lp = LIST_CONS(visible_task__local, result, lp);
@@ -328,7 +328,7 @@ int   some_args_entry   (Vunt first, ... )   {
     for (i = 1; i < last_code_header_used__local->nargs; i++) {
 	next = va_arg(ap,Vunt);
 #ifdef DEBUG_C_CALLS
-	printf("arg %d: %x\n",i,next);
+	printf("arg %d: %x\n",i,next);	fflush(stdout);
 #endif
 	result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[i],next,&lp);
 	lp = LIST_CONS(visible_task__local, result, lp);
@@ -346,13 +346,13 @@ int   some_args_entry   (Vunt first, ... )   {
     // Call Mythryl fn, returns an Val (which is cdata):
     //
     #ifdef DEBUG_C_CALLS
-	printf("some_arg_entry: calling Lib7 from C\n");
+	printf("some_arg_entry: calling Lib7 from C\n");	fflush(stdout);
     #endif
     //
     run_mythryl_task_and_runtime_eventloop__may_heapclean( visible_task__local, NULL );				// run_mythryl_task_and_runtime_eventloop__may_heapclean	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     #ifdef DEBUG_C_CALLS
-	printf("some_args_entry: return value is %d\n", visible_task__local->argument);
+	printf("some_args_entry: return value is %d\n", visible_task__local->argument);	fflush(stdout);
     #endif
 
     result = visible_task__local->argument;
@@ -375,8 +375,8 @@ static void*   build_entry   (									// Called only from make_c_function(), be
 
 
     #ifdef DEBUG_C_CALLS
-	printf ("grabPC=%lx, grabPCend=%lx, code size is %d\n", grabPC, grabPCend, szb);
-	printf ("code_header size is %d\n", sizeof(Code_Header));
+	printf ("grabPC=%lx, grabPCend=%lx, code size is %d\n", grabPC, grabPCend, szb);	fflush(stdout);
+	printf ("code_header size is %d\n", sizeof(Code_Header));				fflush(stdout);
     #endif
 
     ASSERT((sizeof(Code_Header) & 0x3) == 0);
@@ -392,7 +392,7 @@ static void*   build_entry   (									// Called only from make_c_function(), be
     //
     p += sizeof(Code_Header);
     #ifdef DEBUG_C_CALLS
-	printf ("new code starts at %x and ends at %x\n", p, p+szb);
+	printf ("new code starts at %x and ends at %x\n", p, p+szb);	fflush(stdout);
     #endif
     memcpy (p, (void *)grabPC, szb);
     flush_instruction_cache(p,szb);

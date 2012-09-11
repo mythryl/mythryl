@@ -62,15 +62,17 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-    /*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", NULL );
+      /**/  do { /**/									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+											// Restored 2012-08-07 CrT
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_openf", NULL );
 		//
 		fd    = open( c_path, flags, mode );
 		//
-	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_openf" );
+// printf("opened fd %d via open(\"%s\",...) -- openf.c thread id %lx\n", fd, c_path, pth__get_hostthread_id);	fflush(stdout);
 
-    /*  } while (fd < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+
+ /**/  } while (fd < 0 && errno == EINTR);	/**/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }

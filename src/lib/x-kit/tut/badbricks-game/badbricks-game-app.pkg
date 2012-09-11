@@ -20,6 +20,8 @@
 stipulate
     include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
+    package ts  =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    #
     package f8b =  eight_byte_float;			# eight_byte_float		is from   src/lib/std/eight-byte-float.pkg
     package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
     package xc  =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
@@ -40,7 +42,7 @@ stipulate
     #
     tracefile   =  "badbricks-game.trace.log";
     tracing     =  logger::make_logtree_leaf { parent => xlogger::xkit_logging, name => "badbricks_game_app::tracing" };
-    trace	=  xtr::log_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+    trace	=  xtr::log_if  tracing 0;		# Conditionally write strings to tracing.log or whatever.
         #
         # To debug via tracelogging, annotate the code with lines like
 	#
@@ -68,10 +70,21 @@ herein
 	    };
 
 	stipulate
-	    selfcheck_tests_passed =  REF 0;
-	    selfcheck_tests_failed =  REF 0;
+	    selfcheck_tests_passed  =  REF 0;
+	    selfcheck_tests_failed  =  REF 0;
 	herein
-	    run_selfcheck =  REF FALSE;
+	    run_selfcheck	    =  REF FALSE;
+	    app_task		    =  REF (NULL: Null_Or( Apptask   ));
+
+	    fun reset_global_mutable_state ()					# Reset above state variables to load-time values.
+		=									# This will be needed if (say) we get run multiple times interactively without being reloaded.
+		{   run_selfcheck				:=  FALSE;
+		    #
+		    app_task					:=  NULL;
+		    #
+		    selfcheck_tests_passed			:=  0;
+		    selfcheck_tests_failed			:=  0;
+		};
 
 	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
 	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
@@ -85,6 +98,33 @@ herein
                 { passed => *selfcheck_tests_passed,
                   failed => *selfcheck_tests_failed
                 };
+
+	    fun kill_badbricks_game_app ()
+		=
+		{
+log::note .{ sprintf "%s\tkill_badbricks_game_app/TOP:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		    kill_task  { success => TRUE,  task => (the *app_task) };
+log::note .{ sprintf "%s\tkill_badbricks_game_app/ZZZ:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		};
+
+	    fun wait_for_app_task_done ()
+		=
+		{
+log::note .{ sprintf "%s\twait_for_app_task_done/TOP  -- badbricks-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task =  the  *app_task;
+		    #
+log::note .{ sprintf "%s\twait_for_app_task_done/BBB  -- badbricks-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    task_finished' =  task_done__mailop  task;
+
+log::note .{ sprintf "%s\twait_for_app_task_done/CCC  -- badbricks-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    block_until_mailop_fires  task_finished';
+
+log::note .{ sprintf "%s\twait_for_app_task_done/DDD  -- badbricks-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		    assert (get_task's_state  task  ==  state::SUCCESS);
+log::note .{ sprintf "%s\twait_for_app_task_done/ZZZ  -- badbricks-game-app.pkg"  (ts::thread_scheduler_statestring ()); };
+		};
+
+
 	end;
 
 
@@ -201,7 +241,7 @@ herein
 
 			# This locks us up, I dunno why:       XXX BUGGO FIXME
 			# (I also dunno why the red bricks don't draw first time around.
-			# The color-mixer has a similar problem.)
+			# The colormixer has a similar problem.)
 # 			(xc::get_window_site window)
 # 			    ->
 # 			    xg::BOX { row, col, high, wide };
@@ -251,7 +291,12 @@ herein
 			# All done -- shut everything down:
 			#
 			xc::close_xsession  xsession;
-			shut_down_thread_scheduler  winix::process::success;
+
+			sleep_for (time::from_milliseconds 200);				# I think close_xsession returns before everything has shut down. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_badbricks_game_app ();
+
+#			shut_down_thread_scheduler  winix::process::success;			# We did this prior to 6.3
 
 			();
 		    };
@@ -276,7 +321,11 @@ herein
 		    =
 		    {   wg::delete_root_window  root_window;
 
-			shut_down_thread_scheduler  winix::process::success;
+			sleep_for (time::from_milliseconds 200);				# In the hope previous call will complete. Need something cleaner here. XXX SUCKO FIXME.
+
+			kill_badbricks_game_app ();
+
+#			shut_down_thread_scheduler  winix::process::success;			# We did this prior to 6.3
 		    };
 
 		fun do_short_range ()
@@ -371,39 +420,60 @@ herein
 
 	    end;
 
-	fun do_it' (flgs, display_name, timeslice_quantum)
+	fun start_up_badbricks_game_app_threads  display_name
+	    =
+	    {   display_name' =     case display_name   "" =>  NULL;
+							_  =>  THE display_name;
+				    esac;
+
+		(xc::get_xdisplay_string_and_xauthentication  display_name')
+		    ->
+	            ( xdisplay,								# Typically from $DISPLAY environment variable.
+                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
+                    );
+
+		xlogger::make_thread  "bad_bricks"   .{   bad_bricks (xdisplay, xauthentication);   };
+
+		();
+	    };
+
+	fun set_up_badbricks_game_app_task  display_name
+	    =
+	    # Here we arrange that all the threads
+	    # for the application run as a task "badbricks game app",
+	    # so that later we can shut them all down with
+	    # a simple kill_task().  We explicitly create one
+	    # root thread within the task; the rest then implicitly
+	    # inherit task membership:
+	    #
+	    {
+		badbricks_game_app_task =   make_task  "badbricks game app"  [];
+		app_task               :=   THE  badbricks_game_app_task;
+		#
+		xtr::make_thread' [ THREAD_NAME "badbricks game app",
+				    THREAD_TASK  badbricks_game_app_task
+				  ]
+				  start_up_badbricks_game_app_threads
+				  display_name;
+		();
+	    };
+
+	fun do_it' (flgs, display_name)
 	    =
 	    {   xlogger::init flgs;
+		#
+		if write_tracelog	set_up_tracing ();	fi;
 
-		if write_tracelog
-		    #
-		    set_up_tracing ();
-		fi;
+		set_up_badbricks_game_app_task  display_name;
 
-	        my  ( xdisplay,								# Typically from $DISPLAY environment variable.
-                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
-                    )
-		    =
-		    xc::get_xdisplay_string_and_xauthentication
-			#
-			case display_name
-			    #
-			    "" =>  NULL;
-			    _  =>  THE display_name;
-			esac;
+		wait_for_app_task_done ();
 
-		start_up_thread_scheduler'
-		    #
-		    (time::from_milliseconds  timeslice_quantum)
-		    #
-		   .{  xlogger::make_thread  "bad_bricks"   .{ bad_bricks (xdisplay, xauthentication); };
-		       ();
-		    };
+		winix::process::success;
 	    };
 
 	fun do_it s
 	    =
-	    do_it' ([], s, 20);
+	    do_it' ([], s);
 
 	fun main (program, "-display" ! server ! _) => do_it  server;
 	    main _                                  => do_it  "";
@@ -412,11 +482,18 @@ herein
 	fun selfcheck ()
 	    =
 	    {
+log::note .{ sprintf "%s\tselfcheck/TOP:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+		reset_global_mutable_state ();						# Don't depend on load-time state initialization -- we might get run multiple times interactively, say.
 		run_selfcheck :=  TRUE;
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
 		do_it "";
+log::note .{ sprintf "%s\tselfcheck/MMM:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+result =
 		test_stats ();
+log::note .{ sprintf "%s\tselfcheck/ZZZ:    -- badbricks-game-app.pkg" (ts::thread_scheduler_statestring ()); };
+result;
 	    };	
-    };						#  package bad_bricks 
+    };						#  package bad_bricks_game_app
 end;
 
 

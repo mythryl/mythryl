@@ -18,10 +18,10 @@
 //	the host pid and checking to see if it has
 //	changed, for example in:
 //
-//	    src/lib/std/src/pthread/template-pthread.pkg
-//	    src/lib/std/src/pthread/io-wait-pthread.pkg
-//	    src/lib/std/src/pthread/cpu-bound-task-pthreads.pkg
-//	    src/lib/std/src/pthread/io-bound-task-pthreads.pkg
+//	    src/lib/std/src/hostthread/template-hostthread.pkg
+//	    src/lib/std/src/hostthread/io-wait-hostthread.pkg
+//	    src/lib/std/src/hostthread/cpu-bound-task-hostthreads.pkg
+//	    src/lib/std/src/hostthread/io-bound-task-hostthreads.pkg
 //
 //	This is actually incorrect because there is a about
 //	one chance in 32,000 that we'll get the same pid
@@ -37,7 +37,7 @@
 //	mutexes and condvars are currently "preserved"
 //	across save/load cycles using a pretty awful hack in
 //
-//	    src/c/pthread/pthread-on-posix-threads.c
+//	    src/c/hostthread/hostthread-on-posix-threads.c
 //
 //	that cannot actually preserve state properly.
 //	This sort of thing is likely to be a recurring
@@ -137,7 +137,7 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
     Heapfile_Header	image_header;
     Heap_Header	heap_header;
     Val		*externs;
-    Pthread_Image	image;
+    Hostthread_Image	image;
     Inbuf		inbuf;
 
     if (fname != NULL) {

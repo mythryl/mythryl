@@ -511,7 +511,7 @@ void   publish_runtime_package_contents   ()   {
 	//
 	//     bin/mythryld: Fatal error:  Run-time system does not provide "runtime::active_pthreads_count_refcell"
 	//
-	// even though the string       active_pthreads_count   appears
+	// even though the string       active_hostthreads_count   appears
 	// nowhere else in the sourcecode.   Apparently the compiler is
 	// passing it binary-to-binary somehow. Thpt. -- 2011-11-29 CrT
 

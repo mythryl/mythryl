@@ -68,15 +68,15 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
     int pid     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int options = TUPLE_GETWORD(         arg, 1 );    
 
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_waitpid", NULL );
+  do { 						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+						// Restored 2012-08-01 CrT due to consistent failures here when switching on thread-scheduler-control-g.pkg by default.
+        RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_waitpid", NULL );
 	    //
 	    result = waitpid( pid, &status, options );
 	    //
-        RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_waitpid" );
+        RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_waitpid" );
 
-/*  } while (result < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+  } while (result < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     if (result < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, result, NULL);
 

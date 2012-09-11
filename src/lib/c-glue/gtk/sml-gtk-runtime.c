@@ -1,5 +1,5 @@
 //
-// The runtime system spawns a pthread and run the main level loop on that
+// The runtime system spawns a hostthread and run the main level loop on that
 // thread. 
 //
 // NOTE: The code is slightly complex, because signal handler 
@@ -173,7 +173,7 @@ void smlgtk_runtime_init()
     memset(&smlgtk_event,sizeof(struct smlgtk_event),0); 
 
     if (thread_is_running)
-       CHECK(pthread_cancel(runtime_thread));
+       CHECK(hostthread_cancel(runtime_thread));
 
     thread_is_running = FALSE; 
 }
@@ -184,7 +184,7 @@ void smlgtk_runtime_init()
 void smlgtk_runtime_cleanup()
 {
    LOG("RUNTIME: smlgtk_cleanup");
-   pthread_cancel(runtime_thread);
+   hostthread_cancel(runtime_thread);
    cond_destroy(&event_pending);
    cond_destroy(&threadOk);
    g_mutex_free(signal_pending);
@@ -266,7 +266,7 @@ static void * smlgtk_thread(void * arg)
 }
 
 /*
- * This function spawns a pthread for handling Gtk events.
+ * This function spawns a hostthread for handling Gtk events.
  */
 void smlgtk_spawn_event_loop_thread() 
 {   

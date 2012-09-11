@@ -66,12 +66,13 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
 
 /*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_write", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_write", NULL );
 	    //
 	    n = write (fd, c_data, nbytes);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_write" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_write" );
 
+if (errno == EINTR) puts("Error: EINTR in write.c\n");
 /*  } while (n < 0 && errno == EINTR);	*/						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	unbuffer_mythryl_heap_value( &data_buf );
