@@ -536,6 +536,10 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 						    #
 						    finish_do1mailoprun ();							# Do stuff like   do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;   and sending nacks.
 
+{ thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task   -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\tset_condvar__usmid moving condvar-blocked task %d:%d (%s) to foreground run queue" (thread_scheduler_statestring()) thread_id task_id name; };
+};
 						    (thread, fate)  !  (run rest);
 						};
 					end;
@@ -581,6 +585,11 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 		=
 		{
 crash_if_thread_is_already_in_run_queues p;
+{ p -> (thread,_);
+  thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task   -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\tpush_thread_into_foreground_run_queue adding %d:%d (%s) to foreground run queue" (thread_scheduler_statestring()) thread_id task_id name; };
+};
 		    q.back :=  p ! *q.back;								# Enqueue a ready thread.
 		};
 
@@ -589,6 +598,11 @@ crash_if_thread_is_already_in_run_queues p;
 		=
 		{   set_didmail_flag  appthread;
 		    #
+{ p -> (thread,_);
+  thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task   -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\tset_didmail_flag_and_push_thread_into_foreground_run_queue adding %d:%d (%s) to foreground run queue" (thread_scheduler_statestring()) thread_id task_id name; };
+};
 crash_if_thread_is_already_in_run_queues p;
 		    q.back :=  p ! *q.back;								# Should call this only with thread-switching disabled...?
 		};
@@ -599,7 +613,15 @@ crash_if_thread_is_already_in_run_queues p;
 	#
 	fun enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread, old_fate }		# Exported. Enqueue (old thread, old_fate), and make new_thread the current thread.	Reppy's enqueueAndSwitchCurThread
 	    =												# New fate is whatever caller does upon our return.
-	    {   set_didmail_flag_and_push_thread_into_foreground_run_queue
+	    {
+{ old_thread = get_current_thread();
+  old_thread -> itt::APPTHREAD { thread_id => old_id, name => old_name, task => old_task, ... };
+  new_thread -> itt::APPTHREAD { thread_id => new_id, name => new_name, task => new_task, ... };
+  new_task -> itt::APPTASK   { task_id => new_task_id, ... };
+  old_task -> itt::APPTASK   { task_id => old_task_id, ... };
+  log::note .{ sprintf "%s\tenqueue_old_thread_plus_old_fate_then_install_new_thread old=%d:%d(%s) new=%d:%d(%s) calling set_didmail_flag_and_push_thread_into_foreground_run_queue" (thread_scheduler_statestring()) old_id old_task_id old_name new_id new_task_id new_name; };
+};
+		set_didmail_flag_and_push_thread_into_foreground_run_queue
 		    #
 		    (get_current_thread(), old_fate);							# Set mail flag (== high priority) and add to run queue.
 		#
@@ -611,11 +633,20 @@ crash_if_thread_is_already_in_run_queues p;
 	#
 	fun promote_some_background_thread_to_foreground ()						# Promote a thread from the 'cpu-bound' queue to the 'io-bound'  queue.		Derived from Reppy's promote().
 	    =
+{
+log::note .{ sprintf "%s\tpromote_some_background_thread_to_foreground/AAA" (thread_scheduler_statestring()); };
 	    case (rwq::pull_item_from_front_of_queue  background_run_queue)
 		#
-		THE x =>  push_thread_into_foreground_run_queue x;
+		THE x =>    {
+{ x -> (itt::APPTHREAD { thread_id => new_id, name => new_name, task => new_task, ... }, _);
+  new_task -> itt::APPTASK   { task_id => new_task_id, ... };
+  log::note .{ sprintf "%s\tpromote_some_background_thread_to_foreground/BBB: dequeued thread = %d:%d(%s), calling push_thread_into_foreground_run_queue" (thread_scheduler_statestring()) new_id new_task_id new_name; };
+};
+				push_thread_into_foreground_run_queue x;
+			    };
 		NULL  =>  ();
 	    esac;
+};
 
 
 
@@ -660,7 +691,10 @@ crash_if_thread_is_already_in_run_queues p;
 					#
 					itt::state::ALIVE =>   first;									# ALIVE thread in ALIVE task -- go ahead and run it.
 
-					deadstate  =>   {   state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
+					deadstate  =>   {
+first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
+log::note .{ sprintf "%s\tdequeue_thread_preferably_an_io_bound_one ignoring task-dead thread %d(%s)" (thread_scheduler_statestring()) thread_id name; };
+							    state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
 							    alive_threads_count := *alive_threads_count - 1;				# One less ALIVE thread in this task.
 							    set_condvar__usmid  done_condvar;						# Tell the world the thread is now non-ALIVE.
 							    dequeue_thread_preferably_an_io_bound_one ();				# Thread is not ALIVE, so drop it on the floor and try again.
@@ -668,7 +702,9 @@ crash_if_thread_is_already_in_run_queues p;
 				    esac;
 
 			    _	=>			{
-# file::print "dequeue_thread_preferably_an_io_bound_one dropping dead thread                         ";  print_thread_scheduler_state (); file::print "\n";
+first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
+log::note .{ sprintf "%s\tdequeue_thread_preferably_an_io_bound_one dropping dead thread %d(%s)" (thread_scheduler_statestring()) thread_id name; };
+# file::print "dequeue_thread_preferably_an_io_bound_one dropping task-dead thread                         ";  print_thread_scheduler_state (); file::print "\n";
 							    dequeue_thread_preferably_an_io_bound_one ();				# Thread is not ALIVE, so drop it on the floor and try again.
 							};
 			esac;														# 
@@ -685,7 +721,7 @@ crash_if_thread_is_already_in_run_queues p;
 		    =>
 		    {
 # printf "dequeue_cpu_bound_thread():  NOTHING TO RUN, returning *no_runnable_threads_left__hook   -- thread-scheduler.pkg\n";
-log::note .{ sprintf "%s\tdequeue_cpu_bound_thread returning (itt::thread_scheduler_temporary_thread, *no_runnable_threads_left__hook)" (thread_scheduler_statestring()); };
+log::note .{ sprintf "%s\tdequeue_cpu_bound_thread NOTHING TO RUN in run queues, calling (itt::thread_scheduler_temporary_thread, *no_runnable_threads_left__hook)" (thread_scheduler_statestring()); };
 			(itt::thread_scheduler_temporary_thread, *no_runnable_threads_left__hook);
 		    };	
 
@@ -713,7 +749,10 @@ log::note .{ sprintf "%s\tdequeue_cpu_bound_thread returning (itt::thread_schedu
 					#
 					itt::state::ALIVE =>   first;									# ALIVE thread in ALIVE task -- go ahead and run it.
 
-					deadstate  =>   {   state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
+					deadstate  =>   {
+first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
+log::note .{ sprintf "%s\tdequeue_cpu_bound_thread ignoring task-dead thread %d(%s)" (thread_scheduler_statestring()) thread_id name; };
+							    state := deadstate;								# Task is dead, so we're dead too.  Remember why we're dead.
 							    alive_threads_count :=  *alive_threads_count - 1;				# One less ALIVE thread in this task.
 							    set_condvar__usmid  done_condvar;						# Tell the world the thread is now non-ALIVE.
 							    dequeue_cpu_bound_thread ();						# Thread is not ALIVE, so drop it on the floor and try again.
@@ -722,6 +761,8 @@ log::note .{ sprintf "%s\tdequeue_cpu_bound_thread returning (itt::thread_schedu
 
 
 			    _ =>  			{
+first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
+log::note .{ sprintf "%s\tdequeue_cpu_bound_thread dropping dead thread %d(%s)" (thread_scheduler_statestring()) thread_id name; };
 # file::print "dequeue_cpu_bound_thread dropping dead thread                                          ";  print_thread_scheduler_state (); file::print "\n";
 							    dequeue_cpu_bound_thread ();						# Thread is not ALIVE, so drop it on the floor and try again.
 							};
@@ -775,8 +816,15 @@ log::note .{ sprintf "%s\tdequeue_cpu_bound_thread returning (itt::thread_schedu
 
 		call_with_current_fate
 		    (
-		     fn fate =  {   push_thread_into_foreground_run_queue (get_current_thread(), fate);
+		     fn fate =  {
+{ thread = get_current_thread();
+  thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\texit_uninterruptible_scope calling push_thread_int_foreground_run_queue (%d:%d(%s))" (thread_scheduler_statestring()) thread_id task_id name; };
+};
+				    push_thread_into_foreground_run_queue (get_current_thread(), fate);
 				    #
+ log::note .{ sprintf "%s\texit_uninterruptible_scope calling run_next_runnable_thread" (thread_scheduler_statestring()); };
 				    run_next_runnable_thread__usend ();
 				}
 		    );
@@ -818,6 +866,7 @@ log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__
 		    #
 		    need_to_switch_threads_when_exiting_uninterruptible_scope := FALSE;
 
+log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__noreturn/BBB -- need to switch threads so calling run_next_runnable_thread__usend()"; };
 # file::print "dispatch_next_thread__usend__noreturn/BBB:   "; print_thread_scheduler_state(); file::print "\n";
 		    run_next_runnable_thread__usend ();
 		fi;
@@ -846,11 +895,14 @@ log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__
 		(dequeue_thread_preferably_an_io_bound_one ())
 		    ->
 		    (thread, fate);
-
+{ thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\tdispatch_next_thread__usend__noreturn/DDD dequeued thread == %d:%d(%s) calling set_current_thread and then switch_to_fate" (thread_scheduler_statestring()) thread_id task_id name; };
+};
 		set_current_thread  thread;
 
 		#
-# file::print "dispatch_next_thread__usend__noreturn/CCC:   "; print_thread_scheduler_state(); file::print "\n";
+# file::print "dispatch_next_thread__usend__noreturn/DDD:   "; print_thread_scheduler_state(); file::print "\n";
 		uninterruptible_scope_mutex :=  0;
 
 		switch_to_fate  fate  ();								# 
@@ -866,51 +918,98 @@ log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__
 		dispatch_next_thread__usend__noreturn ();
 	    };
 
+fun lognote (msg, thread)
+ =
+ {
+    old_thread = get_current_thread();
+    old_thread -> itt::APPTHREAD { thread_id => old_id, name => old_name, task => old_task, ... };
+	thread -> itt::APPTHREAD { thread_id => new_id, name => new_name, task => new_task, ... };
+    new_task -> itt::APPTASK   { task_id => new_task_id, ... };
+    old_task -> itt::APPTASK   { task_id => old_task_id, ... };
+    log::note .{ sprintf "%s\t old=%d:%d(%s) new=%d:%d(%s) %s"
+			   (thread_scheduler_statestring()) old_id old_task_id old_name new_id new_task_id new_name msg;
+	       };
+ };
 	#
-	fun switch_to_thread__usend (thread, fate, x)							# Exported.  Switch to given thread while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
-	    =												# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
+	fun switch_to_thread__usend (requested_thread, requested_fate, requested_arg)					# Exported.  Switch to requested_thread/requested_fate/requested_arg while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
+	    =														# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
 {
-# file::print "switch_to_thread__usend/AAA...                                                        ";  print_thread_scheduler_state (); file::print "\n";
+															lognote("switch_to_thread__usend/AAA calling nested call_with_current_fate()s",requested_thread);
 	    call_with_current_fate (
 		#
-		fn current_fate
+		fn old_fate
 		    =
 		    {   mode =  *uninterruptible_scope_mutex;
 			#
 			if (mode == 1  and  *need_to_switch_threads_when_exiting_uninterruptible_scope)
 			    #
-			    call_with_current_fate
+			    call_with_current_fate									# This is the abnormal path through this fn -- see Note[A] below.
 				(
-				 fn fate'
+				 fn requested_fate'									# Get an explicit representation of currently running fate.
 				    =
 				    {
-# file::print "switch_to_thread__usend/BBB...                                                        ";  print_thread_scheduler_state (); file::print "\n";
-					push_thread_into_foreground_run_queue (thread, fate');
-# file::print "switch_to_thread__usend/CCC...                                                        ";  print_thread_scheduler_state (); file::print "\n";
-					push_thread_into_foreground_run_queue (get_current_thread(), current_fate);
+															lognote("switch_to_thread__usend/BBB calling push_thread_into_foreground_run_queue on BOTH",requested_thread);
+					old_thread = get_current_thread();
+					push_thread_into_foreground_run_queue (requested_thread, requested_fate');	# requested_fate' will immediately do below   'switch_to_fate  requested_fate  requested_arg;'
+					push_thread_into_foreground_run_queue (old_thread, old_fate);
 
 					need_to_switch_threads_when_exiting_uninterruptible_scope :=  FALSE;
 
-# file::print "switch_to_thread__usend/DDD... (calling run_next_runnable_thread__usend):             ";  print_thread_scheduler_state (); file::print "\n";
-					run_next_runnable_thread__usend ();
+					run_next_runnable_thread__usend ();						# "Now for something completely different."
 				    }
 				);
+			else
+															lognote("switch_to_thread__usend/PPP calling enqueue_old_thread_plus_fate",requested_thread);
+
+			    enqueue_old_thread_plus_old_fate_then_install_new_thread					# Put old thread+fate on run queue for later resumption.
+			      {
+				new_thread => requested_thread,
+				old_fate
+			      };
+
+			    uninterruptible_scope_mutex :=  mode - 1;							# Exit uninterruptible scope.
 			fi;
 
-# file::print "switch_to_thread__usend/PPP... (calling run_next_runnable_thread__usend):        ";  print_thread_scheduler_state (); file::print "\n";
-			enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread => thread,  old_fate => current_fate };
-
-			uninterruptible_scope_mutex :=  mode - 1;
-
-# file::print "switch_to_thread__usend/QQQ... (calling siwtch_to_fate):                         ";  print_thread_scheduler_state (); file::print "\n";
-			switch_to_fate  fate  x;								# 
+															log::note .{ sprintf "%s\tswitch_to_thread__usend/QQQ back from enqueue_old_thread_plus_fate or run_next_runnable_thread__usend, calling switch_to_fate" (thread_scheduler_statestring()); };
+			switch_to_fate  requested_fate  requested_arg;							# Switch to requested_thread + requested_fate + requested_arg.
 		    }
 	    );
 };
+	    ##################################################################################
+	    # Note[A].
+	    # This is the abnormal path through this fn.
+	    #	
+	    # While we were executing the uninterruptible
+	    # scope alarm_handler() got a timeslicing signal
+	    # that it is time to switch to the next thread
+	    # in the run queue. Since the uninterruptible scope
+	    # prevented us from doing so, we settled for setting
+	    # need_to_switch_threads_when_exiting_uninterruptible_scope
+	    # to TRUE;  now we are exiting the uninterruptible scope
+	    # so it is time to actually switch to next thread.
+	    #
+	    # Note that switching to caller-supplied 'requested_thread'/'requested_fate'
+	    # is not enough;  it and current thread might be a tightly coupled pair
+	    # of threads performing a single logical task;  we need
+	    # to ensure that all runnable threads get a fair share
+	    # of CPU time, so now it is time for "something completely different".
+	    #
+	    # Consequently at this point we are saving on the run queue
+	    # BOTH the currently running thread+fate AND the caller-requested
+	    # 'requested_thread'+'requested_fate' pair in favor of running
+	    # something unrelated from the run queue (if available). 
+
+
 	#
 	fun yield_to_next_thread__usend   fate						# Exported.	Derived from Reppy's atomicYield.
 	    =
-	    {   set_didmail_flag_and_push_thread_into_foreground_run_queue  (get_current_thread (),  fate);
+	    {
+{ thread = get_current_thread();
+  thread -> itt::APPTHREAD { thread_id, name, task, ... };
+  task -> itt::APPTASK   { task_id, ... };
+  log::note .{ sprintf "%s\tyield_to_next_thread__usend %d:%d(%s)" (thread_scheduler_statestring()) thread_id task_id name; };
+};
+		set_didmail_flag_and_push_thread_into_foreground_run_queue  (get_current_thread (),  fate);
 		#
 # file::print "yield_to_next_thread__usend...                                                   ";  print_thread_scheduler_state (); file::print "\n";
 		dispatch_next_thread__usend__noreturn ();
@@ -1033,10 +1132,13 @@ log::note .{ sprintf "%s\trun_thunk_immediately enqueing (itt::thread_scheduler_
 		    if (thread_did_mail  current_thread)
 			#
 			clear_didmail_flag  current_thread;
+log::note .{ sprintf "%s\tpreempt__usbeg calling promote_some_background_thread_to_foreground" (thread_scheduler_statestring()); };
 			promote_some_background_thread_to_foreground ();
+log::note .{ sprintf "%s\tpreempt__usbeg calling push_thread_into_foreground_run_queue" (thread_scheduler_statestring()); };
 			push_thread_into_foreground_run_queue current_p;
 # file::print "preempt__usbeg/XXX                                                                     ";  print_thread_scheduler_state (); file::print "\n";
 		    else
+log::note .{ sprintf "%s\tpreempt__usbeg calling push_item_into_back_of_queue/background_run_queue" (thread_scheduler_statestring()); };
 			rwq::push_item_into_back_of_queue (background_run_queue, current_p);
 # file::print "preempt__usbeg/YYY                                                                     ";  print_thread_scheduler_state (); file::print "\n";
 		    fi;
