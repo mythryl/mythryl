@@ -9,9 +9,9 @@
 
 
 stipulate
-    package fat =  fate;						# fate				is from   src/lib/std/src/nj/fate.pkg
-    package itt =  internal_threadkit_types;				# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
-    package ts  =  thread_scheduler;					# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    package fat =  fate;												# fate				is from   src/lib/std/src/nj/fate.pkg
+    package itt =  internal_threadkit_types;										# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package ts  =  thread_scheduler;											# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
     #
     Fate(X) =   fat::Fate(X);
     #
@@ -21,7 +21,7 @@ herein
 
     package mailqueue: (weak)
     api {
-	include Mailqueue;						# Mailqueue			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailqueue.api
+	include Mailqueue;												# Mailqueue			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailqueue.api
 	#
 	reset_mailqueue:  Mailqueue(X) -> Void;
     }
@@ -45,8 +45,8 @@ herein
 
 	Mailqueue_State(X)
 	  = EMPTY      Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)))
-	  | NONEMPTY  (Int, Queue(X))					# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
-	  ;
+	  | NONEMPTY  (Int, Queue(X))											# The 'Int' is a priority -- starts at 1, incremented by is_mailop_ready_to_fire ().
+	  ;														# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
 
 	Mailqueue(X) = MAILQUEUE  Ref( Mailqueue_State(X) );
 
@@ -66,7 +66,7 @@ herein
 			     MAILQUEUE s2
 	                   )
 	    =
-	    s1 == s2;							# Compare the refcells -- each refcell is equal only to itself, and different mailqueues will always have different refcells.
+	    s1 == s2;													# Compare the refcells -- each refcell is equal only to itself, and different mailqueues will always have different refcells.
 
 
 	fun make__mailop_done__refcell ()
@@ -96,6 +96,29 @@ herein
 			Mailqueue_State(X)
 		      )													# This really should be a record.  XXX SUCKO FIXME.
 	  ;
+
+	fun mailqueue_length (mailqueue: Mailqueue(X))
+	    =
+	    {   mailqueue ->  MAILQUEUE (REF state);
+		#
+		case state
+		    #
+		    EMPTY     _                   =>  0;
+		    NONEMPTY (_, { front, rear }) =>  {  (list::length front) + (list::length rear); };
+		esac;
+	    };
+
+	fun mailqueue_to_string (mailqueue: Mailqueue(X))
+	    =
+	    {   mailqueue ->  MAILQUEUE (REF state);
+		#
+		case state
+		    #
+		    EMPTY        { front, rear }  =>  {  f = (list::length front);  r = (list::length rear);  sprintf "EMPTY [%d|%d]=%d"            f r (f+r); };
+		    NONEMPTY (i, { front, rear }) =>  {  f = (list::length front);  r = (list::length rear);  sprintf "NONEMPTY(%d,[%d|%d]=%d)"  i  f r (f+r); };
+		esac;
+	    };
+
 
 	stipulate
 
@@ -200,9 +223,10 @@ herein
 		 esac;
 	    };
 
-	fun get_msg (qstate, q)
+	fun get_msg__usend (qstate, q)
 	    =
-	    {   (dequeue q) ->   (q', msg);
+	    {
+		(dequeue q) ->   (q', msg);
 		#
 		case q'
 		    #
@@ -219,10 +243,11 @@ herein
 		msg;
 	    };
 
-	fun pull (MAILQUEUE qstate)
+	fun pull (mq as MAILQUEUE qstate)
 	    =
 	    {   ts::enter_uninterruptible_scope ();
 		#
+log::note .{ sprintf "%s\t%s\tpull/TOP calling dispatch_next_thread__usend__noreturn   -- mailqueue.pkg"  (ts::thread_scheduler_statestring ()) (mailqueue_to_string mq); };
 		case *qstate
 		    #
 		    EMPTY q
@@ -233,7 +258,7 @@ herein
 					    =
 					    {   qstate :=  EMPTY (enqueue (q, (make__mailop_done__refcell(), get_fate)));
 						#
-log::note .{ sprintf "%s\tmailqueue.pkg/pull calling dispatch_next_thread__usend__noreturn"  (ts::thread_scheduler_statestring ()); };
+log::note .{ sprintf "%s\t%s\tpull/EMPTY calling dispatch_next_thread__usend__noreturn   -- mailqueue.pkg"  (ts::thread_scheduler_statestring ()) (mailqueue_to_string mq); };
 						ts::dispatch_next_thread__usend__noreturn ();
 					    }
 					);
@@ -245,12 +270,12 @@ log::note .{ sprintf "%s\tmailqueue.pkg/pull calling dispatch_next_thread__usend
 
 		  NONEMPTY (priority, q)
 		      =>
-		      get_msg (qstate, q);
+		      get_msg__usend (qstate, q);
 
 		esac;
 	    };
 
-	fun pull' (MAILQUEUE qstate)
+	fun pull' (mq as MAILQUEUE qstate)
 	    =
 	    {
 		fun set_up_mailopready_watch
@@ -317,7 +342,13 @@ log::note .{ sprintf "%s\tmailqueue.pkg/pull calling dispatch_next_thread__usend
 				itt::MAILOP_IS_READY_TO_FIRE
 				  {
 				    priority,
-				    fire_mailop    => .{   get_msg (qstate, q);   }
+				    fire_mailop    =>  .{   
+log::note .{ sprintf "%s\t%s\tpull' calling get_msg__usend   -- mailqueue.pkg"  (ts::thread_scheduler_statestring ()) (mailqueue_to_string mq); };
+result =
+							    get_msg__usend (qstate, q);
+log::note .{ sprintf "%s\t%s\tpull' back from calling get_msg__usend   -- mailqueue.pkg"  (ts::thread_scheduler_statestring ()) (mailqueue_to_string mq); };
+result;
+							}
 				  };
 			    };
 		    esac;
@@ -340,7 +371,7 @@ log::note .{ sprintf "%s\tmailqueue.pkg/pull calling dispatch_next_thread__usend
 
 		    NONEMPTY (priority, q)
 			=>
-			THE (get_msg (qstate, q));
+			THE (get_msg__usend (qstate, q));
 		esac;
 	    };
     };				# package mailqueue
