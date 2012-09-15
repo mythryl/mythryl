@@ -69,27 +69,28 @@ void   set_up_fault_handlers   (Task* task)   {
 	if (! SELF_HOSTTHREAD->executing_mythryl_code) {
   	    //
 	    fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    fprintf(stderr, "error: Dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));fflush(stderr);
+	    fprintf(stderr, "error: Dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x. (Check logfile for details). -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);fflush(stderr);
 	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
   	    //
             fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    die ("Exiting due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
+	    die ("Exiting due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x    -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);
 	}
 
 	// Map the signal to the appropriate Mythryl exception:
         //
 	if (INT_OVFLW(signal, code)) {								// INT_OVFLW	is from   src/c/h/system-dependent-signal-get-set-etc.h 
-
+	    //
 	    task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;					// OVERFLOW_EXCEPTION__GLOBAL	is from   src/c/h/runtime-globals.h
 	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER(scp);
-
+	    //
 	} else if (INT_DIVZERO(signal, code)) {
-
+	    //
 	    task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
 	    task->faulting_program_counter = (Vunt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else {
-	    die ("unexpected fault, signal = %d, code = %#x", signal, code);
+	    //
+	    die ("unexpected fault, signal = %d, signal code = %#x", signal, code);
 	}
 
 	SET_SIGNAL_PROGRAM_COUNTER( scp, request_fault );
