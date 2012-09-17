@@ -49,7 +49,7 @@
 #include "cfun-proto-list.h"
 
 
-// Bit masks for polling descriptors -- see
+// Bitmasks for polling descriptors -- see
 //     src/sml-nj/boot/Posix/os-io.pkg
 //
 #define READABLE_BIT		0x1
@@ -218,6 +218,9 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 // #include <fcntl.h>/* 2008-03-15 CrT BUGGO -- DELETEME! Temporary debug hack. */
 
 
+#undef  RESULT_VECTOR_BUF_SIZE
+#define RESULT_VECTOR_BUF_SIZE 256
+
 static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     //       =========
     //
@@ -225,25 +228,40 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
     Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 
-    fd_set	rset, wset, eset;
-    fd_set	*rfds, *wfds, *efds;
-    int		maxFD, status, fd, flag;
-    Val	l, item;
+    fd_set  rset;
+    fd_set  wset;
+    fd_set  eset;
 
-// printf("src/c/lib/posix-os/poll.c: Using 'select' implementation\n"); fflush(stdout);
-    rfds = wfds = efds = NULL;
-    maxFD = -1;								// When using select() just to sleep, first arg to select() should be zero.
+    fd_set* rfds = NULL;
+    fd_set* wfds = NULL;
+    fd_set* efds = NULL;
+
+    int	    maxFD = -1;
+    int     status;
+
+    int     fd;
+    int     flag;
+
+    Val	    l;
+    Val     item;
+
+								// printf("src/c/lib/posix-os/poll.c: Using 'select' implementation\n"); fflush(stdout);
+
+    								// When using select() just to sleep, first arg to select() should be zero.
     for (l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
+        //
 	item	= LIST_HEAD(l);
+
 	fd	= GET_TUPLE_SLOT_AS_INT(item, 0);
 	flag	= GET_TUPLE_SLOT_AS_INT(item, 1);
+
 	if ((flag & READABLE_BIT) != 0) {
-/*int fd_flags = fcntl(fd,F_GETFL,0);*/
+								// int fd_flags = fcntl(fd,F_GETFL,0);
 	    if (rfds == NULL) {
 		rfds = &rset;
 		FD_ZERO(rfds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);  fflush(stdout); */
+								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);  fflush(stdout);
 	    FD_SET (fd, rfds);
 	}
 	if ((flag & WRITABLE_BIT) != 0) {
@@ -251,7 +269,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		wfds = &wset;
 		FD_ZERO(wfds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for writability.\n",fd);  fflush(stdout); */
+								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for writability.\n",fd);  fflush(stdout);
 	    FD_SET (fd, wfds);
 	}
 	if ((flag & OOBDABLE_BIT) != 0) {
@@ -259,15 +277,15 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		efds = &eset;
 		FD_ZERO(efds);
 	    }
-/*printf("src/c/lib/posix-os/poll.c: Will check fd %d for oobdability.\n",fd);   fflush(stdout); */
+								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for oobdability.\n",fd);   fflush(stdout);
 	    FD_SET (fd, efds);
 	}
 	if (fd > maxFD) maxFD = fd;
     }
 
-// printf("src/c/lib/posix-os/poll.c: maxFD d=%d\n",maxFD); fflush(stdout);
+								// printf("src/c/lib/posix-os/poll.c: maxFD d=%d\n",maxFD); fflush(stdout);
 
-/**/  do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+/**/  do { /**/							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 											// Restored 2012-08-07 CrT
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll", &arg );
@@ -278,8 +296,6 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
  /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);		// Re-fetch poll_list because heapcleaner may have moved it between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP.
-
 // printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status); fflush(stdout);
 
     if (status < 0)
@@ -287,46 +303,82 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     else if (status == 0)
 	return LIST_NIL;
     else {
-	Val*	resVec = MALLOC_VEC(Val, status);
+	// Figure number of bytes required for return value.
+	// This is a 'status'-length list of intpairs.
+	// Each CONS cell and intpair takes three words (two
+	// for payload, one for implicit tagword) so:
+	//
+	int     bytes_needed  =  status * 6 * sizeof(Val);
+
+	if (need_to_call_heapcleaner (task, bytes_needed)) {
+	    //
+	    Roots roots1 = { &arg, NULL };
+	    //
+	    call_heapcleaner_with_extra_roots (task, 0, roots1 );
+	}
+
+	Val     result_vector_buf[ RESULT_VECTOR_BUF_SIZE ];
+	Val*	result_vector =  ( RESULT_VECTOR_BUF_SIZE >= status) ? result_vector_buf : MALLOC_VEC(Val, status);
 	int	i;
-	int	resFlag;
+	int	result_bitflags;
+
+    	poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);		// Re-fetch poll_list because heapcleaner may have moved it between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP or during explicit call.
 
 	for (i = 0, l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
+	    //
 	    item	= LIST_HEAD(l);
+
 	    fd		= GET_TUPLE_SLOT_AS_INT(item, 0);
 	    flag	= GET_TUPLE_SLOT_AS_INT(item, 1);
-	    resFlag	= 0;
-	    if (((flag & READABLE_BIT) != 0) && FD_ISSET(fd, rfds)) {
-// int fd_flags = fcntl(fd,F_GETFL,0);
-// printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact readable. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK); fflush(stdout);
-		resFlag |= READABLE_BIT;
-            }
-	    if (((flag & WRITABLE_BIT) != 0) && FD_ISSET(fd, wfds)) {
-/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact writable.\n",fd);  fflush(stdout);*/
-		resFlag |= WRITABLE_BIT;
-            }
-	    if (((flag & OOBDABLE_BIT) != 0) && FD_ISSET(fd, efds)) {
-/*printf("src/c/lib/posix-os/poll.c: fd d=%d is in fact oobdable.\n",fd);  fflush(stdout);*/
-		resFlag |= OOBDABLE_BIT;
-            }
-	    if (resFlag != 0) {
-		item = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(fd), TAGGED_INT_FROM_C_INT(resFlag) );
-		resVec[i++] = item;
+
+	    result_bitflags	= 0;
+
+	    if (((flag & READABLE_BIT) != 0) && FD_ISSET(fd, rfds))   result_bitflags |= READABLE_BIT;
+	    if (((flag & WRITABLE_BIT) != 0) && FD_ISSET(fd, wfds))   result_bitflags |= WRITABLE_BIT;
+	    if (((flag & OOBDABLE_BIT) != 0) && FD_ISSET(fd, efds))   result_bitflags |= OOBDABLE_BIT;
+
+	    if (result_bitflags != 0) {
+		item = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(fd), TAGGED_INT_FROM_C_INT(result_bitflags) );			// make_two_slot_record		is from   src/c/h/make-strings-and-vectors-etc.h
+		result_vector[i++] = item;
 	    }
 	}
 
 	ASSERT(i == status);
 
 	for (i = status-1, l = LIST_NIL;  i >= 0;  i--) {
-	    item = resVec[i];
+	    item = result_vector[i];
 	    l = LIST_CONS (task, item, l);
 	}
 
-	FREE(resVec);
+// Overrunning the heap limit should be impossible with added
+// 	if (need_to_call_heapcleaner (task, bytes_needed)) {
+// call above, but let's be paranoid given that we've
+// been getting a lot of segfaults out of this fn during
+// the 2012-01 -> 2012-08 timeframe:
+if (task->heap_allocation_pointer
+ >= task->heap_allocation_limit)
+{
+ char* bar = "====================================================================\n";
+ fprintf(stderr,"\n");
+ fprintf(stderr,bar);
+ fprintf(stderr,bar);
+ fprintf(stderr,bar);
+ fprintf("poll.c: task->heap_allocation_pointer %p > task->heap_allocation_limit %p!\n", task->heap_allocation_pointer, task->heap_allocation_limit);
+ fprintf(stderr,bar);
+ fprintf(stderr,bar);
+ fprintf(stderr,bar);
+ _exit(1);
+}
+
+	if (status > RESULT_VECTOR_BUF_SIZE) {
+	    //
+	    FREE( result_vector );
+	}
 
 	return l;
     }
 }						// fun LIB7_Poll
+#undef  RESULT_VECTOR_BUF_SIZE
 
 #endif
 

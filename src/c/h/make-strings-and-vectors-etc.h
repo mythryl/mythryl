@@ -1,6 +1,9 @@
 // make-strings-and-vectors-etc.h
 //
 // Macros and routines for allocating heap chunks.
+//
+// See also:
+//     src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 
 #ifndef RUNTIME_HEAP_H
