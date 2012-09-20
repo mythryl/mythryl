@@ -794,7 +794,7 @@ first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
 		*uninterruptible_scope_mutex + 1;							# nest better -- and in fact would have prevented a bug I found in his code.     -- CrT 2012-08-16
 
 	#
-	fun run_next_runnable_thread__xu ()				# XXX OLD COMMENNT: We do not need to clear uninterruptible mode here because			Derived from Reppy's dispatchSchedulerHook.
+	fun run_next_runnable_thread__xu ()								# XXX OLD COMMENNT: We do not need to clear uninterruptible mode here because			Derived from Reppy's dispatchSchedulerHook.
 	    =												# the hook will immediately do a enter_uninterruptible_scope.
 {
 # file::print "run_next_runnable_thread__xu ...  (calling switch_to_fate *run_next_runnable...)    "; print_thread_scheduler_state(); file::print "\n";
@@ -1010,50 +1010,149 @@ fun lognote (msg, thread)
 	    };
 
 
-	# Use the "thread_scheduler temporary" thread
-	# the given Void -> Void function and then exit.
+	# Use "itt::run_thunk_thread to
+	# run given Void -> Void function and then exit.
 	#
-	# At present this is (only) used in:   src/lib/src/lib/thread-kit/src/process-deathwatch.pkg
+	# The thread is placed at the BACK of the BACKGROUND
+	# run queue for execution when its turn comes up.
 	#
-	# NB: The thread is jumped directly the head of the run queue,
-	#     instead of the usual procedure of starting at the back
-	#     of the queue and waiting its turn.
-	#
-	fun run_thunk_immediately  f										# Exported.	Derived from Reppy's enqueueTmpThread.
+	fun run_thunk  f											# Exported.	Derived from Reppy's enqueueTmpThread.
 	    =
 	    {
-# log::note .{ sprintf "%s\trun_thunk_immediately/TOP" (thread_scheduler_statestring()); };
 		# "We should do this, but the overhead
-		#  is too high right now:"		      XXX SUCKO FIXME
+		#  is too high right now:"	-- John H Reppy circa 1992	      XXX SUCKO FIXME
 		#
 #		myfate = fat::make_isolated_fate f
 		#	
 		# so instead we do this:
 		#
-		myfate =    call_with_current_fate
-				(fn fate
-				    =
-				    {
-# log::note .{ sprintf "%s\trun_thunk_immediately/MMM" (thread_scheduler_statestring()); };
-					call_with_current_fate  (fn fate' =  switch_to_fate  fate  fate');		# 
-					#
-# log::note .{ sprintf "%s\trun_thunk_immediately/NNN" (thread_scheduler_statestring()); };
-					f ()
-					except
-					    _ = ();
+		(call_with_current_fate
+		    #
+		    (fn fate											# This temporary fate lets us pick up again after generating fate_to_run.
+			=
+			{
+			    call_with_current_fate
+				#
+				(fn fate_to_run =  switch_to_fate  fate  fate_to_run);				# 
+			    #
+			    f ()										# This is the body of fate_to_run, which we will enter onto run queue.
+			    except
+				_ = ();
 
-# log::note .{ sprintf "%s\trun_thunk_immediately/QQQ" (thread_scheduler_statestring()); };
-					dispatch_next_thread__noreturn ();
-				    }
-				);
+			    dispatch_next_thread__noreturn ();							# This will shut down fate_to_run when done.
+			}
+		    ))
+		    -> fate_to_run;
+
+		background_run_queue
+		    ->
+		    rwq::RW_QUEUE q;
+
+		enter_uninterruptible_scope ();									# Reppy didn't guard this q op, curiously.
+		    #
+		    q.back :=    (itt::run_thunk_thread, fate_to_run)  !  *q.back;				# Enter thread at back of background run queue.
+		    #
+		exit_uninterruptible_scope ();
+	    };
+
+
+
+	# Use "itt::run_thunk_soon_thread to
+	# run given Void -> Void function and then exit.
+	#
+	# The thread is placed at the BACK of the FOREGROUND run queue.
+	#
+	fun run_thunk_soon  f											# Exported.	Derived from Reppy's enqueueTmpThread.
+	    =
+	    {
+		# "We should do this, but the overhead
+		#  is too high right now:"	-- John H Reppy circa 1992	      XXX SUCKO FIXME
+		#
+#		myfate = fat::make_isolated_fate f
+		#	
+		# so instead we do this:
+		#
+		(call_with_current_fate
+		    #
+		    (fn fate											# This temporary fate lets us pick up again after generating fate_to_run.
+			=
+			{
+			    call_with_current_fate
+				#
+				(fn fate_to_run =  switch_to_fate  fate  fate_to_run);				# 
+			    #
+			    f ()										# This is the body of fate_to_run, which we will enter onto run queue.
+			    except
+				_ = ();
+
+			    dispatch_next_thread__noreturn ();							# This will shut down fate_to_run when done.
+			}
+		    ))
+		    -> fate_to_run;
 
 		foreground_run_queue
 		    ->
 		    rwq::RW_QUEUE q;
 
-# log::note .{ sprintf "%s\trun_thunk_immediately enqueing (itt::run_thunk_immediately_thread, myfate)" (thread_scheduler_statestring()); };
-		q.front :=    (itt::run_thunk_immediately_thread, myfate)  !  *q.front;			# Jump run_thunk_immediately_threaddirectly to the head of the run queue.
+		enter_uninterruptible_scope ();									# Reppy didn't guard this q op, curiously.
+		    #
+		    q.back :=    (itt::run_thunk_soon_thread, fate_to_run)  !  *q.back;				# Enter thread at back of foreground run queue.
+		    #
+		exit_uninterruptible_scope ();
 	    };
+
+
+
+	# Use "itt::run_thunk_immediately_thread to
+	# run given Void -> Void function and then exit.
+	#
+	# At present this is (only) used in:   src/lib/src/lib/thread-kit/src/process-deathwatch.pkg
+	#
+	# NB: The thread is jumped directly the FRONT of the FOREGROUND run queue,
+	#     instead of the usual procedure of starting at the back
+	#     of the queue and waiting its turn.  This is UNFAIR SCHEDULING
+	#     which could lead to THREAD STARVATION if used too often.
+	#
+	fun run_thunk_immediately  f										# Exported.	Derived from Reppy's enqueueTmpThread.
+	    =
+	    {
+		# "We should do this, but the overhead
+		#  is too high right now:"	-- John H Reppy circa 1992	      XXX SUCKO FIXME
+		#
+#		myfate = fat::make_isolated_fate f
+		#	
+		# so instead we do this:
+		#
+		(call_with_current_fate
+		    #
+		    (fn fate											# This temporary fate lets us pick up again after generating fate_to_run.
+			=
+			{
+			    call_with_current_fate
+				#
+				(fn fate_to_run =  switch_to_fate  fate  fate_to_run);				# 
+			    #
+			    f ()										# This is the body of fate_to_run, which we will enter onto run queue.
+			    except
+				_ = ();
+
+			    dispatch_next_thread__noreturn ();							# This will shut down fate_to_run when done.
+			}
+		    ))
+		    -> fate_to_run;
+
+		foreground_run_queue
+		    ->
+		    rwq::RW_QUEUE q;
+
+		enter_uninterruptible_scope ();									# Reppy didn't guard this q op, curiously.
+		    #
+		    q.front :=    (itt::run_thunk_immediately_thread, fate_to_run)  !  *q.front;		# Jump run_thunk_immediately_thread directly to the head of the foreground run queue.
+		    #
+		exit_uninterruptible_scope ();
+	    };
+
+
 
 	default_scheduler_fate
 	    =
