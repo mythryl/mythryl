@@ -308,13 +308,28 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 	// Each CONS cell and intpair takes three words (two
 	// for payload, one for implicit tagword) so:
 	//
-	int     bytes_needed  =  status * 6 * sizeof(Val);
+	int     bytes_needed  =  (status * 6 * sizeof(Val)) * 2;		// Still got a SEGV after adding this code, so added the "* 2" slop factor to see if that would make them go away. -- 2012-09-21 CrT
 
 	if (need_to_call_heapcleaner (task, bytes_needed)) {
 	    //
 	    Roots roots1 = { &arg, NULL };
 	    //
 	    call_heapcleaner_with_extra_roots (task, 0, roots1 );
+
+	    if (need_to_call_heapcleaner (task, bytes_needed)) {		// More paranoia added after above SEGV. -- 2012-09-21 CrT
+		//
+		char* bar = "===============================================================\n";
+		fprintf(stderr,"\n");
+		fprintf(stderr,bar);
+		fprintf(stderr,bar);
+		fprintf(stderr,bar);
+		fprintf(stderr,"_lib7_OS_poll: FATAL INTERNAL ERROR: Calling heapcleaner failed to free up %d bytes!\n", bytes_needed);
+		fprintf(stderr,bar);
+		fprintf(stderr,bar);
+		fprintf(stderr,bar);
+		_exit(1);
+	    }
+
 	}
 
 	Val     result_vector_buf[ RESULT_VECTOR_BUF_SIZE ];

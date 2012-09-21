@@ -460,7 +460,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
 
     #if NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	return (((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))
+	return (((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))	// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
 	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 														// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #else
