@@ -55,161 +55,6 @@ herein
     package   thread_scheduler	
     : (weak)  Thread_Scheduler							# Thread_Scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.api
     {
-	##################################################
-	# This section contains (partial) support for
-	# inter-hostthread communication per
-	#
-	#     src/lib/std/src/hostthread/template-hostthread.pkg
-	#
-	pid = REF 0;								# pid of current process while server is running, otherwise zero.
-	#
-	fun is_running ()
-	    =
-	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
-										# (correctly) return FALSE, even though pid may not have gotten zeroed.
-	mutex   =  pth::make_mutex   (); 
-	condvar =  pth::make_condvar ();  
-
-	# One record for each hostthread-level
-	# request supported by the server:
-	#
-	Do_Echo =  { what: String,	reply: String -> Void };
-
-	Request =  DO_ECHO  Do_Echo
-		|  DO_THUNK (Void -> Void)
-		|  DO_TIMESLICE
-		; 
-
-	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client hostthreads.
-	#
-	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
-	    =									# because Request is not an equality type. (The 'reply' fields are functions
-	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
-	                           _  => FALSE;
-	    esac;
-
-	#
-	fun do_timeslice ()							# Internal fn -- will execute in context of server hostthread.
-	    =
-	    ();		# THIS IDEA DOES NOT WORK. We can't wake up the thread scheduler via inter-hostthread queue, we have to go via the signal-handler mechanism...?
-			# Except if main hostthread is blocked on queue, we do indeed have to use this mechanism. HRM.
-	#
-	fun timeslice ()							# Exported.
-	    = 
-	    {   pth::acquire_mutex mutex;  
-		    # 
-		    request_queue :=   DO_TIMESLICE   !  *request_queue; 
-		    # 
-		    pth::broadcast_condvar condvar;  
-		    # 
-		pth::release_mutex mutex;  
-	    };           
-
-
-
-
-	#
-	fun do_thunk (thunk: Void -> Void)					# Internal fn -- will execute in context of server hostthread.
-	    =
-	    thunk ();
-	#
-	fun do  (thunk: Void -> Void)						# Exported -- will execute in context of client hostthread.
-	    = 
-	    {   pth::acquire_mutex mutex;  
-		    # 
-		    request_queue :=  (DO_THUNK thunk)  !  *request_queue; 
-		    # 
-		    pth::broadcast_condvar condvar;  
-		    # 
-		pth::release_mutex mutex;  
-	    };           
-
-
-	#
-	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server hostthread.
-	    =
-	    r.reply  r.what;
-	#
-	fun echo  (request: Do_Echo)						# Exported -- will execute in context of client hostthread.
-	    = 
-	    { 
-		pth::acquire_mutex mutex;  
-		    # 
-		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
-		    # 
-		    pth::broadcast_condvar condvar;  
-		    # 
-		pth::release_mutex mutex;  
-	    };           
-
-	#
-	fun get_any_new_inter_hostthread_requests  () 
-	    = 
-	    { 
-		pth::acquire_mutex mutex;  
-		    # 
-		    new_requests  = reverse  *request_queue; 			# 'reverse' to restore original request ordering.
-		    # 
-		    request_queue := []; 
-		    # 
-		pth::release_mutex  mutex;  
-		# 
-		new_requests; 							# It is ok if new_requests == [].
-	    };           
-
-
-	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
-	    =									# a graceful way to block until we have something to do.
-	    {
-		pth::acquire_mutex mutex;  
-		    # 
-		    for (request_queue_is_empty()) {				# 
-			#							# 
-			pth::wait_on_condvar (condvar, mutex);			# 
-		    };
-		    # 
-		pth::release_mutex  mutex;  
-	    };
-
-	#
-	fun service_inter_hostthread_requests  (request ! rest) 
-		=> 
-		{   service_inter_hostthread_request  request; 
-		    #
-		    service_inter_hostthread_requests rest; 
-		} 
-		where 
-		    fun service_inter_hostthread_request (DO_ECHO  r)  =>   do_echo  r;
-			service_inter_hostthread_request (DO_THUNK t)  =>   do_thunk t;
-			service_inter_hostthread_request  DO_TIMESLICE =>   do_timeslice ();
-		    end;
-		end;
-
-	    service_inter_hostthread_requests  [] 
-		=> 
-		(); 
-	end; 
-
-	# REMAINING WORK:	
-	# I put 
-	#
-	#    service_inter_hostthread_requests (get_any_new_inter_hostthread_requests()); 
-	#
-	# in alarm_handler() because that is the only place in this file
-	# which can guarantee a response in a bounded amount of time,
-	# but we probably also want to opportunistically do the same in
-	# some of our other thread-switch functions.
-	#
-	# When both run queues are empty, we should block by calling
-	#     block_until_inter_hostthread_request_queue_is_nonempty()
-	# At present this is done in
-	#     no_runnable_threads_left__fate
-	# in  src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
-	# -- there may be other places we should be doing this... ?
-	#                              -- 2012-07-21 CrT
-	#
-	# End of hostthread-support section
-	##################################################
 
 
 
@@ -310,6 +155,8 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 
 
 
+	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+	#
 
 
 	#
@@ -1528,6 +1375,161 @@ fun lognote (msg, thread)
 						      my _ =				# "my _ =" because only declarations are syntactically legal here.
 	reset_thread_scheduler  FALSE;
 
+
+
+	##################################################
+	# This section contains (partial) support for
+	# inter-hostthread communication per
+	#
+	#     src/lib/std/src/hostthread/template-hostthread.pkg
+	#
+	fun is_running ()
+	    =
+	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
+										# (correctly) return FALSE, even though pid may not have gotten zeroed.
+	mutex   =  pth::make_mutex   (); 
+	condvar =  pth::make_condvar ();  
+
+	# One record for each hostthread-level
+	# request supported by the server:
+	#
+	Do_Echo =  { what: String,	reply: String -> Void };
+
+	Request =  DO_ECHO  Do_Echo
+		|  DO_THUNK (Void -> Void)
+		|  DO_TIMESLICE
+		; 
+
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client hostthreads.
+	#
+	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
+	                           _  => FALSE;
+	    esac;
+
+	#
+	fun do_timeslice ()							# Internal fn -- will execute in context of server hostthread.
+	    =
+	    ();		# THIS IDEA DOES NOT WORK. We can't wake up the thread scheduler via inter-hostthread queue, we have to go via the signal-handler mechanism...?
+			# Except if main hostthread is blocked on queue, we do indeed have to use this mechanism. HRM.
+	#
+	fun timeslice ()							# Exported.
+	    = 
+	    {   pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=   DO_TIMESLICE   !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+
+
+
+	#
+	fun do_thunk (thunk: Void -> Void)					# Internal fn -- will execute in context of server hostthread.
+	    =
+	    thunk ();
+	#
+	fun do  (thunk: Void -> Void)						# Exported -- will execute in context of client hostthread.
+	    = 
+	    {   pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_THUNK thunk)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+
+	#
+	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server hostthread.
+	    =
+	    r.reply  r.what;
+	#
+	fun echo  (request: Do_Echo)						# Exported -- will execute in context of client hostthread.
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
+		    # 
+		    pth::broadcast_condvar condvar;  
+		    # 
+		pth::release_mutex mutex;  
+	    };           
+
+	#
+	fun get_any_new_inter_hostthread_requests  () 
+	    = 
+	    { 
+		pth::acquire_mutex mutex;  
+		    # 
+		    new_requests  = list::reverse  *request_queue; 		# 'reverse' to restore original request ordering.
+		    # 
+		    request_queue := []; 
+		    # 
+		pth::release_mutex  mutex;  
+		# 
+		new_requests; 							# It is ok if new_requests == [].
+	    };           
+
+
+	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
+	    =									# a graceful way to block until we have something to do.
+	    {
+		pth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {				# 
+			#							# 
+			pth::wait_on_condvar (condvar, mutex);			# 
+		    };
+		    # 
+		pth::release_mutex  mutex;  
+	    };
+
+	#
+	fun service_inter_hostthread_requests  (request ! rest) 
+		=> 
+		{   service_inter_hostthread_request  request; 
+		    #
+		    service_inter_hostthread_requests rest; 
+		} 
+		where 
+		    fun service_inter_hostthread_request (DO_ECHO  r)  =>   do_echo  r;
+			service_inter_hostthread_request (DO_THUNK t)  =>   do_thunk t;
+			service_inter_hostthread_request  DO_TIMESLICE =>   do_timeslice ();
+		    end;
+		end;
+
+	    service_inter_hostthread_requests  [] 
+		=> 
+		(); 
+	end; 
+
+	# REMAINING WORK:	
+	# I put 
+	#
+	#    service_inter_hostthread_requests (get_any_new_inter_hostthread_requests()); 
+	#
+	# in alarm_handler() because that is the only place in this file
+	# which can guarantee a response in a bounded amount of time,
+	# but we probably also want to opportunistically do the same in
+	# some of our other thread-switch functions.
+	#
+	# When both run queues are empty, we should block by calling
+	#     block_until_inter_hostthread_request_queue_is_nonempty()
+	# At present this is done in
+	#     no_runnable_threads_left__fate
+	# in  src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	# -- there may be other places we should be doing this... ?
+	#                              -- 2012-07-21 CrT
+	#
+	# End of hostthread-support section
+	##################################################
     };
 end;
 
