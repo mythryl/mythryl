@@ -155,8 +155,57 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 
 
 
-	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+	##################################################
+	# This section contains data structures for
+	# inter-hostthread communication per
 	#
+	#     src/lib/std/src/hostthread/template-hostthread.pkg
+	#
+	pid = REF 0;											# Unix process id of current process while server is running, otherwise zero.
+	#
+	# One record for each hostthread-level
+	# request supported by the server:
+	#
+	Do_Echo =  { what: String,	reply: String -> Void };
+
+	Request =  DO_ECHO  Do_Echo
+		|  DO_THUNK (Void -> Void)
+		|  DO_TIMESLICE
+		; 
+
+	request_queue =  REF ([]: List(Request)); 							# Queue of pending requests from client hostthreads.
+	#
+	fun request_queue_is_empty ()									# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =												# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;								# and Mythryl does not support comparison of functions for equality.)
+	                           _  => FALSE;
+	    esac;
+
+
+	# Following is a little hack that allows us to call
+	#     add_inter_hostthread_request_handler_thunk_to_run_queue' ()
+	# from most anywhere in the file without the
+	# whole file collapsing into mutual recursion:
+	#
+	add_inter_hostthread_request_handler_thunk_to_run_queue_hook								# This hook gets set to   add_inter_hostthread_request_handler_thunk_to_run_queue'  at bottom of file.
+	    =
+	    REF (NULL: Null_Or( Void -> Void ));
+	#
+	fun if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ()
+	    =
+	    case *request_queue
+		#
+		[] =>   ();
+		#
+	        _  =>   case *add_inter_hostthread_request_handler_thunk_to_run_queue_hook
+			    #
+			    THE add_inter_hostthread_request_handler_thunk_to_run_queue'  =>  add_inter_hostthread_request_handler_thunk_to_run_queue' ();
+			    NULL				=>  ();					# Shouldn't happen; shouldn't matter if it does -- we'll just run the request a little later.
+			esac;	
+	    esac;
+	#
+	#
+	##################################################
 
 
 	#
@@ -461,6 +510,8 @@ crash_if_thread_is_already_in_run_queues p;
 	fun enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread, old_fate }		# Exported. Enqueue (old thread, old_fate), and make new_thread the current thread.	Reppy's enqueueAndSwitchCurThread
 	    =												# New fate is whatever caller does upon our return.
 	    {
+		if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ();
+
 { old_thread = get_current_thread();
   old_thread -> itt::APPTHREAD { thread_id => old_id, name => old_name, task => old_task, ... };
   new_thread -> itt::APPTHREAD { thread_id => new_id, name => new_name, task => new_task, ... };
@@ -690,6 +741,8 @@ first -> (itt::APPTHREAD  { name, thread_id, ... }, _);
 # log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__noreturn/AAA"; };
 # file::print "dispatch_next_thread__usend__noreturn/AAA:   "; print_thread_scheduler_state(); file::print "\n";
 
+		if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ();
+
 		if (*uninterruptible_scope_mutex != 1)
 		    bar = "===============================================================================================================================================\n";
 
@@ -776,6 +829,7 @@ fun lognote (msg, thread)
 	fun switch_to_thread__xu (requested_thread, requested_fate, requested_arg)					# Exported.  Switch to requested_thread/requested_fate/requested_arg while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
 	    =														# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
 {
+	    if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ();
 #															lognote("switch_to_thread__xu/AAA calling nested call_with_current_fate()s",requested_thread);
 	    call_with_current_fate (
 		#
@@ -1122,14 +1176,6 @@ fun lognote (msg, thread)
             )
 	    =
 	    {
-# THIS SUCKS -- WE COULD BE IN AN UNINTERRUPTIBLE SCOPE, FOR STARTERS
-#		service_inter_hostthread_requests (get_any_new_inter_hostthread_requests()); 
-		    #
-		    # This is the only place we can put this call
-		    # to ensure that inter-hostthread requests are
-		    # guaranteed to be handled in a bounded amount
-		    # of time.
-
 		cached_approximate_time :=   NULL;
 		    #	
 		    # We keep cached_approximate_time
@@ -1141,6 +1187,8 @@ fun lognote (msg, thread)
 		    # know what time it is.
 
 		if (*uninterruptible_scope_mutex == 0)
+		    #
+		    if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ();
 		    #
 		    preempt__eu  current_fate;							# Put current thread to sleep so we can give someone else a chance to run.
 
@@ -1378,7 +1426,7 @@ fun lognote (msg, thread)
 
 
 	##################################################
-	# This section contains (partial) support for
+	# This section contains code for
 	# inter-hostthread communication per
 	#
 	#     src/lib/std/src/hostthread/template-hostthread.pkg
@@ -1389,24 +1437,6 @@ fun lognote (msg, thread)
 										# (correctly) return FALSE, even though pid may not have gotten zeroed.
 	mutex   =  pth::make_mutex   (); 
 	condvar =  pth::make_condvar ();  
-
-	# One record for each hostthread-level
-	# request supported by the server:
-	#
-	Do_Echo =  { what: String,	reply: String -> Void };
-
-	Request =  DO_ECHO  Do_Echo
-		|  DO_THUNK (Void -> Void)
-		|  DO_TIMESLICE
-		; 
-
-	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client hostthreads.
-	#
-	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
-	    =									# because Request is not an equality type. (The 'reply' fields are functions
-	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
-	                           _  => FALSE;
-	    esac;
 
 	#
 	fun do_timeslice ()							# Internal fn -- will execute in context of server hostthread.
@@ -1478,19 +1508,6 @@ fun lognote (msg, thread)
 	    };           
 
 
-	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
-	    =									# a graceful way to block until we have something to do.
-	    {
-		pth::acquire_mutex mutex;  
-		    # 
-		    for (request_queue_is_empty()) {				# 
-			#							# 
-			pth::wait_on_condvar (condvar, mutex);			# 
-		    };
-		    # 
-		pth::release_mutex  mutex;  
-	    };
-
 	#
 	fun service_inter_hostthread_requests  (request ! rest) 
 		=> 
@@ -1509,6 +1526,32 @@ fun lognote (msg, thread)
 		=> 
 		(); 
 	end; 
+
+	fun add_inter_hostthread_request_handler_thunk_to_run_queue' ()
+	    =
+	    run_thunk_immediately
+	     .{
+		service_inter_hostthread_requests (get_any_new_inter_hostthread_requests  ()); 
+	      };
+
+										my _ =
+	add_inter_hostthread_request_handler_thunk_to_run_queue_hook		# A little hack that lets us call add_inter_hostthread_request_handler_thunk_to_run_queue' ()
+	    :=									# from most anywhere in the file without the  whole file collapsing
+	    (THE add_inter_hostthread_request_handler_thunk_to_run_queue');	#  into mutual recursion.
+
+
+	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
+	    =									# a graceful way to block until we have something to do.
+	    {
+		pth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {				# 
+			#							# 
+			pth::wait_on_condvar (condvar, mutex);			# 
+		    };
+		    # 
+		pth::release_mutex  mutex;  
+	    };
 
 	# REMAINING WORK:	
 	# I put 
