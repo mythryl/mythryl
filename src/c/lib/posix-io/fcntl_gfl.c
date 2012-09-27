@@ -50,7 +50,7 @@ Val   _lib7_P_IO_fcntl_gfl   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_gfl", NULL );
 	    //
-	    flag = fcntl(fd, F_GETFD);
+	    flag = fcntl(fd, F_GETFL);						// SML/NJ has F_GETFD here...?
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_gfl" );
 
