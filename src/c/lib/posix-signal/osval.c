@@ -56,7 +56,7 @@ Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   osval   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-signal.c
+    //     src/lib/std/src/psx/posix-signal.c
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Signal_osval");
 

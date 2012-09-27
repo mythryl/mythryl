@@ -7,7 +7,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_error", fun_name => "listerrors" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-error.pkg
+// or such -- see src/lib/std/src/psx/posix-error.pkg
 //
 // We get #included by both:
 //

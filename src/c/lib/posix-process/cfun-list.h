@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_process", fun_name => "sleep" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-process.pkg
+// or such -- see src/lib/std/src/psx/posix-process.pkg
 // 
 // We get #included by both:
 //

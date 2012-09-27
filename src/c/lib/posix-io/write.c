@@ -37,8 +37,8 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //
     // One would expect this fn to be bound as   write'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-io.pkg
-    //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
+    //     src/lib/std/src/psx/posix-io.pkg
+    //     src/lib/std/src/psx/posix-io-64.pkg
     //
     // but in fact it appears to be nowhere referenced. (!) Should be called or deleted. XXX BUGGO FIXME
 

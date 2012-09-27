@@ -11,7 +11,7 @@
 
 // This gets bound as   errors   in:
 //
-//    src/lib/std/src/posix-1003.1b/posix-error.pkg
+//    src/lib/std/src/psx/posix-error.pkg
 
 static System_Constant table[] = {
 	{EACCES,	"acces"},

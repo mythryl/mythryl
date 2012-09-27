@@ -32,7 +32,7 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
     //
     // This fn gets bound as   errmsg   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-error.pkg
+    //     src/lib/std/src/psx/posix-error.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Error_errmsg");
 

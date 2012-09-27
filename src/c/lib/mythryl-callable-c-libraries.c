@@ -26,7 +26,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_filesys", fun_name => "chdir" };
 //
-// -- see   src/lib/std/src/posix-1003.1b/posix-file.pkg  
+// -- see   src/lib/std/src/psx/posix-file.pkg  
 //
 // Our
 //

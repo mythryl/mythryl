@@ -37,8 +37,8 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   fcntl_d   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-io.pkg
-    //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
+    //     src/lib/std/src/psx/posix-io.pkg
+    //     src/lib/std/src/psx/posix-io-64.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_d");
 

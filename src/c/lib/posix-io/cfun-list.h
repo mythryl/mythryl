@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_io", fun_name => "dup2" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-io.pkg
+// or such -- see src/lib/std/src/psx/posix-io.pkg
 // It gets #included by both:
 //
 //     src/c/lib/posix-io/libmythryl-posix-io.c

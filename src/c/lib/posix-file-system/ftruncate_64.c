@@ -40,7 +40,7 @@ Val   _lib7_P_FileSys_ftruncate_64   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   ftruncate'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
+    //     src/lib/std/src/psx/posix-file-system-64.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_ftruncate_64");
 

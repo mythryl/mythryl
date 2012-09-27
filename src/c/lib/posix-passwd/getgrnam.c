@@ -37,7 +37,7 @@ Val   _lib7_P_SysDB_getgrnam   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   getgrname'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-etc.pkg
+    //     src/lib/std/src/psx/posix-etc.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_SysDB_getgrnam");
 

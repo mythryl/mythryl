@@ -12,7 +12,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_process_environment", fun_name => "getpid" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-id.pkg
+// or such -- see src/lib/std/src/psx/posix-id.pkg
 
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {

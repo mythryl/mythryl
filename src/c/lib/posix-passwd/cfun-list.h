@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_passwd_db", fun_name => "getgrgid" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-etc.pkg
+// or such -- see src/lib/std/src/psx/posix-etc.pkg
 // It gets #included by both:
 //
 //     src/c/lib/posix-passwd/libmythryl-posix-passwd-db.c

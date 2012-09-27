@@ -42,7 +42,7 @@ Val   _lib7_P_TTY_tcflow   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   tcflow   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
+    //     src/lib/std/src/psx/posix-tty.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcflow");
 

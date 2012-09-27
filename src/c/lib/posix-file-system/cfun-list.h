@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_filesys", fun_name => "chdir" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-file.pkg
+// or such -- see src/lib/std/src/psx/posix-file.pkg
 // It gets #included by both:
 //
 //     src/c/lib/posix-file-system/libmythryl-posix-file-system.c

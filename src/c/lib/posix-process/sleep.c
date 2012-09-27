@@ -56,7 +56,7 @@ Val   _lib7_P_Process_sleep   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   sleep'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-process.pkg
+    //     src/lib/std/src/psx/posix-process.pkg
     //
     // NB: select() allows sleeping to sub-second resolution.
 

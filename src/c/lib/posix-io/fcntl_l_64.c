@@ -41,7 +41,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     //
     // This fn gets bound as   fcntl_l   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
+    //     src/lib/std/src/psx/posix-io-64.pkg
     
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_l_64");
 

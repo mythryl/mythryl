@@ -98,7 +98,7 @@
 
 
 
-// #define SCRIPT_EXIT_BOILERPLATE "\n posix_1003_1b::kill (posix_1003_1b::K_PROC (posix_1003_1b::get_process_id' () ), posix_1003_1b::signal::term );;\n"
+// #define SCRIPT_EXIT_BOILERPLATE "\n posixlib::kill (posixlib::K_PROC (posixlib::get_process_id' () ), posixlib::signal::term );;\n"
     //
 #define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
     // #define SCRIPT_EXIT_BOILERPLATE "\n (winix::process::exit winix::process::success): Void;\n"

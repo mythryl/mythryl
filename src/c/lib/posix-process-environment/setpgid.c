@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   set_process_group_id   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-id.pkg
+    //     src/lib/std/src/psx/posix-id.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setpgid");
 

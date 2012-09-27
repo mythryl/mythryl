@@ -14,7 +14,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_filesys", fun_name => "chdir" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-file.pkg
+// or such -- see src/lib/std/src/psx/posix-file.pkg
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {

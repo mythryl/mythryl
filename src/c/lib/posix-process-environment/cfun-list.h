@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_process_environment", fun_name => "getpid" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-id.pkg
+// or such -- see src/lib/std/src/psx/posix-id.pkg
 // 
 // We get #included by both:
 //
@@ -26,7 +26,7 @@
 #define CLIB_DATE	"February 16, 1995"
 #endif
 
-CFUNC("getpid","getpid",    _lib7_P_ProcEnv_getpid,    "Void -> Int")				// Gets bound as get_process_id  in   src/lib/std/src/posix-1003.1b/posix-id.pkg
+CFUNC("getpid","getpid",    _lib7_P_ProcEnv_getpid,    "Void -> Int")				// Gets bound as get_process_id  in   src/lib/std/src/psx/posix-id.pkg
 CFUNC("getppid","getppid",   _lib7_P_ProcEnv_getppid,   "Void -> Int")
 CFUNC("getuid","getuid",    _lib7_P_ProcEnv_getuid,    "Void -> Unt")
 CFUNC("geteuid","geteuid",   _lib7_P_ProcEnv_geteuid,   "Void -> Unt")

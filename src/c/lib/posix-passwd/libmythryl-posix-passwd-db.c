@@ -14,7 +14,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_passwd_db", fun_name => "getgrgid" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-etc.pkg
+// or such -- see src/lib/std/src/psx/posix-etc.pkg
 
 
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)

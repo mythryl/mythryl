@@ -8,7 +8,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_tty", fun_name => "tcdrain" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-tty.pkg
+// or such -- see src/lib/std/src/psx/posix-tty.pkg
 //
 // We get #included by both:
 //

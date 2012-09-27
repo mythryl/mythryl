@@ -14,7 +14,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_error", fun_name => "listerrors" };
 // 
-// or such -- see src/lib/std/src/posix-1003.1b/posix-error.pkg
+// or such -- see src/lib/std/src/psx/posix-error.pkg
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {

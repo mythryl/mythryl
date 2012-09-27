@@ -7,7 +7,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "posix_signal", fun_name => "osval" };
 // 
-// or such -- src/lib/std/src/posix-1003.1b/posix-signal.pkg
+// or such -- src/lib/std/src/psx/posix-signal.pkg
 //
 // We get #included by both:
 //

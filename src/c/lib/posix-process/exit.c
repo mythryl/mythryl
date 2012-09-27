@@ -36,7 +36,7 @@ Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     //
     // This fn gets bound as   exit   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-process.pkg
+    //     src/lib/std/src/psx/posix-process.pkg
     //
     // which ultimately gets bound as  terminate  in
     //

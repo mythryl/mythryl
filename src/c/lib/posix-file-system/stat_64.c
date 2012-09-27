@@ -124,7 +124,7 @@ Val   _lib7_P_FileSys_stat_64   (Task* task,  Val arg)   {		//  : String -> stat
     //
     // This fn gets bound as   stat'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
+    //     src/lib/std/src/psx/posix-file-system-64.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_stat_64");
 
@@ -173,7 +173,7 @@ Val   _lib7_P_FileSys_fstat_64   (Task* task,  Val arg)   {	//  : Unt -> statrep
     //
     // This fn gets bound as   fstat'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
+    //     src/lib/std/src/psx/posix-file-system-64.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fstat_64");
 
@@ -210,7 +210,7 @@ Val   _lib7_P_FileSys_lstat_64   (Task* task,  Val arg)   {	//  : String -> stat
     //
     // This fn gets bound as   lstat'   in:
     //
-    //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
+    //     src/lib/std/src/psx/posix-file-system-64.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_lstat_64");
 
