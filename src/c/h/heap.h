@@ -510,7 +510,9 @@ extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_
 extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
+extern void  debug_help(			void  );							// debug_help							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_ramlog(			int i );							// debug_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_tripwires(			void  );							// debug_tripwires						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  set_up_tospace_sib_buffers_for_agegroup  (Agegroup* age);					// set_up_tospace_sib_buffers_for_agegroup			def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c

@@ -204,6 +204,33 @@ void   dump_task   (Task* task, char* caller) {
 }
 
 //
+void   debug_tripwires  (void) {
+    // ===============
+    //
+    int words_corrupt = 0;
+    int words_checked = 0;
+    //
+    for (int t = 0;  t < MAX_HOSTTHREADS;  ++t) {
+        //
+	Task* task =  hostthread_table__global[ t ]->task;
+        //
+	unsigned char* buf_as_ucharptr  =  (((unsigned char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+	Vint* buf_as_valintptr =  (Vint*) buf_as_ucharptr;
+
+	for (int i = 0;  i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;  ++i) {
+	    //
+	    unsigned int u = buf_as_valintptr[ i ];
+	    if (u) {
+		fprintf(stderr,"task %d tripwire buffer slot %d at address %p contains %08x (should be 0).\n", t, i,  buf_as_valintptr + i,  (unsigned int) buf_as_valintptr[ i ]);
+		++words_corrupt;
+	    }
+	    ++words_checked;
+	}
+	fprintf(stderr,"%d tripwire buffer words checked, %d corrupt\n", words_checked, words_corrupt);
+    }
+}
+
+//
 static void   dump_gen0_tripwire_buffers__guts   (FILE* fd, Task* task, char* caller) {
     //        ================================
     //
@@ -999,6 +1026,7 @@ void   debug_help   (void) {
     fprintf(stderr,"Debug-support commands available at the (gdb) prompt:\n");
     fprintf(stderr,"\n");
     fprintf(stderr,"call debug_ramlog(n)        # Display names of last 'n' Mythryl calls to C level.\n");
+    fprintf(stderr,"call debug_tripwires()      # Lists any non-zero slots in the tripwire buffers.\n");
     fflush(stderr);
 
 }
