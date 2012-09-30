@@ -3,6 +3,8 @@
 // Common code for handling arithmetic traps.
 
 #include <stdio.h>
+#include <sys/types.h>		// For getpid().
+#include <unistd.h>		// For getpid(), sleep(). 
 
 #if defined(__CYGWIN32__)
 
@@ -44,6 +46,33 @@ void   set_up_fault_handlers   (Task* task)   {
     SET_UP_FLOATING_POINT_EXCEPTION_HANDLING ();				// Initialize the floating-point unit.
 }
 
+static void   enter_debug_loop   (void) {
+    //        ================
+    //
+    fprintf(stderr, "To kill this process from another commandline do:\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "%% kill -9 %d\n", getpid());
+    fprintf(stderr, "\n");
+    fprintf(stderr, "To attach gdb to running process from another commandline do:\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "% gdb mythryl-runtime-intel32 %d\n", getpid());
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Useful commands to try after attaching include:\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "(gdb) bt                   # To display callstack.\n");
+    fprintf(stderr, "(gdb) call debug_help()    # To list debug-support fns callable from gdb prompt.\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Now doing:    while(TRUE) sleep(5);\n");
+    fflush(stderr);
+    while (TRUE)  sleep(5);
+
+//	    fprintf(stderr, "error: Dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x. (Check logfile for details). -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);fflush(stderr);
+//	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
+//  	    //
+//            fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
+//	    die ("Exiting due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x    -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);
+}
+
 
 // arithmetic_fault_handler:
 //
@@ -68,12 +97,11 @@ void   set_up_fault_handlers   (Task* task)   {
 
 	if (! SELF_HOSTTHREAD->executing_mythryl_code) {
   	    //
-	    fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    fprintf(stderr, "error: Dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x. (Check logfile for details). -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);fflush(stderr);
-	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
-  	    //
-            fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    die ("Exiting due to uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x    -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);
+	    fprintf(stderr,"\n=================================================================================\n");
+	    fprintf(stderr, "error: Uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x. -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);
+	    fflush( stderr);
+	    //
+	    enter_debug_loop();
 	}
 
 	// Map the signal to the appropriate Mythryl exception:
@@ -123,13 +151,12 @@ void   set_up_fault_handlers   (Task* task)   {
 
         if (! SELF_HOSTTHREAD->executing_mythryl_code) {
 	    //
-	    fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    fprintf(stderr, "error: [not] dumping heap due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x. (Check logfile for details).\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));fflush(stderr);
-// Commented out for the moment to save time, since I'm not actually using the output: -- 2012-07-03 CrT
-//	    dump_all( SELF_HOSTTHREAD->task, "arithmetic_fault_handler" );			// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
-            fprintf(stderr,"\n=================================================================================\n"); fflush(stderr);
-	    die ("exiting due to uncaught signal while running in Mythryl C layer: signal = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
-        }
+	    fprintf(stderr,"\n=================================================================================\n");
+	    fprintf(stderr, "error: Uncaught signal while running in Mythryl C layer: signal = %d, signal code = %#x, pc = %#x. -- %d:%s\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp), __LINE__, __FILE__);
+	    fflush( stderr);
+	    //
+	    enter_debug_loop();
+	}
 
         // Map the signal to the appropriate Mythryl exception:
         //
