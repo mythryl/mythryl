@@ -51,11 +51,11 @@ static void   enter_debug_loop   (void) {
     //
     fprintf(stderr, "To kill this process from another commandline do:\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "%% kill -9 %d\n", getpid());
+    fprintf(stderr, "%% kill -HUP %d\n", getpid());
     fprintf(stderr, "\n");
     fprintf(stderr, "To attach gdb to running process from another commandline do:\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "% gdb mythryl-runtime-intel32 %d\n", getpid());
+    fprintf(stderr, "%% gdb mythryl-runtime-intel32 %d\n", getpid());
     fprintf(stderr, "\n");
     fprintf(stderr, "Useful commands to try after attaching include:\n");
     fprintf(stderr, "\n");

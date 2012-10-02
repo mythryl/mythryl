@@ -1250,21 +1250,21 @@ Ptid   pth__get_hostthread_id   ()   {
 }
 //
 Hostthread*  pth__get_hostthread   ()   {
-    //    ================
+    //       ===================
     //
     // Return Hostthread* for currently running hostthread -- this
     // is needed to find record for current hostthread in contexts
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-    Ptid ptid =  pth__get_hostthread_id ();								// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
+    Ptid ptid =  pth__get_hostthread_id ();									// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
 	//
-	if (hostthread_table__global[i]->ptid == ptid)   return hostthread_table__global[ i ];		// hostthread_table__global	def in   src/c/main/runtime-state.c
-    }													// hostthread_table__global exported via    src/c/h/runtime-base.h
+	if (hostthread_table__global[i]->ptid == ptid)   return hostthread_table__global[ i ];			// hostthread_table__global	def in   src/c/main/runtime-state.c
+    }														// hostthread_table__global exported via    src/c/h/runtime-base.h
     die ("pth__get_hostthread:  tid %lx not found in hostthread_table__global?!", (unsigned long int) ptid);	// NB: 'ptid' can be an int or pointer type depending on OS. (E.g., unsigned long on Linux, pointer on OpenBSD.)
-    return NULL;											// Cannot execute; only to quiet gcc.
+    return NULL;												// Cannot execute; only to quiet gcc.
 }
 
 

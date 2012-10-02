@@ -358,9 +358,9 @@ struct hostthread_state_struct {					// typedef struct hostthread_state_struct	H
 								// 'Heap' is defined in	  src/c/h/runtime-base.h
 
     Task* task;							// The state of the Mythryl task that is
-				        			// running on this Hostthread.  Eventually	
+				        			// running on this Hostthread.  "Eventually	
 				        			// we will support multiple Mythryl tasks
-				        			// per Hostthread.
+				        			// per Hostthread." (Oh yeah? :-)
     // Signal related fields:
     //
     Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.

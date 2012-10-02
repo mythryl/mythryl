@@ -47,6 +47,7 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
+#include "heapcleaner.h"
 
 
 // Bitmasks for polling descriptors -- see
@@ -314,7 +315,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 	    //
 	    Roots roots1 = { &arg, NULL };
 	    //
-	    call_heapcleaner_with_extra_roots (task, 0, roots1 );
+	    call_heapcleaner_with_extra_roots (task, 0, &roots1 );
 
 	    if (need_to_call_heapcleaner (task, bytes_needed)) {		// More paranoia added after above SEGV. -- 2012-09-21 CrT
 		//
@@ -378,7 +379,7 @@ if (task->heap_allocation_pointer
  fprintf(stderr,bar);
  fprintf(stderr,bar);
  fprintf(stderr,bar);
- fprintf("poll.c: task->heap_allocation_pointer %p > task->heap_allocation_limit %p!\n", task->heap_allocation_pointer, task->heap_allocation_limit);
+ fprintf(stderr,"poll.c: task->heap_allocation_pointer %p > task->heap_allocation_limit %p!\n", task->heap_allocation_pointer, task->heap_allocation_limit);
  fprintf(stderr,bar);
  fprintf(stderr,bar);
  fprintf(stderr,bar);

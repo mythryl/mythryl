@@ -513,6 +513,10 @@ extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever		
 extern void  debug_help(			void  );							// debug_help							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_ramlog(			int i );							// debug_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tripwires(			void  );							// debug_tripwires						def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_tasks(			void  );							// debug_tasks							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_tasks_verbose(		void  );							// debug_tasks_verbose						def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_task(			void  );							// debug_task							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_task_verbose(		void  );							// debug_task_verbose						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  set_up_tospace_sib_buffers_for_agegroup  (Agegroup* age);					// set_up_tospace_sib_buffers_for_agegroup			def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
