@@ -79,7 +79,7 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
   if (nn < 0) { printf("writebuf.c: write() return status is negative. (== %d)\n",nn); fflush(stdout); }
 }
 
-    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);				// from   src/c/lib/raise-error.h
+    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);				// from   src/c/lib/raise-error.h
 }
 
 

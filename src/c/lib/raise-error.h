@@ -70,26 +70,29 @@ Val raise_error__may_heapclean (Task *task, const char *alt_msg, const char *at,
 
 // Return a value to the calling Mythryl code,
 // but raise an exception if an error occurred.
+// NB: 'status' must not have side-effects:
 //
-#define RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task,status,val,extra_roots)	do {	\
-	if ((status) < 0)							\
-	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, extra_roots);	\
-	else									\
-	    return (val);							\
-    } while(0)
+#define RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task,status,val,extra_roots)	\
+	  (((status) < 0)										\
+	   ? RAISE_SYSERR__MAY_HEAPCLEAN(task, status, extra_roots)					\
+	   : (val)					    						\
+	   )
 
 // Return status to the calling Mythryl code,
 // but raise an exception if an error occurred:
+// NB: 'status' must not have side-effects:
 //
-#define RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task,status,extra_roots)	do {					\
-	int	__sts = (status);									\
-	RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN((task), __sts, TAGGED_INT_FROM_C_INT(__sts), extra_roots); 	\
-    } while (0)
+#define RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task,status,extra_roots)	\
+	\
+	RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN((task), status, TAGGED_INT_FROM_C_INT(status), extra_roots)
 
 // Return Void to the calling Mythryl code,
 // but raise an exception if an error occurred:
+// NB: 'status' must not have side-effects:
 //
-#define RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, extra_roots)    RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, HEAP_VOID, extra_roots)
+#define RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, extra_roots)	\
+	\
+	RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, HEAP_VOID, extra_roots)
 
 #endif // LIB7_C_H
 

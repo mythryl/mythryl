@@ -58,7 +58,7 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
 if (errno == EINTR) puts("Error: EINTR in fcntl_d.c\n");
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, NULL);
+    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, NULL);
 }
 
 

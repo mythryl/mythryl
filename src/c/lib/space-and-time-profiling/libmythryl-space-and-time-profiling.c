@@ -167,7 +167,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 	int status = setitimer (ITIMER_VIRTUAL, &new_itv, NULL);
 
-	RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+	return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
     #endif
 }

@@ -59,7 +59,7 @@ Val    _lib7_P_Process_exec   (Task* task,  Val arg)   {
 
     int status = execv(HEAP_STRING_AS_C_STRING(path), argv);
 
-    RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 }
 
 
