@@ -216,14 +216,12 @@ void   set_up_heap   (			// Create and initialize the heap.
 		book2sibid_bytesize = BOOK2SIBID_TABLE_SIZE_IN_SLOTS * sizeof( Sibid );
 	#endif
 
-	quire
-	    =
-            obtain_quire_from_os(
-		//
-		MAX_HOSTTHREADS * params->agegroup0_buffer_bytesize
-                +
-                book2sibid_bytesize
-           );
+	quire = obtain_quire_from_os(
+		    //
+		    MAX_HOSTTHREADS * params->agegroup0_buffer_bytesize
+		    +
+		    book2sibid_bytesize
+	       );
 
 	if (quire == NULL) 	   die ("Unable to allocate ram region for book_to_sibid__global");
 

@@ -75,9 +75,9 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return PTR_CAST( Val, dir);						// PTR_CAST is from   src/c/h/runtime-values.h
-									//
+}									//
 									// I would think just casting a C pointer to a Val and returning
-}									// it should crash the garbage collector, but doing
+									// it should crash the garbage collector, but doing
 									//
 									//    foo = posixlib::open_directory_stream ".";
 									//
@@ -87,7 +87,36 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 									//
 									// repeatedly does seem to work.
 									// Is there heavy magic in the runtime::Chunk type...?
-									// If so, how does it get conveyed to the heapcleaner gut?  XXX QUERO -- 2011-11-19 CrT
+									// If so, how does it get conveyed to the heapcleaner gut?  -- 2011-11-19 CrT
+									///////////////////////////////////////////////////////////
+									// This works because the garbage collector has a global
+									// map of address space which it uses to distinguish pointers
+									// into the heap from pointers into other parts of RAM.
+									// 
+									// The global map is book_to_sibid__global[] whose slots are
+									// initialized to UNMAPPED_BOOK_SIBID in
+									//     src/c/heapcleaner/heapcleaner-initialization.c
+									//
+									// The critical tests include in  src/c/heapcleaner/heapclean-agegroup0.c
+									//
+									//      if (IS_POINTER(w)) {
+									//	    //
+									//	    Sibid  sibid =  SIBID_FOR_POINTER( book2sibid, w );
+									//	    //
+									//	    if (sibid == AGEGROUP0_SIBID)
+									//      }
+									//
+									// and in  src/c/heapcleaner/heapclean-n-agegroups.c
+									//
+									//	if (IS_POINTER( pointee )) {								// Ignore Tagged_Int values.
+									//	    //
+									//	    Sibid  sibid =  SIBID_FOR_POINTER(b2s, pointee );					COUNT_CODECHUNKS( sibid );
+									//	    //
+									//	    if (SIBID_IS_IN_FROMSPACE( sibid, max_sibid )) {
+									//
+									// where in both cases if  sibid == UNMAPPED_BOOK_SIBID
+									// the heapcleaner does nothing.			-- 2012-10-06 CrT
+
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
