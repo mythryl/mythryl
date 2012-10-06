@@ -4,7 +4,7 @@
 //
 // See also:
 //
-//     RAMLOG stuff in   src/c/h/runtime-base.h
+//     SYSCALL_LOG stuff in   src/c/h/runtime-base.h
 
 #include "../mythryl-config.h"
 

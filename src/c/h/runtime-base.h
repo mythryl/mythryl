@@ -615,8 +615,8 @@ extern void recover_mythryl_heap(  Hostthread* hostthread,  const char* fn_name 
     // For background comments see Note[1]
 
 
-#define ENTER_MYTHRYL_CALLABLE_C_FN(fn_name)    do { note_fn_entry_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
-#define  EXIT_MYTHRYL_CALLABLE_C_FN(fn_name)    do {  note_fn_exit_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
+#define ENTER_MYTHRYL_CALLABLE_C_FN(fn_name)    do { note_fn_entry_in_syscall_log(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
+#define  EXIT_MYTHRYL_CALLABLE_C_FN(fn_name)    do {  note_fn_exit_in_syscall_log(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
     //
     // These macros are intended to provide a hook to track calls from
     // Mythryl code into the C level.  The immediate motivation is
@@ -854,7 +854,7 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
 
 
 //////////////////////////////////////////////////////////////////////////////////////
-//            RAMLOG
+//            SYSCALL_LOG
 // 
 // Our regular log facility in
 //
@@ -874,51 +874,51 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
 // strings, rather than arbitrary strings created per-log-entry
 // as in the main error-reporting.c logic.
 
-#define LOG2_RAMLOG_ENTRIES	10							// 10==1024 Ramlog entries.
-#define RAMLOG_ENTRIES		(1 << LOG2_RAMLOG_ENTRIES)				// This keeps things a power of two, so that we can
-#define RAMLOG_MASK		(RAMLOG_ENTRIES-1)					// construct a mask to implement fast queue wrap-around.
+#define LOG2_SYSCALL_LOG_ENTRIES	10						// 10==1024 Syscall_Log entries.
+#define SYSCALL_LOG_ENTRIES		(1 << LOG2_SYSCALL_LOG_ENTRIES)			// This keeps things a power of two, so that we can
+#define SYSCALL_LOG_MASK		(SYSCALL_LOG_ENTRIES-1)				// construct a mask to implement fast queue wrap-around.
 
-#define RAMLOG_FN_ENTRY 		(1 << 0)
-#define RAMLOG_FN_EXIT 			(1 << 1)
+#define SYSCALL_LOG_FN_ENTRY 		(1 << 0)
+#define SYSCALL_LOG_FN_EXIT 			(1 << 1)
 
 typedef struct {
-    int		id;									// task->hostthread->id which made the ramlog entry.
+    int		id;									// task->hostthread->id which made the syscall_log entry.
     int		flags;
     const char* fn_name;
-} Ramlog_Entry;
+} Syscall_Log_Entry;
 
-extern Ramlog_Entry ramlog_circular_queue[ RAMLOG_ENTRIES ];				// This holds the last thousand or so ramlog entries made.
-extern int          ramlog_next_entry_to_write;						// This points to next index to write in ramlog_circular_queue[].
+extern Syscall_Log_Entry syscall_log_circular_queue[ SYSCALL_LOG_ENTRIES ];		// This holds the last thousand or so syscall_log entries made.
+extern int   	         syscall_log_next_entry_to_write;				// This points to next index to write in syscall_log_circular_queue[].
     //
     // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
 
-inline int ramlog_next( int i) { return (i+1) & RAMLOG_MASK; }
-inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
+inline int syscall_log_next( int i) { return (i+1) & SYSCALL_LOG_MASK; }
+inline int syscall_log_prev( int i) { return (i-1) & SYSCALL_LOG_MASK; }
 
-inline void  note_fn_entry_in_ramlog   (Task* task, const char* fn_name) {
-    //       =======================
+inline void  note_fn_entry_in_syscall_log   (Task* task, const char* fn_name) {
+    //       ============================
     //
-    int e = ramlog_next_entry_to_write;
-    ramlog_next_entry_to_write =   ramlog_next( e );					// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
+    int e = syscall_log_next_entry_to_write;
+    syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
     //
-    Ramlog_Entry* r =  &ramlog_circular_queue[  e ];
+    Syscall_Log_Entry* r =  &syscall_log_circular_queue[  e ];
     //
     r->fn_name = fn_name;
     r->id      = task->hostthread->id;
-    r->flags   = RAMLOG_FN_ENTRY;
+    r->flags   = SYSCALL_LOG_FN_ENTRY;
 }
 
-inline void  note_fn_exit_in_ramlog   (Task* task, const char* fn_name) {
-    //       ======================
+inline void  note_fn_exit_in_syscall_log   (Task* task, const char* fn_name) {
+    //       ===========================
     //
-    int e = ramlog_next_entry_to_write;
-    ramlog_next_entry_to_write =   ramlog_next( e );					// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
+    int e = syscall_log_next_entry_to_write;
+    syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
     //
-    Ramlog_Entry* r =  &ramlog_circular_queue[  e ];
+    Syscall_Log_Entry* r =  &syscall_log_circular_queue[  e ];
     //
     r->fn_name = fn_name;
     r->id      = task->hostthread->id;
-    r->flags   = RAMLOG_FN_EXIT;
+    r->flags   = SYSCALL_LOG_FN_EXIT;
 }
 
 #endif // _ASM_ 

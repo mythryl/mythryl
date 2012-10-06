@@ -507,11 +507,11 @@ extern void  dump_gen0_tripwire_buffers(	Task* task, char* caller );					// dump
 extern void  dump_gens(				Task* task, char* caller );					// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunks_summary(		Task* task, char* caller );					// dump_hugechunks_summary					def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_hugechunks_contents					def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_syscall_log(			Task* task, char* caller );					// dump_syscall_log						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern void  debug_help(			void  );							// debug_help							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  debug_ramlog(			int i );							// debug_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_syscall_log(			int i );							// debug_syscall_log							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tripwires(			void  );							// debug_tripwires						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tasks(			void  );							// debug_tasks							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tasks_verbose(		void  );							// debug_tasks_verbose						def in   src/c/heapcleaner/heap-debug-stuff.c

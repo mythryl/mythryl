@@ -641,12 +641,12 @@ static Val   do_dump_task   (Task* task,  Val arg)   {
 
 
 //
-static Val   do_dump_ramlog   (Task* task,  Val arg)   {
-    //       ================
+static Val   do_dump_syscall_log   (Task* task,  Val arg)   {
+    //       ===================
     //
     // Mythryl type:  String -> Void
     //
-    // This fn gets bound as   dump_ramlog   in:
+    // This fn gets bound as   dump_syscall_log   in:
     //
     //     src/lib/std/src/nj/heap-debug.pkg
     //
@@ -655,7 +655,7 @@ static Val   do_dump_ramlog   (Task* task,  Val arg)   {
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
-    dump_ramlog( task, caller );							// dump_ramlog	is from   src/c/heapcleaner/heap-debug-stuff.c
+    dump_syscall_log( task, caller );							// dump_syscall_log	is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -1094,7 +1094,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
     {"dump_hugechunks_contents",			"dump_hugechunks_contents",				do_dump_hugechunks_contents,					"String -> Void"},
     {"dump_hugechunks_summary",				"dump_hugechunk_stuff",					do_dump_hugechunks_summary,					"String -> Void"},
-    {"dump_ramlog",					"dump_ramlog",						do_dump_ramlog,							"String -> Void"},
+    {"dump_ramlog",					"dump_syscall_log",					do_dump_syscall_log,							"String -> Void"},
     {"dump_task",					"dump_task",						do_dump_task,							"String -> Void"},
     {"dump_whatever",					"dump_whatever",					do_dump_whatever,						"String -> Void"},
     {"make_codechunk_executable",			"make_codechunk_executable",				do_make_codechunk_executable,					"(Vector_Of_One_Byte_Unts, Int) -> Chunk -> Chunk"},

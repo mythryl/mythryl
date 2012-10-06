@@ -168,9 +168,9 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 
     Hostthread* hostthread = SELF_HOSTTHREAD;
 
-// Commented out because repeat entries were flooding the ramlog.
+// Commented out because repeat entries were flooding the syscall_log.
 // Should either include a dup count or just ignore consecutive
-// identical ramlog entries.
+// identical syscall_log entries.
 //										Task* task =  hostthread->task;
 //										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
