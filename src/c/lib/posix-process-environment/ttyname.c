@@ -37,8 +37,7 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_ttyname");
-
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_ttyname", NULL );
 	//
 	char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
@@ -47,7 +46,9 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
 
     if (name == NULL)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "not a terminal device", NULL);
     //  
-    return make_ascii_string_from_c_string__may_heapclean( task, name, NULL );
+    Val result = make_ascii_string_from_c_string__may_heapclean( task, name, NULL );
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

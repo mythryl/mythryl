@@ -40,7 +40,7 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-io.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_l");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd        =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int cmd       =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -67,7 +67,7 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_l.c\n");
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
-    return  make_five_slot_record( task,
+    Val result = make_five_slot_record( task,
 		//
 		TAGGED_INT_FROM_C_INT( flock.l_type ),
 		TAGGED_INT_FROM_C_INT( flock.l_whence ), 
@@ -75,6 +75,8 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_l.c\n");
 		TAGGED_INT_FROM_C_INT( flock.l_len ),
 		TAGGED_INT_FROM_C_INT( flock.l_pid )
 	    );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

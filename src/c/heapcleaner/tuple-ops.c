@@ -61,7 +61,8 @@ Val   concatenate_two_tuples   (Task* task,  Val r1,  Val r2)   {
     //
     // This function is invoked (only) from    src/c/lib/heap/concatenate-two-tuples.c
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("concatenate_two_tuples");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Val		result;
 
     int		l1 = GetLen(r1);
     int		l2 = GetLen(r2);
@@ -89,12 +90,14 @@ Val   concatenate_two_tuples   (Task* task,  Val r1,  Val r2)   {
 	    set_slot_in_nascent_heapchunk (task, j, p[i]);
 	}
 
-	return commit_nascent_heapchunk(task, n);
+	result = commit_nascent_heapchunk(task, n);
 
     } else {
 
-	return HEAP_VOID;
+	result = HEAP_VOID;
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

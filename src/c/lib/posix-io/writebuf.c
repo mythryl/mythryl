@@ -41,7 +41,7 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_writebuf");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		fd         = GET_TUPLE_SLOT_AS_INT(                               arg, 0);
     Val		buf        = GET_TUPLE_SLOT_AS_VAL(                               arg, 1);
@@ -79,7 +79,10 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
   if (nn < 0) { printf("writebuf.c: write() return status is negative. (== %d)\n",nn); fflush(stdout); }
 }
 
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);				// from   src/c/lib/raise-error.h
+    Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);				// from   src/c/lib/raise-error.h
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

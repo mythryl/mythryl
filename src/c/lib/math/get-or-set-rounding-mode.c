@@ -47,26 +47,31 @@ Val   _lib7_Math_get_or_set_rounding_mode   (Task* task,  Val arg)   {
     //     src/lib/std/src/ieee-float.pkg
     //
 
-									 		ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Math_get_or_set_rounding_mode");
+									 		ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    Val result;
 
     #ifdef NO_ROUNDING_MODE_CTL
 	//
-        return RAISE_ERROR__MAY_HEAPCLEAN(task, "Rounding mode control not supported", NULL);
+        result = RAISE_ERROR__MAY_HEAPCLEAN(task, "Rounding mode control not supported", NULL);
 	//
     #else
 	//
 	if (arg == OPTION_NULL) {
 	    //
-	    fe_rnd_mode_t	 result = fegetround();
-	    return RMODE_CtoLib7(result);
+	    fe_rnd_mode_t	 resultt = fegetround();
+	    result = RMODE_CtoLib7(resultt);
 
 	} else {
 
-	    fe_rnd_mode_t	  mode   =  RMODE_LIB7toC( OPTION_GET( arg ));
-	    fe_rnd_mode_t	  result =  fesetround( mode );				// fesetround	def in    src/c/machine-dependent/prim.intel32.asm
-	    return RMODE_CtoLib7( result );
+	    fe_rnd_mode_t	  mode    =  RMODE_LIB7toC( OPTION_GET( arg ));
+	    fe_rnd_mode_t	  resultt =  fesetround( mode );				// fesetround	def in    src/c/machine-dependent/prim.intel32.asm
+	    result = RMODE_CtoLib7( resultt );
 	}
     #endif
+									 		EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    return result;
 }
 
 

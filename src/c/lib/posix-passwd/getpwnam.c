@@ -40,7 +40,7 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-etc.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_SysDB_getpwnam");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
     struct passwd*  info;
@@ -75,7 +75,10 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
     Val pw_dir   =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_dir,   &roots3	);		Roots roots4 = { &pw_dir,  &roots3 };
     Val pw_shell =  make_ascii_string_from_c_string__may_heapclean(	task,                  info->pw_shell, &roots4	);
 
-    return  make_five_slot_record(task,  pw_name, pw_uid, pw_gid, pw_dir, pw_shell  );
+    Val result   =  make_five_slot_record(task,  pw_name, pw_uid, pw_gid, pw_dir, pw_shell  );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -25,11 +25,14 @@ Val   _lib7_P_ProcEnv_environ   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_environ");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     extern char** environ;
     //
-    return make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, environ, NULL );
+    Val result = make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, environ, NULL );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

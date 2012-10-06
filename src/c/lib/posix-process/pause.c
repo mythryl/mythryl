@@ -36,7 +36,7 @@ Val   _lib7_P_Process_pause   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-process.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_pause");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_pause", NULL );
 	//

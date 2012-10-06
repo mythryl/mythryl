@@ -32,7 +32,7 @@ Val   _lib7_Sock_bind   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-												ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_bind");
+												ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val	addr   =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );						// Last use of 'arg'.

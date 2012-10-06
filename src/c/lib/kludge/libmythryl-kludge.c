@@ -77,10 +77,12 @@ static Val   do_get_script_name   (Task* task,  Val arg) {
     //
     //     src/lib/src/kludge.pkg
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("do_get_script_name");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     if (!mythryl_script__global) {						// mythryl_script__global	is from   src/c/main/runtime-main.c
 	//
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
 	return  OPTION_NULL;							// OPTION_NULL			is from   src/c/h/make-strings-and-vectors-etc.h
     }
 
@@ -88,7 +90,9 @@ static Val   do_get_script_name   (Task* task,  Val arg) {
 	=
 	make_ascii_string_from_c_string__may_heapclean( task, mythryl_script__global, NULL );
 
-    return OPTION_THE(task, script_name);
+    Val result = OPTION_THE(task, script_name);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -32,7 +32,7 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_strftime");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val	fmt = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val	date;
@@ -74,6 +74,7 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
 
     Val                               result = allocate_nonempty_ascii_string__may_heapclean(task, size, NULL);	// Tried 'size+1' for terminal NUL byte here:  It injected NULs into text logfiles. Ungood. -- 2011-11-19 CrT
     strncpy (HEAP_STRING_AS_C_STRING( result ), buf, size);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return                            result;
 }
 

@@ -39,7 +39,7 @@ Val   _lib7_P_FileSys_unlink   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_unlink");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int status;
 
@@ -65,7 +65,10 @@ Val   _lib7_P_FileSys_unlink   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -37,7 +37,7 @@ Val   _lib7_P_ProcEnv_getlogin   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getlogin");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getlogin", NULL );
 	//
@@ -47,7 +47,10 @@ Val   _lib7_P_ProcEnv_getlogin   (Task* task,  Val arg)   {
 
     if (name == NULL)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "no login name", NULL);
   
-    return  make_ascii_string_from_c_string__may_heapclean( task, name, NULL );
+    Val result =  make_ascii_string_from_c_string__may_heapclean( task, name, NULL );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

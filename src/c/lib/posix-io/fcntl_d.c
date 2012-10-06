@@ -40,7 +40,7 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_d");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int             fd;
 
@@ -58,7 +58,10 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
 if (errno == EINTR) puts("Error: EINTR in fcntl_d.c\n");
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, NULL);
+    Val result =  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

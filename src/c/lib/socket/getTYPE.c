@@ -32,7 +32,7 @@ Val   _lib7_Sock_getTYPE   (Task* task,  Val arg)   {		//  : Socket -> Sock_type
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-													ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getTYPE");
+													ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int socket = TAGGED_INT_TO_C_INT( arg );								// Last use of 'arg'.
 

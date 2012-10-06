@@ -64,11 +64,11 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_readlink");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     struct stat  sbuf;
     int          len;
-    int          result;
+    int          iresult;
 
     char* heap_path = HEAP_STRING_AS_C_STRING( arg );
 
@@ -99,7 +99,9 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     if (len < MAXPATHLEN) {
         //
 	buf[len] = '\0';
-	return make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
+	Val result = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
     }
 
 
@@ -113,14 +115,18 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink", NULL );
 	    //
-	    result = lstat (c_path, &sbuf);
+	    iresult = lstat (c_path, &sbuf);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink" );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (result < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, result, NULL);
+    if (iresult < 0) {
+	Val result = RAISE_SYSERR__MAY_HEAPCLEAN(task, iresult, NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
+    }
 
     int nlen = sbuf.st_size + 1;
 
@@ -144,15 +150,17 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (len < 0)		return RAISE_SYSERR__MAY_HEAPCLEAN(task, len, NULL);
-    if (len >= nlen)		return RAISE_ERROR__MAY_HEAPCLEAN(task, "readlink failure", NULL);
+    Val result;
 
-    nbuf[len] = '\0';
-    Val chunk = make_ascii_string_from_c_string__may_heapclean (task, nbuf, NULL);
-    FREE (nbuf);
-    //
-    return chunk;
-
+    if      (len < 0)		result = RAISE_SYSERR__MAY_HEAPCLEAN(task, len, NULL);
+    else if (len >= nlen)	result = RAISE_ERROR__MAY_HEAPCLEAN(task, "readlink failure", NULL);
+    else {
+	nbuf[len] = '\0';
+	result = make_ascii_string_from_c_string__may_heapclean (task, nbuf, NULL);
+	FREE (nbuf);
+    }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

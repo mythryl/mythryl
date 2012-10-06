@@ -75,7 +75,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getgroups");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     gid gidset[ NGROUPS_MAX ];
 
@@ -128,6 +128,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	FREE ((void *)gp);
     }
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

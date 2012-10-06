@@ -63,7 +63,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // is full after cleaning, we also clean one or more
     // additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
-														ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner");
+														ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];			// Registers and globals.			// MAX_TOTAL_CLEANING_ROOTS				is from   src/c/h/runtime-configuration.h
     Val** roots_ptr = roots;
@@ -102,6 +102,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    //
 	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
+														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	    return;
 	}
 
@@ -249,6 +250,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
+
+														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }			 											// fun call_heapcleaner
 
 
@@ -270,7 +273,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     // but isn't the collecting hostthread, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
     // 2012-02-28 CrT: Previous two lines are 20 years old;
     //                 I believe they are no longer true.
-														ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner_with_extra_roots");
+														ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 														// MAX_EXTRA_HEAPCLEANER_ROOTS_PER_HOSTTHREAD	def in   src/c/h/runtime-configuration.h
 														// MAX_TOTAL_CLEANING_ROOTS			def in   src/c/h/runtime-configuration.h
@@ -309,6 +312,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	    //
 	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
+														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	    return;
 	}
 
@@ -431,6 +435,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+
+														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
 }														// fun call_heapcleaner_with_extra_roots
 
 

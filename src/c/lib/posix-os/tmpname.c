@@ -44,7 +44,7 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix/winix-file.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_OS_tmpname");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     static int call_number = 0;
     static int pid         = 0;
@@ -65,7 +65,10 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
  
     sprintf (buf, "tmpfile.%d.%d.%d.tmp", c1, pid, c2);
     //
-    return make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
+    Val result = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 //
 // NOTES:

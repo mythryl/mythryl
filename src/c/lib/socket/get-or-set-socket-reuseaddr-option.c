@@ -29,7 +29,7 @@ Val   get_or_set_socket_reuseaddr_option   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_reuseaddr_option");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return   get_or_set_boolean_socket_option( task, arg, SO_REUSEADDR );			// get_or_set_boolean_socket_option		def in    src/c/lib/socket/get-or-set-boolean-socket-option.c
 	//

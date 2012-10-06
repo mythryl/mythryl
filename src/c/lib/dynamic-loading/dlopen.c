@@ -28,7 +28,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
     // Open a dynamically loaded library.
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlopen");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val ml_libname = GET_TUPLE_SLOT_AS_VAL (arg, 0);
     int lazy       = GET_TUPLE_SLOT_AS_VAL (arg, 1) == HEAP_TRUE;
@@ -72,7 +72,9 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
     if (libname)  unbuffer_mythryl_heap_value( &libname_buf );
 
-    return  make_one_word_unt(task,  (Vunt) handle  );
+    Val result =  make_one_word_unt(task,  (Vunt) handle  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -35,7 +35,7 @@ Val   _lib7_P_ProcEnv_setuid   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setuid");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setuid", &arg );
 	//
@@ -43,7 +43,10 @@ Val   _lib7_P_ProcEnv_setuid   (Task* task,  Val arg) {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setuid" );
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -38,7 +38,7 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_gfd");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int flag;
 
@@ -53,11 +53,13 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
 // if (errno == EINTR) puts("Error: EINTR in fcntl_gfd.c\n");
     } while (flag < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (flag == -1) {
-        return RAISE_SYSERR__MAY_HEAPCLEAN(task, flag, NULL);
-    } else {
-        return  make_one_word_unt(task, flag);
-    }
+    Val result;
+
+    if (flag == -1)	result = RAISE_SYSERR__MAY_HEAPCLEAN(task, flag, NULL);
+    else		result = make_one_word_unt(task, flag);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

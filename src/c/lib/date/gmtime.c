@@ -30,7 +30,7 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_greanwich_mean_time");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     time_t t =  (time_t) INT1_LIB7toC(arg);
 
@@ -53,7 +53,9 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
     set_slot_in_nascent_heapchunk(task, 8, TAGGED_INT_FROM_C_INT(tm->tm_yday));
     set_slot_in_nascent_heapchunk(task, 9, TAGGED_INT_FROM_C_INT(tm->tm_isdst));
 
-    return commit_nascent_heapchunk(task, 9);
+    Val result = commit_nascent_heapchunk(task, 9);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

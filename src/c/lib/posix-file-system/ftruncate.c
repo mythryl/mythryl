@@ -38,7 +38,7 @@ Val   _lib7_P_FileSys_ftruncate   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-file.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_ftruncate");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	    fd = GET_TUPLE_SLOT_AS_INT(arg, 0);
     off_t  len = GET_TUPLE_SLOT_AS_INT(arg, 1);
@@ -56,7 +56,10 @@ Val   _lib7_P_FileSys_ftruncate   (Task* task,  Val arg)   {
 if (errno == EINTR) puts("Error: EINTR in ftrucate.c\n");
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

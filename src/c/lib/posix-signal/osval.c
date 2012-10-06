@@ -58,7 +58,7 @@ Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-signal.c
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Signal_osval");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     name_val_t*  result = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 

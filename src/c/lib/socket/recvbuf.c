@@ -50,7 +50,7 @@ Val   _lib7_Sock_recvbuf   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-											ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_recvbuf");
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		flag = 0;
     int		n;

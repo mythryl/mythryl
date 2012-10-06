@@ -42,7 +42,7 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_umask");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_umask", NULL );
 	//
@@ -50,7 +50,9 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_umask" );
 
-    return  make_one_word_unt(task, (Vunt) omask  );
+    Val result = make_one_word_unt(task, (Vunt) omask  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

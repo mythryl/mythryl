@@ -83,12 +83,14 @@ static Val   do_allocate_codechunk   (Task* task,  Val arg) {
     //
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("do_allocate_codechunk");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int   nbytes =   TAGGED_INT_TO_C_INT( arg );
     Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk			def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-    return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, code, nbytes);
+    Val result =  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, code, nbytes);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -102,12 +104,13 @@ static Val   do_check_agegroup0_overrun_tripwire_buffer  (Task* task,  Val arg) 
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("do_check_agegroup0_overrun_tripwire_buffer");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);
     //
     check_agegroup0_overrun_tripwire_buffer( task, caller );			// check_agegroup0_overrun_tripwire_buffer	def in   src/c/heapcleaner/heap-debug-stuff.c
     //
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -122,10 +125,11 @@ static Val   do_enable_debug_logging  (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_enable_debug_logging");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     do_debug_logging = TRUE;
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -140,10 +144,11 @@ static Val   do_disable_debug_logging  (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_disable_debug_logging");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     do_debug_logging = FALSE;
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -158,9 +163,12 @@ static Val   do_get_commandline_args   (Task* task,  Val arg)   {
     //     src/lib/std/commandline.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_commandline_args");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_args_without_argv0_or_runtime_args__global, NULL);
+    Val result = make_ascii_strings_from_vector_of_c_strings__may_heapclean (task, commandline_args_without_argv0_or_runtime_args__global, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 //
 static Val   do_concatenate_two_tuples   (Task* task,  Val arg)   {
@@ -172,19 +180,22 @@ static Val   do_concatenate_two_tuples   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe-chunk.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_concatenate_two_tuples");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val    r1 = GET_TUPLE_SLOT_AS_VAL(arg,0);
     Val    r2 = GET_TUPLE_SLOT_AS_VAL(arg,1);
 
-    if (r1 == HEAP_VOID)	return r2;
-    else if (r2 == HEAP_VOID)	return r1;
-    else {
-	Val  result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/heapcleaner/tuple-ops.c
+    Val	   result;
 
-	if (result == HEAP_VOID)   return RAISE_ERROR__MAY_HEAPCLEAN( task, "recordmeld: not a record", NULL);
-	else                       return result;
+    if (r1 == HEAP_VOID)	result = r2;
+    else if (r2 == HEAP_VOID)	result = r1;
+    else {
+	result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/heapcleaner/tuple-ops.c
+
+	if (result == HEAP_VOID)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, "recordmeld: not a record", NULL);
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 //
 static Val   do_debug   (Task* task,  Val arg)   {
@@ -196,7 +207,7 @@ static Val   do_debug   (Task* task,  Val arg)   {
     // This fn gets bound to 'say_debug' in:   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
     //     
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_debug");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* heap_string = HEAP_STRING_AS_C_STRING(arg);
 
@@ -212,6 +223,7 @@ static Val   do_debug   (Task* task,  Val arg)   {
 
 	unbuffer_mythryl_heap_value( &string_buf );
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return HEAP_VOID;
 }
@@ -224,13 +236,14 @@ static Val   do_dummy   (Task* task,  Val arg)   {
     // The string argument can be used as a unique marker.
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dummy");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
     /*
       char	*s = HEAP_STRING_AS_C_STRING(arg);
     */
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 //
@@ -249,7 +262,7 @@ static Val   do_spawn_to_disk   (Task* task,  Val arg)   {    // :
     //     src/lib/std/src/nj/save-heap-to-disk.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_spawn_to_disk");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char	cwd[      1024 ];
     char	filename[ 1024 ];
@@ -289,6 +302,8 @@ static Val   do_spawn_to_disk   (Task* task,  Val arg)   {    // :
     // export operation.
     //	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "export failed", NULL);
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
     exit(1);			// Cannot execute; just here to prevent a compiler warning.
 }
 
@@ -305,7 +320,7 @@ static Val   do_export_heap   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/save-heap-to-disk.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_export_heap");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char  fname[ 1024 ];
     FILE* file;
@@ -328,8 +343,13 @@ static Val   do_export_heap   (Task* task,  Val arg)   {
 
     fclose (file);
 
-    if (status)   return HEAP_FALSE;
-    else          return RAISE_ERROR__MAY_HEAPCLEAN( task, "export failed", NULL);
+    Val result;
+
+    if (status)   result = HEAP_FALSE;
+    else          result = RAISE_ERROR__MAY_HEAPCLEAN( task, "export failed", NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -364,7 +384,7 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/platform-properties.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_platform_property");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* name = HEAP_STRING_AS_C_STRING(arg);
 
@@ -416,7 +436,7 @@ static Val   do_interval_tick__unimplemented   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/set-sigalrm-frequency.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_interval_tick__unimplemented");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return RAISE_ERROR__MAY_HEAPCLEAN(task, "interval_tick unimplemented", NULL);
 }
@@ -434,7 +454,7 @@ static Val   do_dump_all   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_all");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -456,7 +476,7 @@ static Val   do_dump_all_but_hugechunks_contents   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_all_but_hugechunks_contents");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -478,7 +498,7 @@ static Val   do_dump_gen0   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gen0");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -500,7 +520,7 @@ static Val   do_dump_gen0s   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gen0s");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -522,7 +542,7 @@ static Val   do_dump_gen0_tripwire_buffers   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gen0_tripwire_buffers");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -544,7 +564,7 @@ static Val   do_dump_gens   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gens");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -566,7 +586,7 @@ static Val   do_dump_hugechunks_contents   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_hugechunks_contents");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -587,7 +607,7 @@ static Val   do_dump_hugechunks_summary   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_hugechunks_summary");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -609,7 +629,7 @@ static Val   do_dump_task   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_task");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -631,7 +651,7 @@ static Val   do_dump_ramlog   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_ramlog");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -653,7 +673,7 @@ static Val   do_dump_whatever   (Task* task,  Val arg)   {
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_whatever");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
@@ -677,7 +697,7 @@ static Val   do_make_codechunk_executable   (Task* task,  Val arg)   {
     //
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_make_codechunk_executable");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val   seq        =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     int   entrypoint =  GET_TUPLE_SLOT_AS_INT( arg, 1 );			// In practice entrypoint is currently always zero.
@@ -711,7 +731,7 @@ static Val   do_make_package_literals_via_bytecode_interpreter   (Task* task,  V
     //     src/lib/compiler/execution/main/execute.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_make_package_literals_via_bytecode_interpreter");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return   make_package_literals_via_bytecode_interpreter__may_heapclean (	// make_package_literals_via_bytecode_interpreter__may_heapclean	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
                  task,
@@ -737,7 +757,7 @@ static Val   do_make_single_slot_tuple   (Task* task,   Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe-chunk.pkg
 
-									ENTER_MYTHRYL_CALLABLE_C_FN("do_make_single_slot_tuple");
+									ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return  make_one_slot_record( task, arg );								// make_one_slot_record		def in    src/c/h/make-strings-and-vectors-etc.h
 }
@@ -754,7 +774,7 @@ static Val   do_get_program_name_from_commandline   (Task* task,  Val arg)   {
     //     src/lib/std/commandline.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_program_name_from_commandline");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return   make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global, NULL );
 }
@@ -771,7 +791,7 @@ static Val   do_get_raw_commandline_args   (Task* task,  Val arg)   {
     //     src/lib/std/commandline.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_get_raw_commandline_args");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return   make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, raw_commandline_args__global, NULL );		// Raw untouched argv[] directly from main() -- set in   src/c/main/runtime-main.c
 }
@@ -789,7 +809,7 @@ static Val   do_pickle_datastructure   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_pickle_datastructure");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val  pickle =  pickle_datastructure( task, arg );										// pickle_datastructure	def in   src/c/heapcleaner/datastructure-pickler.c
 
@@ -809,7 +829,7 @@ static Val   do_unpickle_datastructure   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_unpickle_datastructure");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Bool	seen_error = FALSE;
 
@@ -841,7 +861,7 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/set-sigalrm-frequency.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_set_sigalrm_frequency");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 #ifdef HAS_SETITIMER
     struct itimerval	new_itv;
@@ -934,7 +954,7 @@ static Val   do_heapcleaner_control   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/heapcleaner-control.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_heapcleaner_control");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     while (arg != LIST_NIL) {
       //
@@ -960,7 +980,7 @@ static Val   do_heapcleaner_control   (Task* task,  Val arg)   {
 static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
     //        ========================================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("set_max_retained_idle_fromspace_agegroup");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int age =  TAGGED_INT_TO_C_INT(DEREF( arg ));
 

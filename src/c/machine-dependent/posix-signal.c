@@ -168,6 +168,12 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 
     Hostthread* hostthread = SELF_HOSTTHREAD;
 
+// Commented out because repeat entries were flooding the ramlog.
+// Should either include a dup count or just ignore consecutive
+// identical ramlog entries.
+//										Task* task =  hostthread->task;
+//										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
 
     // Sanity check:  We compile in a MAX_POSIX_SIGNALS value but
     // have no way to ensure that we don't wind up getting run
@@ -219,6 +225,7 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 	    SIG_Zero_Heap_Allocation_Limit( scp );			// OK to adjust the heap limit directly.
 	#endif
     }
+//										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 #else
@@ -239,6 +246,8 @@ static void   c_signal_handler   (
     #endif
 
     Hostthread*  hostthread =  SELF_HOSTTHREAD;
+    Task* task =  hostthread->task;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     hostthread->posix_signal_counts[sig].seen_count++;
     hostthread->all_posix_signals.seen_count++;
@@ -270,6 +279,7 @@ static void   c_signal_handler   (
 	    SIG_Zero_Heap_Allocation_Limit( scp );		// OK to adjust the heap limit directly.
 	#endif
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 #endif
@@ -290,7 +300,7 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //	THE l	-- the signals in l are the mask
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("set_signal_mask");
+  //									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Signal_Set	mask;											// Signal_Set		is from   src/c/h/system-dependent-signal-get-set-etc.h
     int		i;
@@ -332,6 +342,7 @@ void   set_signal_mask   (Task* task, Val arg)   {
 	SET_PROCESS_SIGNAL_MASK( mask );
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "set_signal_mask" );
+    //									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 
@@ -346,7 +357,7 @@ Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask__may_heapclean");
+  //									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Signal_Set	mask;
     int		i;
@@ -400,7 +411,9 @@ Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)
 	}
     }
 
-    return  OPTION_THE( task, signal_list );
+    Val result =  OPTION_THE( task, signal_list );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -99,7 +99,7 @@ Val   _lib7_P_TTY_osval   (Task* task,  Val arg)   {
     //
     // Return the OS-dependent, compile-time constant specified by the string.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_osval");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     name_val_t* result = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 

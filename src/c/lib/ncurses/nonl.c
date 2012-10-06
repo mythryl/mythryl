@@ -17,17 +17,19 @@
 Val   _lib7_Ncurses_nonl   (Task* task,  Val arg)   {	//  : Void -> Void
     //==================
     //
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_nonl");
+    Val result;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	nonl();
-	return HEAP_VOID;
+	result = HEAP_VOID;
     #else
 	extern char* no_ncurses_support_in_runtime;
 	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // Code by Jeff Prothero: Copyright (c) 2010-2012,

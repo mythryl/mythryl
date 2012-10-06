@@ -32,7 +32,7 @@ Val   _lib7_Date_ascii_time   (Task* task, Val arg)   {
     //
     //     src/lib/std/src/date.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_ascii_time");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     struct tm	tm;
     //
@@ -55,7 +55,7 @@ Val   _lib7_Date_ascii_time   (Task* task, Val arg)   {
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_ascii_time" );
 
     strncpy (HEAP_STRING_AS_C_STRING(result), string, DATE_LEN);
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

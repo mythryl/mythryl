@@ -29,8 +29,8 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_make_time");
-
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Val		result;
     struct tm	tm;
     time_t	t;
 
@@ -50,13 +50,11 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_make_time" );
 
-    if (t < 0) {
-        //
-        return RAISE_ERROR__MAY_HEAPCLEAN(task, "Invalid date", NULL);
-    } else {
+    if (t < 0)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "Invalid date", NULL);
+    else 	 result = make_one_word_int(task,  t  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
-	return  make_one_word_int(task,  t  );
-    }
+    return result;
 }
 
 

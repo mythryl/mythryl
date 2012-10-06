@@ -14,11 +14,12 @@ Val   _lib7_Math_log64   (Task* task,   Val arg)   {
     //================
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Math_log64");
-
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     double d =  *(PTR_CAST(double*, arg));
 
-    return  make_float64(task, log(d) );
+    Val result =  make_float64(task, log(d) );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

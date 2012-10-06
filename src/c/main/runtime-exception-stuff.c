@@ -27,7 +27,7 @@ void   raise_mythryl_exception   (Task* task,  Val exn)   {
     // will be raised when Mythryl is resumed.
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("raise_mythryl_exception");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val	fate =  task->exception_fate;
 
@@ -39,6 +39,7 @@ void   raise_mythryl_exception   (Task* task,  Val exn)   {
 
     task->program_counter =
     task->link_register	  =  GET_CODE_ADDRESS_FROM_CLOSURE( fate );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 void   handle_uncaught_exception   (Val e)   {

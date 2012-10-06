@@ -18,17 +18,21 @@ Val   _lib7_Ncurses_addch   (Task* task,  Val arg)   {	//  : Void -> Bool
     //===================
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_addch");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Val result;
 
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	int ch     = INT1_LIB7toC(arg);    
-	int result = addch( ch );
-	if (result == ERR)     return RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
-	return HEAP_VOID;
+	int iresult = addch( ch );
+	if (iresult == ERR)     result = RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
+	else			result = HEAP_VOID;
     #else
 	extern char* no_ncurses_support_in_runtime;
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

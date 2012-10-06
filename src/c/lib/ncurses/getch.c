@@ -18,16 +18,19 @@ Val   _lib7_Ncurses_getch   (Task* task,  Val arg)   {	// : Void -> Char
     //===================
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_getch");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Val result;
 
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	//
-	return  make_one_word_int(task,  getch()  );
+	result =  make_one_word_int(task,  getch()  );
     #else
 	extern char* no_ncurses_support_in_runtime;
 	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // Code by Jeff Prothero: Copyright (c) 2010-2012,

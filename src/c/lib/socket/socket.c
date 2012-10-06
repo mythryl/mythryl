@@ -157,7 +157,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/plain-socket.pkg
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_socket");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int domain   =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int type     =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -172,9 +172,14 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_socket" );
 //										log_if( "socket.c/bot: socket d=%d errno d=%d\n", sock, errno );
-    if (sock < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// RAISE_SYSERR__MAY_HEAPCLEAN is defined in src/c/lib/raise-error.h
+    Val result;
+
+    if (sock < 0)   result =  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// RAISE_SYSERR__MAY_HEAPCLEAN is defined in src/c/lib/raise-error.h
+    else	    result =  TAGGED_INT_FROM_C_INT( sock );
 										// 'status' looks bogus here (ignored except on MacOS). XXX BUGGO FIXME
-    return  TAGGED_INT_FROM_C_INT( sock );
+
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

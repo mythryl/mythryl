@@ -35,7 +35,7 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-etc.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_SysDB_getgrgid");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_SysDB_getgrgid", NULL );
 	//
@@ -49,7 +49,10 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
     Val gr_gid  =  make_one_word_unt(						task,  (Vunt)(info->gr_gid)	    );		Roots roots2 = { &gr_gid,  &roots1 };
     Val gr_mem  =  make_ascii_strings_from_vector_of_c_strings__may_heapclean(	task,         info->gr_mem, &roots2 );
 
-    return   make_three_slot_record(task,  gr_name, gr_gid, gr_mem  );
+    Val result =  make_three_slot_record(task,  gr_name, gr_gid, gr_mem  );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.

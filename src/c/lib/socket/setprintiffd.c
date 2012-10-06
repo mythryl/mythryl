@@ -29,7 +29,7 @@ Val   _lib7_Sock_setprintiffd   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_setprintiffd");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd    =  TAGGED_INT_TO_C_INT(arg);
 

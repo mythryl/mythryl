@@ -46,7 +46,7 @@ Val   _lib7_P_TTY_tcsetpgrp   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-tty.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcsetpgrp");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd     = GET_TUPLE_SLOT_AS_INT(arg, 0);
     int pgrp   = GET_TUPLE_SLOT_AS_INT(arg, 1);

@@ -615,9 +615,10 @@ extern void recover_mythryl_heap(  Hostthread* hostthread,  const char* fn_name 
     // For background comments see Note[1]
 
 
-#define ENTER_MYTHRYL_CALLABLE_C_FN(fn_name)    do { note_fncall_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
+#define ENTER_MYTHRYL_CALLABLE_C_FN(fn_name)    do { note_fn_entry_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
+#define  EXIT_MYTHRYL_CALLABLE_C_FN(fn_name)    do {  note_fn_exit_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
     //
-    // This macro is intended to provide a hook to track calls from
+    // These macros are intended to provide a hook to track calls from
     // Mythryl code into the C level.  The immediate motivation is
     // to log them in a leaky circular ram buffer so as to be able
     // to dump the last N after heap corruption is detected, say by
@@ -877,9 +878,13 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
 #define RAMLOG_ENTRIES		(1 << LOG2_RAMLOG_ENTRIES)				// This keeps things a power of two, so that we can
 #define RAMLOG_MASK		(RAMLOG_ENTRIES-1)					// construct a mask to implement fast queue wrap-around.
 
+#define RAMLOG_FN_ENTRY 		(1 << 0)
+#define RAMLOG_FN_EXIT 			(1 << 1)
+
 typedef struct {
-    int   id;										// task->hostthread->id which made the ramlog entry.
-    char* fn_name;
+    int		id;									// task->hostthread->id which made the ramlog entry.
+    int		flags;
+    const char* fn_name;
 } Ramlog_Entry;
 
 extern Ramlog_Entry ramlog_circular_queue[ RAMLOG_ENTRIES ];				// This holds the last thousand or so ramlog entries made.
@@ -890,8 +895,8 @@ extern int          ramlog_next_entry_to_write;						// This points to next inde
 inline int ramlog_next( int i) { return (i+1) & RAMLOG_MASK; }
 inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
 
-inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
-    //       =====================
+inline void  note_fn_entry_in_ramlog   (Task* task, const char* fn_name) {
+    //       =======================
     //
     int e = ramlog_next_entry_to_write;
     ramlog_next_entry_to_write =   ramlog_next( e );					// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
@@ -900,6 +905,20 @@ inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
     //
     r->fn_name = fn_name;
     r->id      = task->hostthread->id;
+    r->flags   = RAMLOG_FN_ENTRY;
+}
+
+inline void  note_fn_exit_in_ramlog   (Task* task, const char* fn_name) {
+    //       ======================
+    //
+    int e = ramlog_next_entry_to_write;
+    ramlog_next_entry_to_write =   ramlog_next( e );					// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
+    //
+    Ramlog_Entry* r =  &ramlog_circular_queue[  e ];
+    //
+    r->fn_name = fn_name;
+    r->id      = task->hostthread->id;
+    r->flags   = RAMLOG_FN_EXIT;
 }
 
 #endif // _ASM_ 

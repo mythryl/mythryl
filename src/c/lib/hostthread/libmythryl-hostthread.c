@@ -97,17 +97,20 @@
 static Val   do_get_hostthread_id         (Task* task,  Val arg)   {
     //       ====================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("get_hostthread_id");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
-    return  make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_spawn_hostthread   (Task* task,  Val closure)   {			// Apparently never called.
     //       ===================
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("spawn_hostthread");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     //
 //  Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   hostthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
@@ -116,10 +119,15 @@ static Val   do_spawn_hostthread   (Task* task,  Val closure)   {			// Apparentl
     int hostthread_table_slot;							// An index into the   hostthread_table__global[]   defined in   src/c/main/runtime-state.c
     char* err = pth__pthread_create( &hostthread_table_slot, task->current_thread, closure );
 
-    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);
-    else	   return TAGGED_INT_FROM_C_INT( hostthread_table_slot );
-									    // pth__pthread_create	def in    src/c/hostthread/hostthread-on-posix-threads.c
-    //									// pth__pthread_create	def in    src/c/hostthread/hostthread-on-sgi.c
+    Val result;
+
+    if (err)	result = RAISE_ERROR__MAY_HEAPCLEAN(task, err, NULL);
+    else	result = TAGGED_INT_FROM_C_INT( hostthread_table_slot );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    return result;
+										// pth__pthread_create	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    //										// pth__pthread_create	def in    src/c/hostthread/hostthread-on-sgi.c
 }
 
 
@@ -128,10 +136,11 @@ static Val   do_pthread_exit   (Task* task,  Val arg)   {			// Name issues: The 
     //       ===============
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("pthread_exit_fn");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     pth__pthread_exit(task);  	// Should not return.
     log_if("pthread_exit_fn: call unexpectedly returned\n");
     die(   "pthread_exit_fn: call unexpectedly returned\n");
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
@@ -141,12 +150,17 @@ static Val   do_join_hostthread   (Task* task,  Val hostthread_to_join)   {		// 
     //       ===============							// 'hostthread_to_join' is a hostthread_table__global[] index returned from a call to   spawn_hostthread()   (above).
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("join_hostthread");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* err = pth__pthread_join( task, hostthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( hostthread_to_join ) );
 	//
+    Val result;
+
     if (err) {  log_if("join_hostthread failed!");		return RAISE_ERROR__MAY_HEAPCLEAN(task, err,NULL );	}
-    else     {						return HEAP_VOID;			}
+    else     {							return HEAP_VOID;			}
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -154,60 +168,76 @@ static Val   do_join_hostthread   (Task* task,  Val hostthread_to_join)   {		// 
 static Val do_mutex_make   (Task* task,  Val arg)   {
     //     =============
     //
-										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_make");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     // We allocate the mutex on the C heap rather
     // than the Mythryl heap because having the
     // garbage collector moving mutexes around in
     // memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
     //
-    return TAGGED_INT_FROM_C_INT( pth__mutex_make() );
+    Val result = TAGGED_INT_FROM_C_INT( pth__mutex_make() );
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_mutex_free   (Task* task,  Val arg)   {
     //       =============
     //
-										ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_free");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     // 'arg' should be something returned by do_mutex_make():
     //
     char* err =  pth__mutex_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
 static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //       =============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_lock");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char* err =  pth__mutex_lock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
-    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-    else       return HEAP_VOID;
+    Val result;
+
+    if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    else       result = HEAP_VOID;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_unlock");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char* err =  pth__mutex_unlock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
-    if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-    else       return HEAP_VOID;
+    Val result;
+
+    if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
+    else       result = HEAP_VOID;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_mutex_trylock   (Task* task,  Val arg)   {
     //       ================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_mutex_trylock");
-    Bool  result;
-    char* err = pth__mutex_trylock( task, TAGGED_INT_TO_C_INT( arg ), &result );
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Bool  flag;
+    char* err = pth__mutex_trylock( task, TAGGED_INT_TO_C_INT( arg ), &flag );
     //
-    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    //
-    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
-    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
+    Val result;
+
+    if (err)		{	log_if("trylock returned error!");			result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else {
+	//
+	if (flag)	{	log_if("trylock returning TRUE");			result = HEAP_TRUE;			}	// Mutex was busy.
+	else		{	log_if("trylock returning FALSE");			result = HEAP_FALSE;			}	// Successfully acquired mutex.
+    }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -215,26 +245,28 @@ static Val   do_mutex_trylock   (Task* task,  Val arg)   {
 static Val   do_barrier_make   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_make");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     // We allocate the barrier on the C heap
     // rather than the Mythryl heap because
     // having the garbage collector moving condvars
     // around in memory seems like a really, really
     // bad idea:
     //
-    return TAGGED_INT_FROM_C_INT( pth__barrier_make() );
+    Val result = TAGGED_INT_FROM_C_INT( pth__barrier_make() );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_barrier_free   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_free");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     // 'arg' should be something returned by do_barrier_make():
     //
     char* err =  pth__barrier_free( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     if (err)   return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -242,26 +274,36 @@ static Val   do_barrier_init   (Task* task,  Val arg)   {
     //       ===============
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_init");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     Vunt barrier_id =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int  threads    =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
+    Val  result;
+
     char* err =   pth__barrier_init( task, barrier_id, threads );
     //
-    if (err)		{ log_if("pth__barrier_init returned err");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
-    else		{ 						return HEAP_VOID;			}
+    if (err)		{ log_if("pth__barrier_init returned err");	result = RAISE_ERROR__MAY_HEAPCLEAN( task, err , NULL);	}
+    else		{ 						result = HEAP_VOID;			}
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_barrier_wait   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_barrier_wait");
-    Bool result;
-    char* err =   pth__barrier_wait( task, TAGGED_INT_TO_C_INT( arg ), &result );
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Bool flag;
+    char* err =   pth__barrier_wait( task, TAGGED_INT_TO_C_INT( arg ), &flag );
     //
-    if (err)	{ log_if("do_barrier_wait returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    if (result)							return HEAP_TRUE;
-    else							return HEAP_FALSE;
+    Val result;
+
+    if (err)	{ log_if("do_barrier_wait returned error");	result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else {
+	if (flag)						result = HEAP_TRUE;
+	else							result = HEAP_FALSE;
+    }
+    return result;
 }
 
 
@@ -269,33 +311,39 @@ static Val   do_barrier_wait   (Task* task,  Val arg)   {
 static Val   do_condvar_make   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_make");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     // We allocate the condvar_struct on the C
     // heap rather than the Mythryl heap because
     // having the garbage collector moving condvars
     // around in memory seems like a really, really
     // bad idea:
     //
-    return TAGGED_INT_FROM_C_INT( pth__condvar_make() );
+    Val result = TAGGED_INT_FROM_C_INT( pth__condvar_make() );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_condvar_free   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_free");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     // 'arg' should be something returned by do_condvar_make():
     //
     char* err =  pth__condvar_destroy( task, TAGGED_INT_TO_C_INT( arg ) );
     //
-    if (err)		{ log_if("do_condvar_destroy returned error");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
-    else		{ 						return HEAP_VOID;	  			}
+    Val result;
 
+    if (err)		{ log_if("do_condvar_destroy returned error");	result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );		}
+    else		{ 						result = HEAP_VOID;	  			}
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_condvar_wait   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_wait");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
@@ -303,32 +351,44 @@ static Val   do_condvar_wait   (Task* task,  Val arg)   {
                                     TAGGED_INT_TO_C_INT( condvar_arg ),
                                     TAGGED_INT_TO_C_INT(   mutex_arg )
                                   );
+    Val result;
     //
-    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    else		{														 return HEAP_VOID;			}
+    if (err)		{					log_if("do_condvar_wait: pth__condvar_wait returned error");		 result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else		{														 result = HEAP_VOID;			}
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_condvar_signal   (Task* task,  Val arg)   {
     //       =================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_signal");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char* err =  pth__condvar_signal( task, TAGGED_INT_TO_C_INT( arg ) );
     //
-    if (err)	{ log_if("do_condvar_signal returned error");		return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    else								return HEAP_VOID;
+    Val result;
 
-    return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    if (err)	{ log_if("do_condvar_signal returned error");		result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else								result = HEAP_VOID;
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     //       ====================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_condvar_broadcast");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* err =  pth__condvar_broadcast( task, TAGGED_INT_TO_C_INT( arg ) );
     //
-    if (err)			{ log_if("do_condvar_broadcast returned error.");	return RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
-    else			{							return HEAP_VOID;			}
+    Val result;
+
+    if (err)			{ log_if("do_condvar_broadcast returned error.");	result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );	}
+    else			{							result = HEAP_VOID;			}
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

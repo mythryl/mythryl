@@ -42,7 +42,7 @@ Val   _lib7_P_FileSys_mkstemp   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_mkstemp");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char buf[ 32 ];
 
@@ -62,7 +62,10 @@ if (errno == EINTR) puts("Error: EINTR in mkstemp.c\n");
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever. HAVEN"T CHECKED WHETHER mkstemp IS INTERRUPTABLE -- this is copied blindly from openf.c.
 
 
-    return  RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, TAGGED_INT_FROM_C_INT( fd ), NULL);
+    Val result = RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, TAGGED_INT_FROM_C_INT( fd ), NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -1090,7 +1090,7 @@ void   debug_help   (void) {
     fprintf(stderr,"\n");
     fprintf(stderr,"call debug_tasks()          # List all (pre)allocated task records.\n");
     fprintf(stderr,"call debug_tasks_verbose()  # Same, listing sibs as well.\n");
-    fflush(stderr);
+    fflush( stderr);
 
 }
 

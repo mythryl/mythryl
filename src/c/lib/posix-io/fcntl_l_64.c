@@ -43,7 +43,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     //
     //     src/lib/std/src/psx/posix-io-64.pkg
     
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_l_64");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int        fd =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int       cmd =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -116,6 +116,7 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_l_64.c\n");
 
     lenlo       =  make_one_word_unt(task, (Unt1) flock.l_len);
 
+    Val result;
 
     set_slot_in_nascent_heapchunk   (task, 0, MAKE_TAGWORD (PAIRS_AND_RECORDS_BTAG, 7));
     set_slot_in_nascent_heapchunk   (task, 1, TAGGED_INT_FROM_C_INT(flock.l_type));
@@ -125,7 +126,10 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_l_64.c\n");
     set_slot_in_nascent_heapchunk   (task, 5, lenhi);
     set_slot_in_nascent_heapchunk   (task, 6, lenlo);
     set_slot_in_nascent_heapchunk   (task, 7, TAGGED_INT_FROM_C_INT(flock.l_pid));
-    return commit_nascent_heapchunk (task, 7);
+    result=commit_nascent_heapchunk (task, 7);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }									// fun _lib7_P_IO_fcntl_l_64
 
 

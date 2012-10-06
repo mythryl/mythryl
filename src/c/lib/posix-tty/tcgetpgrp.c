@@ -38,7 +38,7 @@ Val   _lib7_P_TTY_tcgetpgrp   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-tty.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcgetpgrp");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd = TAGGED_INT_TO_C_INT( arg );
 

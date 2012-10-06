@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getpgrp");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getpgrp", NULL );
 	//
@@ -42,7 +42,10 @@ Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getpgrp" );
 
-    return TAGGED_INT_FROM_C_INT( pgrp );
+    Val result = TAGGED_INT_FROM_C_INT( pgrp );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

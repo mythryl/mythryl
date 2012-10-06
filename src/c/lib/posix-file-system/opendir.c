@@ -44,7 +44,7 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_opendir");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     DIR* dir;
 
@@ -72,7 +72,11 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 
     if (dir == NULL)  return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 
-    return PTR_CAST( Val, dir);						// I would think just casting a C pointer to a Val and returning
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    return PTR_CAST( Val, dir);						// PTR_CAST is from   src/c/h/runtime-values.h
+									//
+									// I would think just casting a C pointer to a Val and returning
 }									// it should crash the garbage collector, but doing
 									//
 									//    foo = posixlib::open_directory_stream ".";
@@ -83,7 +87,7 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 									//
 									// repeatedly does seem to work.
 									// Is there heavy magic in the runtime::Chunk type...?
-									// If so, how does it get conveyed to the heapcleaner gut?  -- 2011-11-19 CrT
+									// If so, how does it get conveyed to the heapcleaner gut?  XXX QUERO -- 2011-11-19 CrT
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,

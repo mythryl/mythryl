@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_getuid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getuid");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getuid", NULL );
 	//
@@ -42,7 +42,9 @@ Val   _lib7_P_ProcEnv_getuid   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getuid" );
 
-    return  make_one_word_unt(task,  (Vunt) uid  );
+    Val result =  make_one_word_unt(task,  (Vunt) uid  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

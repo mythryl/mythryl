@@ -24,9 +24,12 @@ Val   _lib7_P_Error_listerrors   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-error.pkg   
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Error_listerrors");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return   dump_table_as_system_constants_list__may_heapclean( task, &errno_table__global, NULL );		// dump_table_as_system_constants_list__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val result =  dump_table_as_system_constants_list__may_heapclean( task, &errno_table__global, NULL );		// dump_table_as_system_constants_list__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

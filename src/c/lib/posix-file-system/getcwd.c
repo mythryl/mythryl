@@ -49,7 +49,7 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_getcwd");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char  path[ MAXPATHLEN ];
 
@@ -87,11 +87,12 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
         if (buf == NULL)	return RAISE_ERROR__MAY_HEAPCLEAN(task, "no malloc memory", NULL);
     }
       
-    Val p = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
+    Val result = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL);
     //
     FREE( buf );
     //  
-    return p;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -67,7 +67,7 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-process.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_sysconf");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     name_val_t* attribute =  _lib7_posix_nv_lookup(HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
     //
@@ -89,14 +89,18 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_sysconf" );
 
+    Val result;
 
     if (val >= 0) {
 	//
-        return  make_one_word_unt(task, val );
-    }
+        result =  make_one_word_unt(task, val );
+    } else {
 
-    if (errno == 0)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "unsupported POSIX feature", NULL);
-    else              return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
+	if (errno == 0)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "unsupported POSIX feature", NULL);
+	else              result = RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
+    }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

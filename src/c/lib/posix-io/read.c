@@ -54,7 +54,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_read");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val vec;
     int n;
@@ -102,7 +102,9 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &vec_buf );
     }
 
-    return  make_vector_header(task,  STRING_TAGWORD, vec, n);
+    Val result = make_vector_header(task,  STRING_TAGWORD, vec, n);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -41,7 +41,7 @@ Val   _lib7_P_FileSys_access   (Task* task,  Val arg) {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_access");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int    status;
 
@@ -63,8 +63,13 @@ Val   _lib7_P_FileSys_access   (Task* task,  Val arg) {
 	unbuffer_mythryl_heap_value( &path_buf );
     }
 
-    if (status == 0)    return HEAP_TRUE;
-    else		return HEAP_FALSE;
+    Val result;
+
+    if (status == 0)    result = HEAP_TRUE;
+    else		result = HEAP_FALSE;
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -83,7 +83,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
     // We assume that the string is small and can be allocated in
     // the agegroup0 buffer.        XXX BUGGO FIXME
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_string_from_c_string__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
     int len =   v == NULL  ?  0
@@ -91,6 +91,7 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
 
     if (len == 0) {
         //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	return ZERO_LENGTH_STRING__GLOBAL;
         //
     } else {
@@ -105,7 +106,9 @@ Val   make_ascii_string_from_c_string__may_heapclean   (Task* task,  const char*
 	PTR_CAST( Vunt*, result) [n-1] = 0;
 	strcpy (PTR_CAST(char*, result), v);
 
-	return  make_vector_header(task, STRING_TAGWORD, result, len);
+	result =  make_vector_header(task, STRING_TAGWORD, result, len);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
     }
 }
 
@@ -118,7 +121,7 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
     // NOTE: we should do something about possible GC!!! XXX BUGGO FIXME**/
 
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	 i;
     for (i = 0;  strs[i] != NULL;  i++);
@@ -131,6 +134,7 @@ Val   make_ascii_strings_from_vector_of_c_strings__may_heapclean   (Task *task, 
 	//
 	p = LIST_CONS(task, s, p);
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return p;
 }
@@ -143,7 +147,7 @@ Val   allocate_headerless_ascii_string__may_heapclean   (Task* task,  int len,  
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_headerless_ascii_string__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		nwords = BYTES_TO_WORDS( len +1 );					// '+1' is probably to allow for a terminal nul ('\0'), mostly to promote interoperability with C.
 
@@ -155,7 +159,7 @@ Val   allocate_headerless_ascii_string__may_heapclean   (Task* task,  int len,  
     // and to guarantee 0 termination:
     //
     PTR_CAST(Vunt*, result)[nwords-1] = 0;
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return  result;
 }
 
@@ -166,11 +170,13 @@ Val   allocate_nonempty_ascii_string__may_heapclean   (Task* task,  int len,  Ro
     // Allocate an uninitialized Mythryl string of length > 0.
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val result = allocate_headerless_ascii_string__may_heapclean( task, len, extra_roots );
 
-    return  make_vector_header(task,  STRING_TAGWORD, result, len);
+    result = make_vector_header(task,  STRING_TAGWORD, result, len);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -180,7 +186,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
     // Allocate an uninitialized vector of word-sized slots.
 
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_wordslots_vector__may_heapclean");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
@@ -236,7 +242,7 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
 
 	COUNT_ALLOC(task, bytesize);
     }
-
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 //
@@ -249,7 +255,7 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
     //     src/c/lib/socket/recvfrom.c
     //     src/c/lib/posix-io/read.c
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_wordslots_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int old_length_in_words = CHUNK_LENGTH(v);
 
@@ -272,6 +278,8 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
     }
 
     PTR_CAST(Val*, v)[-1] = MAKE_TAGWORD(new_length_in_words, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 
@@ -281,7 +289,7 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
 Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Roots* extra_roots)   {
     //==========================================
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_biwordslots_vector__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	nwords  =  DOUBLES_TO_WORDS(nelems);
     Val	tagword =  MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
@@ -348,7 +356,7 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Ro
 
 	COUNT_ALLOC(task, bytesize-WORD_BYTESIZE);
     }
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
@@ -359,7 +367,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
     // Allocate an uninitialized Mythryl code chunk.
     // Assume that len > 1.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_code_chunk");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Heap*  heap = task->heap;
 
@@ -381,7 +389,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 	COUNT_ALLOC(task, len);
 	//
     pthread_mutex_unlock( &pth__mutex );
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return PTR_CAST( Val, dp->chunk);
 }
 
@@ -391,7 +399,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  i
     // 
     // Allocate an uninitialized Mythryl heap bytearray.  Assume that len > 0.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		nwords = BYTES_TO_WORDS(len);
 
@@ -403,7 +411,9 @@ Val   allocate_nonempty_vector_of_one_byte_unts__may_heapclean   (Task* task,  i
     //
     PTR_CAST(Vunt*, result)[nwords-1] = 0;
 
-    return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, result, len);
+    result =  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, result, len);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -416,11 +426,13 @@ Val   allocate_nonempty_vector_of_eight_byte_floats__may_heapclean   (Task* task
     //
     //	   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val result =  allocate_biwordslots_vector__may_heapclean( task, len, extra_roots );		// 64-bit issue.
 
-    return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
+    result = make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -436,7 +448,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
     // immediate values.  (It is always safe to set
     // this to TRUE -- do so when in doubt.)
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val	result;
 
@@ -521,6 +533,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 	COUNT_ALLOC(task, bytesize);
 
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return  result;
 }											// fun make_nonempty_rw_vector__may_heapclean
@@ -533,7 +546,7 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
     // as the initial value for vector slots.
     // Assume that len > 0.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Roots roots1 = { &init_val, extra_roots };
 
@@ -546,7 +559,9 @@ Val   make_nonempty_rw_vector__may_heapclean   (Task* task,  int len,  Val init_
 	*p++ = init_val;
     }
 
-    return  make_vector_header(task,  TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
+    result =  make_vector_header(task,  TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }											// fun make_nonempty_rw_vector__may_heapclean
 
 //
@@ -558,7 +573,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
     //
     // 'tag' will be RO_VECTOR_DATA_BTAG or PAIRS_AND_RECORDS_BTAG.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val	tagword = MAKE_TAGWORD(len, btag);									// btag will be RO_VECTOR_DATA_BTAG or PAIRS_AND_RECORDS_BTAG.
     Val	result;
@@ -622,7 +637,7 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 
 	COUNT_ALLOC(task, bytesize);
     }
-
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return  result;
 }													 // fun allocate_headerless_ro_pointers_chunk__may_heapclean
 
@@ -635,7 +650,7 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
     // Assume that len > 0.
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Roots roots1 = { &initializers, extra_roots };
 
@@ -656,7 +671,10 @@ Val   make_nonempty_ro_vector__may_heapclean   (Task* task,  int len,  Val initi
 	*p++ = LIST_HEAD( initializers );
     }
 
-    return  make_vector_header( task,  TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
+    result =  make_vector_header( task,  TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }													 // fun make_nonempty_ro_vector__may_heapclean
 
 //
@@ -669,7 +687,7 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
     // If the constant is not present then
     // return the pair (~1, "<UNKNOWN>").
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     for (int i = 0;  i < table->constants_count;  i++) {
 	//
@@ -677,7 +695,9 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 	    //
 	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name, extra_roots);
 	    //	
-	    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
+	    Val result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	    return result;	
 	}
     }
 
@@ -685,7 +705,9 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
     //
     Val name = make_ascii_string_from_c_string__may_heapclean (task, "<UNKNOWN>", extra_roots);
     //
-    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
+    Val result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -695,7 +717,7 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
     // Generate a list of system constants from the given table.
     // We get called to list tables of signals, errors etc.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
     Val	result_list =  LIST_NIL;					Roots roots1 = { &result_list, extra_roots };
@@ -719,6 +741,7 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
 	//
 	result_list = LIST_CONS(  task, system_constant, result_list );
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return result_list;
 }
@@ -731,7 +754,12 @@ Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  
     //
     // This function is nowhere invoked.
     //
-    return  allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, extra_roots );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    Val result = allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, extra_roots );		// Round size up to a multiple of sizeof(Int2) and dispatch.
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }													// 64-bit issue. (Is "+7)>>2" even correct? If so, should comment why.)
 
 
@@ -741,20 +769,21 @@ Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("make_biwordslots_vector_sized_in_bytes__may_heapclean");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    Val result;
 
     if (nbytes == 0) {
 	//
-	return HEAP_VOID;
+	result = HEAP_VOID;
 	//
     } else {
 	//
-        Val chunk =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2, NULL );	// Round size up to a multiple of sizeof(Int2).
+        Val result =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2, NULL );	// Round size up to a multiple of sizeof(Int2).
 													// 64-bit issue?
-	memcpy (PTR_CAST(void*, chunk), data, nbytes);
-
-	return chunk;
+	memcpy (PTR_CAST(void*, result), data, nbytes);
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

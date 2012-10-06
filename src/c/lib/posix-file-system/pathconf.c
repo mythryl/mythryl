@@ -93,7 +93,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_pathconf");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		val;
 
@@ -134,7 +134,10 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &pathname_buf );
     }
 
-    return  mkValue( task, val );
+    Val result =  mkValue( task, val );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -151,7 +154,7 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fpathconf");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	val;
 
@@ -175,7 +178,10 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_fpathconf" );
 
-    return mkValue (task, val);
+    Val result = mkValue (task, val);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

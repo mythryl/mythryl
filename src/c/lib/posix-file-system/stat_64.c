@@ -126,7 +126,7 @@ Val   _lib7_P_FileSys_stat_64   (Task* task,  Val arg)   {		//  : String -> stat
     //
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_stat_64");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int status;
     struct stat buf;
@@ -155,7 +155,10 @@ Val   _lib7_P_FileSys_stat_64   (Task* task,  Val arg)   {		//  : String -> stat
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
-    return  mkStatRep( task, &buf );
+    Val result = mkStatRep( task, &buf );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -175,7 +178,7 @@ Val   _lib7_P_FileSys_fstat_64   (Task* task,  Val arg)   {	//  : Unt -> statrep
     //
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fstat_64");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int status;
 
@@ -191,7 +194,9 @@ Val   _lib7_P_FileSys_fstat_64   (Task* task,  Val arg)   {	//  : Unt -> statrep
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
-    return  mkStatRep( task, &buf );
+    Val result =  mkStatRep( task, &buf );
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -212,7 +217,7 @@ Val   _lib7_P_FileSys_lstat_64   (Task* task,  Val arg)   {	//  : String -> stat
     //
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_lstat_64");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int status;
 
@@ -242,7 +247,9 @@ Val   _lib7_P_FileSys_lstat_64   (Task* task,  Val arg)   {	//  : String -> stat
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
-    return  mkStatRep( task, &buf );
+    Val result =  mkStatRep( task, &buf );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

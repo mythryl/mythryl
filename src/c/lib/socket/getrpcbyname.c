@@ -37,7 +37,7 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
     // 
     // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX SUCKO FIXME.
 
-															ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_NetDB_getrpcbyname");
+															ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     struct rpcent*   rentry;
 

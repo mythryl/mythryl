@@ -33,7 +33,7 @@ Val   _lib7_P_ProcEnv_time   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_time");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_time", NULL );
 	//
@@ -41,7 +41,10 @@ Val   _lib7_P_ProcEnv_time   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_time" );
 
-    return  make_one_word_int(task,  t  );
+    Val result =  make_one_word_int(task,  t  );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

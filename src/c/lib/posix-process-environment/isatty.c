@@ -35,15 +35,17 @@ Val   _lib7_P_ProcEnv_isatty   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_isatty");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_isatty", NULL );
 	//
-	int result = isatty(TAGGED_INT_TO_C_INT(arg));
+	int iresult = isatty(TAGGED_INT_TO_C_INT(arg));
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_isatty" );
 
-    return (result ? HEAP_TRUE : HEAP_FALSE);
+    Val result = (iresult ? HEAP_TRUE : HEAP_FALSE);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

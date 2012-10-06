@@ -43,7 +43,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
     //
     // Check file descriptors for the readiness of I/O operations.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_IO_select");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 #if ((*defined(HAS_SELECT)) && (*defined(HAS_POLL)))
     return RAISE_ERROR__MAY_HEAPCLEAN (task, "LIB7-io.select unsupported", NULL);
@@ -169,13 +169,14 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 	    BUILD_RESULT(efdl, ne);
 #endif
 	}
-	res =  make_three_slot_record( task, rfdl, wfdl, efdl );
+	result =  make_three_slot_record( task, rfdl, wfdl, efdl );
 
 #ifdef HAS_POLL
 	FREE (fds);
 #endif
 
-	return res;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
     }
 #endif
 }					// fun _lib7_IO_select

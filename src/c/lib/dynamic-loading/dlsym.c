@@ -26,7 +26,7 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
     //
     // Extract symbol from dynamically loaded library.
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlsym");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val lib7_handle =                           GET_TUPLE_SLOT_AS_VAL (arg, 0);
     char* symname   =  HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL (arg, 1));
@@ -56,7 +56,9 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
 	unbuffer_mythryl_heap_value( &symname_buf );
     }
 
-    return  make_one_word_unt(task,  (Vunt) address  );
+    Val result = make_one_word_unt(task,  (Vunt) address  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

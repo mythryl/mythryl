@@ -82,7 +82,7 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix/winix-io.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_OS_poll");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 //  Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);			// We fetch this in LIB7_Poll() now.
     Val	    timeout   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
@@ -110,7 +110,10 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
         tvp = &tv;
     }
 
-    return LIB7_Poll( task, arg, tvp );					// See below.
+    Val result = LIB7_Poll( task, arg, tvp );					// See below.
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

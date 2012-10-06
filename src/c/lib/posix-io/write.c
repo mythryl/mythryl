@@ -42,7 +42,7 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //
     // but in fact it appears to be nowhere referenced. (!) Should be called or deleted. XXX BUGGO FIXME
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_write");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int		fd     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val		data   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
@@ -78,7 +78,10 @@ if (errno == EINTR) puts("Error: EINTR in write.c\n");
 	unbuffer_mythryl_heap_value( &data_buf );
     }
 
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
+    Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

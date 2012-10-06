@@ -49,11 +49,14 @@ void   set_up_fault_handlers   (Task* task)   {
 static void   enter_debug_loop   (void) {
     //        ================
     //
-    fprintf(stderr, "To kill this process from another commandline do:\n");
+    fprintf(stderr, "To kill this process do ^Z to suspend it and then:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "%% kill -HUP %d\n", getpid());
     fprintf(stderr, "\n");
-    fprintf(stderr, "To attach gdb to running process from another commandline do:\n");
+    fprintf(stderr, "and then 'fg' to let it complete exit.\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "To attach gdb to this process\n");
+    fprintf(stderr, "do ^Z to suspend it and then:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "%% gdb mythryl-runtime-intel32 %d\n", getpid());
     fprintf(stderr, "\n");
@@ -86,6 +89,7 @@ static void   enter_debug_loop   (void) {
 	ucontext_t* scp = (ucontext_t*) c;
 
 	Task*  task =   SELF_HOSTTHREAD->task;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 	extern Vunt   request_fault[]; 
 
@@ -124,6 +128,7 @@ static void   enter_debug_loop   (void) {
 	SET_SIGNAL_PROGRAM_COUNTER( scp, request_fault );
 
 	RESET_FLOATING_POINT_EXCEPTION_HANDLING( scp );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     }
 
 #else
@@ -140,6 +145,7 @@ static void   enter_debug_loop   (void) {
 	#endif
     ){
 	Task* task =  SELF_HOSTTHREAD->task;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 	extern Vunt   request_fault[]; 
 
@@ -177,6 +183,7 @@ static void   enter_debug_loop   (void) {
 	SET_SIGNAL_PROGRAM_COUNTER( scp, request_fault );
 
 	RESET_FLOATING_POINT_EXCEPTION_HANDLING( scp );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     }
 
 #endif

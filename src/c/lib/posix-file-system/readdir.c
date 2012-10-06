@@ -45,7 +45,7 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_readdir");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     struct dirent* dirent;
     
@@ -58,9 +58,14 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readdir" );
 
+	Val result;
+
 	if (dirent == NULL) {
-	    if (errno != 0)  return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);	// Error occurred.
-	    else	     return ZERO_LENGTH_STRING__GLOBAL;				// End of stream.
+	    if (errno != 0)  result = RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);	// Error occurred.
+	    else	     result = ZERO_LENGTH_STRING__GLOBAL;			// End of stream.
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	    return result;
 	} else {
 	    char	*cp = dirent->d_name;
 
@@ -74,7 +79,10 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
 //		continue;
 //	    else
 //
-	    return make_ascii_string_from_c_string__may_heapclean (task, cp, NULL);
+	    result = make_ascii_string_from_c_string__may_heapclean (task, cp, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	    return result;	
 	}
     }
 }

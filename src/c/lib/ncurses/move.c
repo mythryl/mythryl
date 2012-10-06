@@ -17,23 +17,24 @@
 Val   _lib7_Ncurses_move   (Task* task,  Val arg)   {    // : (Int, Int) -> Void
     //==================
     //
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_move");
+    Val result;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	int y = INT1_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 0) );
 	int x = INT1_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 1) );
 
-	int result = move( y, x );
+	int iresult = move( y, x );
 
-	if (result == ERR)     return RAISE_ERROR__MAY_HEAPCLEAN(task, "move", NULL);
-
-	return HEAP_VOID;
+	if (iresult == ERR)     result = RAISE_ERROR__MAY_HEAPCLEAN(task, "move", NULL);
+	else			result = HEAP_VOID;
     #else
 	extern char* no_ncurses_support_in_runtime;
 	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, no_ncurses_support_in_runtime, NULL);
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

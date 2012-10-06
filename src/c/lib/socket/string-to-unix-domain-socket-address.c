@@ -31,7 +31,7 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     //
     //     src/lib/std/src/socket/unix-domain-socket.pkg
 
-										ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_string_to_unix_domain_socket_address");
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* path = HEAP_STRING_AS_C_STRING( arg );				// Last use of 'arg'.
 

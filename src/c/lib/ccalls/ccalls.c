@@ -962,7 +962,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Vunt** p,  Val datum
 Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
     //===============================
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_mythryl_value_to_c");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     // This is the Mythryl entry point for 'convert_mythryl_value_to_c'
 
@@ -988,7 +988,9 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
     if (err) {
         free_pointerlist();
         restore_pointerlist(    saved_pl  );
-        return raise_error(  task, err );
+        Val result = raise_error(  task, err );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result
     }
 
     // Return (result,list of pointers to alloc'd C chunks):
@@ -1001,7 +1003,9 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 
     Val result =  MK_CADDR(task,(Vunt *)p);
     //
-    return make_two_slot_record( task, result, lp);
+    result = make_two_slot_record( task, result, lp);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   word_c_to_mythryl   (Task* task,  char** t,  Vunt** p,  Val* root)   {
@@ -1258,7 +1262,7 @@ Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
     // This gets exported as ccalls::convert_c_value_to_mythryl       in     src/c/lib/ccalls/cfun-list.h
     // This gets bound at the Mythryl level only        in    src/lib/c-glue-old/ccalls.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_c_value_to_mythryl");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     // Make copies of things that cleaning may move:
     //
@@ -1267,6 +1271,7 @@ Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
 
     Val result =  convert_c_value_to_mythryl (task,type,(Vunt) caddr,&arg);
     FREE(type);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
@@ -1278,7 +1283,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     // We are exported as ccalls::ccall          in   src/c/lib/ccalls/cfun-list.h
     // which is bound at the Mythryl level (only) in   src/lib/c-glue-old/ccalls.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_c_call");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     #if !defined(INDIRECT_CFUNC)
 	Vunt (*f)() = (Vunt (*)())   GET_TUPLE_SLOT_AS_PTR( Vunt*, arg, 0 );
@@ -1302,7 +1307,9 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     int err = NO_ERR;
 
     if (n_cargs > N_ARGS) {
-	return raise_error(task,ERR_TOO_MANY_ARGS);	// Mythryl side guarantees that this can't happen.
+	Val result = raise_error(task,ERR_TOO_MANY_ARGS);			// Mythryl side guarantees that this can't happen.
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
     }	
 	
     // Save the pointerlist since C
@@ -1343,7 +1350,9 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     if (err) {
 	free_pointerlist();
 	restore_pointerlist(saved_pointerlist);
-	return raise_error(task,err);
+	Val result = raise_error(task,err);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	return result;
     }
 
     #ifdef DEBUG_C_CALLS
@@ -1421,6 +1430,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 
     restore_pointerlist( saved_pointerlist );		// Restore the previous pointerlist.
 
+									EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

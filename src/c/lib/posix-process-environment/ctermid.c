@@ -33,7 +33,7 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_ctermid");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* status;
     char  name[ L_ctermid ];
@@ -49,7 +49,11 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, "cannot determine controlling terminal", NULL);
     }
   
-    return   make_ascii_string_from_c_string__may_heapclean( task, name, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val result =  make_ascii_string_from_c_string__may_heapclean( task, name, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

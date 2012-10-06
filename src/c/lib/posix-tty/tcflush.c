@@ -44,7 +44,7 @@ Val    _lib7_P_TTY_tcflush   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-tty.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcflush");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int queue  =  GET_TUPLE_SLOT_AS_INT( arg, 1 );

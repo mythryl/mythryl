@@ -34,10 +34,10 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
     //
     //     src/lib/std/src/psx/posix-error.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Error_errmsg");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int errnum =  TAGGED_INT_TO_C_INT( arg );
-    Val s;
+    Val result;
 
     #if defined( HAS_STRERROR )
 	//
@@ -45,26 +45,27 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
 	//
 	if (msg != 0) {
 	    //
-	    s = make_ascii_string_from_c_string__may_heapclean( task, msg, NULL );				// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+	    result = make_ascii_string_from_c_string__may_heapclean( task, msg, NULL );				// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 	} else {
 	    char     buf[64];
 	    sprintf( buf, "<unknown error %d>", errnum);				// XXX SUCKO FIXME should use a modern fn proof against buffer overrun.
-	    s = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL );
+	    result = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL );
 	}
     #else
 	if (0 <= errnum  &&  errnum < sys_nerr) {
 	    //
-	    s = make_ascii_string_from_c_string__may_heapclean (task, sys_errlist[errnum], NULL );
+	    result = make_ascii_string_from_c_string__may_heapclean (task, sys_errlist[errnum], NULL );
 	    //
 	} else {
 	    //
 	    char     buf[64];
 	    snprintf( buf, 64, "<unknown error %d>", errnum);
-	    s = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL );
+	    result = make_ascii_string_from_c_string__may_heapclean (task, buf, NULL );
 	}
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return s;
+    return result;
 }
 
 

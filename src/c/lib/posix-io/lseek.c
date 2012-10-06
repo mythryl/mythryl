@@ -38,7 +38,7 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-io.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int       fd =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     off_t offset =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -50,7 +50,10 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, pos, NULL);
+    Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, pos, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

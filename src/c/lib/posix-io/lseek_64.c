@@ -41,7 +41,7 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
     //
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek_64");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd =  GET_TUPLE_SLOT_AS_INT( arg, 0);
 
@@ -71,9 +71,12 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
         Val poshi =  make_one_word_unt(task,   (Unt1) 0);
     #endif
 
-    Val     poslo =  make_one_word_unt(task,   (Unt1) pos);
+    Val poslo  =  make_one_word_unt(task,   (Unt1) pos);
 
-    return  make_two_slot_record(task,  poshi, poslo  );		// What fools these mortals be.
+    Val result =  make_two_slot_record(task,  poshi, poslo  );		// What fools these mortals be.
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

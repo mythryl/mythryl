@@ -38,7 +38,7 @@ Val   _lib7_P_IO_fcntl_gfl   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_gfl");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int fd = TAGGED_INT_TO_C_INT( arg );
 
@@ -62,7 +62,10 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_gfl.c\n");
     flags =  make_one_word_unt(task,  (flag & (~O_ACCMODE)) );
     mode  =  make_one_word_unt(task,  (flag &   O_ACCMODE)  );
 
-    return  make_two_slot_record(task,  flags, mode  );
+    Val result =  make_two_slot_record(task,  flags, mode  );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

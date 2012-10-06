@@ -31,7 +31,7 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-id.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getenv");
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char* status;
 
@@ -61,7 +61,9 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
 
     Val s = make_ascii_string_from_c_string__may_heapclean( task, status, NULL);			// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-    return  OPTION_THE( task, s );
+    Val result =  OPTION_THE( task, s );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return  result;
 }
 
 
