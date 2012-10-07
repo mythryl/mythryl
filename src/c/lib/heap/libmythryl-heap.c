@@ -1094,7 +1094,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
     {"dump_hugechunks_contents",			"dump_hugechunks_contents",				do_dump_hugechunks_contents,					"String -> Void"},
     {"dump_hugechunks_summary",				"dump_hugechunk_stuff",					do_dump_hugechunks_summary,					"String -> Void"},
-    {"dump_ramlog",					"dump_syscall_log",					do_dump_syscall_log,							"String -> Void"},
+    {"dump_syscall_log",				"dump_syscall_log",					do_dump_syscall_log,						"String -> Void"},
     {"dump_task",					"dump_task",						do_dump_task,							"String -> Void"},
     {"dump_whatever",					"dump_whatever",					do_dump_whatever,						"String -> Void"},
     {"make_codechunk_executable",			"make_codechunk_executable",				do_make_codechunk_executable,					"(Vector_Of_One_Byte_Unts, Int) -> Chunk -> Chunk"},

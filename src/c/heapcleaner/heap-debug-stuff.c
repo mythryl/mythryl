@@ -912,23 +912,24 @@ static void   dump_syscall_log__guts   (FILE*fd, const char* caller, int n) {
     fprintf(fd,"\nLast %d calls made from Mythryl to C, in reverse time order\n", SYSCALL_LOG_ENTRIES);
     fprintf(fd,  "(most recent first) with task->hostthread->id listed at the left:\n\n");
 
-    {   int e = syscall_log_next_entry_to_write;
-	int i = SYSCALL_LOG_ENTRIES - 1;
+    int e = syscall_log_next_entry_to_write;
+    int i = SYSCALL_LOG_ENTRIES - 1;
 
-        do {
-	    e = syscall_log_prev( e );
+    do {
+	e = syscall_log_prev( e );
 
-	    Syscall_Log_Entry* r =  &syscall_log_circular_queue[ e ];	
+	Syscall_Log_Entry* r =  &syscall_log_circular_queue[ e ];	
 
-	    if (r->fn_name) {
-	        //
-		fprintf(fd,"%4d: %2d  %s\n", i, r->id, r->fn_name );
-		--i;
-	    }
+	if (r->fn_name) {
+	    //
+	    char* flags = "   ";
+	    if (r->flags & SYSCALL_LOG_FN_ENTRY) flags = "top"; 
+	    if (r->flags & SYSCALL_LOG_FN_EXIT ) flags = "bot"; 
+	    fprintf(fd,"%4d: %2d #%-3d%s %s\n", i, r->id, r->count, flags, r->fn_name );
+	    --i;
+	}
 
-
-	} while (e != syscall_log_next_entry_to_write  &&  ((SYSCALL_LOG_ENTRIES - 1)-i < n));
-    }
+    } while (e != syscall_log_next_entry_to_write  &&  ((SYSCALL_LOG_ENTRIES - 1)-i < n));
 }
 
 //

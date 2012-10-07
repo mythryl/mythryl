@@ -879,11 +879,12 @@ extern char*    pth__barrier_wait (Task* task, Vunt barrier_id, Bool* result);	/
 #define SYSCALL_LOG_MASK		(SYSCALL_LOG_ENTRIES-1)				// construct a mask to implement fast queue wrap-around.
 
 #define SYSCALL_LOG_FN_ENTRY 		(1 << 0)
-#define SYSCALL_LOG_FN_EXIT 			(1 << 1)
+#define SYSCALL_LOG_FN_EXIT 		(1 << 1)
 
 typedef struct {
     int		id;									// task->hostthread->id which made the syscall_log entry.
     int		flags;
+    int		count;									// On successive calls we increment this rather than making a new entry.
     const char* fn_name;
 } Syscall_Log_Entry;
 
@@ -892,33 +893,56 @@ extern int   	         syscall_log_next_entry_to_write;				// This points to nex
     //
     // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
 
+inline int syscall_log_nex2( int i) { return (i+2) & SYSCALL_LOG_MASK; }
 inline int syscall_log_next( int i) { return (i+1) & SYSCALL_LOG_MASK; }
 inline int syscall_log_prev( int i) { return (i-1) & SYSCALL_LOG_MASK; }
+inline int syscall_log_pre2( int i) { return (i-2) & SYSCALL_LOG_MASK; }
 
 inline void  note_fn_entry_in_syscall_log   (Task* task, const char* fn_name) {
     //       ============================
     //
     int e = syscall_log_next_entry_to_write;
-    syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
-    //
-    Syscall_Log_Entry* r =  &syscall_log_circular_queue[  e ];
-    //
-    r->fn_name = fn_name;
-    r->id      = task->hostthread->id;
-    r->flags   = SYSCALL_LOG_FN_ENTRY;
+
+    Syscall_Log_Entry* r =  &syscall_log_circular_queue[ syscall_log_pre2( e ) ];
+
+    if (r->fn_name == fn_name) {
+        //
+	++ r->count;
+
+    } else {
+
+	syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
+	//
+	r =  &syscall_log_circular_queue[  e ];
+	//
+	r->fn_name = fn_name;
+	r->id      = task->hostthread->id;
+	r->flags   = SYSCALL_LOG_FN_ENTRY;
+	r->count   = 1;
+    }
 }
 
 inline void  note_fn_exit_in_syscall_log   (Task* task, const char* fn_name) {
     //       ===========================
     //
     int e = syscall_log_next_entry_to_write;
-    syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
-    //
-    Syscall_Log_Entry* r =  &syscall_log_circular_queue[  e ];
-    //
-    r->fn_name = fn_name;
-    r->id      = task->hostthread->id;
-    r->flags   = SYSCALL_LOG_FN_EXIT;
+
+    Syscall_Log_Entry* r =  &syscall_log_circular_queue[ syscall_log_pre2( e ) ];
+
+    if (r->fn_name == fn_name) {
+        //
+	++ r->count;
+
+    } else {
+	syscall_log_next_entry_to_write =   syscall_log_next( e );				// No hostthread mutual exclusion here; I'm not too worried about very occasionally losing a syscall_log entry.
+	//
+	r =  &syscall_log_circular_queue[  e ];
+	//
+	r->fn_name = fn_name;
+	r->id      = task->hostthread->id;
+	r->flags   = SYSCALL_LOG_FN_EXIT;
+	r->count   = 1;
+    }
 }
 
 #endif // _ASM_ 
