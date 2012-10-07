@@ -39,6 +39,7 @@
 //
 Syscall_Log_Entry syscall_log_circular_queue[  SYSCALL_LOG_ENTRIES  ];
 int		  syscall_log_next_entry_to_write = 0;
+int		  syscalls_seen = 0;
 
 
 //
@@ -922,10 +923,10 @@ static void   dump_syscall_log__guts   (FILE*fd, const char* caller, int n) {
 
 	if (r->fn_name) {
 	    //
-	    char* flags = "   ";
-	    if (r->flags & SYSCALL_LOG_FN_ENTRY) flags = "top"; 
-	    if (r->flags & SYSCALL_LOG_FN_EXIT ) flags = "bot"; 
-	    fprintf(fd,"%4d: %2d #%-3d%s %s\n", i, r->id, r->count, flags, r->fn_name );
+	    char* flags = "     ";
+	    if (r->flags & SYSCALL_LOG_FN_ENTRY) flags = "enter"; 
+	    if (r->flags & SYSCALL_LOG_FN_EXIT ) flags = " exit"; 
+	    fprintf(fd,"%4d: %2d #%-5d%s %s\n", i, r->id, r->number, flags, r->fn_name );
 	    --i;
 	}
 
@@ -1082,7 +1083,8 @@ void   debug_help   (void) {
 
     fprintf(stderr,"Debug-support commands available at the (gdb) prompt:\n");
     fprintf(stderr,"\n");
-    fprintf(stderr,"call debug_syscall_log(n)        # Display names of last 'n' Mythryl calls to C level.\n");
+    fprintf(stderr,"call debug_ramlog(n)        # Display last n lines logged via ramlog_printf().\n");
+    fprintf(stderr,"call debug_syscall_log(n)   # Display names of last 'n' Mythryl calls to C level.\n");
     fprintf(stderr,"call debug_tripwires()      # Lists any non-zero slots in the tripwire buffers.\n");
     fprintf(stderr,"\n");
     fprintf(stderr,"call debug_task()           # List currently running task.\n");
