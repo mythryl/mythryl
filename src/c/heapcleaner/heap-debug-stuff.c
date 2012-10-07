@@ -40,6 +40,7 @@
 Syscall_Log_Entry syscall_log_circular_queue[  SYSCALL_LOG_ENTRIES  ];
 int		  syscall_log_next_entry_to_write = 0;
 int		  syscalls_seen = 0;
+int		  syscall_log_and_ramlog_enabled = TRUE;				// Starts TRUE, set FALSE in enter_debug_loop() in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 
 
 //

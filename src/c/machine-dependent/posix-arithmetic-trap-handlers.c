@@ -49,6 +49,9 @@ void   set_up_fault_handlers   (Task* task)   {
 static void   enter_debug_loop   (void) {
     //        ================
     //
+    syscall_log_and_ramlog_enabled = FALSE;					// To keep from muddying the evidence, disable further changes to the syscall_log and ramlog.
+    fprintf(stderr, "Done:  syscall_log_and_ramlog_enabled = FALSE;\n");
+    fprintf(stderr, "\n");
     fprintf(stderr, "To kill this process do ^Z to suspend it and then:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "%% kill -HUP %d\n", getpid());

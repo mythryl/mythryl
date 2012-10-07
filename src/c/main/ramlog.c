@@ -43,6 +43,8 @@ static char* ramlog_hard_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES  + RAM
 void   ramlog_printf   (char *format, ...)   {
     // =============
     //
+    if (!syscall_log_and_ramlog_enabled)   return;
+
     va_list   ap;
     va_start (ap, format);
     char* p = ramlog_next;

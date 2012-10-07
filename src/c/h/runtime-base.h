@@ -891,8 +891,9 @@ typedef struct {
 extern Syscall_Log_Entry syscall_log_circular_queue[ SYSCALL_LOG_ENTRIES ];		// This holds the last thousand or so syscall_log entries made.
 extern int   	         syscall_log_next_entry_to_write;				// This points to next index to write in syscall_log_circular_queue[].
 extern int		 syscalls_seen;
+extern int		 syscall_log_and_ramlog_enabled;				// Starts TRUE, set FALSE in enter_debug_loop() in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
     //
-    // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
+    // These are defined in src/c/heapcleaner/heap-debug-stuff.c
 
 
 extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
@@ -901,6 +902,9 @@ extern void   debug_ramlog  (int lines_to_print);					// debug_ramlog		is from  
     // ramlog_printf writes one line into a 64K circular buffer,
     // overwriting old stuff as it goes.  Each fmt should end
     // with a '\n' and contain no other '\n's and no '\0's.
+    // As a practical matter I recommend a format like
+    //     ramlog_printf("#%d ...\n", syscalls_seen, ...);
+    // so as to allow correlation with the syscall log.	
     //
     // debug_ramlog() lists the last n lines in ramlog;
     // it is intended to be called interactively from gdb.
@@ -918,6 +922,8 @@ inline int syscall_log_pre2( int i) { return (i-2) & SYSCALL_LOG_MASK; }
 inline void  note_fn_entry_in_syscall_log   (Task* task, const char* fn_name) {
     //       ============================
     //
+    if (!syscall_log_and_ramlog_enabled)   return;
+
     int e = syscall_log_next_entry_to_write;
 
     ++ syscalls_seen;
@@ -944,6 +950,8 @@ inline void  note_fn_entry_in_syscall_log   (Task* task, const char* fn_name) {
 inline void  note_fn_exit_in_syscall_log   (Task* task, const char* fn_name) {
     //       ===========================
     //
+    if (!syscall_log_and_ramlog_enabled)   return;
+
     int e = syscall_log_next_entry_to_write;
 
     ++ syscalls_seen;

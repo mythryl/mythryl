@@ -64,11 +64,15 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     int status;
 
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+										ramlog_printf("#%d %s: socket d=%d\n",syscalls_seen,__func__,socket,socket);
     Val	addr   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );				// Last use of 'arg'.
+										ramlog_printf("#%d %s: addr x=%08x\n",syscalls_seen,__func__,socket,addr);
     //
     socklen_t addrlen  =  GET_VECTOR_LENGTH( addr );
+										ramlog_printf("#%d %s: addrlen d=%d\n",syscalls_seen,__func__,socket,addrlen);
 
     {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );	// Last use of 'addr'.
+										ramlog_printf("#%d %s: a p=%p\n",syscalls_seen,__func__,socket,a);
         char buf[ 1024 ];
 
 //										// Translate to hex for log:
