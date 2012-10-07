@@ -893,6 +893,22 @@ extern int   	         syscall_log_next_entry_to_write;				// This points to nex
     //
     // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
 
+
+extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
+extern void   debug_ramlog  (int lines_to_print);					// debug_ramlog		is from   src/c/main/ramlog.c
+    //
+    // ramlog_printf writes one line into a 64K circular buffer,
+    // overwriting old stuff as it goes.  Each fmt should end
+    // with a '\n' and contain no other '\n's and no '\0's.
+    //
+    // debug_ramlog() lists the last n lines in ramlog;
+    // it is intended to be called interactively from gdb.
+    //
+    // The idea of ramlog is to allow logging stuff which would
+    // be too voluminous for logging to disk, so that we can at
+    // least still see the last few entries after a segfault or
+    // such.
+
 inline int syscall_log_nex2( int i) { return (i+2) & SYSCALL_LOG_MASK; }
 inline int syscall_log_next( int i) { return (i+1) & SYSCALL_LOG_MASK; }
 inline int syscall_log_prev( int i) { return (i-1) & SYSCALL_LOG_MASK; }
