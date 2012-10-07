@@ -106,13 +106,13 @@ static void   win32_fake_sigalrm  () {
     //
     Hostthread* hostthread = SELF_HOSTTHREAD;
 
-    if (SuspendThread(win32_LIB7_appthread) == 0xffffffff) {
+    if (SuspendThread(win32_LIB7_microthread) == 0xffffffff) {
       die ("win32_fake_sigalrm: unable to suspend Lib7 thread");
     }
 
     win32_generic_handler(SIGALRM);
 
-    if (ResumeThread(win32_LIB7_appthread) == 0xffffffff) {
+    if (ResumeThread(win32_LIB7_microthread) == 0xffffffff) {
       die ("win32_fake_sigalrm: unable to resume Lib7 thread");
     }
 }

@@ -287,8 +287,8 @@ struct task {
 									// holds the same value as the link_register.			program_counter, so presumably it always points into the same <something>. -- 2011-11-15 CrT
 
     Val		exception_fate;						// Exception handler (?)
-    Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Appthread.  Type
-									// Appthread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Microthread.  Type
+									// Microthread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
     Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
 
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.

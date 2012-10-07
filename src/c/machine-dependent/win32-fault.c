@@ -23,7 +23,7 @@ HANDLE win32_console_handle;
 HANDLE win32_stdout_handle;
 HANDLE win32_stderr_handle;
 
-HANDLE win32_LIB7_appthread;
+HANDLE win32_LIB7_microthread;
 BOOL win32_isNT;
 
 // Static globals:
@@ -133,7 +133,7 @@ void   set_up_fault_handlers   (Task* task)   {
 	if (!DuplicateHandle(cp_h,              		// process with handle to dup.
 			     GetCurrentThread(),		// pseudohandle, hence the dup.
 			     cp_h,        		        // handle goes to current proc.
-			     &win32_LIB7_appthread, 	// recipient
+			     &win32_LIB7_microthread, 	// recipient
 			     THREAD_ALL_ACCESS,
 			     FALSE,
 			     0					// no options
