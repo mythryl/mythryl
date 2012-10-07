@@ -894,6 +894,7 @@ extern int		 syscalls_seen;
 extern int		 syscall_log_and_ramlog_enabled;				// Starts TRUE, set FALSE in enter_debug_loop() in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
     //
     // These are defined in src/c/heapcleaner/heap-debug-stuff.c
+    // which also implements debug_syscall_log() to display the contents.
 
 
 extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
