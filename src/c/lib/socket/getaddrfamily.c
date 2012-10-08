@@ -39,7 +39,10 @@ Val   _lib7_Sock_getaddrfamily   (Task* task,  Val arg)   {
 
     struct sockaddr*  addr =  GET_VECTOR_DATACHUNK_AS( struct sockaddr*, arg );
 
-    return   make_system_constant__may_heapclean( task, &_Sock_AddrFamily, ntohs(addr->sa_family), NULL );
+    Val result =   make_system_constant__may_heapclean( task, &_Sock_AddrFamily, ntohs(addr->sa_family), NULL );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

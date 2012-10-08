@@ -420,10 +420,14 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
 #else
 	result = make_ascii_string_from_c_string__may_heapclean(task, FALSE_VALUE, NULL);
 #endif
-    else
+    else {
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	return OPTION_NULL;
+    }
 
-    return OPTION_THE(task, result);
+    result = OPTION_THE(task, result);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -438,7 +442,9 @@ static Val   do_interval_tick__unimplemented   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return RAISE_ERROR__MAY_HEAPCLEAN(task, "interval_tick unimplemented", NULL);
+    Val result = RAISE_ERROR__MAY_HEAPCLEAN(task, "interval_tick unimplemented", NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -460,6 +466,7 @@ static Val   do_dump_all   (Task* task,  Val arg)   {
     //
     dump_all( task, caller );								// dump_all			is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -482,6 +489,7 @@ static Val   do_dump_all_but_hugechunks_contents   (Task* task,  Val arg)   {
     //
     dump_all_but_hugechunks_contents( task, caller );					// dump_all_but_hugechunks_contents		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -504,6 +512,7 @@ static Val   do_dump_gen0   (Task* task,  Val arg)   {
     //
     dump_gen0( task, caller );								// dump_gen0			is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -526,6 +535,7 @@ static Val   do_dump_gen0s   (Task* task,  Val arg)   {
     //
     dump_gen0s( task, caller );								// dump_gen0s			is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -548,6 +558,7 @@ static Val   do_dump_gen0_tripwire_buffers   (Task* task,  Val arg)   {
     //
     dump_gen0_tripwire_buffers( task, caller );						// dump_gen0_tripwire_buffers	is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -570,6 +581,7 @@ static Val   do_dump_gens   (Task* task,  Val arg)   {
     //
     dump_gens( task, caller );								// dump_gens			is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -613,6 +625,7 @@ static Val   do_dump_hugechunks_summary   (Task* task,  Val arg)   {
     //
     dump_hugechunks_summary( task, caller );						// dump_hugechunks_summary		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -635,6 +648,7 @@ static Val   do_dump_task   (Task* task,  Val arg)   {
     //
     dump_task( task, caller );								// dump_task		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -657,6 +671,7 @@ static Val   do_dump_syscall_log   (Task* task,  Val arg)   {
     //
     dump_syscall_log( task, caller );							// dump_syscall_log	is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -679,6 +694,7 @@ static Val   do_dump_whatever   (Task* task,  Val arg)   {
     //
     dump_whatever( task, caller );							// dump_whatever	is from   src/c/heapcleaner/heap-debug-stuff.c
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -710,7 +726,9 @@ static Val   do_make_codechunk_executable   (Task* task,  Val arg)   {
 
     flush_instruction_cache( code, nbytes );					// flush_instruction_cache is a no-op on intel32
 										// flush_instruction_cache	def in    src/c/h/flush-instruction-cache-system-dependent.h 
-    return  make_one_slot_record(  task,  PTR_CAST( Val, code + entrypoint)  );
+    Val result = make_one_slot_record(  task,  PTR_CAST( Val, code + entrypoint)  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -733,12 +751,15 @@ static Val   do_make_package_literals_via_bytecode_interpreter   (Task* task,  V
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return   make_package_literals_via_bytecode_interpreter__may_heapclean (	// make_package_literals_via_bytecode_interpreter__may_heapclean	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
-                 task,
-                 GET_VECTOR_DATACHUNK_AS( Unt8*, arg ),
-                 GET_VECTOR_LENGTH( arg ),
-		 NULL								// extra_roots
-             );
+    Val result = make_package_literals_via_bytecode_interpreter__may_heapclean (	// make_package_literals_via_bytecode_interpreter__may_heapclean	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+		     task,
+		     GET_VECTOR_DATACHUNK_AS( Unt8*, arg ),
+		     GET_VECTOR_LENGTH( arg ),
+		     NULL								// extra_roots
+		 );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -759,7 +780,9 @@ static Val   do_make_single_slot_tuple   (Task* task,   Val arg)   {
 
 									ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return  make_one_slot_record( task, arg );								// make_one_slot_record		def in    src/c/h/make-strings-and-vectors-etc.h
+    Val result =  make_one_slot_record( task, arg );								// make_one_slot_record		def in    src/c/h/make-strings-and-vectors-etc.h
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -776,7 +799,10 @@ static Val   do_get_program_name_from_commandline   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return   make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global, NULL );
+    Val result =  make_ascii_string_from_c_string__may_heapclean( task, mythryl_program_name__global, NULL );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -793,7 +819,10 @@ static Val   do_get_raw_commandline_args   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return   make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, raw_commandline_args__global, NULL );		// Raw untouched argv[] directly from main() -- set in   src/c/main/runtime-main.c
+    Val result =  make_ascii_strings_from_vector_of_c_strings__may_heapclean( task, raw_commandline_args__global, NULL );		// Raw untouched argv[] directly from main() -- set in   src/c/main/runtime-main.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -813,8 +842,13 @@ static Val   do_pickle_datastructure   (Task* task,  Val arg)   {
 
     Val  pickle =  pickle_datastructure( task, arg );										// pickle_datastructure	def in   src/c/heapcleaner/datastructure-pickler.c
 
-    if (pickle == HEAP_VOID)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "Attempt to pickle datastructure failed", NULL);		// XXX BUGGO FIXME Need a clearer diagnostic here.
-    else                       return pickle;
+    Val result;
+
+    if (pickle == HEAP_VOID)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "Attempt to pickle datastructure failed", NULL);		// XXX BUGGO FIXME Need a clearer diagnostic here.
+    else                       result = pickle;
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 //
@@ -833,7 +867,7 @@ static Val   do_unpickle_datastructure   (Task* task,  Val arg)   {
 
     Bool	seen_error = FALSE;
 
-    Val datastructure
+    Val result
 	=
 	unpickle_datastructure(				// unpickle_datastructure	def in    src/c/heapcleaner/datastructure-unpickler.c
 	    //
@@ -843,9 +877,10 @@ static Val   do_unpickle_datastructure   (Task* task,  Val arg)   {
 	    &seen_error
 	);
 
-    if (seen_error)  	return RAISE_ERROR__MAY_HEAPCLEAN(task, "unpickle_datastructure", NULL);
+    if (seen_error)  	result = RAISE_ERROR__MAY_HEAPCLEAN(task, "unpickle_datastructure", NULL);
 
-    return datastructure;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -897,7 +932,10 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "do_set_sigalrm_frequency" );
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 
 #elif defined(OPSYS_WIN32)
 
@@ -918,7 +956,10 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
 	}
     }
 #else
-    return RAISE_ERROR__MAY_HEAPCLEAN( task, "setitimer not supported", NULL);
+    Val result = RAISE_ERROR__MAY_HEAPCLEAN( task, "setitimer not supported", NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 #endif
 
 }
@@ -973,6 +1014,7 @@ static Val   do_heapcleaner_control   (Task* task,  Val arg)   {
         else if (STREQ("set_max_retained_idle_fromspace_agegroup", op))	    set_max_retained_idle_fromspace_agegroup (task, cell);
     }
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
@@ -1004,6 +1046,8 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
     heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	=
         age;
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
 //

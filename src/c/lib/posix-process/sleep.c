@@ -66,11 +66,14 @@ Val   _lib7_P_Process_sleep   (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_sleep", NULL );
 	//
-	int result = sleep( seconds );
+	int iresult = sleep( seconds );
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_sleep" );
 
-    return TAGGED_INT_FROM_C_INT( result );
+    Val result = TAGGED_INT_FROM_C_INT( iresult );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

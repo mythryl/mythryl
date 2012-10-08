@@ -39,6 +39,7 @@ Val   _lib7_Sock_to_log   (Task* task,  Val arg)   {
 
     log_if ("%s", string);				// Safer than doing just log_if(string) -- the string might have a '%' in it.
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 

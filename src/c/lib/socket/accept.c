@@ -50,17 +50,23 @@ if (errno == EINTR) puts("Error: EINTR in accept.c\n");
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_accept" );
 
+    Val result;
+
     if (new_socket == -1) {
         //
-	return  RAISE_SYSERR__MAY_HEAPCLEAN( task, new_socket, NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+	result =  RAISE_SYSERR__MAY_HEAPCLEAN( task, new_socket, NULL);
         //
     } else {
         //
 	Val data    =  make_biwordslots_vector_sized_in_bytes__may_heapclean(	task, address_buf,                  address_len, NULL );
 	Val address =  make_vector_header(					task, UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
-	return  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT( new_socket ), address);
+	result =  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT( new_socket ), address);
+
     }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

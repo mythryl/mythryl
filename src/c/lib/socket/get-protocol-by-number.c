@@ -64,7 +64,10 @@ Val   _lib7_netdb_get_protocol_by_number   (Task* task,  Val arg)   {
 
     Val result	=  make_three_slot_record( task,   name,  aliases,  TAGGED_INT_FROM_C_INT(pentry->p_proto)  );
 
-    return   OPTION_THE( task, result );
+    result =  OPTION_THE( task, result );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

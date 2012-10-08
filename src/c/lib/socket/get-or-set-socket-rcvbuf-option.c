@@ -67,7 +67,10 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
 
     if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
-    return   TAGGED_INT_FROM_C_INT( size );
+    Val result =   TAGGED_INT_FROM_C_INT( size );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

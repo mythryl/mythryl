@@ -83,7 +83,10 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
     set_slot_in_nascent_heapchunk   (task, 6, ispeed);
     set_slot_in_nascent_heapchunk   (task, 7, ospeed);
 
-    return commit_nascent_heapchunk (task, 7);
+    Val result = commit_nascent_heapchunk (task, 7);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

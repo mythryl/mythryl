@@ -63,7 +63,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
     int how;
     int val;
 
-    int  result;
+    int  iresult;
 
     int pid     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int options = TUPLE_GETWORD(         arg, 1 );    
@@ -72,35 +72,45 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 						// Restored 2012-08-01 CrT due to consistent failures here when switching on thread-scheduler-control-g.pkg by default.
         RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_waitpid", NULL );
 	    //
-	    result = waitpid( pid, &status, options );
+	    iresult = waitpid( pid, &status, options );
 	    //
         RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_waitpid" );
 
-  } while (result < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+  } while (iresult < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (result < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, result, NULL);
+    Val result;
 
-    if (WIFEXITED(status)) {
-	//
-	how = 0;
-	val = WEXITSTATUS(status);
-
-    } else if (WIFSIGNALED(status)) {
-
-	how = 1;
-	val = WTERMSIG(status);
-
-    } else if (WIFSTOPPED(status)) {
-
-	how = 2;
-	val = WSTOPSIG(status);
-
+    if (iresult < 0) {
+        //
+        result =  RAISE_SYSERR__MAY_HEAPCLEAN(task, iresult, NULL);
     } else {
 
-        return RAISE_ERROR__MAY_HEAPCLEAN(task, "unknown child status", NULL);
-    }
+	if (WIFEXITED(status)) {
+	    //
+	    how = 0;
+	    val = WEXITSTATUS(status);
 
-    return   make_three_slot_record(task,  TAGGED_INT_FROM_C_INT(result), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val) );
+	} else if (WIFSIGNALED(status)) {
+
+	    how = 1;
+	    val = WTERMSIG(status);
+
+	} else if (WIFSTOPPED(status)) {
+
+	    how = 2;
+	    val = WSTOPSIG(status);
+
+	} else {
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+
+	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "unknown child status", NULL);
+	}
+
+	result =  make_three_slot_record(task,  TAGGED_INT_FROM_C_INT(iresult), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val) );
+    }
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

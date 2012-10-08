@@ -68,7 +68,10 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
 
     Val	result  =  make_three_slot_record(					task,  name, aliases, TAGGED_INT_FROM_C_INT(rentry->r_number)  );
 
-    return OPTION_THE( task, result );
+    result = OPTION_THE( task, result );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

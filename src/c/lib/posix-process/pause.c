@@ -44,6 +44,7 @@ Val   _lib7_P_Process_pause   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_pause" );
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 

@@ -106,7 +106,10 @@ if (errno == EINTR) puts("Error: EINTR in sendbufto.c\n");
     //
     *GET_VECTOR_DATACHUNK_AS (struct sockaddr*, addr ) = sockaddr;
 
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
+    Val result =  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

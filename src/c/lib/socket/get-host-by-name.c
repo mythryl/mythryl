@@ -52,7 +52,7 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
 
     char* heap_name = HEAP_STRING_AS_C_STRING( arg );							// Last use of 'arg'.
 
-    struct hostent* result;
+    struct hostent* resultt;
 
     // We cannot reference anything on the Mythryl
     // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
@@ -68,14 +68,17 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_name", NULL );
 	    //
-	    result = gethostbyname( c_name );
+	    resultt = gethostbyname( c_name );
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_name" );
 
 	unbuffer_mythryl_heap_value( &name_buf );
     }
 
-    return  _util_NetDB_mkhostent (task, result);							// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+    Val result =  _util_NetDB_mkhostent (task, resultt);							// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

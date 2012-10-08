@@ -89,7 +89,10 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
     if (status < 0)  		return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
     if (optVal.l_onoff == 0)    return OPTION_NULL;
 
-    return   OPTION_THE(  task,  TAGGED_INT_FROM_C_INT( optVal.l_linger )  );
+    Val result =   OPTION_THE(  task,  TAGGED_INT_FROM_C_INT( optVal.l_linger )  );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

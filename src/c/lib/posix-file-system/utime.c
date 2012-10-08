@@ -94,7 +94,7 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

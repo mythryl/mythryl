@@ -43,7 +43,10 @@ Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_getsigstate" );
 
-    return TAGGED_INT_FROM_C_INT(state);
+    Val result = TAGGED_INT_FROM_C_INT(state);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

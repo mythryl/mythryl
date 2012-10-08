@@ -63,9 +63,13 @@ Val   get_or_set_socket_sndbuf_option   (Task* task,  Val arg)   {
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_sndbuf_option" );
     }
 
-    if (status < 0)     return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
+    Val result;
 
-    return  TAGGED_INT_FROM_C_INT( size );
+    if (status < 0)     result =  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
+    else                result =  TAGGED_INT_FROM_C_INT( size );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

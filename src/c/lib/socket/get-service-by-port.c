@@ -53,7 +53,7 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     if (ml_protocol == OPTION_NULL)	heap_protocol =  NULL;
     else			  	heap_protocol =  HEAP_STRING_AS_C_STRING( OPTION_GET( ml_protocol ) );				// Last use of 'ml_protocol'.
 
-    struct servent* result;
+    struct servent* resultt;
 
     // We cannot reference anything on the Mythryl
     // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
@@ -66,14 +66,17 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
         //
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_service_by_port", NULL );
 	    //
-	    result =  getservbyport( port, c_protocol );
+	    resultt =  getservbyport( port, c_protocol );
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_service_by_port" );
 
 	unbuffer_mythryl_heap_value( &protocol_buf );
     }
 
-    return _util_NetDB_mkservent (task, result);
+    Val result = _util_NetDB_mkservent (task, resultt);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

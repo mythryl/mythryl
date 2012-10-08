@@ -50,7 +50,10 @@ Val   _lib7_Sock_inetany   (Task* task,  Val arg)   {
 
     Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean(	task, &addr, sizeof(struct sockaddr_in), NULL );
 
-    return make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(struct sockaddr_in) );
+    Val result = make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(struct sockaddr_in) );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

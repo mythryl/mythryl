@@ -58,7 +58,10 @@ Val   _lib7_P_Process_execp   (Task* task,  Val arg)   {
 
     int status =  execvp( HEAP_STRING_AS_C_STRING(file), argv );
     //
-    return  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.

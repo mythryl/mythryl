@@ -36,6 +36,7 @@ Val   _lib7_Sig_setsigmask   (Task* task,  Val arg)   {
 
     set_signal_mask( task, arg );
     //
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 

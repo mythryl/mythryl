@@ -95,7 +95,10 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &read_buf );
     }
 
-    return make_vector_header( task,  STRING_TAGWORD, vec, n );
+    Val result = make_vector_header( task,  STRING_TAGWORD, vec, n );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

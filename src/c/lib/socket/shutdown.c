@@ -42,6 +42,7 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
 	//												// ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_shutdown" );
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return  HEAP_VOID;
 }
 

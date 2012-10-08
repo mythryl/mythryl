@@ -61,7 +61,10 @@ if (errno == EINTR) puts("Error: EINTR in close.c\n");
 
 //									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

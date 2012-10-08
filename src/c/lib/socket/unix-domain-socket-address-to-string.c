@@ -55,7 +55,10 @@ Val   _lib7_Sock_unix_domain_socket_address_to_string   (Task* task,  Val arg)  
 
     ASSERT( addr->sun_family == AF_UNIX );
 
-    return   make_ascii_string_from_c_string__may_heapclean( task, addr->sun_path, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val result =  make_ascii_string_from_c_string__may_heapclean( task, addr->sun_path, NULL );		// make_ascii_string_from_c_string__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

@@ -56,7 +56,10 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 														// make_biwordslots_vector_sized_in_bytes__may_heapclean	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
     Val	data = make_biwordslots_vector_sized_in_bytes__may_heapclean(task, address_buf, address_len, NULL );
 
-    return  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len );
+    Val result =  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

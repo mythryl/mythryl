@@ -65,8 +65,13 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_nodelay_option" );
     }
 
-    if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
-    else		return (flag ? HEAP_TRUE : HEAP_FALSE);
+    Val result;
+
+    if (status < 0)     result = RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
+    else		result = (flag ? HEAP_TRUE : HEAP_FALSE);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

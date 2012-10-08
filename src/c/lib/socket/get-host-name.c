@@ -56,7 +56,10 @@ Val   _lib7_netdb_get_host_name  (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
-    return   make_ascii_string_from_c_string__may_heapclean( task, hostname, NULL );
+    Val result =   make_ascii_string_from_c_string__may_heapclean( task, hostname, NULL );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

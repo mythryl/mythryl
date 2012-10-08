@@ -51,11 +51,14 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_address", NULL );
 	//
-	struct hostent* result = gethostbyaddr (&c_arg, sizeof(struct in_addr), AF_INET);
+	struct hostent* resultt = gethostbyaddr (&c_arg, sizeof(struct in_addr), AF_INET);
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_address" );
 
-    return  _util_NetDB_mkhostent ( task, result );									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+    Val result =  _util_NetDB_mkhostent ( task, resultt );									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

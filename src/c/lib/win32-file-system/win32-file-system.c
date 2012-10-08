@@ -49,7 +49,9 @@ Val   _lib7_win32_FS_find_next_file   (Task* task,  Val arg)   {
 
     HANDLE h = (HANDLE) WORD_LIB7toC(arg);
     //
-    return find_next_file__may_heapclean(task,h,NULL);
+    Val result = find_next_file__may_heapclean(task,h,NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -77,14 +79,19 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
 
     w =  make_one_word_unt(task,  (Vunt) h  );
 
-    return  make_two_slot_record(task,  w, fname_opt  );
+    Val result =  make_two_slot_record(task,  w, fname_opt  );
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 /* _lib7_win32_FS_find_close: one_word_unt -> Bool
  */
 Val _lib7_win32_FS_find_close(Task *task, Val arg)
 {
-  return FindClose((HANDLE)WORD_LIB7toC(arg)) ? HEAP_TRUE : HEAP_FALSE;
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+  Val result = FindClose((HANDLE)WORD_LIB7toC(arg)) ? HEAP_TRUE : HEAP_FALSE;
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 /* _lib7_win32_FS_set_current_directory: String -> Bool

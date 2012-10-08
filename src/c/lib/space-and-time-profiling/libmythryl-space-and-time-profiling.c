@@ -67,6 +67,8 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
+    Val result;
+
 #ifdef OPSYS_UNIX
 
     Bool  enabled =   (time_profiling_rw_vector__global != HEAP_VOID);
@@ -101,10 +103,12 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
 	time_profiling_rw_vector__global =  HEAP_VOID;
     }
 
-    return HEAP_VOID;
+    result = HEAP_VOID;
 #else
-    return RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
+    result = RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
 #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 
 }
 
@@ -125,9 +129,10 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
+    Val result;
     #ifndef HAS_SETITIMER
 	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, "time profiling not supported", NULL);
 	//
     #else
 	//     "The system provides each process with three interval timers,
@@ -154,7 +159,9 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 	} else if (time_profiling_rw_vector__global == HEAP_VOID) {
 	    //
-	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "no time_profiling_rw_vector set", NULL);
+	    result = RAISE_ERROR__MAY_HEAPCLEAN(task, "no time_profiling_rw_vector set", NULL);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    	    return result;
 
 	} else {
 	    //
@@ -167,9 +174,11 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 
 	int status = setitimer (ITIMER_VIRTUAL, &new_itv, NULL);
 
-	return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+	result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 
@@ -192,7 +201,10 @@ static Val   get_sigvtalrm_interval_in_microseconds   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return TAGGED_INT_FROM_C_INT( MICROSECONDS_PER_SIGVTALRM );			// From   src/c/h/profiler-call-counts.h
+    Val result = TAGGED_INT_FROM_C_INT( MICROSECONDS_PER_SIGVTALRM );			// From   src/c/h/profiler-call-counts.h
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

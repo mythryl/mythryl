@@ -159,7 +159,10 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 //  log_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
 
-    return  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/raise-error.h
+    Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/raise-error.h
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // EINTR discussion:      (2010-02-26 CrT)

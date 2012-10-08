@@ -127,7 +127,10 @@ if (errno == EINTR) puts("Error: EINTR in recvfrom.c\n");
 
     Val addr =  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
-    return  make_two_slot_record(task,  result, addr);
+    result =  make_two_slot_record(task,  result, addr);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

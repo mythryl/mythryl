@@ -195,7 +195,7 @@ Val   _lib7_P_FileSys_fstat_64   (Task* task,  Val arg)   {	//  : Unt -> statrep
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
     Val result =  mkStatRep( task, &buf );
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

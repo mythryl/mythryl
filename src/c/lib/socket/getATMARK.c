@@ -48,6 +48,7 @@ Val   _lib7_Sock_getATMARK   (Task* task,  Val arg)   {
 
     if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return    n ? HEAP_TRUE : HEAP_FALSE;
 }
 

@@ -55,11 +55,13 @@ Val   _lib7_netdb_get_network_by_name   (Task* task,  Val arg)   {
 
 															ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
+    Val result;
+
     #if defined(OPSYS_WIN32)
         // XXX BUGGO FIXME:  getnetbyname() does not seem to exist under Windows.  What is the equivalent?
-        return RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyname not implemented>", NULL);
+        result = RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyname not implemented>", NULL);
     #else
-	struct netent* result;
+	struct netent* resultt;
 
 	char* heap_name = HEAP_STRING_AS_C_STRING( arg );								// Last use of 'arg'.
 
@@ -74,15 +76,17 @@ Val   _lib7_netdb_get_network_by_name   (Task* task,  Val arg)   {
 
 	    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_network_by_name", NULL );
 		//
-		result = getnetbyname( c_name );
+		resultt = getnetbyname( c_name );
 		//
 	    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_network_by_name" );
 
 	    unbuffer_mythryl_heap_value( &name_buf );
 	}
 
-	return _util_NetDB_mknetent (task, result);
+	result = _util_NetDB_mknetent (task, resultt);
     #endif
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

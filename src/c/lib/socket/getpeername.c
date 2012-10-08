@@ -58,7 +58,10 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     Val cdata =  make_biwordslots_vector_sized_in_bytes__may_heapclean( task, addr, address_len, NULL );
 
-    return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, cdata, address_len);
+    Val result =  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, cdata, address_len);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

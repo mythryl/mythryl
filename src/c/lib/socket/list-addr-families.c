@@ -41,7 +41,10 @@ Val   _lib7_Sock_listaddrfamilies   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    return dump_table_as_system_constants_list__may_heapclean (task, &_Sock_AddrFamily, NULL);
+    Val result = dump_table_as_system_constants_list__may_heapclean (task, &_Sock_AddrFamily, NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

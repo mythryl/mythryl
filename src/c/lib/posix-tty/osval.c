@@ -101,10 +101,15 @@ Val   _lib7_P_TTY_osval   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    name_val_t* result = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
+    name_val_t* resultt = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 
-    if (result)   return  TAGGED_INT_FROM_C_INT( result->val );
-    else          return  RAISE_ERROR__MAY_HEAPCLEAN(task, "system constant not defined", NULL);
+    Val result;
+
+    if (resultt)   result =  TAGGED_INT_FROM_C_INT( resultt->val );
+    else           result =  RAISE_ERROR__MAY_HEAPCLEAN(task, "system constant not defined", NULL);
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

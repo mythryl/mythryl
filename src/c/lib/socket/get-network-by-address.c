@@ -54,23 +54,28 @@ Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
 
 												ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
+    Val result;
+
     #if defined(OPSYS_WIN32)
         // XXX BUGGO FIXME:
 	//     getnetbyaddr() does not seem to exist under Windows.
 	// What is the equivalent?
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyaddr not implemented>", NULL);
+	result = RAISE_ERROR__MAY_HEAPCLEAN(task, "<getnetbyaddr not implemented>", NULL);
     #else
 	unsigned long   net  =  TUPLE_GETWORD(         arg, 0 );
 	int		type =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "", NULL );
 	    //
-	    struct netent* result =  getnetbyaddr(net, type);
+	    struct netent* resultt =  getnetbyaddr(net, type);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
 
-	return _util_NetDB_mknetent (task, result);
+	result = _util_NetDB_mknetent (task, resultt);
     #endif
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

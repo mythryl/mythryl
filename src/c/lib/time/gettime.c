@@ -54,12 +54,15 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     sys_seconds =  make_one_word_int(task, sys.seconds            );
     gc_seconds  =  make_one_word_int(task, hostthread->cumulative_cleaning_cpu_time->seconds );
 
-    return  make_six_slot_record(task,
+    Val result =  make_six_slot_record(task,
 		//
 		usr_seconds, TAGGED_INT_FROM_C_INT( usr.uSeconds ),
 		sys_seconds, TAGGED_INT_FROM_C_INT( sys.uSeconds ),
 		gc_seconds,  TAGGED_INT_FROM_C_INT( hostthread->cumulative_cleaning_cpu_time->uSeconds )
 	    );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

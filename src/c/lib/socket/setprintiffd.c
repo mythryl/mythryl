@@ -35,6 +35,7 @@ Val   _lib7_Sock_setprintiffd   (Task* task,  Val arg)   {
 
     log_if_fd = fd;
 
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
 }
 
