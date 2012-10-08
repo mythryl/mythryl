@@ -754,11 +754,11 @@ Val   allocate_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  
     //
     // This function is nowhere invoked.
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+													ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val result = allocate_biwordslots_vector__may_heapclean( task, (nbytes+7)>>2, extra_roots );		// Round size up to a multiple of sizeof(Int2) and dispatch.
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+													EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }													// 64-bit issue. (Is "+7)>>2" even correct? If so, should comment why.)
 
@@ -769,20 +769,24 @@ Val   make_biwordslots_vector_sized_in_bytes__may_heapclean   (Task* task,  void
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+													ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+													ramlog_printf("#%d  %s/AAA, nbytes d=%d\n",syscalls_seen,__func__, nbytes);
     Val result;
 
     if (nbytes == 0) {
 	//
+													ramlog_printf("#%d  %s/BBB, nbytes d=%d so returning HEAP_VOID\n",syscalls_seen,__func__, nbytes);
 	result = HEAP_VOID;
 	//
     } else {
 	//
-        Val result =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2, NULL );	// Round size up to a multiple of sizeof(Int2).
+        result =  allocate_biwordslots_vector__may_heapclean( task, (nbytes +7) >> 2, NULL );		// Round size up to a multiple of sizeof(Int2).
 													// 64-bit issue?
+													ramlog_printf("#%d  %s/CCC, copying nbytes from data p=%d into result p=%p\n",syscalls_seen,__func__, nbytes,data,result);
 	memcpy (PTR_CAST(void*, result), data, nbytes);
     }
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+													ramlog_printf("#%d  %s/ZZZ, result p=%p\n",syscalls_seen,__func__, result);
+													EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

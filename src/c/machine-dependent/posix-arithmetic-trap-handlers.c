@@ -52,23 +52,26 @@ static void   enter_debug_loop   (void) {
     syscall_log_and_ramlog_enabled = FALSE;					// To keep from muddying the evidence, disable further changes to the syscall_log and ramlog.
     fprintf(stderr, "Done:  syscall_log_and_ramlog_enabled = FALSE;\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "To kill this process do ^Z to suspend it and then:\n");
+    fprintf(stderr, "Now doing:    while(TRUE) sleep(5);\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "To kill this process do ^Z to suspend it (^Q^Z in emacs) and then:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "%% kill -HUP %d\n", getpid());
     fprintf(stderr, "\n");
     fprintf(stderr, "and then 'fg' to let it complete exit.\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Useful commands to try after attaching gdb to process include:\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "(gdb) bt                          # To display callstack.\n");
+    fprintf(stderr, "(gdb) call debug_help()           # To list debug-support fns callable from gdb prompt.\n");
+    fprintf(stderr, "(gdb) call debug_syscall_log(10)  # To list recent calls made from Mythryl to C layer.\n");
+    fprintf(stderr, "(gdb) call debug_ramlog(10)       # To list recent calls made to ramlog_printf().\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "To attach gdb to this process\n");
     fprintf(stderr, "do ^Z to suspend it and then:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "%% gdb mythryl-runtime-intel32 %d\n", getpid());
     fprintf(stderr, "\n");
-    fprintf(stderr, "Useful commands to try after attaching include:\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "(gdb) bt                   # To display callstack.\n");
-    fprintf(stderr, "(gdb) call debug_help()    # To list debug-support fns callable from gdb prompt.\n");
-    fprintf(stderr, "\n");
-    fprintf(stderr, "Now doing:    while(TRUE) sleep(5);\n");
     fflush(stderr);
     while (TRUE)  sleep(5);
 

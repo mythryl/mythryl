@@ -137,7 +137,10 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
 
     lib7_seconds =  make_one_word_int(task,  c_seconds  );
 
-    return  make_two_slot_record(task,  lib7_seconds, TAGGED_INT_FROM_C_INT( c_microseconds ) );
+    Val result =  make_two_slot_record(task,  lib7_seconds, TAGGED_INT_FROM_C_INT( c_microseconds ) );
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 

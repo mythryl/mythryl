@@ -32,14 +32,18 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     //     src/lib/std/src/socket/unix-domain-socket.pkg
 
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+										ramlog_printf("#%d  %s/TOP, arg x=%08x\n",syscalls_seen,__func__, arg);
 
     char* path = HEAP_STRING_AS_C_STRING( arg );				// Last use of 'arg'.
+										ramlog_printf("#%d  %s/AAA, path s='%s'\n",syscalls_seen,__func__, path);
 
     struct sockaddr_un	addr;
     memset(            &addr, 0, sizeof(struct sockaddr_un));
+										ramlog_printf("#%d  %s/BBB, &addr p=%p   sizeof(struct sockaddr_un)   d=%d\n",syscalls_seen,__func__, &addr,sizeof(struct sockaddr_un));
 
     addr.sun_family = AF_UNIX;
 
+										ramlog_printf("#%d  %s/CCC, &addr p=%p   sizeof(add.sun_path) d=%d   strlen(path) d=%d\n",syscalls_seen,__func__, &addr,sizeof(addr.sun_path),strlen(path));
     strcpy( addr.sun_path, path );
 
     int len;
@@ -50,15 +54,21 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
             + sizeof(addr.sun_family)
             + 1;
 	addr.sun_len = len;
+										ramlog_printf("#%d  %s/DDD len d=%d\n",syscalls_seen,__func__, len);
     #else
 	len = strlen(path)
             + sizeof(addr.sun_family)
             + 1;
+										ramlog_printf("#%d  %s/EEE len d=%d\n",syscalls_seen,__func__, len);
     #endif
 
     Val data =  make_biwordslots_vector_sized_in_bytes__may_heapclean(task, &addr, len, NULL );
+										ramlog_printf("#%d  %s/FFF data x=%08x\n",syscalls_seen,__func__, data);
 
-    return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, len );
+    Val result = make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, len );
+
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 // COPYRIGHT (c) 1995 AT&T Bell Laboratories.
