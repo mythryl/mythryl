@@ -492,7 +492,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( task );
 
 	//
-        zero_agegroup0_overrun_tripwire_buffer( task );
+        initialize_agegroup0_overrun_tripwire_buffer( task );
 	
 
 	if (poll_frequency <= 0) {

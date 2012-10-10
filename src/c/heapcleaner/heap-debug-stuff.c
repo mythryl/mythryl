@@ -278,8 +278,8 @@ void   debug_tripwires  (void) {
 	for (int i = 0;  i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;  ++i) {
 	    //
 	    unsigned int u = buf_as_valintptr[ i ];
-	    if (u) {
-		fprintf(stderr,"task %d tripwire buffer slot %d at address %p contains %08x (should be 0).\n", t, i,  buf_as_valintptr + i,  (unsigned int) buf_as_valintptr[ i ]);  fflush(stderr);
+	    if (u != AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE) {
+		fprintf(stderr,"task %d tripwire buffer slot %d at address %p contains %08x (should be %08x).\n", t, i,  buf_as_valintptr + i,  (unsigned int) buf_as_valintptr[ i ], AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE);  fflush(stderr);
 		++words_corrupt;
 	    }
 	    ++words_checked;
@@ -306,7 +306,7 @@ static void   dump_gen0_tripwire_buffers__guts   (FILE* fd, Task* task, char* ca
 
         fprintf(fd,"\n"																);
 	fprintf(fd,"--------------------------------------\n"											);
-	fprintf(fd,"Hexdump of overrun buffer for hostthread %d -- should be all zeros:\n\n", t );
+	fprintf(fd,"Hexdump of overrun buffer for hostthread %d -- should be all %08x:\n\n", t, AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE );
 	//
 	hexdump_to_file  (fd, "", buf_as_ucharptr, AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS * sizeof(Vint));
 
@@ -1032,13 +1032,14 @@ void   dump_all_but_hugechunks_contents   (Task* task, char* caller) {
 }
 
 //
-void   zero_agegroup0_overrun_tripwire_buffer   (Task* task) {
-    // ======================================
+void   initialize_agegroup0_overrun_tripwire_buffer   (Task* task) {
+    // ============================================
     //
     // To detect allocation buffer overrun, we maintain
-    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // a  buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // permanently filled with AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE
     // Val_Sized_Ints at the end of each agegroup0 buffer.
-    // Here we zero that out:
+    // Here we initialize that buffer:
     //
     Vint* p = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
@@ -1047,9 +1048,9 @@ void   zero_agegroup0_overrun_tripwire_buffer   (Task* task) {
              i++
     ){
 	//
-	p[i] = 0;
+	p[i] = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE;
     }
-//  log_if("zero_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
+//  log_if("initialize_agegroup0_overrun_tripwire_buffer: Done initializing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
 }
 
 //
@@ -1069,7 +1070,7 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     //
     for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {								// AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS	is from   src/c/h/runtime-base.h
 	//
-	if (p[i] != 0) {
+	if (p[i] != AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE) {
 	    //
 	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected. (%s)", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i+1, caller);
 	    dump_all_but_hugechunks_contents( task, caller );

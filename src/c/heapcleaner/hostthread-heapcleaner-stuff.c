@@ -99,7 +99,7 @@ if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: per_ho
 	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );				// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->rhal now x=%x",hostthread, task->real_heap_allocation_limit);
 
-        zero_agegroup0_overrun_tripwire_buffer( task );							// zero_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
+        initialize_agegroup0_overrun_tripwire_buffer( task );							// initialize_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
 	
 
 	#if !NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
