@@ -14,7 +14,7 @@
 
 #include "win32-fault.h"
 
-#define SELF_HOSTTHREAD (hostthread_table__global[ 0 ])
+#define SELF_HOSTTHREAD	(pth__get_hostthread())
 
 // Globals:
 //

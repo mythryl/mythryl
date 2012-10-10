@@ -22,10 +22,7 @@
 #include "runtime-globals.h"
 #include "heap.h"
 
-// This is temporary:					XXX BUGGO FIXME
-//
-#define SELF_HOSTTHREAD	(hostthread_table__global[ 0 ])			// Note that we have switched to  #define SELF_HOSTTHREAD	(pth__get_hostthread())    in   src/c/machine-dependent/posix-signal.c
-
+#define SELF_HOSTTHREAD	(pth__get_hostthread())
 
 static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg code, Signal_Handler_Context_Arg* scp */);
 

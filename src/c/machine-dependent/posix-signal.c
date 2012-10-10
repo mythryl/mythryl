@@ -30,7 +30,7 @@
 //     arithmetic_fault_handler					// arithmetic_fault_handler	def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 //
 // to supply the SELF_HOSTTHREAD->task
-// and           SELF_HOSTTHREAD->->executing_mythryl_code
+// and           SELF_HOSTTHREAD->executing_mythryl_code
 // values for handling
 // a divide-by-zero or whatever.
 //

@@ -22,7 +22,7 @@
 #include <windows.h>
 #include <exceptions.h>					// Cygwin stuff
 
-#define SELF_HOSTTHREAD      (hostthread_table__global[ 0 ])
+#define SELF_HOSTTHREAD	(pth__get_hostthread())
 
 BOOL   cygwin_generic_handler   (int code)   {
     //
