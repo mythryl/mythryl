@@ -136,7 +136,7 @@
 #define     UMUL_OFFSET 80
 #define     UDIV_OFFSET 84
 #define    FLOOR_OFFSET 92
-#define  TASK_OFFSET 96
+#define     TASK_OFFSET 96
 #define  RUN_HEAPCLEANER__OFFSET 100			// Offset relative to framepointer of pointer to function which starts a heapcleaning ("garbage collection").
 #define      i7_OFFSET 104
 

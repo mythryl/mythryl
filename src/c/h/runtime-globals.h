@@ -110,9 +110,9 @@ extern Val   runtime_package__global;
 //     statement in
 //         src/c/main/construct-runtime-package.c
 //     and maps to
-//         return_from_signal_handler_a
+//         return_from_signal_handler_asm
 //     in one of the above four assembly files.  (Presumably
-//     "_c" for the C world and "_a" for the assembly world.)
+//     "_c" for the C world and "_asm" for the assembly world.)
 //
 extern Val  resume_after_handling_signal [];
 extern Val* return_from_signal_handler_c;

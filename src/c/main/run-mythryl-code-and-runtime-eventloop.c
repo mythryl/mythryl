@@ -163,7 +163,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	        // Figure out which unix signal needs handling
 		// and save its (number, count) in
 		//
-                //    hostthread->next_posix_signal_id,		// SIGALRM or whatever.
+                //    hostthread->next_posix_signal_id,			// SIGALRM or whatever.
                 //    hostthread->next_posix_signal_count		// Number of times it has happened since last being handled.
 		//
 		// choose_signal() and make_mythryl_signal_handler_arg() are both from

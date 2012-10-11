@@ -317,7 +317,7 @@ MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 // and exit(), but                   if the caller was   no_args_entry or some_args_entry       		in   src/c/lib/ccalls/ccalls-fns.c
 // then we may have some scenario
 // where C calls Mythryl which calls C which ...
-// and we may just be unwinding on level.
+// and we may just be unwinding one level.
 //    The latter can only happen with the
 // help of the src/lib/c-glue-old/ stuff,
 // which is currently non-operational.

@@ -125,7 +125,7 @@
     CGLOBAL(ID) __SC__				\
     LABEL(CSYM(ID))
 
-#define MYTHRYL_CODE_HEADER(name)			\
+#define MYTHRYL_CODE_HEADER(name)		\
 	    CGLOBAL(name) __SC__		\
 	    ALIGN4 __SC__			\
     LABEL(CSYM(name))

@@ -1,6 +1,6 @@
 // prim.intel32.asm
 //
-// This file contains asmcoded functions callable directly
+// This file contains asm-coded functions callable directly
 // from Mythryl via the runtime::asm API defined in
 //
 //     src/lib/core/init/runtime.api
@@ -22,7 +22,7 @@
 
 
 /*
-###             "He who hasn't hacked assembly
+###             "He who doesn't hack assembly
 ###              language as a youth has no heart.
 ###              He who does as an adult has no brain."
 ###
@@ -80,10 +80,11 @@
 
 // Other register uses:	
 //
-#define creturn 	EAX
+#define creturn 		EAX
 
-	// Stack frame.
-#define tempmem			REGOFF(0,ESP)
+// Stack frame:
+//	
+#define tempmem			REGOFF(0,ESP)			// REGOFF(a,b) == *(a+b)
 #define base_pointer		REGOFF(4,ESP)			// Needs to match   base_pointer                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 #define exnfate			REGOFF(8,ESP)			// Needs to match   exception_handler_register    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
@@ -106,36 +107,36 @@
 								// run_mythryl_task_and_runtime_eventloop__may_heaplcean ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/heapcleaner/call-heapcleaner.c
 #define unused_2		REGOFF(36,ESP)
-#define eaxSpill		REGOFF(40,ESP) // eax=0
-#define	ecxSpill		REGOFF(44,ESP) // ecx=1
-#define	edxSpill		REGOFF(48,ESP) // edx=2
-#define	ebxSpill		REGOFF(52,ESP) // ebx=3
-#define	espSpill		REGOFF(56,ESP) // esp=4
-#define	ebpSpill		REGOFF(60,ESP) // ebp=5
-#define	esiSpill		REGOFF(64,ESP) // esi=6
-#define	ediSpill		REGOFF(68,ESP) // edi=7
+#define eaxSpill		REGOFF(40,ESP) 			// eax=0
+#define	ecxSpill		REGOFF(44,ESP)			// ecx=1
+#define	edxSpill		REGOFF(48,ESP)			// edx=2
+#define	ebxSpill		REGOFF(52,ESP)			// ebx=3
+#define	espSpill		REGOFF(56,ESP)			// esp=4
+#define	ebpSpill		REGOFF(60,ESP)			// ebp=5
+#define	esiSpill		REGOFF(64,ESP)			// esi=6
+#define	ediSpill		REGOFF(68,ESP)			// edi=7
 #define stdlink			REGOFF(72,ESP)
 #define	stdclos			REGOFF(76,ESP)
 
 #define espsave		REGOFF(500,ESP)
+#define reqsave		REGOFF(504,ESP)				// I don't understand the layout of the 8192-byte stackframe, but we use this slot only briefly right before popping it, so this should be safe. -- 2012-10-10 CrT
 
-#define task_offset 176								// 			Must    match   task_offset            in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+#define task_offset 176						// 			Must    match   task_offset            in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
 #define task_ptr	REGOFF(task_offset, ESP)
-#define freg8           184							// Doubleword aligned
+#define freg8           184					// Doubleword aligned
 #define	freg9           192
-#define freg31          368							// 152 + (31-8)*8
-#define	fpTempMem	376							// freg31 + 8
-#define SpillAreaStart	512							// Starting offset.	Must    match   initial_spill_offset   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
-#define LIB7_FRAME_SIZE	(8192)							// 			Must(?) match   spill_area_size        in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+#define freg31          368					// 152 + (31-8)*8
+#define	fpTempMem	376					// freg31 + 8
+#define SpillAreaStart	512					// Starting offset.	Must    match   initial_spill_offset   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+#define LIB7_FRAME_SIZE	(8192)					// 			Must(?) match   spill_area_size        in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
 
 #define	via
 
 	SEG_DATA
 	ALIGNDATA4
-request_w:					// Place to put the request code.
-	D_LONG 0
+
 	GLOBL CSYM(LIB7_intel32Frame)
-LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to heap_allocation_limit)
+LABEL(CSYM(LIB7_intel32Frame)) 					// Pointer to the ml frame (gives C access to heap_allocation_limit)
 	D_LONG 0		
 
 
@@ -170,9 +171,9 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 	POP_L(EBX);	\
 	POP_L(EBP)
 
-// MOVE copies one memory location to another, using a specified temporary.
+// MOVE_FROM_VIA_TO copies one memory location to another, using a specified temporary.
 
-#define MOVE(src,tmp,dest)	\
+#define MOVE_FROM_VIA_TO(src,tmp,dest)	\
 	MOV_L(src, tmp);	\
 	MOV_L(tmp, dest)
 
@@ -183,7 +184,7 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 //                 and that     'JMP(1b)' branches to 1: with 'b' for 'backward'.
 #define CHECKLIMIT							\
  1:;									\
-	MOVE(stdlink, temp, program_counter);				\
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter);		\
 	CMP_L(heap_allocation_limit, heap_allocation_pointer);		\
 	JB(9f);								\
 	CALL(CSYM(call_heapcleaner_asm));				\
@@ -197,10 +198,10 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 // The return fate for the Mythryl signal handler.
 //
 MYTHRYL_CODE_HEADER( return_from_signal_handler_asm)
-	MOV_L(CONST(HEAP_VOID),stdlink)
-	MOV_L(CONST(HEAP_VOID),stdclos)
-	MOV_L(CONST(HEAP_VOID),program_counter)
-	MOV_L(CONST(REQUEST_RETURN_FROM_SIGNAL_HANDLER), request_w)
+	MOV_L( CONST(HEAP_VOID), stdlink)
+	MOV_L( CONST(HEAP_VOID), stdclos)
+	MOV_L( CONST(HEAP_VOID), program_counter)
+	MOV_L( CONST(REQUEST_RETURN_FROM_SIGNAL_HANDLER), temp)
 	JMP(CSYM(set_request))
 
 // Here we pick up execution from where we were
@@ -208,7 +209,7 @@ MYTHRYL_CODE_HEADER( return_from_signal_handler_asm)
 // This is a standard two-argument function, thus the closure is in fate.
 //
 ENTRY( resume_after_handling_signal )
-	MOV_L( CONST( REQUEST_RESUME_SIGNAL_HANDLER ), request_w)
+	MOV_L( CONST( REQUEST_RESUME_SIGNAL_HANDLER ), temp)
 	JMP( CSYM(set_request))
 
 // return_from_software_generated_periodic_event_handler_asm:
@@ -216,10 +217,10 @@ ENTRY( resume_after_handling_signal )
 // software generated periodic events handler.
 //
 MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
-	MOV_L(CONST(REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), request_w)
-	MOV_L(CONST(HEAP_VOID),stdlink)
-	MOV_L(CONST(HEAP_VOID),stdclos)
-	MOV_L(CONST(HEAP_VOID),program_counter)
+	MOV_L( CONST(HEAP_VOID), stdlink)
+	MOV_L( CONST(HEAP_VOID), stdclos)
+	MOV_L( CONST(HEAP_VOID), program_counter)
+	MOV_L( CONST(REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), temp)
 	JMP(CSYM(set_request))
 
 // Here we pick up execution from where we were
@@ -227,7 +228,7 @@ MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 // periodic event:
 //
 ENTRY( resume_after_handling_software_generated_periodic_event )
-	MOV_L(CONST(REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), request_w)
+	MOV_L(CONST(REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), temp)
 	JMP( CSYM(set_request) )
 
 // Exception handler for Mythryl functions called from C.
@@ -239,8 +240,8 @@ ENTRY( resume_after_handling_software_generated_periodic_event )
 // and src/c/heapcleaner/import-heap.c
 //
 MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
-	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), request_w)
-	MOVE(stdlink,temp,program_counter)
+	MOVE_FROM_VIA_TO(stdlink,temp,program_counter)
+	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), temp)
 	JMP(CSYM(set_request))
 
 
@@ -269,10 +270,10 @@ MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 // and by                              pth__pthread_create			in   src/c/hostthread/hostthread-on-posix-threads.c
 //
 MYTHRYL_CODE_HEADER(return_to_c_level_asm)
-	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), request_w)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
 	MOV_L(CONST(HEAP_VOID),program_counter)
+	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), temp)
 	JMP(CSYM(set_request))
 
 
@@ -285,8 +286,8 @@ MYTHRYL_CODE_HEADER(return_to_c_level_asm)
 //
 ENTRY(request_fault)
 	CALL(CSYM(FPEEnable))          // Does not trash any general regs.
-	MOV_L(CONST(REQUEST_FAULT), request_w)
-	MOVE(stdlink,temp,program_counter)
+	MOVE_FROM_VIA_TO(stdlink,temp,program_counter)
+	MOV_L(CONST(REQUEST_FAULT), temp)
 	JMP(CSYM(set_request))
 
 // find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
@@ -300,12 +301,12 @@ ENTRY(request_fault)
 //
 MYTHRYL_CODE_HEADER(find_cfun_asm)
 	CHECKLIMIT
-	MOV_L(CONST(REQUEST_FIND_CFUN), request_w)
+	MOV_L(CONST(REQUEST_FIND_CFUN), temp)
 	JMP(CSYM(set_request))
 
 MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT
-	MOV_L(CONST(REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER), request_w)
+	MOV_L(CONST(REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER), temp)
 	JMP(CSYM(set_request))
 
 
@@ -317,20 +318,22 @@ MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 //
 MYTHRYL_CODE_HEADER(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.pkg
 	CHECKLIMIT
-	MOV_L(CONST(REQUEST_CALL_CFUN), request_w)
+	MOV_L(CONST(REQUEST_CALL_CFUN), temp)
 	JMP(CSYM(set_request))
 
 // This is the entry point called from Mythryl to start a heapcleaning.
 //						Allen 6/5/1998
 ENTRY(call_heapcleaner_asm)
 	POP_L(program_counter)
-	MOV_L(CONST(REQUEST_CLEANING), request_w)
+	MOV_L(CONST(REQUEST_CLEANING), temp)
 	//
 	// FALL INTO set_request
 
 ENTRY(set_request)
-	// temp holds task_ptr, valid request in request_w.
+	// valid request in temp.
+	// We'll save temp and load it with task_ptr.
 	// Save registers:
+	MOV_L( temp, reqsave)
 	MOV_L( task_ptr, temp)
 	MOV_L( heap_allocation_pointer, REGOFF( heap_allocation_pointer_byte_offset_in_task_struct, temp))
 	MOV_L( stdarg,			REGOFF(                argument_byte_offset_in_task_struct, temp))
@@ -339,33 +342,33 @@ ENTRY(set_request)
 #define	temp2 heap_allocation_pointer
 	// Note that we have left Mythryl code:
 	//
-	MOV_L(REGOFF(hostthread_byte_offset_in_task_struct,temp), temp2)
-	MOV_L(CONST(0), REGOFF(executing_mythryl_code_byte_offset_in_hostthread_struct,temp2))
+	MOV_L( REGOFF( hostthread_byte_offset_in_task_struct, temp), temp2)
+	MOV_L( CONST(0), REGOFF( executing_mythryl_code_byte_offset_in_hostthread_struct, temp2))
 
-	MOV_L(misc0, REGOFF(callee_saved_register_0_byte_offset_in_task_struct,temp))
-	MOV_L(misc1, REGOFF(callee_saved_register_1_byte_offset_in_task_struct,temp))
-	MOV_L(misc2, REGOFF(callee_saved_register_2_byte_offset_in_task_struct,temp))
+	MOV_L( misc0,  REGOFF( callee_saved_register_0_byte_offset_in_task_struct, temp))
+	MOV_L( misc1,  REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp))
+	MOV_L( misc2,  REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp))
 
 	// Save vregs before the stack frame is popped:
 	//
-	MOVE (heap_allocation_limit,	temp2, REGOFF( heap_allocation_limit_byte_offset_in_task_struct, temp ))
-	MOVE (exnfate,			temp2, REGOFF(        exception_fate_byte_offset_in_task_struct, temp )) 
-	MOVE (stdclos,			temp2, REGOFF(       current_closure_byte_offset_in_task_struct, temp ))
-	MOVE (stdlink,			temp2, REGOFF(         link_register_byte_offset_in_task_struct, temp ))
-	MOVE (program_counter,		temp2, REGOFF(       program_counter_byte_offset_in_task_struct, temp ))
-	MOVE (heap_changelog_ptr,	temp2, REGOFF(        heap_changelog_byte_offset_in_task_struct, temp ))
-	MOVE (current_thread_ptr,	temp2, REGOFF(        current_thread_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  heap_allocation_limit,	temp2,  REGOFF( heap_allocation_limit_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  exnfate,			temp2,  REGOFF(        exception_fate_byte_offset_in_task_struct, temp )) 
+	MOVE_FROM_VIA_TO(  stdclos,			temp2,  REGOFF(       current_closure_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  stdlink,			temp2,  REGOFF(         link_register_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  program_counter,		temp2,  REGOFF(       program_counter_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  heap_changelog_ptr,		temp2,  REGOFF(        heap_changelog_byte_offset_in_task_struct, temp ))
+	MOVE_FROM_VIA_TO(  current_thread_ptr,		temp2,  REGOFF(        current_thread_byte_offset_in_task_struct, temp ))
 #undef	temp2	
 	
 	// Return val of function is request code:
 	//
-	MOV_L(request_w,creturn)
-
+	MOV_L( reqsave, creturn)
+	
 	// Pop the stack frame and return to  run_mythryl_task_and_runtime_eventloop__may_heapclean()  in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 #if defined(OPSYS_DARWIN)
-	LEA_L(REGOFF(LIB7_FRAME_SIZE+12,ESP),ESP)
+	LEA_L( REGOFF( LIB7_FRAME_SIZE+12, ESP), ESP)
 #else
-	MOV_L(espsave, ESP)
+	MOV_L( espsave, ESP)
 #endif
 	CALLEE_RESTORE
 	RET
@@ -397,32 +400,32 @@ ENTRY(asm_run_mythryl_task)
 #define temp2	EBX
         // Initialize the Mythryl stackframe:
 	//
-	MOVE(REGOFF(           exception_fate_byte_offset_in_task_struct, temp),  temp2, exnfate)
-	MOVE(REGOFF(    heap_allocation_limit_byte_offset_in_task_struct, temp),  temp2, heap_allocation_limit)
-	MOVE(REGOFF(           heap_changelog_byte_offset_in_task_struct, temp),  temp2, heap_changelog_ptr)
-	MOVE(REGOFF(                   current_thread_byte_offset_in_task_struct, temp),  temp2, current_thread_ptr)
+	MOVE_FROM_VIA_TO(  REGOFF(         exception_fate_byte_offset_in_task_struct, temp),  temp2,  exnfate)
+	MOVE_FROM_VIA_TO(  REGOFF(  heap_allocation_limit_byte_offset_in_task_struct, temp),  temp2,  heap_allocation_limit)
+	MOVE_FROM_VIA_TO(  REGOFF(         heap_changelog_byte_offset_in_task_struct, temp),  temp2,  heap_changelog_ptr)
+	MOVE_FROM_VIA_TO(  REGOFF(         current_thread_byte_offset_in_task_struct, temp),  temp2,  current_thread_ptr)
 	LEA_L(CSYM(call_heapcleaner_asm), temp2)
 	MOV_L(temp2, run_heapcleaner_ptr)
 	MOV_L(temp, task_ptr)
 
 	// vregs:
-	MOVE	(REGOFF(        link_register_byte_offset_in_task_struct, temp),  temp2, stdlink)
-	MOVE	(REGOFF(      current_closure_byte_offset_in_task_struct, temp),  temp2, stdclos)
+	MOVE_FROM_VIA_TO(REGOFF(        link_register_byte_offset_in_task_struct, temp),  temp2, stdlink)
+	MOVE_FROM_VIA_TO(REGOFF(      current_closure_byte_offset_in_task_struct, temp),  temp2, stdclos)
 
 	// program_counter:
-	MOVE    (REGOFF(      program_counter_byte_offset_in_task_struct, temp),  temp2, program_counter)
+	MOVE_FROM_VIA_TO(REGOFF(      program_counter_byte_offset_in_task_struct, temp),  temp2, program_counter)
 #undef	temp2
 
 	// Load Mythryl registers:
 	//
-	MOV_L(REGOFF( heap_allocation_pointer_byte_offset_in_task_struct, temp), heap_allocation_pointer)
-	MOV_L(REGOFF(                    fate_byte_offset_in_task_struct, temp), stdfate)
-	MOV_L(REGOFF(                argument_byte_offset_in_task_struct, temp), stdarg)
-	MOV_L(REGOFF( callee_saved_register_0_byte_offset_in_task_struct, temp), misc0)
-	MOV_L(REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
-	MOV_L(REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
+	MOV_L( REGOFF( heap_allocation_pointer_byte_offset_in_task_struct, temp), heap_allocation_pointer)
+	MOV_L( REGOFF(                    fate_byte_offset_in_task_struct, temp), stdfate)
+	MOV_L( REGOFF(                argument_byte_offset_in_task_struct, temp), stdarg)
+	MOV_L( REGOFF( callee_saved_register_0_byte_offset_in_task_struct, temp), misc0)
+	MOV_L( REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
+	MOV_L( REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L(ESP,CSYM(LIB7_intel32Frame))					// Frame pointer for signal handler.
+	MOV_L( ESP, CSYM(LIB7_intel32Frame) )					// Frame pointer for signal handler.
 
 	PUSH_L(misc2)								// Free up a register.
 	PUSH_L(temp)								// Save task temporarily.
@@ -431,41 +434,41 @@ ENTRY(asm_run_mythryl_task)
 
 	// Note that we are entering Mythryl:
 	//
-	MOV_L(REGOFF(hostthread_byte_offset_in_task_struct,temp),temp)		// temp is now hostthread.
+	MOV_L( REGOFF( hostthread_byte_offset_in_task_struct, temp), temp)	// temp is now hostthread.
 #define hostthread	temp
-	MOV_L(CONST(1),REGOFF( executing_mythryl_code_byte_offset_in_hostthread_struct, hostthread ))
+	MOV_L( CONST(1), REGOFF( executing_mythryl_code_byte_offset_in_hostthread_struct, hostthread ))
 
 	// Handle signals:
 	//
-	MOV_L(REGOFF( all_posix_signals_seen_count_byte_offset_in_hostthread_struct, hostthread), tmpreg)
-	CMP_L(REGOFF( all_posix_signals_done_count_byte_offset_in_hostthread_struct, hostthread), tmpreg)
+	MOV_L( REGOFF( all_posix_signals_seen_count_byte_offset_in_hostthread_struct, hostthread), tmpreg)
+	CMP_L( REGOFF( all_posix_signals_done_count_byte_offset_in_hostthread_struct, hostthread), tmpreg)
 	
 #undef  tmpreg
 	JNE(pending)
 
 restore_and_run_mythryl_code:
-	POP_L(temp)								// Restore temp to task.
+	POP_L(temp)									// Restore temp to task.
 	POP_L(misc2)
 	
 run_mythryl_code:
-	CMP_L(heap_allocation_limit, heap_allocation_pointer)
-	JMP(CODEPTR(REGOFF(program_counter_byte_offset_in_task_struct,temp)))	// Jump to Mythryl code.
+	CMP_L( heap_allocation_limit, heap_allocation_pointer )
+	JMP( CODEPTR( REGOFF( program_counter_byte_offset_in_task_struct, temp) ))	// Jump to Mythryl code.
 
 
 pending:
-										// Currently handling signal?
+											// Currently handling signal?
 
 	CMP_L(CONST(0), REGOFF( mythryl_handler_for_posix_signal_is_running_byte_offset_in_hostthread_struct, hostthread ))   
 	JNE( restore_and_run_mythryl_code )
-										// Handler trap is now pending.
+											// Handler trap is now pending.
 	movl	IMMED(1), posix_signal_pending_byte_offset_in_hostthread_struct( hostthread ) 
 
-	// Must restore here because heap_allocation_limit is on stack  	// XXX
+	// Must restore here because heap_allocation_limit is on stack  		// XXX
 	//
-	POP_L(temp)								// Restore temp to task
+	POP_L(temp)									// Restore temp to task
 	POP_L(misc2)
 
-	MOV_L(heap_allocation_pointer,heap_allocation_limit)
+	MOV_L( heap_allocation_pointer, heap_allocation_limit )
 	JMP(run_mythryl_code)								// Jump to Mythryl code.
 #undef  hostthread
 
@@ -515,8 +518,8 @@ MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 #undef  temp1
 #undef  temp2
 3:
-	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR), request_w)
-	MOVE	(stdlink, temp, program_counter)
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter)
+	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR), temp)
 	JMP(CSYM(set_request))
 	
 
@@ -525,14 +528,14 @@ MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 	CHECKLIMIT
 #define temp1 misc0
-        PUSH_L(misc0)						// Free temp1.
-	MOV_L(stdarg,temp)					// temp := length
-	SAR_L(CONST(1),temp)					// temp := untagged length
-	SHL_L(CONST(1),temp)					// temp := length in words
+        PUSH_L(misc0)								// Free temp1.
+	MOV_L(stdarg,temp)							// temp := length
+	SAR_L(CONST(1),temp)							// temp := untagged length
+	SHL_L(CONST(1),temp)							// temp := length in words
 	CMP_L(CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS),temp)
 	JGE(2f)
 
-	OR_L(CONST(4),heap_allocation_pointer)			// Align heap_allocation_pointer.	// 64-bit issue	;  this aligns for 32-bit tagword followed by 64-bit float value; unecessary on 64-bit system.
+	OR_L(CONST(4),heap_allocation_pointer)					// Align heap_allocation_pointer.	// 64-bit issue	;  this aligns for 32-bit tagword followed by 64-bit float value; unecessary on 64-bit system.
 
 	// Allocate the data chunk:
 	//
@@ -547,7 +550,7 @@ MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 
 	// Allocate the header chunk:
 	//
-	MOV_L(CONST(FLOAT64_RW_VECTOR_TAGWORD),REGIND(heap_allocation_pointer))		// Header tagword.
+	MOV_L(CONST(FLOAT64_RW_VECTOR_TAGWORD),REGIND(heap_allocation_pointer))	// Header tagword.
 	ADD_L(CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// header data field
 	MOV_L(stdarg, REGOFF(4,heap_allocation_pointer))			// header length field
@@ -558,8 +561,8 @@ MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 	CONTINUE
 2:
 	POP_L(misc0)								// Restore temp1.
-	MOV_L(CONST(REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS), request_w)
-	MOVE	(stdlink, temp, program_counter)
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter)
+	MOV_L(CONST(REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS), temp)
 	JMP(CSYM(set_request))
 #undef temp1
 
@@ -597,13 +600,13 @@ MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// header data field
 	MOV_L(stdarg, REGOFF(4,heap_allocation_pointer))			// header length field
 	MOV_L(heap_allocation_pointer, stdarg)					// stdarg := header chunk
-	ADD_L(CONST(8),heap_allocation_pointer)				// heap_allocation_pointer := 2
+	ADD_L(CONST(8),heap_allocation_pointer)					// heap_allocation_pointer := 2
 	POP_L(misc0)
 	CONTINUE
 #undef  temp1
 2:
-	MOV_L(CONST(REQUEST_ALLOCATE_BYTE_VECTOR), request_w)
-	MOVE	(stdlink, temp, program_counter)
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter)
+	MOV_L(CONST(REQUEST_ALLOCATE_BYTE_VECTOR), temp)
 	JMP(CSYM(set_request))
 
 
@@ -612,29 +615,29 @@ MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 MYTHRYL_CODE_HEADER(make_string_asm)
 	CHECKLIMIT
 	MOV_L(stdarg,temp)
-	SAR_L(CONST(1),temp)					// temp := length(untagged)
+	SAR_L(CONST(1),temp)							// temp := length(untagged)
 	ADD_L(CONST(4),temp)		
-	SAR_L(CONST(2),temp)					// temp := length(words)
+	SAR_L(CONST(2),temp)							// temp := length(words)
 	CMP_L(CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS),temp)
 	JGE(2f)
 
-	PUSH_L(misc0)						// Free misc0.
+	PUSH_L(misc0)								// Free misc0.
 #define	temp1	misc0
 
 	MOV_L(temp, temp1)
 	SHL_L(CONST(TAGWORD_LENGTH_FIELD_SHIFT),temp1)				// Build tagword in temp1.
 	OR_L(CONST(MAKE_BTAG(FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)), temp1)
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// Store the data pointer.
-	ADD_L(CONST(4),heap_allocation_pointer)				// heap_allocation_pointer++
+	ADD_L(CONST(4),heap_allocation_pointer)					// heap_allocation_pointer++
 
 	MOV_L(heap_allocation_pointer, temp1)					// temp1 := data chunk
-	SHL_L(CONST(2),temp)					// temp := length in bytes
+	SHL_L(CONST(2),temp)							// temp := length in bytes
 	ADD_L(temp, heap_allocation_pointer)					// heap_allocation_pointer += length
 	MOV_L(CONST(0),REGOFF(-4,heap_allocation_pointer))			// Zero out the last word.
 
 	// Allocate the header chunk
 	//
-	MOV_L(CONST(STRING_TAGWORD), temp)				// Header tagword.
+	MOV_L(CONST(STRING_TAGWORD), temp)					// Header tagword.
 	MOV_L(temp, REGIND(heap_allocation_pointer))
 	ADD_L(CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// Header data field.
@@ -642,15 +645,15 @@ MYTHRYL_CODE_HEADER(make_string_asm)
 	MOV_L(heap_allocation_pointer, stdarg)					// stdarg := header chunk
 	ADD_L(CONST(8), heap_allocation_pointer)		
 	
-	POP_L(misc0)						// Restore misc0.
+	POP_L(misc0)								// Restore misc0.
 #undef  temp1
 	CONTINUE
 2:
-	MOV_L(CONST(REQUEST_ALLOCATE_STRING), request_w)
-	MOVE	(stdlink, temp, program_counter)
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter)
+	MOV_L(CONST(REQUEST_ALLOCATE_STRING), temp)
 	JMP(CSYM(set_request))
 
-// make_vector_asm:  (Int, List(X)) -> Vector(X)			// (length_in_slots, initializer_list) -> result_vector
+// make_vector_asm:  (Int, List(X)) -> Vector(X)				// (length_in_slots, initializer_list) -> result_vector
 //
 //	Create a vector and initialize from given list.
 //
@@ -667,38 +670,38 @@ MYTHRYL_CODE_HEADER(make_vector_asm)
 	PUSH_L(misc1)
 #define	temp1	misc0
 #define temp2   misc1	
-	MOV_L( REGIND(stdarg), temp)					// temp := length(tagged)
+	MOV_L( REGIND(stdarg), temp)						// temp := length(tagged)
 	MOV_L( temp, temp1)
-	SAR_L( CONST(1), temp1)						// temp1 := length(untagged)
-	CMP_L( CONST( MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS ), temp1)	// Is this a small chunk (i.e., one allowed in the arena)?
-	JGE(3f)								// branch if so.
+	SAR_L( CONST(1), temp1)							// temp1 := length(untagged)
+	CMP_L( CONST( MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS ), temp1)		// Is this a small chunk (i.e., one allowed in the arena)?
+	JGE(3f)									// branch if so.
 
 	// Allocate data chunk:
 	//	
-	SHL_L( CONST( TAGWORD_LENGTH_FIELD_SHIFT ), temp1)		// Build tagword in temp1.
+	SHL_L( CONST( TAGWORD_LENGTH_FIELD_SHIFT ), temp1)			// Build tagword in temp1.
 	OR_L(  CONST( MAKE_BTAG( RO_VECTOR_DATA_BTAG )), temp1)
-	MOV_L( temp1, REGIND( heap_allocation_pointer ))				// Store tagword.
-	ADD_L( CONST(4), heap_allocation_pointer)					// heap_allocation_pointer++
-	MOV_L( REGOFF(4, stdarg), temp1)				// temp1 := list
+	MOV_L( temp1, REGIND( heap_allocation_pointer ))			// Store tagword.
+	ADD_L( CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
+	MOV_L( REGOFF(4, stdarg), temp1)					// temp1 := list
 	MOV_L( heap_allocation_pointer, stdarg)					// stdarg := vector
 
 2:
-	MOV_L( REGIND(temp1), temp2)					// temp2 := head(temp1)
-	MOV_L( temp2, REGIND( heap_allocation_pointer ))				// Store word in vector.
-	ADD_L( CONST(4), heap_allocation_pointer)					// heap_allocation_pointer++
-	MOV_L( REGOFF(4,temp1), temp1)					// temp1 := tail(temp1)
-	CMP_L( CONST(HEAP_NIL), temp1)					// temp1 = NIL?
-	JNE(2b)								// Loop if not.
+	MOV_L( REGIND(temp1), temp2)						// temp2 := head(temp1)
+	MOV_L( temp2, REGIND( heap_allocation_pointer ))			// Store word in vector.
+	ADD_L( CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
+	MOV_L( REGOFF(4,temp1), temp1)						// temp1 := tail(temp1)
+	CMP_L( CONST(HEAP_NIL), temp1)						// temp1 = NIL?
+	JNE(2b)									// Loop if not.
 
 	// Allocate header chunk:
 	//	
-	MOV_L( CONST( TYPEAGNOSTIC_RO_VECTOR_TAGWORD ), temp1)		// Tagword in temp1.
-	MOV_L( temp1, REGIND(heap_allocation_pointer))					// Store tagword.
-	ADD_L( CONST(4), heap_allocation_pointer)					// heap_allocation_pointer++
-	MOV_L( stdarg, REGIND(heap_allocation_pointer))					// Header data field.
-	MOV_L( temp, REGOFF(4,heap_allocation_pointer))					// Header length.
-	MOV_L( heap_allocation_pointer, stdarg)						// result = header chunk
-	ADD_L( CONST(8), heap_allocation_pointer)					// heap_allocation_pointer += 2
+	MOV_L( CONST( TYPEAGNOSTIC_RO_VECTOR_TAGWORD ), temp1)			// Tagword in temp1.
+	MOV_L( temp1, REGIND(heap_allocation_pointer))				// Store tagword.
+	ADD_L( CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
+	MOV_L( stdarg, REGIND(heap_allocation_pointer))				// Header data field.
+	MOV_L( temp, REGOFF(4,heap_allocation_pointer))				// Header length.
+	MOV_L( heap_allocation_pointer, stdarg)					// result = header chunk
+	ADD_L( CONST(8), heap_allocation_pointer)				// heap_allocation_pointer += 2
 
 	POP_L( misc1 )
 	POP_L( misc0 )
@@ -706,8 +709,8 @@ MYTHRYL_CODE_HEADER(make_vector_asm)
 3:
 	POP_L(misc1)
 	POP_L(misc0)
-	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR), request_w)
-	MOVE	(stdlink, temp, program_counter)
+	MOVE_FROM_VIA_TO(stdlink, temp, program_counter)
+	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR), temp)
 	JMP(CSYM(set_request))
 #undef  temp1
 #undef  temp2	
