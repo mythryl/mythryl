@@ -236,8 +236,8 @@
 	SEG_DATA
 	ALIGNDATA4
 
-	GLOBL CSYM(LIB7_intel32Frame)
-LABEL(CSYM(LIB7_intel32Frame)) 					// Pointer to the ml frame (gives C access to heap_allocation_limit)
+//	GLOBL CSYM(LIB7_intel32Frame)
+// LABEL(CSYM(LIB7_intel32Frame)) 					// Pointer to the ml frame (gives C access to heap_allocation_limit)
 	D_LONG 0		
 
 
@@ -518,8 +518,8 @@ ENTRY(asm_run_mythryl_task)				// Main external entrypoint in file, typically ca
 	MOV_L( REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
 	MOV_L( REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L( ESP, REGOFF( heap_allocation_limit__ptr_for__c_signal_handler_byte_offset_in_task_struct, temp) )	// Stackframe pointer for c_signal_handler.
-	MOV_L( ESP, CSYM(LIB7_intel32Frame) )										// Stackframe pointer for c_signal_handler.
+	MOV_L( ESP, REGOFF( heap_allocation_limit__ptr_for__c_signal_handler_byte_offset_in_task_struct, temp) )	// Mythryl-stackframe pointer for c_signal_handler.
+//	MOV_L( ESP, CSYM(LIB7_intel32Frame) )										// Stackframe pointer for c_signal_handler.
 
 	PUSH_L(misc2)								// Free up a register.
 	PUSH_L(temp)								// Save task temporarily.

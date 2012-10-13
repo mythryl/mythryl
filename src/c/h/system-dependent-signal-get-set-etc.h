@@ -325,7 +325,7 @@ extern void SetFSR(int);
 
 #elif defined(HOST_INTEL32)
 
-#  define HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME	3		// Offset (words) of heap_allocation_limit in Mythryl stackframe -- see src/c/machine-dependent/prim.intel32.asm
+#  define HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME	3		// Offset (words) of heap_allocation_limit in Mythryl stackframe -- see 'heap_allocation_limit' in src/c/machine-dependent/prim.intel32.asm
 extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.intel32.asm
 #  define SET_UP_FLOATING_POINT_EXCEPTION_HANDLING()    FPEEnable()
 
