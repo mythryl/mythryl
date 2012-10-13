@@ -56,11 +56,42 @@
 //   USE_ZERO_LIMIT_PTR_FN	If set, then we use the Zero_Heap_Allocation_Limit function.
 //   SIG_SavePC(task, scp)	Save the PC, so that Zero_Heap_Allocation_Limit can restore it.
 //
-//   SIG_Zero_Heap_Allocation_Limit(scp)	Set the limit pointer in the context to zero.
+//   ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	Set the limit pointer in the context to zero.
 //
 // NOTE: Currently SavedPC is a global (so that the asm code in adjust_limit
 // can access it).  Once we have a runtimeLink register that allows dynamic
 // access to the Lib7state, we can move SavedPC to the Lib7 State vector.	XXX BUGGO FIXME
+//
+//     ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)
+//
+//         This macro is used only from within c_signal_handler() in one of
+//
+//             (only currently supported case:)  src/c/machine-dependent/posix-signal.c
+//             (maybe again someday:)            src/c/machine-dependent/win32-fault.c
+//             (maybe again someday:)		 src/c/machine-dependent/cygwin-fault.c
+//
+//         The purpose of this macro is to make the heapcleaner ("garbage collector") run 
+//         sooner than it otherwise would by making it look as though we are out of memory
+//         in agegroup0 (heap_allocation_pointer > heap_allocation_limit).
+//
+//         We want to do this because we do actual signal handling at heapcleaner execution time.
+//
+//         We do *that* because at heapcleaner execution time the heap is in a self-consistent
+//         state: heapcleaner probes are run only at the start of a function, when we don't need
+//         to worry about half-constructed records or such.
+//
+//         On all  architectures  heap_allocation_pointer  is kept in a register.
+//
+//         On most architectures  heap_allocation_limit    is kept in a register also,
+//         making the (heap_allocation_pointer < heap_allocation_limit) check very fast.
+//         On these architectures ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER() sets
+//         heap_allocation_limit to zero by updating the saved register value visible in
+//         c_signal_handler via the scp argument.
+//
+//         On the x86 architecture  heap_allocation_limit    is kept in a stack slot
+//         (because the x86 is register-starved -- we only have four working registers
+//         left after preallocation of ESP, heap_allocation_pointer==EDI, stdfate==ESI
+//	   and stdarg==EBP) so c_signal_handler() needs a way of finding that stack slot.
 
 
 #ifndef SYSTEM_DEPENDENT_SIGNAL_GET_SET_ETC_H
@@ -172,7 +203,9 @@ typedef int Signal_Set;
 #endif
 
 
+/////////////////////////////////////////////////////////////////////////////////////////
 // Machine/OS dependent stuff
+//
 
 #if defined(HOST_SPARC32)
 
@@ -215,7 +248,7 @@ extern void SetFSR(int);
 	(scp)->uc_mcontext.gregs[REG_PC] = (long)(addr);	\
 	(scp)->uc_mcontext.gregs[REG_nPC] = (long)(addr) + 4;	\
     }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	\
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	\
 	{ (scp)->uc_mcontext.gregs[REG_G4] = 0; }
 
 #  endif
@@ -239,7 +272,7 @@ extern void SetFSR(int);
      // The offset of 17 is hardwired from reverse engineering the contents of
      // sc_regs. 17 is the offset for register 15.
      //
-#      define SIG_Zero_Heap_Allocation_Limit(scp)	\
+#      define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	\
        {  int* regs = (scp)->sc_regs;	\
 	  regs[17] = 0;			\
        }
@@ -250,7 +283,7 @@ extern void SetFSR(int);
      // The offset of 17 is hardwired from reverse engineering the contents of
      // sc_regs. 17 is the offset for register 15.
      //
-#      define SIG_Zero_Heap_Allocation_Limit(scp)	{  (scp)->uc_mcontext->ss.r15 = 0; }
+#      define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{  (scp)->uc_mcontext->ss.r15 = 0; }
 #    endif
 #  elif defined(OPSYS_MKLINUX)
     // RS6000, MkLinux
@@ -265,7 +298,7 @@ extern void SetFSR(int);
 #    define INT_OVFLW(s, c)		(((s) == SIGILL) && ((c) == 0x0))
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->nip)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->nip = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ ((scp)->gpr[15] = 0); }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ ((scp)->gpr[15] = 0); }
 #    define GET_SIGNAL_CODE(info,scp)	((scp)->fpscr)
 #    define RESET_FLOATING_POINT_EXCEPTION_HANDLING(scp)		{ (scp)->fpscr = 0x0; }
 
@@ -283,7 +316,7 @@ extern void SetFSR(int);
 #    define INT_OVFLW(s, c)             (((s) == SIGTRAP) && (((c) == 0) || ((c) == 0x2000) || ((c) == 0x4000)))
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)              ((scp)->regs->nip)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)        { (scp)->regs->nip = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)       { ((scp)->regs->gpr[15] = 0); } // heap_allocation_limit = 15 -- see src/c/machine-dependent/prim.pwrpc32.asm
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)       { ((scp)->regs->gpr[15] = 0); } // heap_allocation_limit = 15 -- see src/c/machine-dependent/prim.pwrpc32.asm
 #    define GET_SIGNAL_CODE(info,scp)       ((scp)->regs->gpr[PT_FPSCR])
 #    define RESET_FLOATING_POINT_EXCEPTION_HANDLING(scp)           { (scp)->regs->gpr[PT_FPSCR] = 0x0; }
 
@@ -310,7 +343,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info,scp)	((scp)->uc_mcontext.gregs[REG_EIP])	// For linux, GET_SIGNAL_CODE simply returns the address of the fault
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext.gregs[REG_EIP])
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp,addr)		{ (scp)->uc_mcontext.gregs[REG_EIP] = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_FREEBSD)
      // intel32, FreeBSD
@@ -321,7 +354,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 
 #  elif defined(OPSYS_NETBSD2)
@@ -334,7 +367,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 
 #  elif defined(OPSYS_NETBSD)
@@ -347,7 +380,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		(_UC_MACHINE_PC(scp))
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ _UC_MACHINE_SET_PC(scp, ((long) (addr))); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_OPENBSD)
      // intel32, OpenBSD
@@ -358,17 +391,17 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)  (info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)    ((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)  { (scp)->sc_pc = (long)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)  { LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_SOLARIS)
      // intel32, Solaris
 
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext.gregs[EIP])
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->uc_mcontext.gregs[EIP] = (int)(addr); }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_WIN32)
-#    define SIG_Zero_Heap_Allocation_Limit()		{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER()		{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_CYGWIN)
 
@@ -377,7 +410,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define SIG_FAULT1		SIGFPE
 #    define SIG_FAULT2		SIGSEGV
 #    define INT_DIVZERO(s, c)	((s) == SIGFPE)
-#    define SIG_Zero_Heap_Allocation_Limit(scp)  { LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  elif defined(OPSYS_DARWIN)
      // intel32, Darwin
@@ -388,7 +421,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info,scp)	((info)->si_code)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext->ss.eip)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->uc_mcontext->ss.eip = (int) addr; }
-#    define SIG_Zero_Heap_Allocation_Limit(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ LIB7_intel32Frame[HEAP_ALLOCATION_LIMIT_intel32OFFSET] = 0; }
 
 #  else
 #    error "unknown OPSYS for intel32"

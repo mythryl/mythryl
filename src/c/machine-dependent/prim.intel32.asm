@@ -42,7 +42,7 @@
     //
     // Note: although the MacOS assembler claims to be the GNU assembler,
     // it appears to be an old version (1.38), which uses different
-    // alignment directives.
+    // alignment directives.			[ This comment might date from the 1990s... -- 2012-10-10 CrT ]
     //	
     #undef ALIGNTEXT4
     #undef ALIGNDATA4
@@ -425,7 +425,7 @@ ENTRY(asm_run_mythryl_task)
 	MOV_L( REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
 	MOV_L( REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L( ESP, CSYM(LIB7_intel32Frame) )					// Frame pointer for signal handler.
+	MOV_L( ESP, CSYM(LIB7_intel32Frame) )					// Stackframe pointer for c_signal_handler.
 
 	PUSH_L(misc2)								// Free up a register.
 	PUSH_L(temp)								// Save task temporarily.

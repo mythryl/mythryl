@@ -152,6 +152,45 @@ int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {
 
 #if defined(HAS_POSIX_SIGS) && defined(HAS_UCONTEXT)
 
+// In this case    src/c/h/system-dependent-signal-get-set-etc.h
+// set c_signal_handler up to be registered as a signal handler
+// via sigaction with the SA_SIGINFO flag set, which according to
+// man sigaction(2) means:
+//
+//     If  SA_SIGINFO  is  specified in sa_flags, then sa_sigaction (instead
+//     of sa_handler) specifies the signal-handling function for signum.
+//     This function receives the signal number as its first argument,
+//     a pointer to a siginfo_t as its second argument and
+//     a pointer to a ucontext_t (cast to void *) as its third argument.
+//
+// where
+//     The siginfo_t argument to sa_sigaction is a struct with the following elements:
+//
+//         siginfo_t {
+//             int      si_signo;    /* Signal number */
+//             int      si_errno;    /* An errno value */
+//             int      si_code;     /* Signal code */
+//             int      si_trapno;   /* Trap number that caused hardware-generated signal (unused on most architectures) */
+//             pid_t    si_pid;      /* Sending process ID */
+//             uid_t    si_uid;      /* Real user ID of sending process */
+//             int      si_status;   /* Exit value or signal */
+//             clock_t  si_utime;    /* User time consumed */
+//             clock_t  si_stime;    /* System time consumed */
+//             sigval_t si_value;    /* Signal value */
+//             int      si_int;      /* POSIX.1b signal */
+//             void    *si_ptr;      /* POSIX.1b signal */
+//             int      si_overrun;  /* Timer overrun count; POSIX.1b timers */
+//             int      si_timerid;  /* Timer ID; POSIX.1b timers */
+//             void    *si_addr;     /* Memory location which caused fault */
+//             long     si_band;     /* Band event (was int in glibc 2.3.2 and earlier) */
+//             int      si_fd;       /* File descriptor */
+//             short    si_addr_lsb; /* Least significant bit of address since kernel 2.6.32) */
+//           }
+//
+// ucontext_t is defined in <ucontext.h>
+// man getcontext(2) says:
+
+
 static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //        ================
     //
@@ -220,9 +259,9 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 	#ifdef USE_ZERO_LIMIT_PTR_FN
 	    //
 	    SIG_SavePC( hostthread->task, scp );
-	    SET_SIGNAL_PROGRAM_COUNTER( scp, Zero_Heap_Allocation_Limit );
+	    SET_SIGNAL_PROGRAM_COUNTER( scp,  );
 	#else
-	    SIG_Zero_Heap_Allocation_Limit( scp );			// OK to adjust the heap limit directly.
+	    ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER( scp );			// OK to adjust the heap limit directly.
 	#endif
     }
 //										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
@@ -242,7 +281,7 @@ static void   c_signal_handler   (
 ){
     #if defined(OPSYS_LINUX)  &&  defined(TARGET_INTEL32)  &&  defined(USE_ZERO_LIMIT_PTR_FN)
 	//
-	Signal_Handler_Context_Arg*  scp =  &sc;
+	Signal_Handler_Context_Arg*  scp =  &sc;			// I find no trace of 'sc'; this looks like some ancient hack mostly bitrotted away.  -- 2012-10-11 CrT
     #endif
 
     Hostthread*  hostthread =  SELF_HOSTTHREAD;
@@ -276,7 +315,7 @@ static void   c_signal_handler   (
 	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp, Zero_Heap_Allocation_Limit );
 	#else
-	    SIG_Zero_Heap_Allocation_Limit( scp );		// OK to adjust the heap limit directly.
+	    ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER( scp );		// OK to adjust the heap limit directly.
 	#endif
     }
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);

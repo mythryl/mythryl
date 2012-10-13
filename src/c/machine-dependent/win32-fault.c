@@ -57,11 +57,11 @@ BOOL   win32_generic_handler   (int code) {
     hostthread->ccall_limit_pointer_mask = 0;
 
     if (hostthread->executing_mythryl_code && 
-      (*hostthread->posix_signal_pending) && 
-      (*hostthread->mythryl_handler_for_posix_signal_is_running))
+      (!hostthread->posix_signal_pending) && 
+      (!hostthread->mythryl_handler_for_posix_signal_is_running))
     {
 	hostthread->posix_signal_pending = TRUE;
-	SIG_Zero_Heap_Allocation_Limit();
+	ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER();
 	return TRUE;
     }
     return FALSE;
