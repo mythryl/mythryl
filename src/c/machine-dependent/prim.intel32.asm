@@ -1,6 +1,6 @@
 // prim.intel32.asm
 //
-// This file contains asm-coded functions callable directly
+// This file contains asm-coded functions "callable" directly
 // from Mythryl via the runtime::asm API defined in
 //
 //     src/lib/core/init/runtime.api
@@ -16,9 +16,119 @@
 //
 // which then dispatches on them to various fns throughout the C runtime.
 //
-// This was derived from I386.prim.s, by Mark Leone (mleone@cs.cmu.edu)
 //
-// Completely rewritten and changed to use assyntax.h, by Lal George.
+//
+// Motivation and theory of operation:
+// ===================================
+//
+// The C layer and the Mythryl layer use completely different register conventions.
+//
+// The C layer follows host gcc conventions, which on x86 means
+//
+// 	Caller save registers: eax, ecx, edx
+// 	Callee save registers: ebx, esi, edi, and ebp.
+//	Save frame pointer (ebx) first to match standard function prelude
+// 	Floating point state is caller-save.
+// 	Arguments passed on stack.  Rightmost argument pushed first.
+// 	Word-sized result returned in %eax.
+//	On Darwin, stack frame must be multiple of 16 bytes
+//
+// The Mythryl layer, by contrast, follows completely different rules:
+//
+//      EAX - temp1 (see the code generator, intel32/intel32.pkg)
+//      EBX - misc0
+//      ECX - misc1
+//      EDX - misc2
+//      ESI - standard fate (fate, see runtime-base.h)
+//      EBP - standard argument (argument)
+//      EDI - heap_allocation_pointer		Heap memory is allocated by advancing this pointer.
+//      ESP - C stack pointer			Never pushed or popped during normal Mythryl code execution.
+//      EIP - program counter (program_counter)
+//
+//      The C stack (pointed to by ESP) is never pushed or popped at all
+//      during normal execution of Mythryl code.  (Mythryl allocates all
+//      closures on the heap, closures being the closest Mythryl analogue
+//      to C stackframes.)  Mythryl *does* make use of an 8KB scratch area
+//      on top of the C stack, accessed via ESP, in particular to hold
+//      values such as heap_allocation_limit which are kept in registers
+//      on architectures with more general-purpose registers than X86,
+//      also more generally to hold codetemps spilled by the regor.
+//
+//      The general model is that every function takes and returns exactly
+//      one argument (often a tuple containing sub-arguments), which is
+//      handled by putting the function (technically, closure) called
+//	in ESI and its argument in EBP.
+//
+//      (In practice, whenever the calling and called fn are both known, the
+//      compiler makes strenuous efforts to pass everything in registers and
+//      avoid explicitly constructing the argument tuple. But the ESI/EBP
+//      model is the one the compiler falls back to whenever its lacks enough
+//      information to do something more efficient.  The application programmer
+//      can always trust that the result of running the code will, performance
+//      aside, look exactly as though the ESI/EBP model had been used throughout.)
+//
+// The problem to be solved in this file is that gcc-compiled C fns know
+// how to call other gcc-compiled fns, and Mythryl-compiled Mythryl fns know
+// how to call other Mythryl-compiled fns, but in general C doesn't know how
+// to call Mythryl and Mythryl doesn't know how to call C. [1]  So the assembly
+// code in this file handles the transitions between these two worlds.
+//
+// Our general model is that C code calls Mythryl which runs and then returns to C.
+//
+// In particular, Mythryl 'calls' to the C layer are actually implemented by doing
+// a return instruction with the request code as the "return result" of the call to
+// Mythryl.  Since Mythryl state is all in the heap, not on the C stack, doing a
+// 'return' doesn't lose us much state, and picking up Mythryl execution again via
+// another 'call' is pretty simple.
+//
+// (Note that Mythryl code, being stackless and based on "continuation passing style",
+// does not really have the call/return distinction anyhow -- everything is a call,
+// a return is just a call to some "continuation" aka "fate" passed in as an arg.
+// Given that calls and returns are treated as equivalent, doing a "call" to C via
+// a "return" instruction doesn't seem particularly odd in context.)
+//
+// When running at the C level, we use a  Task  record to hold the state of the
+// Mythryl-level computation, in particular its registers.
+//
+// The conceptually critical execution path is:
+//
+//    system_run_mythryl_task_and_runtime_eventloop__may_heapclean() in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+//    does
+//
+//        int request =  asm_run_mythryl_task (Task* task);
+//
+//    Code in this file then:
+//        1) Pushes the callee-save C registers
+//        2)  Pushes 8K of scratch space on the C stack.
+//        3)   Loads the data registers per the given 'task' record.
+//        4)   Loads the program counter from the 'task' record via a jump.
+//        5)     Mythryl code executes until it is time to make a 'call' to the C level by doing a 'return' with return address set to 'set_request'.
+//               Any arguments are passed as a tuple in the Mythryl argument register EBP.
+//        6)   Saves the Mythryl registers back into the given 'task' record. The argument tuple thus winds up as task->argument
+//	  7)  Pops the 8K scratch buffer.
+//	  8) Pops the callee-save C registers.
+//        9) 'returns' the request code
+//
+//    system_run_mythryl_task_and_runtime_eventloop__may_heapclean()
+//        handles the request (fetching any needed args from task->argument)
+//        and then loops around and repeats the cycle, with any return values
+//        hacked into task->argument and thus restored into EBP by step 3) above,
+//        making them available at the Mythryl level.
+//
+// This file also includes code to support signal handling, boostrapping (find_cfun),
+// and implement a few speed-critical fns (make_typeagnostic_rw_vector_asm,
+// make_float64_rw_vector_asm, make_unt8_rw_vector, make_string, make_vector_asm).
+
+
+////////////////////////////////////////////////////////////////////////
+// Note [1]  Matthias Blume's 'NLFFIGEN' project supports calling C directly
+//           from Mythryl, but it came along late and is not normally used
+//           by core code in the system.
+
+////////////////////////////////////////////////////////////////////////
+// History:	
+//     This was derived from I386.prim.s, by Mark Leone (mleone@cs.cmu.edu)
+//     Completely rewritten and changed to use assyntax.h, by Lal George.
 
 
 /*
@@ -53,15 +163,6 @@
 
 // The 386 registers are used as follows:
 //
-// EAX - temp1 (see the code generator, intel32/intel32.pkg)
-// EBX - misc0
-// ECX - misc1
-// EDX - misc2
-// ESI - standard fate (fate, see runtime-base.h)
-// EBP - standard argument (argument)
-// EDI - free space pointer (heap_allocation_pointer)
-// ESP - stack pointer
-// EIP - program counter (program_counter)
 
 
 // Stack frame:
@@ -83,8 +184,8 @@
 #define creturn 		EAX
 
 // Stack frame:
-//	
-#define tempmem			REGOFF(0,ESP)			// REGOFF(a,b) == *(a+b)
+//								// REGOFF(a,b) == *(a+b)
+#define tempmem			REGOFF(0,ESP)
 #define base_pointer		REGOFF(4,ESP)			// Needs to match   base_pointer                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 #define exnfate			REGOFF(8,ESP)			// Needs to match   exception_handler_register    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
@@ -143,17 +244,6 @@ LABEL(CSYM(LIB7_intel32Frame)) 					// Pointer to the ml frame (gives C access t
 #include "task-and-hostthread-struct-field-offsets--autogenerated.h"
 
 
-//
-// 386 function call conventions:  
-//  [true for gcc and dynix3 cc; untested for others]
-//
-// 	Caller save registers: eax, ecx, edx
-// 	Callee save registers: ebx, esi, edi, and ebp.
-//	Save frame pointer (ebx) first to match standard function prelude
-// 	Floating point state is caller-save.
-// 	Arguments passed on stack.  Rightmost argument pushed first.
-// 	Word-sized result returned in %eax.
-//	On Darwin, stack frame must be multiple of 16 bytes
 
 #define cresult	EAX
 
@@ -329,6 +419,7 @@ ENTRY(call_heapcleaner_asm)
 	//
 	// FALL INTO set_request
 
+// ----------------------------------------------------------------------
 ENTRY(set_request)
 	// valid request in temp.
 	// We'll save temp and load it with task_ptr.
@@ -373,9 +464,10 @@ ENTRY(set_request)
 	CALLEE_RESTORE
 	RET
 
+// ----------------------------------------------------------------------
 	SEG_TEXT
 	ALIGNTEXT4
-ENTRY(asm_run_mythryl_task)
+ENTRY(asm_run_mythryl_task)				// Main external entrypoint in file, typically called by  system_run_mythryl_task_and_runtime_eventloop__may_heapclean()   in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 	MOV_L (REGOFF(4,ESP), temp)			// Get argument (Task*)
 	CALLEE_SAVE
 #if defined(OPSYS_DARWIN)

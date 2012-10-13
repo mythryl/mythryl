@@ -129,7 +129,7 @@ typedef  Int1  Status;
     typedef   Valchunk*   Val;					// Only place Valchunk type is used.
 #endif
 //
-typedef struct hostthread_state_struct	Hostthread;		// struct hostthread_state_struct	def in   this file.
+typedef struct hostthread	Hostthread;		// struct hostthread	def in   this file.
 typedef struct task			Task;			// struct task			def in   this file.
 typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 
@@ -246,9 +246,8 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 
 
 
-// The core Mythryl state vector.					// NB: I believe the layout here is embedded in the assembly code in
-//     									//
-//									//     src/c/machine-dependent/prim.intel32.asm
+// Basically holds the register and the					// NB: I believe the layout here is embedded in the assembly code in
+// private agegroup0 heap allocation sub-buffer.			//     src/c/machine-dependent/prim.intel32.asm
 //									//     src/c/machine-dependent/prim.pwrpc32.asm
 //									//     src/c/machine-dependent/prim.sparc32.asm
 //									//     src/c/machine-dependent/prim.intel32.masm
@@ -260,8 +259,8 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 									// Initialized by   set_up_hostthread_state   in   src/c/main/runtime-state.c
 struct task {
     //
-    Heap*	heap;							// The heap for this Mythryl task.
-    Hostthread* 	hostthread;						// The Hostthread on which it is running. If you change the offset of this field you'll probably need to change:
+    Heap*	heap;							// The heap. task->heap is the same for all tasks.
+    Hostthread* hostthread;						// The Hostthread on which it is running. If you change the offset of this field you'll probably need to change:
 									//     hostthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
     // Mythryl registers:
     //
@@ -289,7 +288,8 @@ struct task {
     Val		exception_fate;						// Exception handler (?)
     Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Microthread.  Type
 									// Microthread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
-    Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
+
+    Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];	// This holds the C-level callee-save registers while we're executing Mythryl code.
 
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.
 
@@ -331,7 +331,7 @@ typedef enum {
 } Hostthread_Mode;
     //
     // See comments at bottom of   src/c/hostthread/hostthread-on-posix-threads.c
-    // Mode of a Hostthread.		// hostthread_state_struct is defined in   this file
+    // Mode of a Hostthread.		// hostthread is defined in   this file
     //
     // To switch a hostthread between the two
     // RUNNING modes, use the macros
@@ -352,15 +352,14 @@ typedef enum {
 
 // Define our per-posix-thread state information:
 //
-struct hostthread_state_struct {					// typedef struct hostthread_state_struct	Hostthread	  def above.
+struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     //
-    Heap* heap;		  					// The heap for this Mythryl task.
+    Heap* heap;		  					// The heap.  All tasks share the same Heap. (While having separate agegroup0 sub-buffers.)
 								// 'Heap' is defined in	  src/c/h/runtime-base.h
 
-    Task* task;							// The state of the Mythryl task that is
-				        			// running on this Hostthread.  "Eventually	
-				        			// we will support multiple Mythryl tasks
-				        			// per Hostthread." (Oh yeah? :-)
+    Task* task;							// The state of the Mythryl task that is running on this Hostthread.
+				        			// The SML/NJ codebase says "Eventually we will support multiple Mythryl tasks per Hostthread,"
+								// but I see no advantage to this and think the Hostthread and Task records should be merged.  -- 2012-10-11 CrT
     // Signal related fields:
     //
     Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.
@@ -377,8 +376,9 @@ struct hostthread_state_struct {					// typedef struct hostthread_state_struct	H
 	posix_signal_counts[ MAX_POSIX_SIGNALS ];		// Per-signal counts of pending signals.
     //
     int		posix_signal_rotor;				// Ihe index in previous of the next slot to check, round-robin style.
-    int		heapcleaning_done_signal_handler_state;		// State of the heapcleaning signal handler.
-    int		thread_scheduler_timeslice_signal_handler_state;// State of the timeslicing  signal handler.
+
+    int		heapcleaning_done_signal_handler_state;		// State of the heapcleaning signal handler.	One of LIB7_SIG_IGNORE | LIB7_SIG_DEFAULT  LIB7_SIG_ENABLED  from   src/c/h/system-dependent-signal-stuff.h
+    int		thread_scheduler_timeslice_signal_handler_state;// State of the timeslicing  signal handler.	One of LIB7_SIG_IGNORE | LIB7_SIG_DEFAULT  LIB7_SIG_ENABLED  from   src/c/h/system-dependent-signal-stuff.h
 
     Time*	cpu_time_at_start_of_last_heapclean;		// The cumulative CPU time at the start of the last heapclean -- see src/c/main/timers.c
     Time*	cumulative_cleaning_cpu_time;			// The cumulative cleaning time.
@@ -386,7 +386,7 @@ struct hostthread_state_struct {					// typedef struct hostthread_state_struct	H
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
 
-    Hostthread_Mode  mode;						// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
+    Hostthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
 								// Valid values for 'mode' are HOSTTHREAD_IS_RUNNING/HOSTTHREAD_IS_BLOCKED/HOSTTHREAD_IS_HEAPCLEANING/HOSTTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 
     int		id;						// Our own private small-int id for the record. We assign these sequentailly starting at 1.

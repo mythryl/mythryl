@@ -1605,7 +1605,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 //	    hostthread->mode
 //
 //      of type Hostthread_Mode in the
-//      hostthread_state_struct def in   src/c/h/runtime-base.h
+//      hostthread def in   src/c/h/runtime-base.h
 //      
 //
 //   o  To signal RUNNING hostthreads to enter HEAPCLEANING

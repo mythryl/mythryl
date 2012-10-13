@@ -325,7 +325,7 @@ extern void SetFSR(int);
 
 #elif defined(HOST_INTEL32)
 
-extern Punt* LIB7_intel32Frame;	// Used to get at heap_allocation_limit.
+extern Punt* LIB7_intel32Frame;					// Defined in src/c/machine-dependent/prim.intel32.asm.  Used to get at heap_allocation_limit in c_signal_handler() in src/c/machine-dependent/posix-signal.c via our ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER macro.
 #  define HEAP_ALLOCATION_LIMIT_intel32OFFSET	3		// Offset (words) of heap_allocation_limit in Mythryl stackframe -- see src/c/machine-dependent/prim.intel32.asm
 extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.intel32.asm
 #  define SET_UP_FLOATING_POINT_EXCEPTION_HANDLING()    FPEEnable()
