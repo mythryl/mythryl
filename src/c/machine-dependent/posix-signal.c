@@ -257,7 +257,7 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 	hostthread->posix_signal_pending = TRUE;
 
 	#ifdef USE_ZERO_LIMIT_PTR_FN
-	    //
+	    //									// We don't use this approach currently; if we start using it again we need to check for possiblity of different hostthreads clobbering shared global storage. -- 2012-10-11 CrT
 	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp,  );
 	#else
@@ -310,8 +310,8 @@ static void   c_signal_handler   (
         //
 	hostthread->posix_signal_pending =  TRUE;
 
-	#ifdef USE_ZERO_LIMIT_PTR_FN
-	    //
+	#ifdef USE_ZERO_LIMIT_PTR_FN	
+	    //									// We don't use this approach currently; if we start using it again we need to check for possiblity of different hostthreads clobbering shared global storage. -- 2012-10-11 CrT
 	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp, Zero_Heap_Allocation_Limit );
 	#else
