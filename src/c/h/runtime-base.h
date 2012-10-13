@@ -257,17 +257,23 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 
 /* typedef  struct task  Task; */					// Defined in runtime-base.h
 									// Initialized by   set_up_hostthread_state   in   src/c/main/runtime-state.c
+//
+// NB: If you ADD or REMOVE FIELDS here, you should update
+//     src/c/config/generate-task-and-hostthread-struct-field-offsets-h.c
+//
 struct task {
     //
     Heap*	heap;							// The heap. task->heap is the same for all tasks.
     Hostthread* hostthread;						// The Hostthread on which it is running. If you change the offset of this field you'll probably need to change:
 									//     hostthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
-    // Mythryl registers:
-    //
     Val*	heap_allocation_buffer;					// The agegroup0 buffer.
     Val*	heap_allocation_pointer;				// We allocate heap memory just by advancing this pointer.
     Val*	heap_allocation_limit;					// We heapclean when heap_allocation_pointer reaches this point.  Must be at least MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER short of true buffer end.
     Punt	heap_allocation_buffer_bytesize;			// Phystical size.
+    //
+    // The following fields hold the contents of
+    // Mythryl registers while we are executing
+    // C-layer code:
     //
     Val		argument;						// Argument to current function/closure. Since we treat calling and returning as the same thing, this will also hold the result of the call.
     Val		fate;							// "Return address".
@@ -295,6 +301,8 @@ struct task {
 
     Val		fault_exception;					// The exception packet for a hardware fault.
     Vunt	faulting_program_counter;				// The program counter of the faulting instruction.
+
+    Punt*	heap_allocation_limit__ptr_for__c_signal_handler;	// c_signal_handler() uses this pointer to zero heap_allocation_limit -- see ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER in src/c/h/system-dependent-signal-get-set-etc.h
 
     Val*	protected_c_arg;					// Used to protect one arg from garbage collection by RELEASE_MYTHRYL_HEAP in src/c/h/runtime-base.h
     Val		heapvoid;						// Dummy for protected_c_arg to point to when not being used.  Initialized to HEAP_VOID.
@@ -350,7 +358,10 @@ typedef enum {
 
 
 
-// Define our per-posix-thread state information:
+// Define our per-posix-thread state information.
+//
+// NB: If you ADD or REMOVE FIELDS here, you should update
+//     src/c/config/generate-task-and-hostthread-struct-field-offsets-h.c
 //
 struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     //
