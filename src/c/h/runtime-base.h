@@ -302,7 +302,7 @@ struct task {
     Val		fault_exception;					// The exception packet for a hardware fault.
     Vunt	faulting_program_counter;				// The program counter of the faulting instruction.
 
-    Punt*	heap_allocation_limit__ptr_for__c_signal_handler;	// c_signal_handler() uses this pointer to zero heap_allocation_limit -- see ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER in src/c/h/system-dependent-signal-get-set-etc.h
+    Punt*	mythryl_stackframe__ptr_for__c_signal_handler;	// c_signal_handler() uses this pointer to zero heap_allocation_limit -- see ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER in src/c/h/system-dependent-signal-get-set-etc.h
 
     Val*	protected_c_arg;					// Used to protect one arg from garbage collection by RELEASE_MYTHRYL_HEAP in src/c/h/runtime-base.h
     Val		heapvoid;						// Dummy for protected_c_arg to point to when not being used.  Initialized to HEAP_VOID.

@@ -518,7 +518,7 @@ ENTRY(asm_run_mythryl_task)				// Main external entrypoint in file, typically ca
 	MOV_L( REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
 	MOV_L( REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L( ESP, REGOFF( heap_allocation_limit__ptr_for__c_signal_handler_byte_offset_in_task_struct, temp) )	// Mythryl-stackframe pointer for c_signal_handler.
+	MOV_L( ESP, REGOFF( mythryl_stackframe__ptr_for__c_signal_handler_byte_offset_in_task_struct, temp) )	// Mythryl-stackframe pointer for c_signal_handler.
 //	MOV_L( ESP, CSYM(LIB7_intel32Frame) )										// Stackframe pointer for c_signal_handler.
 
 	PUSH_L(misc2)								// Free up a register.

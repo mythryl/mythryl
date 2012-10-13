@@ -66,7 +66,7 @@ int   main   (void) {
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_0", 				callee_saved_registers[0]			);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_1", 				callee_saved_registers[1]			);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_2",				callee_saved_registers[2]			);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_limit__ptr_for__c_signal_handler",	heap_allocation_limit__ptr_for__c_signal_handler);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "mythryl_stackframe__ptr_for__c_signal_handler",	mythryl_stackframe__ptr_for__c_signal_handler	);
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

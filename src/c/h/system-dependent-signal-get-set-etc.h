@@ -342,7 +342,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info,scp)	((scp)->uc_mcontext.gregs[REG_EIP])	// For linux, GET_SIGNAL_CODE simply returns the address of the fault
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext.gregs[REG_EIP])
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp,addr)		{ (scp)->uc_mcontext.gregs[REG_EIP] = (long)(addr); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_FREEBSD)
      // intel32, FreeBSD
@@ -353,7 +353,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 
 #  elif defined(OPSYS_NETBSD2)
@@ -366,7 +366,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->sc_pc = (long)(addr); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 
 #  elif defined(OPSYS_NETBSD)
@@ -379,7 +379,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)	(info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		(_UC_MACHINE_PC(scp))
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ _UC_MACHINE_SET_PC(scp, ((long) (addr))); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_OPENBSD)
      // intel32, OpenBSD
@@ -390,17 +390,17 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info, scp)  (info)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)    ((scp)->sc_pc)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)  { (scp)->sc_pc = (long)(addr); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_SOLARIS)
      // intel32, Solaris
 
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext.gregs[EIP])
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->uc_mcontext.gregs[EIP] = (int)(addr); }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_WIN32)
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER()		{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER()		{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_CYGWIN)
 
@@ -409,7 +409,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define SIG_FAULT1		SIGFPE
 #    define SIG_FAULT2		SIGSEGV
 #    define INT_DIVZERO(s, c)	((s) == SIGFPE)
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)  { task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  elif defined(OPSYS_DARWIN)
      // intel32, Darwin
@@ -420,7 +420,7 @@ extern void FPEEnable (void);			// From 						   src/c/machine-dependent/prim.in
 #    define GET_SIGNAL_CODE(info,scp)	((info)->si_code)
 #    define GET_SIGNAL_PROGRAM_COUNTER(scp)		((scp)->uc_mcontext->ss.eip)
 #    define SET_SIGNAL_PROGRAM_COUNTER(scp, addr)	{ (scp)->uc_mcontext->ss.eip = (int) addr; }
-#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->heap_allocation_limit__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
+#    define ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER(scp)	{ task->mythryl_stackframe__ptr_for__c_signal_handler[HEAP_ALLOCATION_LIMIT__WORD_OFFSET_IN_MYTHRYL_STACKFRAME] = 0; }
 
 #  else
 #    error "unknown OPSYS for intel32"
