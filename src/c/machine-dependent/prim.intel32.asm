@@ -247,19 +247,6 @@ LABEL(CSYM(LIB7_intel32Frame)) 					// Pointer to the ml frame (gives C access t
 
 #define cresult	EAX
 
-#define CALLEE_SAVE_BYTESIZE 16	// ebp, ebx, esi, edi
-
-#define CALLEE_SAVE	\
-	PUSH_L(EBP);	\
-	PUSH_L(EBX);	\
-	PUSH_L(ESI);	\
-	PUSH_L(EDI)
-
-#define CALLEE_RESTORE	\
-	POP_L(EDI);	\
-	POP_L(ESI);	\
-	POP_L(EBX);	\
-	POP_L(EBP)
 
 // MOVE_FROM_VIA_TO copies one memory location to another, using a specified temporary.
 
@@ -461,7 +448,14 @@ ENTRY(set_request)
 #else
 	MOV_L( espsave, ESP)
 #endif
-	CALLEE_RESTORE
+
+	// Restore the gcc-specified "callee-save" registers:
+	//
+	POP_L(EDI)
+	POP_L(ESI)
+	POP_L(EBX)
+	POP_L(EBP)
+
 	RET
 
 // ----------------------------------------------------------------------
@@ -469,7 +463,14 @@ ENTRY(set_request)
 	ALIGNTEXT4
 ENTRY(asm_run_mythryl_task)				// Main external entrypoint in file, typically called by  system_run_mythryl_task_and_runtime_eventloop__may_heapclean()   in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 	MOV_L (REGOFF(4,ESP), temp)			// Get argument (Task*)
-	CALLEE_SAVE
+
+	// Push the gcc-specified "callee-save" registers:
+	//
+	PUSH_L(EBP)
+	PUSH_L(EBX)
+	PUSH_L(ESI)
+	PUSH_L(EDI)
+
 #if defined(OPSYS_DARWIN)
         // MacOS X frames must be 16-byte aligned.
         // We have 20 bytes on the stack for the
@@ -517,7 +518,8 @@ ENTRY(asm_run_mythryl_task)				// Main external entrypoint in file, typically ca
 	MOV_L( REGOFF( callee_saved_register_1_byte_offset_in_task_struct, temp), misc1)
 	MOV_L( REGOFF( callee_saved_register_2_byte_offset_in_task_struct, temp), misc2)
 
-	MOV_L( ESP, CSYM(LIB7_intel32Frame) )					// Stackframe pointer for c_signal_handler.
+	MOV_L( ESP, REGOFF( heap_allocation_limit__ptr_for__c_signal_handler_byte_offset_in_task_struct, temp) )	// Stackframe pointer for c_signal_handler.
+	MOV_L( ESP, CSYM(LIB7_intel32Frame) )										// Stackframe pointer for c_signal_handler.
 
 	PUSH_L(misc2)								// Free up a register.
 	PUSH_L(temp)								// Save task temporarily.
