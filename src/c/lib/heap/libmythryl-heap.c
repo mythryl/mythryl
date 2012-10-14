@@ -228,6 +228,34 @@ static Val   do_debug   (Task* task,  Val arg)   {
     return HEAP_VOID;
 }
 //
+static Val   do_write_line_to_ramlog   (Task* task,  Val arg)   {
+    //       =======================
+    //
+    // Mythryl type:   String -> Void
+    //
+    //     
+
+//									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);	// Ramlogging ramlog entries would be just clutter...
+
+    char* heap_string = HEAP_STRING_AS_C_STRING(arg);
+
+//    Mythryl_Heap_Value_Buffer string_buf;
+
+//    {	char* c_string = buffer_mythryl_heap_value( &string_buf, (void*) heap_string, strlen( heap_string ) +1 );	// '+1' for terminal NUL at end of string.
+
+//	RELEASE_MYTHRYL_HEAP( task->hostthread, "do_debug", NULL );
+	    //
+//	    debug_say( c_string );					// debug_say	is from   src/c/main/error-reporting.c
+	    //
+//	RECOVER_MYTHRYL_HEAP( task->hostthread, "do_debug" );
+
+//	unbuffer_mythryl_heap_value( &string_buf );
+    }
+//									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);	// Ramlogging ramlog entries would be just clutter...
+
+    return HEAP_VOID;
+}
+//
 static Val   do_dummy   (Task* task,  Val arg)   {
     //       ========
     // 
@@ -1150,6 +1178,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"set_sigalrm_frequency",				"set_sigalrm_frequency",				do_set_sigalrm_frequency,					"Null_Or (Int, Int) -> Null_Or (Int, Int)"},
     {"spawn_to_disk",					"spawn_to_disk",					do_spawn_to_disk,						"(String, (List(String) -> Void)) -> Void"},
     {"unpickle_datastructure",				"unpickle_datastructure",				do_unpickle_datastructure,					"vector_of_one_byte_unts::Vector -> X"},
+    {"write_line_to_ramlog",				"write_line_to_ramlog",					do_write_line_to_ramlog,					"String -> Void"},
     //
     CFUNC_NULL_BIND
 };

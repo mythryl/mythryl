@@ -234,6 +234,8 @@ extern void SetFSR(int);
 	    __pc -= 4;						\
 	SavedPC = __pc;						\
     }
+	// 64-bit issue with all the above '4'.
+	// 64-bit issue throughout this file with 0xFFFFFFFF constants and such.
 
 #  elif defined(OPSYS_SOLARIS)
      // SPARC32, SOLARIS
