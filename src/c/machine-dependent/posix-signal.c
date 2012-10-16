@@ -68,7 +68,7 @@ void   pause_until_signal   (Hostthread* hostthread) {
     pause ();												// pause() is a clib function, see pause(2).
 }
 
-void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_state) {
+void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_state) {			// This fn is called (only) from   src/c/lib/signal/setsigstate.c
     // ================
     //
     // QUESTIONS:

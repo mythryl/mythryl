@@ -79,7 +79,7 @@ static int   count_lines_in_ramlog   (void) {
 // Note that 'line' is '\n' terminated
 // but NOT '\0' terminated!
 //
-static void   for_all_lines_in_ramlog   (void (*do_one_line)(int arg, int line_number, char* line), int arg) {
+static void   for_all_lines_in_ramlog   (void (*do_one_line)(void* arg, int line_number, char* line), void* arg) {
     //        =======================
     //
     int line_number = 0;
@@ -110,13 +110,22 @@ static void   for_all_lines_in_ramlog   (void (*do_one_line)(int arg, int line_n
     }
 }
 
-static void   maybe_print_line   (int first_line_to_print, int line_number, char* line) {
+static void   maybe_print_line   (void* arg, int line_number, char* line) {
     //        ================
+    int first_line_to_print = (int) arg;					// Ah, type system of C -- how can we not love thee?  Let us count the ways!  :-)
 
     if (line_number < first_line_to_print)   return;
 
     while (*line != '\n') putchar(*line++);
     putchar('\n');
+}
+
+static void   write_line_to_file   (void* arg, int line_number, char* line) {
+    //        ==================
+    FILE* fd = (FILE*) arg;
+
+    while (*line != '\n') fputc( *line++, fd );
+    fputc( '\n', fd );
 }
 
 // Print last 'n' lines in ramlog:
@@ -136,8 +145,16 @@ void   debug_ramlog  (int lines_to_print) {
 
     int first_line_to_print = lines_available - lines_to_print;
 
-    for_all_lines_in_ramlog( maybe_print_line, first_line_to_print );
+    for_all_lines_in_ramlog( maybe_print_line, (void*) first_line_to_print );
 }
+
+
+void   dump_ramlog   (FILE* fd)   {
+    // ===========
+
+    for_all_lines_in_ramlog(  write_line_to_file,  (void*) fd  );
+} 
+
 
 // Code by Jeff Prothero Copyright (c) 2010-2012,
 // released under Gnu Public Licence version 3.

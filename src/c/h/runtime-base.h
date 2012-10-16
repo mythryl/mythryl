@@ -63,6 +63,7 @@
 
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdio.h>
 
 typedef  Int1  Bool;
 typedef  Int1  Status;
@@ -910,6 +911,7 @@ extern int		 syscall_log_and_ramlog_enabled;				// Starts TRUE, set FALSE in ent
 
 extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
 extern void   debug_ramlog  (int lines_to_print);					// debug_ramlog		is from   src/c/main/ramlog.c
+extern void   dump_ramlog   (FILE* fd );						// dump_ramlog		is from   src/c/main/ramlog.c
     //
     // ramlog_printf writes one line into a 64K circular buffer,
     // overwriting old stuff as it goes.  Each fmt should end
