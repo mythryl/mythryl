@@ -940,14 +940,17 @@ void   dump_syscall_log   (Task* task, char* caller) {
     //
 
     char filename[ 1024 ];
-    FILE* fd = open_heapdump_logfile( filename, 1024, "dump_syscall_log" );
+    strcpy(filename,"syscall-log.log");
+
+    FILE* fd = fopen(filename, "w");									// Don't use open_heapdump_logfile() because we want only the most recent ramlog saved on disk.
+    if (!fd) {
+	fprintf(stderr,"dump_syscall_log:  Unable to create '%s': %s\n", filename, strerror(errno) );
+	exit(1);
+    }
 
     dump_syscall_log__guts (fd, caller, SYSCALL_LOG_ENTRIES);
 
-    log_if("dump_syscall_log: Starting dump to '%s'", filename);
-
-    close_heapdump_logfile( fd, filename );
-    log_if("dump_syscall_log: Dump to '%s' now complete.", filename);
+    fclose( fd );
 }
 
 // Like above, but designed to be called from gdb
@@ -968,13 +971,17 @@ void   dump_ramlog   (Task* task, char* caller) {
     //
 
     char filename[ 1024 ];
-    FILE* fd = open_heapdump_logfile( filename, 1024, "dump_ramlog" );
+    strcpy(filename,"ramlog.log");
+
+    FILE* fd = fopen(filename, "w");									// Don't use open_heapdump_logfile() because we want only the most recent ramlog saved on disk.
+    if (!fd) {
+	fprintf(stderr,"dump_ramlog:  Unable to create '%s': %s\n", filename, strerror(errno) );
+	exit(1);
+    }
 
     dump_ramlog__guts (fd);
 
-    log_if("dump_ramlog: Starting dump to '%s'", filename);
-    close_heapdump_logfile( fd, filename );
-    log_if("dump_ramlog: Dump to '%s' now complete.", filename);
+    fclose( fd );
 }
 
 //

@@ -50,13 +50,33 @@ void   ramlog_printf   (char *format, ...)   {
     char* p = ramlog_next;
     ramlog_next += vsprintf (ramlog_next, format, ap);
     va_end(ap);
-    if (ramlog_next >= ramlog_hard_limit)  die("ramlog_printf: Overran buffer by %d, increase RAMLOG_OVERRUN_SIZE_IN_BYTES", ramlog_next - ramlog_hard_limit);
-    if (ramlog_next >= ramlog_soft_limit) {
-        while (p <= ramlog_soft_limit) *p++  = '\0';
+
+    // 'format' is supposed to end with a newline
+    // but I'm forgetful, so add one if needed:
+    // 
+    if (ramlog_next[-1] != '\n') {
+	*ramlog_next++ = '\n';
+	*ramlog_next   = '\0';
+    }
+
+    if (ramlog_next >= ramlog_hard_limit) {
+	//
+	die("ramlog_printf: Overran buffer by %d, increase RAMLOG_OVERRUN_SIZE_IN_BYTES", ramlog_next - ramlog_hard_limit);
+    }
+
+    if (ramlog_next >= ramlog_soft_limit) {				// Line ran over end of buffer; null it out and try again at start of buffer.
+	//
+        while (p <= ramlog_soft_limit) *p++  = '\0';			// Null out first try.
+	//
         va_start (ap, format);
 	ramlog_next  = ramlog_buf;
         ramlog_next += vsprintf (ramlog_next, format, ap);
         va_end(ap);
+
+	if (ramlog_next >= ramlog_soft_limit) {				// Line length > buffer length ?! =8-o
+	    //
+	    die("ramlog_printf: Overran buffer by %d, increase RAMLOG_OVERRUN_SIZE_IN_BYTES", ramlog_next - ramlog_soft_limit);
+	}
     }
 }
 
@@ -116,7 +136,13 @@ static void   maybe_print_line   (void* arg, int line_number, char* line) {
 
     if (line_number < first_line_to_print)   return;
 
-    while (*line != '\n') putchar(*line++);
+    while (line >= &ramlog_buf[ 0                           ]
+    &&     line <  &ramlog_buf[ RAMLOG_BUFFER_SIZE_IN_BYTES ]
+    &&     *line != '\n'
+    &&     *line != '\0'
+    ){
+        putchar(*line++);
+    }
     putchar('\n');
 }
 
@@ -124,7 +150,15 @@ static void   write_line_to_file   (void* arg, int line_number, char* line) {
     //        ==================
     FILE* fd = (FILE*) arg;
 
-    while (*line != '\n') fputc( *line++, fd );
+    fprintf(fd,"%d: ",line_number);
+
+    while (line >= &ramlog_buf[ 0                           ]
+    &&     line <  &ramlog_buf[ RAMLOG_BUFFER_SIZE_IN_BYTES ]
+    &&     *line != '\n'
+    &&     *line != '\0'
+    ){
+        fputc( *line++, fd );
+    };
     fputc( '\n', fd );
 }
 

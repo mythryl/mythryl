@@ -6,6 +6,7 @@
 #include "../mythryl-config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"
@@ -231,8 +232,10 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
 // frequent enough to quell impatience but infrequent enough not to add
 // significant overhead to compiles:  -- 2012-10-15 CrT
 // 
-if (sig == SIGVTALRM) {
-  if (++sigalrm_kludge >= 25) {
+if (sig == SIGVTALRM
+||  sig == SIGALRM
+){
+  if (++sigalrm_kludge >= 250) {
     sigalrm_kludge = 0;
     dump_ramlog     (task,"c_signal_handler");
     dump_syscall_log(task,"c_signal_handler");
