@@ -191,6 +191,8 @@ int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {
 // man getcontext(2) says:
 
 
+static int sigalrm_kludge = 0;
+
 static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //        ================
     //
@@ -221,6 +223,21 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //
     if (sig >= MAX_POSIX_SIGNALS)    die ("posix-signal.c: c_signal_handler: sig d=%d >= MAX_POSIX_SIGNAL %d\n", sig, MAX_POSIX_SIGNALS ); 
 
+// This is a little kludge because I'm getting unexpected compiler lockups
+// during the serial -> concurrent programming paradigm transition, and I'd
+// like to look at the ramlog and syscall log but attaching gdb doesn't work
+// (might be confused by our 8K Mythryl stackframe).  The idea is just to
+// dump the syscall log and ramlog every five seconds or so, which should be
+// frequent enough to quell impatience but infrequent enough not to add
+// significant overhead to compiles:  -- 2012-10-15 CrT
+// 
+if (sig == SIGVTALRM) {
+  if (++sigalrm_kludge >= 25) {
+    sigalrm_kludge = 0;
+    dump_ramlog     (task,"c_signal_handler");
+    dump_syscall_log(task,"c_signal_handler");
+  }
+}
 
     // Remember that we have seen signal number 'sig'.
     //
