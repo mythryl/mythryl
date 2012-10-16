@@ -496,7 +496,7 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 extern void   heapclean_agegroup0    (Task* task,  Val** roots);						// heapclean_agegroup0						def in   src/c/heapcleaner/heapclean-agegroup0.c
 extern void   heapclean_n_agegroups  (Task* task, Val** roots, int level);					// heapclean_n_agegroups					def in   src/c/heapcleaner/heapclean-n-agegroups.c 
 //
-extern void  initialize_agegroup0_overrun_tripwire_buffer( Task* task );					// initialize_agegroup0_overrun_tripwire_buffer		def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  initialize_agegroup0_overrun_tripwire_buffer( Task* task );					// initialize_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_all(				Task* task, char* caller );					// dump_all							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_all_but_hugechunks_contents(	Task* task, char* caller );					// dump_all_but_hugechunks_contents				def in   src/c/heapcleaner/heap-debug-stuff.c
@@ -508,10 +508,11 @@ extern void  dump_gens(				Task* task, char* caller );					// dump_gens							de
 extern void  dump_hugechunks_summary(		Task* task, char* caller );					// dump_hugechunks_summary					def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_hugechunks_contents					def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_syscall_log(			Task* task, char* caller );					// dump_syscall_log						def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern void  debug_help(			void  );							// debug_help							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  debug_syscall_log(			int i );							// debug_syscall_log							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  debug_syscall_log(			int i );							// debug_syscall_log						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tripwires(			void  );							// debug_tripwires						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tasks(			void  );							// debug_tasks							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tasks_verbose(		void  );							// debug_tasks_verbose						def in   src/c/heapcleaner/heap-debug-stuff.c
@@ -522,8 +523,7 @@ extern Status  set_up_tospace_sib_buffers_for_agegroup  (Agegroup* age);					// 
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						def in   src/c/heapcleaner/heapcleaner-stuff.c
-extern void    set_book2sibid_entries_for_range
-	           (Sibid* book2sibid,  Val* base,  Vunt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
+extern void    set_book2sibid_entries_for_range (Sibid* book2sibid,  Val* base,  Vunt bytesize,  Sibid id);	// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    null_out_newly_dead_weakrefs	(Heap* heap);							// null_out_newly_dead_weakrefs					def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern Hugechunk*   allocate_hugechunk_quire (Heap* heap,  Punt bytesize);					// allocate_hugechunk_quire					def in   src/c/heapcleaner/hugechunk.c
@@ -534,7 +534,7 @@ extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hu
 extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);					// get_codechunk_comment_string_else_null			def in   src/c/heapcleaner/hugechunk.c
 
 #ifdef BO_DEBUG
-    extern void print_hugechunk_quire_map (Hugechunk_Quire *r);						// print_hugechunk_quire_map					def in   src/c/heapcleaner/hugechunk.c
+    extern void print_hugechunk_quire_map (Hugechunk_Quire *r);							// print_hugechunk_quire_map					def in   src/c/heapcleaner/hugechunk.c
 #endif
 
 #ifdef CHECK_GC

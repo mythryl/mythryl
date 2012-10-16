@@ -149,8 +149,8 @@ void   debug_ramlog  (int lines_to_print) {
 }
 
 
-void   dump_ramlog   (FILE* fd)   {
-    // ===========
+void   dump_ramlog__guts   (FILE* fd)   {
+    // =================
 
     for_all_lines_in_ramlog(  write_line_to_file,  (void*) fd  );
 } 

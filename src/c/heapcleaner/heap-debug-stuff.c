@@ -526,13 +526,13 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
 
 //
 static void   dump_ro_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
-    //        ===============
+    //        ===================
     //
     dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
 }
 //
 static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
-    //        =============
+    //        ===================
     for (Val* p = sib->tospace.start;
 	      p < sib->tospace.used_end;
 	      p += 2
@@ -544,7 +544,7 @@ static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pa
 }
 //
 static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
-    //        ===============
+    //        ===================
     //
     for (Val* p = sib->tospace.start;
 	      p < sib->tospace.used_end;
@@ -557,7 +557,7 @@ static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
 }
 //
 static void   dump_rw_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
-    //        ===============
+    //        ===================
     //
     dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
 
@@ -960,6 +960,21 @@ void   debug_syscall_log   (int n) {
     if (n <= 0             ) n = 10;
     if (n >  SYSCALL_LOG_ENTRIES) n = SYSCALL_LOG_ENTRIES;
     dump_syscall_log__guts (fd, __func__, n);
+}
+
+//
+void   dump_ramlog   (Task* task, char* caller) {
+    // ===========
+    //
+
+    char filename[ 1024 ];
+    FILE* fd = open_heapdump_logfile( filename, 1024, "dump_ramlog" );
+
+    dump_ramlog__guts (fd);
+
+    log_if("dump_ramlog: Starting dump to '%s'", filename);
+    close_heapdump_logfile( fd, filename );
+    log_if("dump_ramlog: Dump to '%s' now complete.", filename);
 }
 
 //
