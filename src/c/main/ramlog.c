@@ -46,6 +46,7 @@ void   ramlog_printf   (char *format, ...)   {
     if (!syscall_log_and_ramlog_enabled)   return;
 
     va_list   ap;
+
     va_start (ap, format);
     char* start_of_line = ramlog_next;
     ramlog_next +=  sprintf (ramlog_next, "%d: ", ++ramlog_lines_printed);

@@ -912,6 +912,7 @@ extern int		 syscall_log_and_ramlog_enabled;				// Starts TRUE, set FALSE in ent
 extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
 extern void   debug_ramlog  (int lines_to_print);					// debug_ramlog		is from   src/c/main/ramlog.c
 extern void   dump_ramlog__guts (FILE* fd );						// dump_ramlog__guts	is from   src/c/main/ramlog.c
+extern void   dump_ramlog__raw  (FILE* fd );						// dump_ramlog__raw	is from   src/c/main/ramlog.c
     //
     // ramlog_printf writes one line into a 64K circular buffer,
     // overwriting old stuff as it goes.  Each fmt should end
