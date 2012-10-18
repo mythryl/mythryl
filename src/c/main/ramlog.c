@@ -34,7 +34,7 @@ static char  ramlog_buf [ RAMLOG_BUFFER_SIZE_IN_BYTES + RAMLOG_OVERRUN_SIZE_IN_B
 static char* ramlog_next = ramlog_buf;
 static char* ramlog_soft_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES;
 static char* ramlog_hard_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES  + RAMLOG_OVERRUN_SIZE_IN_BYTES;
-
+static int   ramlog_lines_printed = 0;
 
 // Append a one-line message to ramlog_buf.
 // If it runs past ramlog_soft_limit, null it out
@@ -47,7 +47,8 @@ void   ramlog_printf   (char *format, ...)   {
 
     va_list   ap;
     va_start (ap, format);
-    char* p = ramlog_next;
+    char* start_of_line = ramlog_next;
+    ramlog_next +=  sprintf (ramlog_next, "%d: ", ++ramlog_lines_printed);
     ramlog_next += vsprintf (ramlog_next, format, ap);
     va_end(ap);
 
@@ -66,10 +67,12 @@ void   ramlog_printf   (char *format, ...)   {
 
     if (ramlog_next >= ramlog_soft_limit) {				// Line ran over end of buffer; null it out and try again at start of buffer.
 	//
+	char*  p  = start_of_line;
         while (p <= ramlog_soft_limit) *p++  = '\0';			// Null out first try.
 	//
         va_start (ap, format);
 	ramlog_next  = ramlog_buf;
+	ramlog_next +=  sprintf (ramlog_next, "%d: ", ramlog_lines_printed);
         ramlog_next += vsprintf (ramlog_next, format, ap);
         va_end(ap);
 
