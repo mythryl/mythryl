@@ -940,7 +940,7 @@ void   dump_syscall_log   (Task* task, char* caller) {
     //
 
     char filename[ 1024 ];
-    strcpy(filename,"syscall-log.log");
+    strcpy(filename,"syscall.log");
 
     FILE* fd = fopen(filename, "w");									// Don't use open_heapdump_logfile() because we want only the most recent ramlog saved on disk.
     if (!fd) {

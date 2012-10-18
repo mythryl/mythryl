@@ -192,7 +192,8 @@ int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {
 // man getcontext(2) says:
 
 
-static int sigalrm_kludge = 0;
+static int milliseconds_between_ramlog_and_syslog_dumps = -1;		// -1 == not initialized, 0 == don't dump.
+static int milliseconds_since_last_ramlog_and_syslog_dump = 0;
 
 static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //        ================
@@ -224,23 +225,49 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     //
     if (sig >= MAX_POSIX_SIGNALS)    die ("posix-signal.c: c_signal_handler: sig d=%d >= MAX_POSIX_SIGNAL %d\n", sig, MAX_POSIX_SIGNALS ); 
 
-// This is a little kludge because I'm getting unexpected compiler lockups
-// during the serial -> concurrent programming paradigm transition, and I'd
-// like to look at the ramlog and syscall log but attaching gdb doesn't work
-// (might be confused by our 8K Mythryl stackframe).  The idea is just to
-// dump the syscall log and ramlog every five seconds or so, which should be
-// frequent enough to quell impatience but infrequent enough not to add
-// significant overhead to compiles:  -- 2012-10-15 CrT
-// 
-if (sig == SIGVTALRM
-||  sig == SIGALRM
-){
-  if (++sigalrm_kludge >= 250) {
-    sigalrm_kludge = 0;
-    dump_ramlog     (task,"c_signal_handler");
-    dump_syscall_log(task,"c_signal_handler");
-  }
-}
+
+
+    /////////////////////////////////// begin kludge ////////////////////////////////////
+    // This is a little kludge because I'm getting unexpected compiler lockups
+    // during the serial -> concurrent programming paradigm transition, and I'd
+    // like to look at the ramlog and syscall log but attaching gdb doesn't work.
+    // (It may be confused by our 8K Mythryl stackframe.)  The idea is just to
+    // dump the syscall log and ramlog every five seconds or so, which should be
+    // frequent enough to quell impatience but infrequent enough not to add
+    // significant overhead to compiles:  -- 2012-10-15 CrT
+    //
+    // Upgraded to allow control via the environment var
+    //     MILLISECONDS_BETWEEN_RAMLOG_AND_SYSLOG_DUMPS
+    //   -- 2012-10-18 CrT
+    //
+    if (milliseconds_between_ramlog_and_syslog_dumps < 0) {
+	//
+	char* t;
+	if (!(t = getenv("MILLISECONDS_BETWEEN_RAMLOG_AND_SYSLOG_DUMPS"))) {
+	    //
+	    milliseconds_between_ramlog_and_syslog_dumps = 0;					// Env var not set, so let's not do this stuff.
+	} else {
+	    int ms = atoi(t);
+	    if (ms < 0)   	    milliseconds_between_ramlog_and_syslog_dumps = 0;
+	    else if (ms < 100)	    milliseconds_between_ramlog_and_syslog_dumps = 100;		// Let's not try dumps every millisecond.
+	    else		    milliseconds_between_ramlog_and_syslog_dumps = ms;
+	}
+    }
+    if (milliseconds_between_ramlog_and_syslog_dumps > 0) {
+	//
+	milliseconds_since_last_ramlog_and_syslog_dump += 20;					// I'm assuming the usual 50Hz SIGALRM. Yes, this is fragile and hacky,
+												// but this is just a nonce debugging hack anyhow. Feel free to improve it.
+	if (milliseconds_since_last_ramlog_and_syslog_dump > milliseconds_between_ramlog_and_syslog_dumps) {
+	    milliseconds_since_last_ramlog_and_syslog_dump = 0;
+	    //
+	    dump_ramlog     (task,"c_signal_handler");
+	    dump_syscall_log(task,"c_signal_handler");
+	}
+    }
+    //
+    ///////////////////////////////////   end kludge ////////////////////////////////////
+
+
 
     // Remember that we have seen signal number 'sig'.
     //
