@@ -243,7 +243,7 @@ static Val   do_write_line_to_ramlog   (Task* task,  Val arg)   {
     // absolutely necessary:
 
     char* heap_string = HEAP_STRING_AS_C_STRING(arg);
-
+									// ramlog_printf	is from   src/c/main/ramlog.c
     ramlog_printf( "%s", heap_string );					// Note that if we pass heapstring as first arg, any '%'s in it become problematic.
 									// We could define a separate ramlog_putstring(), but at the moment a simpler API (one less call) seems more attractive.
     return HEAP_VOID;

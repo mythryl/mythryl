@@ -55,16 +55,16 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
 	    = 									// (i.e., ram guaranteed not to move around during a heapcleaning).
 	    buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );
 
-/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+    do {									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+										// Restored   2010-10-19 CrT
 	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_readbuf", &arg );	// 'arg' is still live here! 
 	    //
 	    n = read( fd, c_vec, nbytes );
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_readbuf" );
 
-if (errno == EINTR) puts("Error: EINTR in readbuf.c\n");
-/*  } while (n < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+// if (errno == EINTR) puts("Error: EINTR in readbuf.c\n");
+    } while (n < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	// The heapcleaner may have moved everything around
 	// during our read() call, so we wait until now to
