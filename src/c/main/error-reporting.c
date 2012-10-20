@@ -170,8 +170,21 @@ void   log_if   (const char * fmt, ...) {
 	// We fill in dummy tid= and (thread) name= values here to reduce
 	// the need for special-case code when processing logfiles:
 	//
-	sprintf(buf,"timE=%10d.%06d pid=%08d ptid=%08lx task=00000000 tid=00000000 sev=0 name='none'%44s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "");
-
+	if (!strncmp(fmt,"%s",3)) {
+	    //
+	    // If fmt == "%s" then we assume we're being called from
+	    //     do_write_line_to_log()  in   src/c/lib/heap/libmythryl-heap.c
+	    // and the message already has time= etc fields on it, so we don't
+	    // need to add them here:
+	    //
+	    buf[0] = '\0';
+	    //
+	} else {
+	    //
+	    // Normal path:
+	    //
+	    sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08lx task=00000000 tid=00000000 sev=0 name='none'%44s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "");
+	}
 	// Now write the message proper into buf[],
         // right after the timestamp:
 	//
