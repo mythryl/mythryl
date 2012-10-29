@@ -196,28 +196,30 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
 static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //       =============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+// Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
+// XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char* err =  pth__mutex_lock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     Val result;
 
     if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       result = HEAP_VOID;
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+// XXX SUCKO RESTOREME							    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
 static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //       ===============
     //
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+// Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
+// XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char* err =  pth__mutex_unlock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     Val result;
 
     if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       result = HEAP_VOID;
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+// XXX SUCKO RESTOREME							    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
