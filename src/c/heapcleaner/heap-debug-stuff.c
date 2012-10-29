@@ -916,18 +916,18 @@ static void   dump_syscall_log__guts   (FILE* fd,  const char* caller,  int n) {
 
     int e = syscall_log_next_entry_to_write;
 
-    for (int i = 0;   i < SYSCALL_LOG_ENTRIES;   ++i, e = syscall_log_prev( e )) {
+    for (int i = 0;   i < SYSCALL_LOG_ENTRIES;   ++i,  e = syscall_log_next( e )) {
         //
 	Syscall_Log_Entry* r =  &syscall_log_circular_queue[ e ];	
 
-        if ((SYSCALL_LOG_ENTRIES - 1)-i < n) {								// Print only most recent 'n' entries.
+        if ((SYSCALL_LOG_ENTRIES-1) - i < n) {								// Print only most recent 'n' entries.
 	    //
 	  if (r->fn_name) {										// Print only valid entries, not unused slots.
 		//
 		char* flags = "     ";
 
-		if (r->flags & SYSCALL_LOG_FN_ENTRY) flags = "enter"; 
-		if (r->flags & SYSCALL_LOG_FN_EXIT ) flags = " exit"; 
+		if (r->flags & SYSCALL_LOG_FN_ENTRY)   flags = "enter"; 
+		if (r->flags & SYSCALL_LOG_FN_EXIT )   flags = " exit"; 
 
 		fprintf(fd,"%2d #%-8d %s %s\n", r->id, r->number, flags, r->fn_name );
 	    }
