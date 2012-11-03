@@ -936,9 +936,9 @@ static void   dump_syscall_log__guts   (FILE* fd,  const char* caller,  int n) {
 }
 
 //
-void   dump_syscall_log   (Task* task, char* caller) {
-    // ================
-    //
+void   dump_syscall_log   (Task* task, char* caller) {							// Called from   c_signal_handler()   in   src/c/machine-dependent/posix-signal.c
+    // ================											// Also exported to   src/lib/std/src/nj/heap-debug.pkg
+    //													//              via   src/c/lib/heap/libmythryl-heap.c
 
     char filename[ 1024 ];
     strcpy(filename,"syscall.log");
@@ -967,7 +967,7 @@ void   debug_syscall_log   (int n) {
 }
 
 //
-void   dump_ramlog   (Task* task, char* caller) {
+void   dump_ramlog   (Task* task, char* caller) {							// Currently called (only) from   c_signal_handler()   in   src/c/machine-dependent/posix-signal.c
     // ===========
     //
 
