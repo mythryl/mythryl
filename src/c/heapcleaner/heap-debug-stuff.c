@@ -972,7 +972,7 @@ void   dump_ramlog   (Task* task, char* caller) {
     //
 
     char filename[ 1024 ];
-    strcpy(filename,"ramlog.log");
+    strcpy(filename,"ram.log");
 
     FILE* fd = fopen(filename, "w");									// Don't use open_heapdump_logfile() because we want only the most recent ramlog saved on disk.
     if (!fd) {
