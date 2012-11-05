@@ -192,16 +192,38 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 	#
 	fun if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ()
 	    =
+{
+case (list::length(*request_queue))
+0 => ();
+1 => ();
+n => {
+	log::note           .{ sprintf "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/AAA  list::length(*request_queue) d=%d -- thread_scheduler" n; };
+	log::note_in_ramlog .{ sprintf "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/AAA  list::length(*request_queue) d=%d -- thread_scheduler" n; };
+     };
+esac;
 	    case *request_queue
 		#
-		[] =>   ();
+		[] =>	{
+log::note           .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/DDD  -- thread_scheduler"; };
+log::note_in_ramlog .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/DDD  -- thread_scheduler"; };
+			    ();
+			};
 		#
 	        _  =>   case *add_inter_hostthread_request_handler_thunk_to_run_queue_hook
 			    #
-			    THE add_inter_hostthread_request_handler_thunk_to_run_queue'  =>  add_inter_hostthread_request_handler_thunk_to_run_queue' ();
-			    NULL				=>  ();					# Shouldn't happen; shouldn't matter if it does -- we'll just run the request a little later.
+			    THE add_inter_hostthread_request_handler_thunk_to_run_queue'  =>    {
+log::note           .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/BBB  -- thread_scheduler"; };
+log::note_in_ramlog .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/BBB  -- thread_scheduler"; };
+												    add_inter_hostthread_request_handler_thunk_to_run_queue' ();
+												};
+			    NULL							  =>    {
+log::note           .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/CCC  -- thread_scheduler"; };
+log::note_in_ramlog .{ "if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue/CCC  -- thread_scheduler"; };
+												    ();					# Shouldn't happen; shouldn't matter if it does -- we'll just run the request a little later.
+												};
 			esac;	
 	    esac;
+};
 	#
 	#
 	##################################################
@@ -739,10 +761,14 @@ first -> (itt::MICROTHREAD  { name, thread_id, ... }, _);
 	    # thread in a wait queue and then call us to exit the uninterruptible scope and
 	    # then find a new thread to run.
 	    {
-# log::note .{ (thread_scheduler_statestring()) + "\tdispatch_next_thread__usend__noreturn/AAA"; };
+log::note           .{ "dispatch_next_thread__usend__noreturn/AAA"; };
+log::note_in_ramlog .{ "dispatch_next_thread__usend__noreturn/AAA"; };
 # file::print "dispatch_next_thread__usend__noreturn/AAA:   "; print_thread_scheduler_state(); file::print "\n";
 
 		if_pending_requests_then_add_inter_hostthread_request_handler_thunk_to_run_queue ();
+
+log::note           .{ "dispatch_next_thread__usend__noreturn/BBB"; };
+log::note_in_ramlog .{ "dispatch_next_thread__usend__noreturn/BBB"; };
 
 		if (*uninterruptible_scope_mutex != 1)
 		    bar = "===============================================================================================================================================\n";
@@ -1505,6 +1531,11 @@ fi;
 	condvar =  hth::make_condvar ();  
 
 
+my _ = printf "mutex d=%d -- thread_scheduler"  (hth::mutex_to_int  mutex);
+my _ = log::note           .{  sprintf "mutex d=%d -- thread_scheduler"  (hth::mutex_to_int  mutex);  };
+my _ = log::note_in_ramlog .{  sprintf "mutex d=%d -- thread_scheduler"  (hth::mutex_to_int  mutex);  };
+
+
 
 
 	#
@@ -1514,13 +1545,14 @@ fi;
 	#
 	fun do  (thunk: Void -> Void)						# Exported -- will execute in context of client hostthread.
 	    = 
-	    {   hth::acquire_mutex mutex;  
+	    {
+		hth::acquire_mutex mutex;  
 		    # 
 		    request_queue :=  (DO_THUNK thunk)  !  *request_queue; 
 		    # 
-		    hth::broadcast_condvar condvar;  
-		    # 
 		hth::release_mutex mutex;  
+
+		hth::broadcast_condvar condvar;  
 	    };           
 
 
@@ -1532,41 +1564,61 @@ fi;
 	fun echo  (request: Do_Echo)						# Exported -- will execute in context of client hostthread.
 	    = 
 	    { 
-		hth::acquire_mutex mutex;  
+		# See below Voice Of Experience comment.
+
+		hth::acquire_mutex  mutex;
 		    # 
 		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
 		    # 
-		    hth::broadcast_condvar condvar;  
 		    # 
-		hth::release_mutex mutex;  
+		hth::release_mutex  mutex;  
+
+		hth::broadcast_condvar condvar;  
 	    };           
 
 	#
 	fun get_any_new_inter_hostthread_requests  () 
 	    = 
 	    { 
-		hth::acquire_mutex mutex;  
-		    # 
-		    new_requests  = list::reverse  *request_queue; 		# 'reverse' to restore original request ordering.
-		    # 
-		    request_queue := []; 
-		    # 
-		hth::release_mutex  mutex;  
+		# Voice Of Experience:
+		#     We need to be very careful not to allow the thread-scheduler
+		#     to switch to another microthread while this microthread is
+		#     holding 'mutex', otherwise that other microthread could easily
+		#     deadlock attempting to also acquire 'mutex'.
 		# 
-		new_requests; 							# It is ok if new_requests == [].
+		#     The thread scheduler gets called by the heapcleaner, which is
+		#     invoked only at the start of a function, so at present we just
+		#     avoid calling any functions while holding 'mutex'.
+		#                                                    -- 2012-11-04 CrT.
+
+		hth::acquire_mutex  mutex;  
+			# 
+			new_requests  = *request_queue;
+			# 
+			request_queue := []; 
+			# 
+		hth::release_mutex  mutex;  
+
+		list::reverse  new_requests; 		# 'reverse' to restore original request ordering.
+ 							# It is ok if new_requests == [].
 	    };           
 
 
 	#
 	fun service_inter_hostthread_requests  (request ! rest) 
 		=> 
-		{   service_inter_hostthread_request  request; 
+		{
+		    service_inter_hostthread_request  request; 
 		    #
 		    service_inter_hostthread_requests rest; 
 		} 
 		where 
-		    fun service_inter_hostthread_request (DO_ECHO  r)  =>   do_echo  r;
-			service_inter_hostthread_request (DO_THUNK t)  =>   do_thunk t;
+		    fun service_inter_hostthread_request (DO_ECHO  r)  =>   {
+										do_echo  r;
+									    };
+			service_inter_hostthread_request (DO_THUNK t)  =>   {
+										do_thunk t;
+									    };
 		    end;
 		end;
 
@@ -1591,16 +1643,17 @@ fi;
 	fun block_until_inter_hostthread_request_queue_is_nonempty ()		# Exported.  This gives  no_runnable_threads_left__fate	in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg.
 	    =									# a graceful way to block until we have something to do.
 	    {
-		hth::acquire_mutex mutex;  
+		# Unlike the above functions, we do not need to
+		# worry about calling a function while holding
+		# the mutex, because we are only called when
+		# there are no  other ready-to-run microthreads.
+		#
+		hth::acquire_mutex  mutex;  
 		    # 
-										log::note_in_ramlog .{ "entering for-loop    -- block_until_inter_hostthread_request_queue_is_nonempty"; };
 		    for (inter_hostthread_request_queue_is_empty()) {		# 
 			#							# 
-										log::note_in_ramlog .{ "in for-loop above wait_on_condvar -- block_until_inter_hostthread_request_queue_is_nonempty"; };
 			hth::wait_on_condvar (condvar, mutex);			# 
-										log::note_in_ramlog .{ "in for-loop below wait_on_condvar -- block_until_inter_hostthread_request_queue_is_nonempty"; };
 		    };
-										log::note_in_ramlog .{ "exited for-loop -- block_until_inter_hostthread_request_queue_is_nonempty"; };
 		    # 
 		hth::release_mutex  mutex;  
 	    };

@@ -196,14 +196,16 @@ static Val   do_mutex_free   (Task* task,  Val arg)   {
 static Val   do_mutex_lock   (Task* task,  Val arg)   {
     //       =============
     //
-// Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
+// Commented out 2012-10-28 because they were flooding the syscall log, hiding what I wanted to see:
 // XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+if (TAGGED_INT_TO_C_INT( arg ) == 6) ramlog_printf("do_mutex_lock(6)/AAA\n");
     char* err =  pth__mutex_lock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     Val result;
 
     if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       result = HEAP_VOID;
+if (TAGGED_INT_TO_C_INT( arg ) == 6) ramlog_printf("do_mutex_lock(6)/ZZZ\n");
 // XXX SUCKO RESTOREME							    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
@@ -211,14 +213,16 @@ static Val   do_mutex_lock   (Task* task,  Val arg)   {
 static Val   do_mutex_unlock   (Task* task,  Val arg)   {
     //       ===============
     //
-// Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
+// Commented out 2012-10-28 because they were flooding the syscall log, hiding what I wanted to see:
 // XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+if (TAGGED_INT_TO_C_INT( arg ) == 6) ramlog_printf("do_mutex_unlock(6)/AAA\n");
     char* err =  pth__mutex_unlock( task, TAGGED_INT_TO_C_INT( arg ) );
     //
     Val result;
 
     if (err)   result = RAISE_ERROR__MAY_HEAPCLEAN( task, err, NULL );
     else       result = HEAP_VOID;
+if (TAGGED_INT_TO_C_INT( arg ) == 6) ramlog_printf("do_mutex_unlock(6)/ZZZ\n");
 // XXX SUCKO RESTOREME							    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }

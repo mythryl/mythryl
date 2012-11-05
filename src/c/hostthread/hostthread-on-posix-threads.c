@@ -241,7 +241,7 @@ static Mutex*   make_mutex_record   (void) {
 }
 
 //
-Mutex*   find_mutex_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDING pth__mutex.
+Mutex*   find_mutex_by_id__need_mutex   (Vunt  id) {							// Caller MUST BE HOLDING pth__mutex.
     //   ============================
     //
     while (id > last_valid_mutex_vector_slot_index__local) {
@@ -257,12 +257,12 @@ Mutex*   find_mutex_by_id__need_mutex   (Vunt  id) {				// Caller MUST BE HOLDIN
 }
 
 //
-Vunt   pth__mutex_make   (void) {								// Create a new mutex, return its slot number in mutex_vector__local[].
+Vunt   pth__mutex_make   (void) {									// Create a new mutex, return its slot number in mutex_vector__local[].
     // ===============
     //
     pthread_mutex_lock( &pth__mutex );
     //
-    for (;;) {											// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
+    for (;;) {												// If vector is initially full, it will be half-empty after we double its size, so we'll loop at most twice.
 	//
 	// Search for an empty slot in mutex_vector__local[].
 	//
@@ -270,8 +270,8 @@ Vunt   pth__mutex_make   (void) {								// Create a new mutex, return its slot 
 	// wasting time searching start of vector over and over:
 	//
 	for (Vunt u  =  0;
-			   u <=  last_valid_mutex_vector_slot_index__local;
-			   u ++
+		  u <=  last_valid_mutex_vector_slot_index__local;
+		  u ++
 	){
 	    mutex_vector_cursor__local = (mutex_vector_cursor__local +1)				// Bump cursor.
 				       & last_valid_mutex_vector_slot_index__local;			// Wrap around at end of vector.
