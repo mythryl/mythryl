@@ -233,7 +233,7 @@ herein
 	    {
 		hth::acquire_mutex  mutex;												# Using the mutex here does have a point -- it
 		    #															# ensures that no mutex-locked critical section will
-		    timeout :=  time;													# see the timeout changing unexpected out from under it.
+		    timeout :=  time;													# see the timeout changing unexpectedly out from under it.
 		    #
 		hth::release_mutex  mutex;
 	    };
@@ -243,55 +243,59 @@ herein
 	#
 	#     src/lib/std/src/hostthread/io-wait-hostthread.api
 	#
-	fun note_per_loop_fn  loopfn													# Set fn to be called once each time around our outer loop.
-	    =																# This fn is used to drive pre-emptive multi-threading in the
-	    {																# threadkit scheduler:		src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
-		hth::acquire_mutex  mutex;
-		    #
-		    if (not (list::in (loopfn, *per_loop_fns)))										# Don't add fn to list if it is already in the list.
-			#
-			per_loop_fns :=  loopfn ! *per_loop_fns;
-		    fi;
-		    #
-		hth::release_mutex  mutex;
-	    };
+# Commented these two out because
+# 1)  They call external fns while holding the mutex,
+#     which isn't safe -- could threadswitch and deadlock
+# 2)  Nobody was calling them anyhow.   -- 2012-11-11 CrT
+#	fun note_per_loop_fn  loopfn													# Set fn to be called once each time around our outer loop.
+#	    =																# This fn is used to drive pre-emptive multi-threading in the
+#	    {																# threadkit scheduler:		src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+#		hth::acquire_mutex  mutex;
+#		    #
+#		    if (not (list::in (loopfn, *per_loop_fns)))										# Don't add fn to list if it is already in the list.
+#			#
+#			per_loop_fns :=  loopfn ! *per_loop_fns;
+#		    fi;
+#		    #
+#		hth::release_mutex  mutex;
+#	    };
 	#
-	fun drop_per_loop_fn  loopfn
-	    =
-	    {
-		hth::acquire_mutex  mutex;
-		    #
-		    per_loop_fns :=  list::drop (loopfn, *per_loop_fns);
-		    #
-		hth::release_mutex  mutex;
-	    };
+#	fun drop_per_loop_fn  loopfn
+#	    =
+#	    {
+#		hth::acquire_mutex  mutex;
+#		    #
+#		    per_loop_fns :=  list::drop (loopfn, *per_loop_fns);
+#		    #
+#		hth::release_mutex  mutex;
+#	    };
 
 
 	#
 	fun do_stop (r: Do_Stop)													# Shut down io-wait-hostthread server.
 	    =																# Internal fn -- will execute in context of server hostthread.
 	    {
-		hth::acquire_mutex mutex;  
+		hth::acquire_mutex  mutex;  
 		    #
-		    case *private_pipe													# Close pipe fds, so that we don't leak fds continually
-			#															# if some client stops and starts us continually.
-			THE { infd, outfd }
-			    =>
-			    {
-				psx::close  infd;
-				psx::close  outfd;
-			    };
-
-			NULL => ();
-		    esac;
-		    #
-		    pid			  := 0;
+		    pid			         := 0;
 		    server_hostthread_is_running :=  FALSE;
-		    private_pipe		  :=  NULL;
+		    private_pipe		 :=  NULL;
 		    #
 		    hth::broadcast_condvar condvar;    											# This will in particular wake up the loop in   stop_server_hostthread_if_running().
 		    #
-		hth::release_mutex mutex;  
+		hth::release_mutex  mutex;  
+
+		case *private_pipe													# Close pipe fds, so that we don't leak fds continually
+		    #															# if some client stops and starts us continually.
+		    THE { infd, outfd }
+			=>														# NB: We avoid calling external fns while holding the mutex due to threat of threadswitch, re-entry and deadlock.
+			{
+			    psx::close  infd;
+			    psx::close  outfd;
+			};
+
+		    NULL => ();
+		esac;
 
 		r.reply ();
 		#
@@ -668,24 +672,29 @@ herein
 
 
 	#
-	fun stop_server_hostthread_if_running  (request: Do_Stop)					# Queue up a stop-server-hostthread request for later execution by do_stop.
+	fun stop_server_hostthread_if_running  (request: Do_Stop)				# Queue up a stop-server-hostthread request for later execution by do_stop.
 	    = 											# External fn -- will execute in context of client hostthread.
 	    { 
-		hth::acquire_mutex  mutex;  
-		    # 
-		    if (*server_hostthread_is_running)
+		if (*server_hostthread_is_running)
+		    #
+		    hth::acquire_mutex  mutex;  
 			#
 			request_queue :=  (DO_STOP request)  !  *request_queue; 
-			# 
-			write_to_private_pipe();							# Wake up main server hostthread to process request.
+			#
+		    hth::release_mutex mutex;  
+		    # 
+		    write_to_private_pipe();							# Wake up main server hostthread to process request.
+												# DO NOT DO THIS WHILE HOLDING THE MUTEX!
 
+		    hth::acquire_mutex  mutex;  
+			#
 			for (*server_hostthread_is_running) {
 			    #
-			    hth::wait_on_condvar (condvar, mutex);		# This condvar will wake us each time  running_servers_count  changes.
+			    hth::wait_on_condvar (condvar, mutex);				# This condvar will wake us each time  running_servers_count  changes.
 			};
-		    fi;
-		    # 
-		hth::release_mutex mutex;  
+			#
+		    hth::release_mutex mutex;  
+		fi;
 	    };           
 	#
 	fun echo  (request: Do_Echo)								# Queue up an echo-back-toclient request for later execution by do_echo.  (This is mostly for unit testing.)
@@ -695,9 +704,9 @@ herein
 		    # 
 		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
 		    # 
-		    write_to_private_pipe();							# Wake up main server hostthread to process request.
-		    # 
 		hth::release_mutex mutex;  
+		# 
+		write_to_private_pipe();							# Wake up main server hostthread to process request.
 	    };           
 
 	#
@@ -713,8 +722,11 @@ herein
 # printf "iow::test CCC   (%s)\n" caller_id;
 # 		    request_queue :=  (DO_TEST caller_id)  !  *request_queue; 
 # 			# 
+# 		hth::release_mutex mutex;  
 # printf "iow::test DDD   (%s)\n" caller_id;
 # 		    write_to_private_pipe();							# Wake up main server hostthread to process request.
+#												# DO NOT DO THIS WHILE HOLDING THE MUTEX!
+# 		hth::acquire_mutex  mutex;  
 # 
 # printf "iow::test EEE   (%s)\n" caller_id;
 # 		    for (not *self_test_complete) {
