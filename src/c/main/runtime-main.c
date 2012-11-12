@@ -25,6 +25,7 @@
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
 #include "runtime-globals.h"
+#include "heap.h"
 
 
 
@@ -453,6 +454,20 @@ void   print_stats_and_exit   (int code)   {
     //
     // Exit from the Mythryl system.
     //
+
+    // Debug support hack.  If we're trying to keep ram.log and syscall.log
+    // up-to-date on disk -- see src/c/machine-dependent/posix-signal.c
+    // -- then update those files right before we exit:
+    //
+    if (getenv("MILLISECONDS_BETWEEN_RAMLOG_AND_SYSLOG_DUMPS")) {
+        //
+        Hostthread*  hostthread =  pth__get_hostthread();
+	Task*        task       =  hostthread->task;
+
+	dump_ramlog     (task,"print_stats_and_exit");
+	dump_syscall_log(task,"print_stats_and_exit");
+    }
+
 // printf("print_stats_and_exit/AAA   -- runtime-main.c\n"); fflush(stdout);
     #if COUNT_REG_MASKS
 	dump_masks();
