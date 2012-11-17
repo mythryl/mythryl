@@ -32,9 +32,10 @@
 //
 //     src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
 
-#include "../mythryl-config.h"
-
+#include <stdio.h>
 #include <string.h>
+
+#include "../mythryl-config.h"
 
 #include "runtime-configuration.h"
 #include "runtime-base.h"
@@ -213,7 +214,7 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
 
-Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 
     for (;;) {
 	int free_bytes													/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
@@ -222,7 +223,11 @@ Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_F
 
 	ASSERT(pc < bytecode_vector_bytesize);
 
-if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
+        if (tripwirebuf[0] != AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE) {
+	    fprintf(stderr,"luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",tripwirebuf,(unsigned int)tripwirebuf[0]);
+	    log_if(        "luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",tripwirebuf,(unsigned int)tripwirebuf[0]);
+	    exit(1);
+	}
 
 	switch (bytecode_vector[ pc++ ]) {
 	    //

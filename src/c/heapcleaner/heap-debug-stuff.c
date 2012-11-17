@@ -1064,16 +1064,16 @@ void   initialize_agegroup0_overrun_tripwire_buffer   (Task* task) {
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we initialize that buffer:
     //
-    Vint* p = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = 0;
              i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
              i++
     ){
 	//
-	p[i] = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE;
+	tripwirebuf[i] = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE;
     }
-//  log_if("initialize_agegroup0_overrun_tripwire_buffer: Done initializing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
+//  log_if("initialize_agegroup0_overrun_tripwire_buffer: Done initializing %x -> %x", tripwirebuf, tripwirebuf+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
 }
 
 //
