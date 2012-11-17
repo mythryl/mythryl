@@ -214,9 +214,10 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
     if (magic != V1_MAGIC)   die("bogus literal magic number %#x", magic);
 
 
-    Vint* tripwirebuf = (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
-
+    Vint* tripwirebuf =  (Vint*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);	// 'tripwirebuf' is an area reserved for detecting agregroup0 heap buffer over-run bugs.  It
+															//  should always conatain only AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE, which is defined in   src/c/h/runtime-base.h
     for (;;) {
+        //
 	int free_bytes													/* This var is currently unused, so suppress 'unused var' compiler warning: */ 		__attribute__((unused))
 	    =
 	    empty_agegroup0_buffer_if_more_than_half_full( task, &roots2 );
@@ -224,8 +225,8 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 	ASSERT(pc < bytecode_vector_bytesize);
 
         if (tripwirebuf[0] != AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_VALUE) {
-	    fprintf(stderr,"luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",tripwirebuf,(unsigned int)tripwirebuf[0]);
-	    log_if(        "luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",tripwirebuf,(unsigned int)tripwirebuf[0]);
+	    fprintf(stderr,"luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",  tripwirebuf,  (unsigned int) tripwirebuf[0] );
+	    log_if(        "luptop TRIPWIRE BUFFER TRASHED! %p=%x -- make_package_literals_via_bytecode_interpreter__may_heapclean",  tripwirebuf,  (unsigned int) tripwirebuf[0] );
 	    exit(1);
 	}
 
