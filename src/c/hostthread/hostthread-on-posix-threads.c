@@ -1285,52 +1285,6 @@ Hostthread*  pth__get_hostthread_by_ptid (Ptid ptid)   {
 }
 
 //
-Hostthread*  pth__get_hostthread_by_id_xxx (int id)   {
-    //       =========================
-    //
-    // Return Hostthread* for given id:
-    //
-    for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
-	//
-	if (hostthread_table__global[i]->id == id) {
-printf("pth__get_hostthread_by_id_xxx: id %d found in global[%d]\n",id,i);
-	    return hostthread_table__global[ i ];								// hostthread_table__global	def in   src/c/main/runtime-state.c
-	}
-    }														// hostthread_table__global exported via    src/c/h/runtime-base.h
-    die ("pth__get_hostthread:  id %d not found in hostthread_table__global?!", id);				// 
-    return NULL;												// Cannot execute; only to quiet gcc.
-}
-
-//
-Hostthread*  pth__get_hostthread_by_ptid_xxx (Ptid ptid)   {
-    //       ===========================
-    //
-    // Return Hostthread* for given hostthread:
-    //
-    for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
-	//
-	if (hostthread_table__global[i]->ptid == ptid) {
-printf("pth__get_hostthread_by_ptid_xxx: found in global[%d]\n",i);
-	    return hostthread_table__global[ i ];								// hostthread_table__global	def in   src/c/main/runtime-state.c
-	}
-    }														// hostthread_table__global exported via    src/c/h/runtime-base.h
-    die ("pth__get_hostthread:  tid %lx not found in hostthread_table__global?!", (unsigned long int) ptid);	// NB: 'ptid' can be an int or pointer type depending on OS. (E.g., unsigned long on Linux, pointer on OpenBSD.)
-    return NULL;												// Cannot execute; only to quiet gcc.
-}
-
-//
-int    pth__get_hostthread_id_xxx   ()   {
-    // ======================
-    //
-    // Return a small in uniquely distinguishing
-    // the currently running hostthread from all other
-    // hostthreads.
-    //
-    Hostthread* hostthread =  pth__get_hostthread_by_ptid_xxx( pth__get_hostthread_ptid() );
-    return      hostthread->id;
-}
-
-//
 int    pth__get_hostthread_id   ()   {
     // ======================
     //

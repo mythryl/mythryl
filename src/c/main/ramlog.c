@@ -51,7 +51,7 @@ void   ramlog_printf   (char *format, ...)   {
 
     va_start (ap, format);
     char* start_of_line = ramlog_next;
-    ramlog_next +=  sprintf (ramlog_next, "%d: [%d]: ", ++ramlog_lines_printed, hostthread->id);
+    ramlog_next +=  sprintf (ramlog_next, "%d: [%d:%s]: ", ++ramlog_lines_printed, hostthread->id, hostthread->name);
     ramlog_next += vsprintf (ramlog_next, format, ap);
     va_end(ap);
 
@@ -75,7 +75,7 @@ void   ramlog_printf   (char *format, ...)   {
 	//
         va_start (ap, format);
 	ramlog_next  = ramlog_buf;
-        ramlog_next +=  sprintf (ramlog_next, "%d: [%d]: ", ramlog_lines_printed, hostthread->id);
+        ramlog_next +=  sprintf (ramlog_next, "%d: [%d:%s]: ", ramlog_lines_printed, hostthread->id, hostthread->name);
         ramlog_next += vsprintf (ramlog_next, format, ap);
         va_end(ap);
 

@@ -104,7 +104,6 @@ static Val   do_get_hostthread_name         (Task* task,  Val arg)   {	// 'arg' 
     Hostthread*  hostthread =  hostthread_table__global[ i ];
     char*        name       =  hostthread->name;
     Val          result     =  make_ascii_string_from_c_string__may_heapclean(task,  name, NULL);
-printf("do_get_hostthread_name: i d=%d hostthread p=%p\n",i,hostthread);
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
@@ -115,12 +114,11 @@ static Val   do_set_hostthread_name         (Task* task,  Val arg)   {	// 'arg' 
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    Hostthread*  hostthread =  pth__get_hostthread_by_ptid_xxx( pth__get_hostthread_ptid() );
+    Hostthread*  hostthread =  pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
 
     char*        name       =  HEAP_STRING_AS_C_STRING( arg );
     int          len        =  strlen( name );
     char*        dup        =  (char*) malloc( len + 1 );			// '+ 1' for terminal nul.
-printf("do_set_hostthread_name: hostthread p=%p\n",hostthread);
 
     strcpy( dup, name );							// Copy name from Mythryl heap to C heap.
 
@@ -148,7 +146,7 @@ static Val   do_get_hostthread_id         (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
-    Val result = TAGGED_INT_FROM_C_INT( pth__get_hostthread_id_xxx() );		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    Val result = TAGGED_INT_FROM_C_INT( pth__get_hostthread_id() );		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
