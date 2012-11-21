@@ -42,8 +42,6 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //     src/c/heapcleaner/import-heap.c
     //     src/c/main/load-compiledfiles.c
 
-    static int last_id_issued = 0;
-
     Task* task =  NULL;
 
     //
@@ -72,6 +70,8 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //
     for (int i = 0;  i < MAX_HOSTTHREADS;  i++) {
 	//
+	hostthread_table__global[i]->id   =  i;							// pth__get_hostthread_ptid () returns huge numbers, this gives us small hostthread ids.
+
 	set_up_hostthread_state( hostthread_table__global[i] );
 
 	// Single timers are currently shared
@@ -88,7 +88,6 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
     // Initialize the first Hostthread here:
     //
-    hostthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_hostthread_ptid () returns huge numbers, this gives us small hostthread ids.
     hostthread_table__global[0]->ptid =  pth__get_hostthread_ptid ();				// pth__get_hostthread_ptid				def in    src/c/hostthread/hostthread-on-posix-threads.c
     hostthread_table__global[0]->mode =  HOSTTHREAD_IS_RUNNING;
     hostthread_table__global[0]->name =  "default";
@@ -136,7 +135,7 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     initialize_task( hostthread->task );
     //
     hostthread->task->argument			= HEAP_VOID;
-    hostthread->task->fate				= HEAP_VOID;
+    hostthread->task->fate			= HEAP_VOID;
     hostthread->task->current_closure		= HEAP_VOID;
     hostthread->task->link_register		= HEAP_VOID;
     hostthread->task->program_counter		= HEAP_VOID;

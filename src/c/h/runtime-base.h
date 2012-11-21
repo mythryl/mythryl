@@ -705,6 +705,10 @@ extern char*    pth__pthread_join		(Task* task, Val hostthread_table_slot);	// W
 // 
 extern Hostthread* pth__get_hostthread_by_id	(int  id);				// 
 extern Hostthread* pth__get_hostthread_by_ptid	(Ptid ptid);				// Needed to find record for current hostthread in contexts like signal handlers where it is not (otherwise) available.
+
+extern Hostthread* pth__get_hostthread_by_id_xxx	(int  id);				// 
+extern Hostthread* pth__get_hostthread_by_ptid_xxx	(Ptid ptid);				// Needed to find record for current hostthread in contexts like signal handlers where it is not (otherwise) available.
+extern int	pth__get_hostthread_id_xxx		(void);					// Small-int unique identifier for hostthread.
 //											// Hostthread is typedef'ed in src/c/h/runtime-base.h
 //
 extern int	pth__get_hostthread_id		(void);					// Small-int unique identifier for hostthread.
