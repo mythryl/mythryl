@@ -94,6 +94,30 @@
 
 
 
+static Val   do_get_hostthread_name         (Task* task,  Val arg)   {
+    //       ======================
+    //
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+
+    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
+}
+
+static Val   do_set_hostthread_name         (Task* task,  Val arg)   {
+    //       ======================
+    //
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+
+    make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return HEAP_VOID;
+}
+
 static Val   do_get_hostthread_id         (Task* task,  Val arg)   {
     //       ====================
     //
@@ -401,27 +425,29 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
-    { "get_hostthread_id","get_hostthread_id",	do_get_hostthread_id,	""},
-    { "spawn_hostthread","spawn_hostthread",	do_spawn_hostthread,	""},
-    { "join_hostthread","join_hostthread",	do_join_hostthread,	""},
-    { "hostthread_exit","pthread_exit",	do_hostthread_exit,	""},
+    { "get_hostthread_name","get_hostthread_name",	do_get_hostthread_name,	""},
+    { "set_hostthread_name","set_hostthread_name",	do_set_hostthread_name,	""},
+    { "get_hostthread_id","get_hostthread_id",		do_get_hostthread_id,	""},
+    { "spawn_hostthread","spawn_hostthread",		do_spawn_hostthread,	""},
+    { "join_hostthread","join_hostthread",		do_join_hostthread,	""},
+    { "hostthread_exit","hostthread_exit",		do_hostthread_exit,	""},
     //
-    { "mutex_make","mutex_make",		do_mutex_make,		""},
-    { "mutex_free","mutex_free",		do_mutex_free,		""},
-    { "mutex_lock","mutex_lock",		do_mutex_lock,		""},
-    { "mutex_unlock","mutex_unlock",		do_mutex_unlock,	""},
-    { "mutex_trylock","mutex_trylock",		do_mutex_trylock,	""},
+    { "mutex_make","mutex_make",			do_mutex_make,		""},
+    { "mutex_free","mutex_free",			do_mutex_free,		""},
+    { "mutex_lock","mutex_lock",			do_mutex_lock,		""},
+    { "mutex_unlock","mutex_unlock",			do_mutex_unlock,	""},
+    { "mutex_trylock","mutex_trylock",			do_mutex_trylock,	""},
     //
-    { "condvar_make","condvar_make",		do_condvar_make,	""},
-    { "condvar_free","condvar_free",		do_condvar_free,	""},
-    { "condvar_wait","condvar_wait",		do_condvar_wait,	""},
-    { "condvar_signal","condvar_signal",	do_condvar_signal,	""},
-    { "condvar_broadcast","condvar_broadcast",	do_condvar_broadcast,	""},
+    { "condvar_make","condvar_make",			do_condvar_make,	""},
+    { "condvar_free","condvar_free",			do_condvar_free,	""},
+    { "condvar_wait","condvar_wait",			do_condvar_wait,	""},
+    { "condvar_signal","condvar_signal",		do_condvar_signal,	""},
+    { "condvar_broadcast","condvar_broadcast",		do_condvar_broadcast,	""},
     //
-    { "barrier_make","barrier_make",		do_barrier_make,	""},
-    { "barrier_free","barrier_free",		do_barrier_free,	""},
-    { "barrier_init","barrier_init",		do_barrier_init,	""},
-    { "barrier_wait","barrier_wait",		do_barrier_wait,	""},
+    { "barrier_make","barrier_make",			do_barrier_make,	""},
+    { "barrier_free","barrier_free",			do_barrier_free,	""},
+    { "barrier_init","barrier_init",			do_barrier_init,	""},
+    { "barrier_wait","barrier_wait",			do_barrier_wait,	""},
     //
     CFUNC_NULL_BIND
 };
