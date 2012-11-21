@@ -100,7 +100,7 @@ static Val   do_get_hostthread_name         (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
-    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_ptid()));		// pth__get_hostthread_ptid	def in    src/c/hostthread/hostthread-on-posix-threads.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
@@ -112,10 +112,22 @@ static Val   do_set_hostthread_name         (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
-    make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    make_one_word_int( task, (Vint) (pth__get_hostthread_ptid()));		// pth__get_hostthread_ptid	def in    src/c/hostthread/hostthread-on-posix-threads.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;
+}
+
+static Val   do_get_hostthread_ptid         (Task* task,  Val arg)   {
+    //       ======================
+    //
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+
+    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_ptid()));		// pth__get_hostthread_ptid	def in    src/c/hostthread/hostthread-on-posix-threads.c
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
 }
 
 static Val   do_get_hostthread_id         (Task* task,  Val arg)   {
@@ -124,7 +136,7 @@ static Val   do_get_hostthread_id         (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
 
-    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_id()));		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    Val result = TAGGED_INT_FROM_C_INT( pth__get_hostthread_id() );		// pth__get_hostthread_id	def in    src/c/hostthread/hostthread-on-posix-threads.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
@@ -427,7 +439,8 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_hostthread_name","get_hostthread_name",	do_get_hostthread_name,	""},
     { "set_hostthread_name","set_hostthread_name",	do_set_hostthread_name,	""},
-    { "get_hostthread_id","get_hostthread_id",		do_get_hostthread_id,	""},
+    { "get_hostthread_ptid","get_hostthread_ptid",	do_get_hostthread_ptid,	""},
+    { "get_hostthread_id",  "get_hostthread_id",	do_get_hostthread_id,	""},
     { "spawn_hostthread","spawn_hostthread",		do_spawn_hostthread,	""},
     { "join_hostthread","join_hostthread",		do_join_hostthread,	""},
     { "hostthread_exit","hostthread_exit",		do_hostthread_exit,	""},

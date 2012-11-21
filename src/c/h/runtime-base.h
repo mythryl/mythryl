@@ -179,9 +179,9 @@ typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.ll
 
 typedef pthread_t 			Ptid;			// A hostthread id.
     //
-    // NB; Tid MUST be pthread_t from <pthread.h> because in
+    // NB; Ptid MUST be pthread_t from <pthread.h> because in
     // pth__pthread_create from src/c/hostthread/hostthread-on-posix-threads.c
-    // we pass a pointer to task->hostthread->pid as pthread_t*.
+    // we pass a pointer to task->hostthread->ptid as pthread_t*.
 
 // System_Constant
 //
@@ -401,14 +401,16 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     Hostthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
 								// Valid values for 'mode' are HOSTTHREAD_IS_RUNNING/HOSTTHREAD_IS_BLOCKED/HOSTTHREAD_IS_HEAPCLEANING/HOSTTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 
+    char*	name;						// Human-readable thread name for debugging and display.
+
     int		id;						// Our own private small-int id for the record. We assign these sequentially starting at 1.
     Ptid	ptid;	       					// Our os-assigned hostthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	//
-	// NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
+	// NB; 'ptid' MUST be declared Ptid (i.e., pthread_t from <pthread.h>)
 	//     because in  pth__pthread_create   from   src/c/hostthread/hostthread-on-posix-threads.c
-	//     we pass a pointer to task->hostthread->tid as pthread_t* to avoid race conditions.
+	//     we pass a pointer to task->hostthread->ptid as pthread_t* to avoid race conditions.
 	//
-	// Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
+	// Ptid def is   typedef pthread_t Ptid;   in   src/c/h/runtime-base.h
 
 
 };
@@ -704,7 +706,8 @@ extern char*    pth__pthread_join		(Task* task, Val hostthread_table_slot);	// W
 extern Hostthread* pth__get_hostthread		(void);					// Needed to find record for current hostthread in contexts like signal handlers where it is not (otherwise) available.
 //											// Hostthread is typedef'ed in src/c/h/runtime-base.h
 //
-extern Ptid	pth__get_hostthread_id		(void);					// Used to initialize hostthread_table__global[0]->pid in   src/c/main/runtime-state.c
+extern int	pth__get_hostthread_id		(void);					// Small-int unique identifier for hostthread.
+extern Ptid	pth__get_hostthread_ptid	(void);					// Used to initialize hostthread_table__global[0]->pid in   src/c/main/runtime-state.c
 //											// This just calls getpid()  in                         src/c/hostthread/hostthread-on-sgi.c
 //											// This returns thr_self() (I don't wanna know) in      src/c/hostthread/hostthread-on-solaris.c
 

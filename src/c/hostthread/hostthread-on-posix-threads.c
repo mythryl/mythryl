@@ -1237,8 +1237,8 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 
 
 //
-Ptid   pth__get_hostthread_id   ()   {
-    // ===================
+Ptid   pth__get_hostthread_ptid   ()   {
+    // ========================
     //
     // Return a unique value distinguishing
     // the currently running hostthread from all other
@@ -1257,7 +1257,7 @@ Hostthread*  pth__get_hostthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-    Ptid ptid =  pth__get_hostthread_id ();									// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
+    Ptid ptid =  pth__get_hostthread_ptid ();									// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
 	//
@@ -1265,6 +1265,18 @@ Hostthread*  pth__get_hostthread   ()   {
     }														// hostthread_table__global exported via    src/c/h/runtime-base.h
     die ("pth__get_hostthread:  tid %lx not found in hostthread_table__global?!", (unsigned long int) ptid);	// NB: 'ptid' can be an int or pointer type depending on OS. (E.g., unsigned long on Linux, pointer on OpenBSD.)
     return NULL;												// Cannot execute; only to quiet gcc.
+}
+
+//
+int    pth__get_hostthread_id   ()   {
+    // ======================
+    //
+    // Return a small in uniquely distinguishing
+    // the currently running hostthread from all other
+    // hostthreads.
+    //
+    Hostthread* hostthread =  pth__get_hostthread();
+    return      hostthread->id;
 }
 
 

@@ -88,9 +88,10 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
     // Initialize the first Hostthread here:
     //
-    hostthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_hostthread_id () returns huge numbers, this gives us small hostthread ids.
-    hostthread_table__global[0]->ptid =  pth__get_hostthread_id ();				// pth__get_hostthread_id				def in    src/c/hostthread/hostthread-on-posix-threads.c
+    hostthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_hostthread_ptid () returns huge numbers, this gives us small hostthread ids.
+    hostthread_table__global[0]->ptid =  pth__get_hostthread_ptid ();				// pth__get_hostthread_ptid				def in    src/c/hostthread/hostthread-on-posix-threads.c
     hostthread_table__global[0]->mode =  HOSTTHREAD_IS_RUNNING;
+    hostthread_table__global[0]->name =  "default";
 
     // Initialize the timers:
     //
@@ -105,7 +106,7 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     //        ====================
     //
     hostthread->heap				= hostthread->task->heap;
-    hostthread->task->hostthread			= hostthread;
+    hostthread->task->hostthread		= hostthread;
     //
     hostthread->executing_mythryl_code		= FALSE;
     hostthread->posix_signal_pending		= FALSE;
@@ -114,7 +115,7 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     hostthread->all_posix_signals.seen_count	= 0;
     hostthread->all_posix_signals.done_count	= 0;
     hostthread->next_posix_signal_id		= 0;
-    hostthread->next_posix_signal_count			= 0;
+    hostthread->next_posix_signal_count		= 0;
     //
     hostthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
     //
@@ -149,6 +150,7 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
 
     hostthread->ptid		= 0;						// Note that '0' works as an initializer whether pthread_t is an int or pointer on the host OS.
     hostthread->mode		= HOSTTHREAD_IS_VOID;
+    hostthread->name		= "(anonymous)";
 }										// fun set_up_hostthread_state
 
 void   initialize_task   (Task* task)   {

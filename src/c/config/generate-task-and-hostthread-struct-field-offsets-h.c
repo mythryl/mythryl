@@ -76,9 +76,9 @@ int   main   (void) {
 	//
     #endif
 
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "executing_mythryl_code",				executing_mythryl_code				);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "executing_mythryl_code",			executing_mythryl_code				);
     PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "ccall_limit_pointer_mask",			ccall_limit_pointer_mask			);	// Nowhere referenced.
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "posix_signal_pending", 				posix_signal_pending				);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "posix_signal_pending", 			posix_signal_pending				);
     PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "mythryl_handler_for_posix_signal_is_running",	mythryl_handler_for_posix_signal_is_running	);
     PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_seen_count",			all_posix_signals.seen_count			);
     PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_done_count",			all_posix_signals.done_count			);
