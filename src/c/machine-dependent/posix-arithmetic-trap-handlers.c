@@ -22,7 +22,7 @@
 #include "runtime-globals.h"
 #include "heap.h"
 
-#define SELF_HOSTTHREAD	(pth__get_hostthread())
+#define SELF_HOSTTHREAD	(pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() ))
 
 static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg code, Signal_Handler_Context_Arg* scp */);
 

@@ -461,7 +461,7 @@ void   print_stats_and_exit   (int code)   {
     //
     if (getenv("MILLISECONDS_BETWEEN_RAMLOG_AND_SYSLOG_DUMPS")) {
         //
-        Hostthread*  hostthread =  pth__get_hostthread();
+        Hostthread*  hostthread =  pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
 	Task*        task       =  hostthread->task;
 
 	dump_ramlog     (task,"print_stats_and_exit");

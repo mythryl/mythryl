@@ -226,7 +226,7 @@ void   debug_task   (void) {
     //
     Hostthread*  hostthread						// Hostthread			is from   src/c/h/runtime-base.h
 	=
-	pth__get_hostthread ();						// pth__get_hostthread		is from   src/c/hostthread/hostthread-on-posix-threads.c
+        pth__get_hostthread_by_ptid (pth__get_hostthread_ptid());	// pth__get_hostthread_by_ptid	is from   src/c/hostthread/hostthread-on-posix-threads.c
 
     Task*  task =  hostthread -> task;
 
@@ -240,7 +240,7 @@ void   debug_task_verbose   (void) {
     //
     Hostthread*  hostthread						// Hostthread			is from   src/c/h/runtime-base.h
 	=
-	pth__get_hostthread ();						// pth__get_hostthread		is from   src/c/hostthread/hostthread-on-posix-threads.c
+        pth__get_hostthread_by_ptid (pth__get_hostthread_ptid());	// pth__get_hostthread_by_ptid	is from   src/c/hostthread/hostthread-on-posix-threads.c
 
     Task*  task =  hostthread -> task;
 

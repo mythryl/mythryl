@@ -1246,18 +1246,31 @@ Ptid   pth__get_hostthread_ptid   ()   {
     // Linux but a pointer on OpenBSD 5.0, so
     // we need to be type-agnostic hereabouts:
     //
+    // This is needed to find record for current hostthread in contexts
+    // like signal handlers where it is not (otherwise) available.
+    //
     return  pthread_self();
 }
+
 //
-Hostthread*  pth__get_hostthread   ()   {
-    //       ===================
+Hostthread*  pth__get_hostthread_by_id (int id)   {
+    //       =========================
     //
-    // Return Hostthread* for currently running hostthread -- this
-    // is needed to find record for current hostthread in contexts
-    // like signal handlers where it is not (otherwise) available.
-    //    
+    // Return Hostthread* for given id:
     //
-    Ptid ptid =  pth__get_hostthread_ptid ();									// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
+    for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
+	//
+	if (hostthread_table__global[i]->id == id)   return hostthread_table__global[ i ];			// hostthread_table__global	def in   src/c/main/runtime-state.c
+    }														// hostthread_table__global exported via    src/c/h/runtime-base.h
+    die ("pth__get_hostthread:  id %d not found in hostthread_table__global?!", id);				// 
+    return NULL;												// Cannot execute; only to quiet gcc.
+}
+
+//
+Hostthread*  pth__get_hostthread_by_ptid (Ptid ptid)   {
+    //       ===========================
+    //
+    // Return Hostthread* for given hostthread:
     //
     for (int i = 0;  i < MAX_HOSTTHREADS;  ++i) {
 	//
@@ -1275,7 +1288,7 @@ int    pth__get_hostthread_id   ()   {
     // the currently running hostthread from all other
     // hostthreads.
     //
-    Hostthread* hostthread =  pth__get_hostthread();
+    Hostthread* hostthread =  pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
     return      hostthread->id;
 }
 

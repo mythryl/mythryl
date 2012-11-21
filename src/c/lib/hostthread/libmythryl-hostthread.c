@@ -46,6 +46,8 @@
 #include "../../mythryl-config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -94,25 +96,33 @@
 
 
 
-static Val   do_get_hostthread_name         (Task* task,  Val arg)   {
+static Val   do_get_hostthread_name         (Task* task,  Val arg)   {	// 'arg' identifies hostthread; get name of that hostthread.
     //       ======================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
-
-    Val result = make_one_word_int( task, (Vint) (pth__get_hostthread_ptid()));		// pth__get_hostthread_ptid	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    int          i          =  TAGGED_INT_TO_C_INT( arg );
+    Hostthread*  hostthread =  hostthread_table__global[ i ];
+    char*        name       =  hostthread->name;
+    Val          result     =  make_ascii_string_from_c_string__may_heapclean(task,  name, NULL);
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
-static Val   do_set_hostthread_name         (Task* task,  Val arg)   {
+static Val   do_set_hostthread_name         (Task* task,  Val arg)   {	// 'arg' is the name; set it on current hostthread.
     //       ======================
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
+    Hostthread*  hostthread =  pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
 
-    make_one_word_int( task, (Vint) (pth__get_hostthread_ptid()));		// pth__get_hostthread_ptid	def in    src/c/hostthread/hostthread-on-posix-threads.c
+    char*        name       =  HEAP_STRING_AS_C_STRING( arg );
+    int          len        =  strlen( name );
+    char*        dup        =  (char*) malloc( len + 1 );			// '+ 1' for terminal nul.
+
+    strcpy( dup, name );							// Copy name from Mythryl heap to C heap.
+
+    hostthread->name = dup;
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;

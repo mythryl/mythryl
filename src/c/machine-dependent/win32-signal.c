@@ -15,7 +15,7 @@
 
 #include "win32-sigtable.c"
 
-#define SELF_HOSTTHREAD	(pth__get_hostthread())
+#define SELF_HOSTTHREAD	(pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() ))
 
 Val   list_signals__may_heapclean  (Task* task, Roots* extra_roots)   {
     //===========================

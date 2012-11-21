@@ -45,7 +45,7 @@ void   ramlog_printf   (char *format, ...)   {
     //
     if (!syscall_log_and_ramlog_enabled)   return;
 
-    Hostthread* hostthread = pth__get_hostthread();
+    Hostthread* hostthread = pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
 
     va_list   ap;
 

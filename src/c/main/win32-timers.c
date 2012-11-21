@@ -24,7 +24,7 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"
 
-#define SELF_HOSTTHREAD	(pth__get_hostthread())
+#define SELF_HOSTTHREAD	(pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() ))
 
 static struct _timeb start_timeb;				// For computing times.
 

@@ -43,7 +43,7 @@
 // by linear scan if nothing else?  -- 2011-11-03 CrT)
 // 
 // 
-#define SELF_HOSTTHREAD	(pth__get_hostthread())			// Note that we still have   #define SELF_HOSTTHREAD	(hostthread_table__global[ 0 ])   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
+#define SELF_HOSTTHREAD	(pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() ))			// Note that we still have   #define SELF_HOSTTHREAD	(hostthread_table__global[ 0 ])   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 
 
 #ifdef USE_ZERO_LIMIT_PTR_FN
