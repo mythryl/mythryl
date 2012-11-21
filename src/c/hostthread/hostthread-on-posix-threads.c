@@ -691,7 +691,7 @@ static void*  hostthread_main   (void* task_as_voidptr)   {
 													// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
 													// struct task				def in   src/c/h/runtime-base.h
 
-char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val closure_arg)   {		// " "It's the job that's never started as takes longest to finish."   -- J. R. R. Tolkein
+char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val closure_arg)   {	// "It's the job that's never started as takes longest to finish."   -- J. R. R. Tolkein
     //===================
     //
     // Run 'closure_arg' in its own kernel thread.
@@ -1318,7 +1318,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 	//
 	hostthread->task->protected_c_arg = &hostthread->task->heapvoid;			// Make 'arg' no longer be a heapcleaner root.
 	//
-	pthread_cond_broadcast( &pth__condvar );					// Tell other hostthreads that shared state has changed.
+	pthread_cond_broadcast( &pth__condvar );						// Tell other hostthreads that shared state has changed.
 	//
     pthread_mutex_unlock(   &pth__mutex   );
 }

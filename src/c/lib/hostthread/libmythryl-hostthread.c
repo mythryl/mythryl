@@ -132,22 +132,22 @@ static Val   do_spawn_hostthread   (Task* task,  Val closure)   {			// Apparentl
 
 
 
-static Val   do_pthread_exit   (Task* task,  Val arg)   {			// Name issues: The name 'pthread_exit' is used by <pthread.h>, and of course 'exit' by <stdlib.h>.
-    //       ===============
+static Val   do_hostthread_exit   (Task* task,  Val arg)   {			// 
+    //       ==================
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     pth__pthread_exit(task);  	// Should not return.
-    log_if("pthread_exit_fn: call unexpectedly returned\n");
-    die(   "pthread_exit_fn: call unexpectedly returned\n");
+    log_if("pth__pthread_exit: call unexpectedly returned\n");
+    die(   "pth__pthread_exit: call unexpectedly returned\n");
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
     return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 }
 
 
-static Val   do_join_hostthread   (Task* task,  Val hostthread_to_join)   {		// Name issue: 'pthread_join' is used by <pthread.h>
-    //       ===============							// 'hostthread_to_join' is a hostthread_table__global[] index returned from a call to   spawn_hostthread()   (above).
+static Val   do_join_hostthread   (Task* task,  Val hostthread_to_join)   {	// 'hostthread_to_join' is a hostthread_table__global[] index returned from a call to   spawn_hostthread()   (above).
+    //       ==================							
     //
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
@@ -401,10 +401,10 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
-    { "get_hostthread_id","get_pthread_id",	do_get_hostthread_id,	""},
-    { "spawn_hostthread","spawn_pthread",		do_spawn_hostthread,	""},
-    { "join_hostthread","join_pthread",		do_join_hostthread,	""},
-    { "pthread_exit","pthread_exit",		do_pthread_exit,	""},
+    { "get_hostthread_id","get_hostthread_id",	do_get_hostthread_id,	""},
+    { "spawn_hostthread","spawn_hostthread",	do_spawn_hostthread,	""},
+    { "join_hostthread","join_hostthread",	do_join_hostthread,	""},
+    { "hostthread_exit","pthread_exit",	do_hostthread_exit,	""},
     //
     { "mutex_make","mutex_make",		do_mutex_make,		""},
     { "mutex_free","mutex_free",		do_mutex_free,		""},

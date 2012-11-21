@@ -15,9 +15,9 @@
 #include "runtime-configuration.h"
 
 
-												// struct hostthread { 			def in   src/c/h/runtime-base.h
+												// struct hostthread { 				def in   src/c/h/runtime-base.h
 												// typedef struct hostthread	Hostthread;	def in   src/c/h/runtime-base.h
-Hostthread*   hostthread_table__global[  MAX_HOSTTHREADS  ];						// hostthread_table__global[] is exported			via      src/c/h/runtime-base.h
+Hostthread*   hostthread_table__global[  MAX_HOSTTHREADS  ];					// hostthread_table__global[] is exported	via      src/c/h/runtime-base.h
     //     =====================
     //
     // Table of all active posix threads in process.

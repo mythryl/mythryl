@@ -130,9 +130,9 @@ typedef  Int1  Status;
     typedef   Valchunk*   Val;					// Only place Valchunk type is used.
 #endif
 //
-typedef struct hostthread	Hostthread;		// struct hostthread	def in   this file.
-typedef struct task			Task;			// struct task			def in   this file.
-typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
+typedef struct hostthread		Hostthread;		// struct hostthread	def in   this file.
+typedef struct task			Task;			// struct task		def in   this file.
+typedef struct heap			Heap;			// struct heap		def in   src/c/h/heap.h
 
 #include <pthread.h>						// Posix threads:			https://computing.llnl.gov/tutorials/pthreads/
 
@@ -401,7 +401,7 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     Hostthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
 								// Valid values for 'mode' are HOSTTHREAD_IS_RUNNING/HOSTTHREAD_IS_BLOCKED/HOSTTHREAD_IS_HEAPCLEANING/HOSTTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 
-    int		id;						// Our own private small-int id for the record. We assign these sequentailly starting at 1.
+    int		id;						// Our own private small-int id for the record. We assign these sequentially starting at 1.
     Ptid	ptid;	       					// Our os-assigned hostthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	//
 	// NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
