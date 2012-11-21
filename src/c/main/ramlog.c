@@ -49,7 +49,7 @@ void   ramlog_printf   (char *format, ...)   {
 
     va_start (ap, format);
     char* start_of_line = ramlog_next;
-    ramlog_next +=  sprintf (ramlog_next, "%d: ", ++ramlog_lines_printed);
+    ramlog_next +=  sprintf (ramlog_next, "%d: [%08lx]: ", ++ramlog_lines_printed, (unsigned long int)(pthread_self()));
     ramlog_next += vsprintf (ramlog_next, format, ap);
     va_end(ap);
 
@@ -73,7 +73,7 @@ void   ramlog_printf   (char *format, ...)   {
 	//
         va_start (ap, format);
 	ramlog_next  = ramlog_buf;
-	ramlog_next +=  sprintf (ramlog_next, "%d: ", ramlog_lines_printed);
+        ramlog_next +=  sprintf (ramlog_next, "%d: [%08lx]: ", ramlog_lines_printed, (unsigned long int)(pthread_self()));
         ramlog_next += vsprintf (ramlog_next, format, ap);
         va_end(ap);
 
