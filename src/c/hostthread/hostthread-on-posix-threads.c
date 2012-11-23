@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <signal.h>
 #include <pthread.h>
 
 #if HAVE_SYS_TYPES_H
@@ -745,6 +746,43 @@ char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val
     task->current_thread	=  current_thread;
   
 
+    // 2012-11-22 CrT: A turkey of a fix for Turkey Day:
+    // alarm_handler in src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    // is failing because it is being called by the bloodybedamned 50Hz SIGALRM
+    // in secondary hostthreads (== posix threads).  And we don't have
+    // process masks implemented apparently (grepping for sigprocmask shows nada)
+    // and that is a whole can of worms in its own right and I'm already up to my
+    // ass in alligators at the moment thank you kindly so here I'm just going to
+    // tweak pth__pthread_create so that SIGALRM is masked in all secondary hostthreads,
+    // and ditto all other signals which I expect application logic to want to handle
+    // only in the primary hostthread -- for details on them see signal(7):
+    sigset_t                    original_signal_mask;
+    sigset_t                    signals_to_block;
+    sigemptyset(               &signals_to_block );						// Allocate the signal set to empty. MUST be done first.
+    sigaddset(                 &signals_to_block, SIGALRM );					// Add SIGALRM to the set.
+    sigaddset(                 &signals_to_block, SIGABRT );					// ...
+    sigaddset(                 &signals_to_block, SIGBUS  );					// 
+    sigaddset(                 &signals_to_block, SIGCHLD );					// 
+    sigaddset(                 &signals_to_block, SIGCONT );					// 
+    sigaddset(                 &signals_to_block, SIGHUP  );					// 
+    sigaddset(                 &signals_to_block, SIGINT  );					// 
+    sigaddset(                 &signals_to_block, SIGPIPE );					// 
+    sigaddset(                 &signals_to_block, SIGPOLL );					// 
+    sigaddset(                 &signals_to_block, SIGPROF );					// 
+    sigaddset(                 &signals_to_block, SIGQUIT );					// 
+    sigaddset(                 &signals_to_block, SIGSTOP );					// 
+    sigaddset(                 &signals_to_block, SIGTERM );					// 
+    sigaddset(                 &signals_to_block, SIGTRAP );					// 
+    sigaddset(                 &signals_to_block, SIGTSTP );					// 
+    sigaddset(                 &signals_to_block, SIGTTIN );					// 
+    sigaddset(                 &signals_to_block, SIGTTOU );					// 
+    sigaddset(                 &signals_to_block, SIGUSR1 );					// 
+    sigaddset(                 &signals_to_block, SIGUSR2 );					// 
+    sigaddset(                 &signals_to_block, SIGVTALRM );					// 
+    sigaddset(                 &signals_to_block, SIGXCPU );					// 
+    sigaddset(                 &signals_to_block, SIGXFSZ );					// 
+    pthread_sigmask( SIG_BLOCK,&signals_to_block, &original_signal_mask );			// Block SIGALRM. We do this before pthread_create() to avoid any window for problems immediately after pthread creation.  Third arg returns previous signal mask.
+												// We unblock SIGALRM in current pthread immediately after pthread_create() but leave it blocked in child pthread (which inherits our signal mask).
 
     hostthread->mode = HOSTTHREAD_IS_RUNNING;							// Moved this above pthread_create() because that seems safer,
     ++pth__running_hostthreads_count__global;							// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
@@ -760,8 +798,10 @@ char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val
 
 		    NULL,									// Provision for attributes -- API futureproofing.
 
-		    hostthread_main,  (void*) task							// Function + argument to run in new kernel thread.
+		    hostthread_main,  (void*) task						// Function + argument to run in new kernel thread.
 		);
+
+    pthread_sigmask( SIG_SETMASK, &original_signal_mask, NULL );				// Return parent pthread to status quo ante.
 
     if (!err) {											// Successfully spawned new kernel thread.
 	//
@@ -770,7 +810,7 @@ char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val
     } else {											// Failed to spawn new kernel thread.
 
 	hostthread->mode = HOSTTHREAD_IS_VOID;							// Note hostthread record (still) has no associated kernel thread.
-	--pth__running_hostthreads_count__global;								// Restore running-threads count to its original value, since we failed to start it.
+	--pth__running_hostthreads_count__global;						// Restore running-threads count to its original value, since we failed to start it.
 
 	pthread_mutex_unlock( &pth__mutex );
 
