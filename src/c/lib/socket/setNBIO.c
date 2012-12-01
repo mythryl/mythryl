@@ -41,7 +41,7 @@ Val   _lib7_Sock_setNBIO   (Task  *task,   Val  arg)   {
     //
     // Mythryl type:  (Socket_Fd, Bool) -> Void
     //
-    // This fn gets bound to   set_nbio'   in:
+    // This fn gets bound to   set_nonblockingio__ref   in:
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
