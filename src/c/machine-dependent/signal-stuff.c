@@ -13,7 +13,7 @@
 #include "system-signals.h"
 
 
-void   choose_signal   (Hostthread* hostthread)   {
+void   choose_signal   (Hostthread* hostthread)   {			// We are called (only) from   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     // =============
     // 
     // Caller guarantees that at least one Unix signal has been

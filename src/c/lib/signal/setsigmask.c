@@ -34,7 +34,7 @@ Val   _lib7_Sig_setsigmask   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    set_signal_mask( task, arg );
+    set_signal_mask( task, arg );						// set_signal_mask() is implemented in   src/c/machine-dependent/posix-signal.c	
     //
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;

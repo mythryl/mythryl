@@ -13,6 +13,10 @@
 #include "cfun-proto-list.h"
 #include "../posix-error/posix-name-val.h"
 
+// This is (presumably) the list of signals specified by Posix 1003.1.
+// NB: We compute an accurate per-system signal list as
+// SigTable[]  in src/c/config/posix-signals.c
+
 static name_val_t values [] = {
   {"abrt", SIGABRT},
   {"alrm", SIGALRM},
@@ -44,7 +48,8 @@ static name_val_t values [] = {
 //     src/c/lib/posix-signal/cfun-list.h
 // and thence
 //     src/c/lib/posix-signal/libmythryl-posix-signal.c
-
+// to
+//     src/lib/std/src/psx/posix-signal.pkg
 
 
 Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
@@ -54,9 +59,9 @@ Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
     //
     // Return the OS-dependent, compile-time constant specified by the string.
     //
-    // This fn gets bound as   osval   in:
+    // This fn gets bound as   osval   in
     //
-    //     src/lib/std/src/psx/posix-signal.c
+    //     src/lib/std/src/psx/posix-signal.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 

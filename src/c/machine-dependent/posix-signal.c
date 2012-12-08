@@ -70,7 +70,7 @@ void   pause_until_signal   (Hostthread* hostthread) {
 }
 
 void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_state) {			// This fn is called (only) from   src/c/lib/signal/setsigstate.c
-    // ================
+    // ================											// Gets bound as   set_signal_state   in   src/lib/std/src/nj/runtime-signals-guts.pkg
     //
     // QUESTIONS:
     //
@@ -78,7 +78,7 @@ void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_sta
     // should the pending signals be discarded?
     //
     // How do we keep track of the state
-    // of non-UNIX signals (e.g., HEAPCLEANING_DONE)?				XXX BUGGO FIXME -- maybe should be a dedicated refcell in heap image for each one, although preserving their state across dump/load seems a minor concern.
+    // of non-UNIX signals (e.g., HEAPCLEANING_DONE)?							XXX BUGGO FIXME -- maybe should be a dedicated refcell in heap image for each one, although preserving their state across dump/load seems a minor concern.
 
 
     switch (sig_num) {
@@ -123,10 +123,10 @@ void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_sta
 }
 
 
-int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {
-    //================
-    //
-    switch (sig_num) {
+int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {					// Called from   src/c/lib/signal/getsigstate.c
+    //================											// Called from   src/c/machine-dependent/posix-signal.c
+    //													// Called form   src/c/machine-dependent/win32-signal.c
+  switch (sig_num) {											// Gets bound as   get_signal_state   in   src/lib/std/src/nj/runtime-signals-guts.pkg
         //
     case RUNSIG_HEAPCLEANING_DONE:
         //
@@ -303,6 +303,11 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     ){
 	hostthread->posix_signal_pending = TRUE;
 
+	// The purpose of the following logic is to ensure that the TRUE
+	//    hostthread->posix_signal_pending
+	// flag set above gets noticed as quickly as practical, by making
+	// the heap-memory-low probe fire prematurely:
+	//
 	#ifdef USE_ZERO_LIMIT_PTR_FN
 	    //									// We don't use this approach currently; if we start using it again we need to check for possiblity of different hostthreads clobbering shared global storage. -- 2012-10-11 CrT
 	    SIG_SavePC( hostthread->task, scp );
@@ -357,6 +362,11 @@ static void   c_signal_handler   (
         //
 	hostthread->posix_signal_pending =  TRUE;
 
+	// The purpose of the following logic is to ensure that the TRUE
+	//    hostthread->posix_signal_pending
+	// flag set above gets noticed as quickly as practical, by making
+	// the heap-memory-low probe fire prematurely:
+	//
 	#ifdef USE_ZERO_LIMIT_PTR_FN	
 	    //									// We don't use this approach currently; if we start using it again we need to check for possiblity of different hostthreads clobbering shared global storage. -- 2012-10-11 CrT
 	    SIG_SavePC( hostthread->task, scp );
@@ -371,8 +381,8 @@ static void   c_signal_handler   (
 #endif
 
 
-void   set_signal_mask   (Task* task, Val arg)   {
-    // ===============
+void   set_signal_mask   (Task* task, Val arg)   {							// We are called (only) by   src/c/lib/signal/setsigmask.c
+    // ===============											// We get bound as   set_sig_mask   in   src/lib/std/src/nj/runtime-signals-guts.pkg
     // 
     // Set the signal mask to the list of signals given by 'arg'.
     // The signal_list has the type
@@ -386,7 +396,7 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //	THE l	-- the signals in l are the mask
     //
 
-  //									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    //									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Signal_Set	mask;											// Signal_Set		is from   src/c/h/system-dependent-signal-get-set-etc.h
     int		i;

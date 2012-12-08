@@ -151,7 +151,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 	if (request == REQUEST_CLEANING) {
 	    //
-	    if (hostthread->posix_signal_pending) {
+	    if (hostthread->posix_signal_pending) {							// posix_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/posix-signal.c
 		//
 		// This "request" is really a POSIX interprocess signal.
 
@@ -196,7 +196,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
                 // statement in
 		//     src/c/main/construct-runtime-package.c
 		//
-		choose_signal( hostthread );
+		choose_signal( hostthread );								// choose_signal	is from   src/c/machine-dependent/signal-stuff.c
 		//
 		task->argument	      =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	      =  PTR_CAST( Val,  return_from_signal_handler_c );

@@ -766,8 +766,8 @@ char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val
     sigaddset(                 &signals_to_block, SIGCONT );					// 
     sigaddset(                 &signals_to_block, SIGHUP  );					// 
     sigaddset(                 &signals_to_block, SIGINT  );					// 
+    sigaddset(                 &signals_to_block, SIGIO   );					// == SIGPOLL
     sigaddset(                 &signals_to_block, SIGPIPE );					// 
-    sigaddset(                 &signals_to_block, SIGPOLL );					// 
     sigaddset(                 &signals_to_block, SIGPROF );					// 
     sigaddset(                 &signals_to_block, SIGQUIT );					// 
     sigaddset(                 &signals_to_block, SIGSTOP );					// 
