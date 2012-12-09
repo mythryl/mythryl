@@ -20,45 +20,164 @@
 #include "generate-system-signals.h-for-posix-systems.h"
 
 
+#define UNSUPPORTED_SIGNAL 0
+
+#ifndef SIGALRM
+#define SIGALRM   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGABRT									// We favor "SIGABRT" over "SIGIOT" because the former has 10X more Google hits.
+#ifdef  SIGIOT
+#define SIGABRT   SIGIOT
+#else
+#define SIGABRT   UNSUPPORTED_SIGNAL
+#endif
+#endif
+
+#ifndef SIGBUS
+#define SIGBUS    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGCHLD
+#ifdef  SIGCLD
+#define SIGCHLD   SIGCLD
+#else
+#define SIGCHLD   UNSUPPORTED_SIGNAL
+#endif
+#endif
+
+#ifndef SIGCONT
+#define SIGCONT   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGHUP
+#define SIGHUP    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGILL
+#define SIGILL    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGINT
+#define SIGINT    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGIO								// "SIGIO" has 10X more Google hits than "SIGPOLL".
+#ifdef  SIGPOLL
+#define SIGIO     SIGPOLL
+#else
+#define SIGIO     UNSUPPORTED_SIGNAL
+#endif
+#endif
+
+#ifndef SIGKILL
+#define SIGKILL   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGPIPE
+#define SIGPIPE   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGPROF
+#define SIGPROF   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGPWF
+#define SIGPWF    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGQUIT
+#define SIGPQUIT  UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGSTKFLT
+#define SIGSTKFLT UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGSTOP
+#define SIGSTOP   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGSYS
+#define SIGSYS    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGTERM
+#define SIGTERM   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGTRAP
+#define SIGTRAP   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGTSTP
+#define SIGTSTP   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGTTIN
+#define SIGTTIN   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGTTOU
+#define SIGTTOU   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGURG
+#define SIGURG    UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGUSR1
+#define SIGUSR1   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGUSR2
+#define SIGUSR2   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGVTALRM
+#define SIGVTALRM UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGWINCH							// "SIGWINCH" gets 10X more Google hits than "SIGWINDOW".
+#ifdef  SIGWINDOW
+#define SIGWINCH  SIGWINDOW
+#else
+#define SIGWINCH  UNSUPPORTED_SIGNAL
+#endif
+#endif
+
+#ifndef SIGXCPU
+#define SIGXCPU   UNSUPPORTED_SIGNAL
+#endif
+
+#ifndef SIGXFSZ
+#define SIGXFSZ  UNSUPPORTED_SIGNAL
+#endif
 
 //////////////////////////////////////////////
-// The POSIX/ANSI/BSD/Linux signals we support:
+// The POSIX/ANSI/BSD/Linux signals we support.
+//
+// The intention here is that we use the row
+// number in the following table as the stable
+// Mythryl-side name for a signal, to make the
+// Mythryl-side world signal naming independent
+// of the particular int signal names used by
+// the current host OS kernel, and indeed
+// independent of whether they are supported
+// by the current kernel.
+//
+// To that end, it is probably best that any signals
+// added to this table GO AT THE END, rather than
+// in alphabetical order.
 //										// SigTable is used in this file and also in   src/c/machine-dependent/posix-signal.c
-Signal_Descriptor	SigTable[] = {						// Signal_Descriptor	is from   src/c/config/generate-system-signals.h-for-posix-systems.h
-
-
-    #ifdef SIGALRM
-	    { SIGALRM,	"SIGALRM",	"ALARM"},	// POSIX		// Alarm.  See also SIGVTALRM.
-    #endif
-
-
-
-    #ifdef SIGABRT								// We favor "SIGABRT" over "SIGIOT" because the former has 10X more Google hits.
-	    { SIGABRT,	"SIGABRT",	"ABRT"},	// ANSI			// Abort.     On Linux == BSD4.2 SIGIOT.
-    #elif SIGIOT
-	    { SIGIOT,	"SIGABRT",	"ABRT"},	// BSD 4.2		// I/O Trap.  On Linux == ANSI SIGABRT (abort).
-    #endif
-
-
-
-    #ifdef SIGBUS
-	    { SIGBUS,	"SIGBUS",	"BUS"},		// BSD 4.2		// BUS error.
-    #endif
-
-
-
-    #if defined(SIGCHLD)
-	    { SIGCHLD,	"SIGCHLD",	"CHLD"},	// POSIX		// Child status has changed.
-    #elif defined(SIGCLD)
-	    { SIGCLD,	"SIGCHLD",	"CHLD"},	// SYS V		// "                      ".
-    #endif
-
-
-
-    #ifdef SIGCONT
-	    { SIGCONT,	"SIGCONT",	"CONT"},	// POSIX		// Continue.
-    #endif
-
+static Signal_Descriptor   signal_table__local[]   = {				// Signal_Descriptor	is from   src/c/config/generate-system-signals.h-for-posix-systems.h
+    //                     ====================
+    //
+    { SIGALRM,	"SIGALRM",	"ALARM"},	// POSIX		// Alarm.  See also SIGVTALRM.
+    { SIGABRT,	"SIGABRT",	"ABRT"},	// ANSI			// Abort.     On Linux == BSD4.2 SIGIOT.
+    { SIGBUS,	"SIGBUS",	"BUS"},		// BSD 4.2		// BUS error.
+    { SIGCHLD,	"SIGCHLD",	"CHLD"},	// POSIX		// Child status has changed.
+    { SIGCONT,	"SIGCONT",	"CONT"},	// POSIX		// Continue.
 
 
     // For some reason uncommenting this and recompiling produces
@@ -81,66 +200,18 @@ Signal_Descriptor	SigTable[] = {						// Signal_Descriptor	is from   src/c/confi
     // #endif
 
 
-
-    #ifdef SIGHUP
-	    { SIGHUP,	"SIGHUP",	"HUP"},		// POSIX		// Hangup.
-    #endif
-
-
-
-    #ifdef SIGILL
-	    { SIGILL,	"SIGILL",	"ILL"},		// ANSI			// Illegal instruction
-    #endif
-
-
-
-    #ifdef SIGINT
-	    { SIGINT,	"SIGINT",	"INTERRUPT"},	// ANSI			// Interrupt.
-    #endif
-
-
-
-    #ifdef SIGIO								// "SIGIO" has 10X more Google hits than "SIGPOLL".
-	    { SIGIO,	"SIGIO",	"IO"},		// BSD4.2		// I/O now possible.
-    #elif SIGPOLL
-	    { SIGPOLL,	"SIGIO",	"IO"},		// SYS V		// Pollable event occurred
-    #endif
-
-
+    { SIGHUP,	"SIGHUP",	"HUP"},			// POSIX		// Hangup.
+    { SIGILL,	"SIGILL",	"ILL"},			// ANSI			// Illegal instruction
+    { SIGINT,	"SIGINT",	"INTERRUPT"},		// ANSI			// Interrupt.
+    { SIGIO,	"SIGIO",	"IO"},			// BSD4.2		// I/O now possible.
 
     // SIGIOT:  See SIGABRT.
 
-
-
-    #ifdef SIGKILL
-	    { SIGKILL,	"SIGKILL",	"KILL"},	// POSIX		// Kill, unblockable.
-    #endif
-
-
-
-    #ifdef SIGPIPE
-	    { SIGPIPE,	"SIGPIPE",	"PIPE"},	// POSIX		// Broken pipe.
-    #endif
-
-
-
-
-
-    #ifdef SIGPROF
-	    { SIGPROF,	"SIGPROF",	"PROF"},	// BSD 4.2		// Profiling alarm clock.
-    #endif
-
-
-
-    #ifdef SIGPWF
-	    { SIGPWR,	"SIGPWR",	"PWR"},		// SYS V		// Power failure restart.
-    #endif
-
-
-
-    #ifdef SIGQUIT
-	    { SIGQUIT,	"SIGQUIT",	"QUIT"},	// POSIX		// Quit.
-    #endif
+    { SIGKILL,	"SIGKILL",	"KILL"},		// POSIX		// Kill, unblockable.
+    { SIGPIPE,	"SIGPIPE",	"PIPE"},		// POSIX		// Broken pipe.
+    { SIGPROF,	"SIGPROF",	"PROF"},		// BSD 4.2		// Profiling alarm clock.
+    { SIGPWR,	"SIGPWR",	"PWR"},			// SYS V		// Power failure restart.
+    { SIGQUIT,	"SIGQUIT",	"QUIT"},		// POSIX		// Quit.
 
 
 
@@ -164,150 +235,33 @@ Signal_Descriptor	SigTable[] = {						// Signal_Descriptor	is from   src/c/confi
     // #endif
 
 
-
-    #ifdef SIGSTKFLT
-	    { SIGSTKFLT, "SIGSTKFLT",	"STKFLT"},	// Linux		// Stack fault.
-    #endif
+    { SIGSTKFLT, "SIGSTKFLT",	"STKFLT"},		// Linux		// Stack fault.
 
 
 
-    #ifdef SIGSTOP
-	    { SIGSTOP,	"SIGSTOP",	"STOP"},	// POSIX		// Stop, unblockable.
-    #endif
-
-
-
-    #ifdef SIGSYS
-	    { SIGSYS,	"SIGSYS",	"SYS"},		// Linux		// Bad system call.
-    #endif
-
-
-
-    #ifdef SIGTERM
-	    { SIGTERM,	"SIGTERM",	"TERMINATE"},	// POSIX		// Polite (catchable) request to terminate. http://en.wikipedia.org/wiki/SIGTERM
-    #endif
-
-
-
-    #ifdef SIGTRAP
-	    { SIGTRAP,	"SIGTRAP",	"TRAP"},	// POSIX		// Trace trap
-    #endif
-
-
-
-    #ifdef SIGTSTP
-	    { SIGTSTP,	"SIGTSTP",	"TSTP"},	// POSIX		// Keyboard stop.
-    #endif
-
-
-
-    #ifdef SIGTTIN
-	    { SIGTTIN,	"SIGTTIN",	"TTIN"},	// POSIX		// Background read from TTY.
-    #endif
-
-
-
-    #ifdef SIGTTOU
-	    { SIGTTOU,	"SIGTTOU",	"TTOU"},	// POSIX		// Backround write to TTY.
-    #endif
-
-
-    #ifdef SIGURG
-	    { SIGURG,	"SIGURG",	"URG"},		// BSD 4.2		// Urgent condition on socket.
-    #endif
-
-
-
-    #ifdef SIGUSR1
-	    { SIGUSR1,	"SIGUSR1",	"USR1"},	// POSIX		// User-defined signal 1.
-    #endif
-
-
-
-    #ifdef SIGUSR2
-	    { SIGUSR2,	"SIGUSR2",	"USR2"},	// POSIX		// User-defined signal 2.
-    #endif
-
-
-    #ifdef SIGVTALRM
-	    { SIGVTALRM, "SIGVTALRM",	"VTALRM"},	// BSD 4.2		// Alarm.  See also SIGALRM.
-    #endif
-
-
-
-    #if defined(SIGWINCH)							// "SIGWINCH" gets 10X more Google hits than "SIGWINDOW".
-	    { SIGWINCH,	"SIGWINCH",	"WINCH"},	// BSD 4.3		// Window size change.
-    #elif defined(SIGWINDOW)
-	    { SIGWINDOW, "SIGWINCH",	"WINCH"},
-    #endif
-
-
-
-    #if defined(SIGXCPU)
-	    { SIGXCPU,	"SIGXCPU",	"XCPU"},	// BSD 4.2		// CPU limit exceeded.
-    #endif
-
-
-
-    #if defined(SIGXFSZ)
-	    { SIGXFSZ,	"SIGXFSZ",	"XFSZ"},	// BSD 4.2		// File size limit exceeded.
-    #endif
+    { SIGSTOP,	"SIGSTOP",	"STOP"},		// POSIX		// Stop, unblockable.
+    { SIGSYS,	"SIGSYS",	"SYS"},			// Linux		// Bad system call.
+    { SIGTERM,	"SIGTERM",	"TERMINATE"},		// POSIX		// Polite (catchable) request to terminate. http://en.wikipedia.org/wiki/SIGTERM
+    { SIGTRAP,	"SIGTRAP",	"TRAP"},		// POSIX		// Trace trap
+    { SIGTSTP,	"SIGTSTP",	"TSTP"},		// POSIX		// Keyboard stop.
+    { SIGTTIN,	"SIGTTIN",	"TTIN"},		// POSIX		// Background read from TTY.
+    { SIGTTOU,	"SIGTTOU",	"TTOU"},		// POSIX		// Backround write to TTY.
+    { SIGURG,	"SIGURG",	"URG"},			// BSD 4.2		// Urgent condition on socket.
+    { SIGUSR1,	"SIGUSR1",	"USR1"},		// POSIX		// User-defined signal 1.
+    { SIGUSR2,	"SIGUSR2",	"USR2"},		// POSIX		// User-defined signal 2.
+    { SIGVTALRM, "SIGVTALRM",	"VTALRM"},		// BSD 4.2		// Alarm.  See also SIGALRM.
+    { SIGWINCH,	"SIGWINCH",	"WINCH"},		// BSD 4.3		// Window size change.
+    { SIGXCPU,	"SIGXCPU",	"XCPU"},		// BSD 4.2		// CPU limit exceeded.
+    { SIGXFSZ,	"SIGXFSZ",	"XFSZ"},		// BSD 4.2		// File size limit exceeded.
 };
-#define TABLE_SIZE	(sizeof(SigTable)/sizeof(Signal_Descriptor))
+#define SIGNAL_TABLE_SIZE_IN_SLOTS	(sizeof(signal_table__local) / sizeof(Signal_Descriptor))
 
 
 
-/////////////////////////////////////////////////////////////////////
-// I think the below signals are basically a sucky idea.
-// They will always be anomalous one way or another -- for example
-// trying to enter them in a signalset via sigaddset() from <signal.h>
-// is likely to fail obscurely on some systems.  I think it would be
-// better to have a facility which allows the caller to have delivery
-// of some caller-selected standard signal faked up after each heapcleaning,
-// rather than have a bogus heapcleaning signal. XXX SUCKO FIXME
-//                                             -- 2012-12-08 CrT
-//
-// Run-time system generated signals.
-// Note that the '-1' signal codes mean basically
-// "append me to the end of the real posix signals",
-// so if 'kill -l' shows 30 signals on your unix,
-// the first '-1' below will be (pseudo-)signal 31.
-//
-// The '#define name' will be that visible at the C level via
-//
-//     src/c/o/system-signals.h
-//
-// The 'Mythryl' name will be that visible at the Mythryl level via
-// mythryl_callable_c_library_interface::find_system_constant() --
-// for example see src/lib/std/src/nj/runtime-signals-guts.pkg
-//
-static Signal_Descriptor    runtime_generated_signals__local []							// Signal_Descriptor	is from   src/c/config/generate-system-signals.h-for-posix-systems.h
-=  	//		    ================================
-    {
-        //     Posix signal code    #define name                		Mythryl name   
-        //     =================    ============                		============
-	//
-	    { -1,                   "RUNSIG_HEAPCLEANING_DONE",			"HEAPCLEANING_DONE" },		// RUNSIG_HEAPCLEANING_DONE here shows up as
-														//     #define RUNSIG_HEAPCLEANING_DONE 30			in   src/c/o/system-signals.h
-														// + as 'case' tags in get_signal_state + set_signal_state	in   src/c/machine-dependent/posix-signal.c
-														//
-														// HEAPCLEANING_DONE here shows up (only)			in   src/c/o/posix-signal-table--autogenerated.c
-														// and								in   src/lib/std/src/nj/runtime-signals-guts.pkg
-
-
-	    { -1,                   "RUNSIG_THREAD_SCHEDULER_TIMESLICE",	"THREAD_SCHEDULER_TIMESLICE" },	// RUNSIG_THREAD_SCHEDULER_TIMESLICE here shows up as
-														//     #define RUNSIG_THREAD_SCHEDULER_TIMESLICE 31		in   src/c/o/system-signals.h
-														// + as 'case' tags in get_signal_state + set_signal_state	in   src/c/machine-dependent/posix-signal.c
-														//
-														// THREAD_SCHEDULER_TIMESLICE here shows up (only)		in   src/c/o/posix-signal-table--autogenerated.c
-														// and								in   src/lib/std/src/nj/runtime-signals-guts.pkg
-    };
-
-#define RUNTIME_GENERATED_SIGNAL_COUNT  (sizeof(runtime_generated_signals__local) / sizeof(Signal_Descriptor))
 
 Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
     //
-    Signal_Descriptor**  signals =   MALLOC_VEC( Signal_Descriptor*, TABLE_SIZE + RUNTIME_GENERATED_SIGNAL_COUNT);
+    Signal_Descriptor**  signals =   MALLOC_VEC( Signal_Descriptor*, SIGNAL_TABLE_SIZE_IN_SLOTS );
 
     // Insertion-sort the signal table by increasing signal number.
     // If there are duplicate definitions of a sig value
@@ -315,18 +269,18 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
     // We need this because some systems alias signals.
     //
     int n = 0;
-    for (int i = 0;  i < TABLE_SIZE;  i++) {
+    for (int i = 0;  i < SIGNAL_TABLE_SIZE_IN_SLOTS;  i++) {
 	//
         // Invariant: signals[0..n-1] is sorted
         //
-	Signal_Descriptor* p =  &SigTable[ i ];
+	Signal_Descriptor* p =  &signal_table__local[ i ];
 
 	int  j;
 	for (j = 0;  j < n;  j++) {
 	    //
-	    if (signals[j]->sig == p->sig)		break;	      // A duplicate -- drop it.
+	    if (signals[j]->kernel_id_for_signal == p->kernel_id_for_signal)		break;	      // A duplicate -- drop it.
 
-	    if (signals[j]->sig > p->sig) {
+	    if (signals[j]->kernel_id_for_signal > p->kernel_id_for_signal) {
 	        //
                 // Insert the signal at position j:
                 //
@@ -346,14 +300,6 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
     // signals[n-1]->sig is the largest system signal code.
     //
 
-    // Add the run-time system signals to the table:
-    //
-    for (int i = 0, j = n;  i < RUNTIME_GENERATED_SIGNAL_COUNT;  i++, j++) {
-	//
-	signals[j] =  &runtime_generated_signals__local[i];
-	//
-	signals[j]->sig =  signals[n-1]->sig + i+1;
-    }
 
     Runtime_System_Signal_Table*  signal_db
 	=
@@ -361,9 +307,8 @@ Runtime_System_Signal_Table*   sort_runtime_system_signal_table   () {
 
     signal_db->sigs	= signals;
     signal_db->posix_signal_kinds	= n;
-    signal_db->runtime_generated_signal_kinds	= RUNTIME_GENERATED_SIGNAL_COUNT;
-    signal_db->lowest_valid_posix_signal_number	= signals[0]->sig;
-    signal_db->highest_valid_posix_signal_number	= signals[n-1]->sig;
+    signal_db->lowest_valid_posix_signal_number	= signals[0]->kernel_id_for_signal;
+    signal_db->highest_valid_posix_signal_number= signals[n-1]->kernel_id_for_signal;
 
     return signal_db;
 

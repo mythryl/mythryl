@@ -102,7 +102,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 
     char* heap_pathname = HEAP_STRING_AS_C_STRING( mlPathname );
 
-    name_val_t*	 attribute = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS);
+    name_val_t*	 attribute = _lib7_posix_nv_binary_search (HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS);
 
     if (!attribute) {
 	errno = EINVAL;
@@ -161,7 +161,7 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
     int fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0);
     Val	mlAttr =  GET_TUPLE_SLOT_AS_VAL( arg, 1);
 
-    name_val_t*  attribute =  _lib7_posix_nv_lookup( HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS );
+    name_val_t*  attribute =  _lib7_posix_nv_binary_search( HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS );
 
     if (!attribute) {
 	errno = EINVAL;

@@ -389,9 +389,6 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     //
     int		posix_signal_rotor;				// Ihe index in previous of the next slot to check, round-robin style.
 
-    int		heapcleaning_done_signal_handler_state;		// State of the heapcleaning signal handler.	One of LIB7_SIG_IGNORE | LIB7_SIG_DEFAULT  LIB7_SIG_ENABLED  from   src/c/h/system-dependent-signal-stuff.h
-    int		thread_scheduler_timeslice_signal_handler_state;// State of the timeslicing  signal handler.	One of LIB7_SIG_IGNORE | LIB7_SIG_DEFAULT  LIB7_SIG_ENABLED  from   src/c/h/system-dependent-signal-stuff.h
-
     Time*	cpu_time_at_start_of_last_heapclean;		// The cumulative CPU time at the start of the last heapclean -- see src/c/main/timers.c
     Time*	cumulative_cleaning_cpu_time;			// The cumulative cleaning time.
 

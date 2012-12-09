@@ -2,10 +2,10 @@
 
 
 typedef struct {
-    int   sig;							// The POSIX signal code.
-    char* sigName;						// The symbolic name of the signal (i.e., the #define name.
+    int   kernel_id_for_signal;					// Numeric value of SIGQUIT or such.
+    char* signal_h__name_for_signal;				// The name #define'd for the signal in <signal.h>, e.g. "SIGQUIT".
     //								//
-    char* shortName;						// The short name of the signal passed to Mythryl.
+    char* mythryl_name_for_signal;				// The short name of the signal passed to Mythryl.
 } Signal_Descriptor;
 
 typedef struct {
@@ -13,7 +13,6 @@ typedef struct {
     Signal_Descriptor** sigs;					// An ordered vector of signal descriptions.
     //
     int			posix_signal_kinds;			// Number of posix interprocess signals supported on this system.
-    int			runtime_generated_signal_kinds;		// Number of different runtime-generated signals.
     int			lowest_valid_posix_signal_number;	// Minimum system signal number.
     int			highest_valid_posix_signal_number;	// Maximum system signal number.
     //

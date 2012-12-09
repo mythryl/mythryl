@@ -118,9 +118,6 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     //
     hostthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
     //
-    hostthread->heapcleaning_done_signal_handler_state		= LIB7_SIG_IGNORE;
-    hostthread->thread_scheduler_timeslice_signal_handler_state	= LIB7_SIG_IGNORE;
-    //
     hostthread->cpu_time_at_start_of_last_heapclean		= MALLOC_CHUNK(Time);
     hostthread->cumulative_cleaning_cpu_time			= MALLOC_CHUNK(Time);
 

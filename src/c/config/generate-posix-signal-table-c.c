@@ -26,8 +26,8 @@ int main (void)
     char*        progname      =  "src/c/config/generate-posix-signal-table-c.c";
 
     Runtime_System_Signal_Table*  signal_info   =  sort_runtime_system_signal_table ();
-    int		 signal_count  =  signal_info->posix_signal_kinds
-                               +  signal_info->runtime_generated_signal_kinds;
+
+    int		 signal_count  =  signal_info->posix_signal_kinds;
 
     FILE*	 f = start_generating_header_file( filename, unique_string, progname	);				// start_generating_header_file	is from   src/c/config/start-and-finish-generating-header-file.c
 
@@ -37,14 +37,22 @@ int main (void)
     fprintf (f, "//    src/c/machine-dependent/posix-signal.c\n");
     fprintf (f, "\n");
     fprintf (f, "static System_Constant SigInfo[NUM_SIGS] = {\n");
+
     for (i = 0;  i < signal_info->posix_signal_kinds;  i++) {
+        //
 	fprintf(f, "    { %s, \"%s\" },\n",
-	    signal_info->sigs[i]->sigName, signal_info->sigs[i]->shortName);
+	    signal_info->sigs[i]->signal_h__name_for_signal,
+	    signal_info->sigs[i]->mythryl_name_for_signal
+        );
     }
     fprintf (f, "  // Run-time signals\n");
 
     for (i = signal_info->posix_signal_kinds;  i < signal_count;  i++) {
-        fprintf(f, "    { %s, \"%s\" },\n", signal_info->sigs[i]->sigName, signal_info->sigs[i]->shortName);
+        //
+        fprintf(f, "    { %s, \"%s\" },\n",
+	    signal_info->sigs[i]->signal_h__name_for_signal,
+	    signal_info->sigs[i]->mythryl_name_for_signal
+        );
     }
 
     fprintf (f, "};\n");

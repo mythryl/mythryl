@@ -65,7 +65,7 @@ Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    name_val_t*  resultt = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
+    name_val_t*  resultt = _lib7_posix_nv_binary_search (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);			// _lib7_posix_nv_binary_search	is from   src/c/lib/posix-error/posix-name-val.c
 
     if (!resultt)	return RAISE_ERROR__MAY_HEAPCLEAN(task, "system constant not defined", NULL);
 

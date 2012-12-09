@@ -17,7 +17,7 @@ static int   cmp   (const void *key, const void *item) {
 
 
 
-name_val_t*   _lib7_posix_nv_lookup   (char* key,  name_val_t* array,  int numelms) {
+name_val_t*   _lib7_posix_nv_binary_search   (char* key,  name_val_t* array,  int numelms) {
     //        =====================
     //
     // Mythryl type:

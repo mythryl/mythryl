@@ -12,7 +12,7 @@ typedef struct {
   int        val;
 } name_val_t;
 
-extern name_val_t *_lib7_posix_nv_lookup (char *, name_val_t *, int);
+extern name_val_t*   _lib7_posix_nv_binary_search   (char *, name_val_t *, int);
 
 #endif // _LIB7_POSIX_NV_
 

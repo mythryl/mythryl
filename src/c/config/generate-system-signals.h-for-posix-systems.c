@@ -30,20 +30,26 @@ int main (void)
 
     f = start_generating_header_file( filename, unique_string, progname );		// start_generating_header_file	is from   src/c/config/start-and-finish-generating-header-file.c
 
-    numSigs = signal_db->posix_signal_kinds + signal_db->runtime_generated_signal_kinds;
+    numSigs = signal_db->posix_signal_kinds;
 
     fprintf (f, "#define NUM_SYSTEM_SIGS %2d\n", signal_db->posix_signal_kinds);
     fprintf (f, "#define MIN_SYSTEM_SIG  %2d /* %s */\n",
-	signal_db->lowest_valid_posix_signal_number, signal_db->sigs[0]->sigName);
+	signal_db->lowest_valid_posix_signal_number, signal_db->sigs[0]->signal_h__name_for_signal);
     fprintf (f, "#define MAX_SYSTEM_SIG  %2d /* %s */\n",
-	signal_db->highest_valid_posix_signal_number, signal_db->sigs[signal_db->posix_signal_kinds-1]->sigName);
+	signal_db->highest_valid_posix_signal_number, signal_db->sigs[signal_db->posix_signal_kinds-1]->signal_h__name_for_signal);
     fprintf (f, "#define NUM_SIGS        %2d\n", numSigs);
     fprintf (f, "#define MAX_POSIX_SIGNALS       %2d\n",
-	signal_db->highest_valid_posix_signal_number + signal_db->runtime_generated_signal_kinds + 1);
+	signal_db->highest_valid_posix_signal_number
+        + 1
+    );
     fprintf (f, "\n");
+
     for (i = signal_db->posix_signal_kinds;  i < numSigs;  i++) {
+        //
 	fprintf(f, "#define %s %2d\n",
-	    signal_db->sigs[i]->sigName, signal_db->sigs[i]->sig);
+	    signal_db->sigs[i]->signal_h__name_for_signal,
+            signal_db->sigs[i]->kernel_id_for_signal
+        );
     }
     fprintf (f, "\n");
 

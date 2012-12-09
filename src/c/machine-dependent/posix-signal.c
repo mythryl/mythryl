@@ -76,49 +76,31 @@ void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_sta
     //
     // If we disable a signal that has pending signals,
     // should the pending signals be discarded?
-    //
-    // How do we keep track of the state
-    // of non-UNIX signals (e.g., HEAPCLEANING_DONE)?							XXX BUGGO FIXME -- maybe should be a dedicated refcell in heap image for each one, although preserving their state across dump/load seems a minor concern.
 
-
-    switch (sig_num) {
+    if (IS_SYSTEM_SIG(sig_num)) {
 	//
-    case RUNSIG_HEAPCLEANING_DONE:
-        //
-	hostthread->heapcleaning_done_signal_handler_state =  signal_state;
-	break;
-
-    case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
-        //
-	hostthread->thread_scheduler_timeslice_signal_handler_state =  signal_state;
-	break;
-
-    default:
-	if (IS_SYSTEM_SIG(sig_num)) {
+	switch (signal_state) {
 	    //
-	    switch (signal_state) {
-	        //
-	    case LIB7_SIG_IGNORE:
-		SELECT_SIG_IGN_HANDLING_FOR_SIGNAL (sig_num);
-		break;
+	case LIB7_SIG_IGNORE:
+	    SELECT_SIG_IGN_HANDLING_FOR_SIGNAL (sig_num);
+	    break;
 
-	    case LIB7_SIG_DEFAULT:
-		SELECT_SIG_DFL_HANDLING_FOR_SIGNAL( sig_num );
-		break;
+	case LIB7_SIG_DEFAULT:
+	    SELECT_SIG_DFL_HANDLING_FOR_SIGNAL( sig_num );
+	    break;
 
-	    case LIB7_SIG_ENABLED:
-		SET_SIGNAL_HANDLER( sig_num, c_signal_handler );					// SET_SIGNAL_HANDLER 	#define in   src/c/machine-dependent/system-dependent-signal-get-set-etc.h
-		break;
+	case LIB7_SIG_ENABLED:
+	    SET_SIGNAL_HANDLER( sig_num, c_signal_handler );					// SET_SIGNAL_HANDLER 	#define in   src/c/machine-dependent/system-dependent-signal-get-set-etc.h
+	    break;
 
-	    default:
-		die ("bogus signal state: sig = %d, state = %d\n",
-		    sig_num, signal_state);
-	    }
-
-	} else {
-
-            die ("set_signal_state: unknown signal %d\n", sig_num);
+	default:
+	    die ("bogus signal state: sig = %d, state = %d\n",
+		sig_num, signal_state);
 	}
+
+    } else {
+
+	die ("set_signal_state: unknown signal %d\n", sig_num);
     }
 }
 
@@ -126,27 +108,15 @@ void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_sta
 int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {					// Called from   src/c/lib/signal/getsigstate.c
     //================											// Called from   src/c/machine-dependent/posix-signal.c
     //													// Called form   src/c/machine-dependent/win32-signal.c
-  switch (sig_num) {											// Gets bound as   get_signal_state   in   src/lib/std/src/nj/runtime-signals-guts.pkg
-        //
-    case RUNSIG_HEAPCLEANING_DONE:
-        //
-	return hostthread->heapcleaning_done_signal_handler_state;
-
-    case RUNSIG_THREAD_SCHEDULER_TIMESLICE:
-        //
-	return hostthread->thread_scheduler_timeslice_signal_handler_state;
-
-    default:
-	if (!IS_SYSTEM_SIG(sig_num))   die ("get_signal_state: unknown signal %d\n", sig_num);
+    if (!IS_SYSTEM_SIG(sig_num))   die ("get_signal_state: unknown signal %d\n", sig_num);
+    //
+    {   void    (*handler)();
 	//
-        {   void    (*handler)();
-	    //
-	    GET_SIGNAL_HANDLER( sig_num, handler );				// Store it into 'handler'.
-	    //
-	    if      (handler == SIG_IGN)	return LIB7_SIG_IGNORE;
-	    else if (handler == SIG_DFL)	return LIB7_SIG_DEFAULT;
-	    else				return LIB7_SIG_ENABLED;
-	}
+	GET_SIGNAL_HANDLER( sig_num, handler );				// Store it into 'handler'.
+	//
+	if      (handler == SIG_IGN)	return LIB7_SIG_IGNORE;
+	else if (handler == SIG_DFL)	return LIB7_SIG_DEFAULT;
+	else				return LIB7_SIG_ENABLED;
     }
 }
 
