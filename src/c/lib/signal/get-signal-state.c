@@ -1,4 +1,4 @@
-// getsigstate.c
+// get-signal-state.c
 //
 // This gets bound in:
 //
@@ -21,13 +21,13 @@
 //     src/c/lib/signal/cfun-list.h
 // and thence
 //     src/c/lib/signal/libmythryl-signal.c
+// to
+//     src/lib/std/src/nj/runtime-signals-guts.pkg
 
-
-
-Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
-    //=====================
+Val   _lib7_Sig_get_signal_state   (Task* task,  Val arg)   {
+    //==========================
     //
-    // Mythryl type:  System_Constant -> Int
+    // Mythryl type:  Int -> Int
     //
     // This fn gets bound as   get_signal_state   in:
     //
@@ -35,13 +35,13 @@ Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    int sig_num = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int signal = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_getsigstate", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
-	int state = get_signal_state (task->hostthread, sig_num );
+	int state = get_signal_state (task->hostthread, signal );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_getsigstate" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = TAGGED_INT_FROM_C_INT(state);
 

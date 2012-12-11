@@ -15,7 +15,7 @@
 
 // This is (presumably) the list of signals specified by Posix 1003.1.
 // NB: We compute an accurate per-system signal list as
-// SigTable[]  in src/c/config/posix-signals.c
+// signal_table__local[]  in src/c/config/posix-signals.c
 
 static name_val_t values [] = {
   {"abrt", SIGABRT},

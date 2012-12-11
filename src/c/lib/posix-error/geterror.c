@@ -11,7 +11,7 @@
 #include "raise-error.h"
 #include "cfun-proto-list.h"
 
-extern Sysconsts	errno_table__global;
+extern Sysconsts	errno_sysconsts_table__global;
 
 
 
@@ -33,7 +33,7 @@ Val   _lib7_P_Error_geterror   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    Val result =  make_system_constant__may_heapclean( task, &errno_table__global, TAGGED_INT_TO_C_INT(arg), NULL );		// make_system_constant__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val result =  make_system_constant__may_heapclean( task, &errno_sysconsts_table__global, TAGGED_INT_TO_C_INT(arg), NULL );		// make_system_constant__may_heapclean		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;

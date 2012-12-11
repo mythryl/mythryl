@@ -67,12 +67,12 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    int pid =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    int sig =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
+    int pid    =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int signal =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill", NULL );
 	//
-	int status = kill( pid, sig );
+	int status = kill( pid, signal );
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill" );
 

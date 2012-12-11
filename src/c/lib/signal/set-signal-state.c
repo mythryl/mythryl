@@ -1,4 +1,4 @@
-// setsigstate.c
+// set-signal-state.c
 //
 // This gets bound in:
 //
@@ -24,10 +24,10 @@
 
 
 
-Val   _lib7_Sig_setsigstate   (Task* task,  Val arg)   {
-    //=====================
+Val   _lib7_Sig_set_signal_state   (Task* task,  Val arg)   {
+    //==========================
     //
-    // Mythryl type: (System_Constant, Int) -> Void
+    // Mythryl type: (Int /*signal*/, Int /*state*/) -> Void
     //
     // This fn gets bound as  set_signal_state   in:
     //
@@ -35,9 +35,7 @@ Val   _lib7_Sig_setsigstate   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    Val	sig = GET_TUPLE_SLOT_AS_VAL(            arg, 0 );
-
-    int signal_number =  GET_TUPLE_SLOT_AS_INT( sig, 0 );				// Last use of 'sig'.
+    int signal_number =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int signal_state  =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate", NULL );

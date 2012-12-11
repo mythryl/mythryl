@@ -1,4 +1,4 @@
-// generate-win32-sigtbl-c.c
+// generate-win32-signal-table-c.c
 //
 // Generate the "win32-sigtable.c" file.
 
@@ -17,7 +17,7 @@ main ()
 {
     char*       filename      =  DST_FILE;
     char*       unique_string =  NULL;
-    char*       progname      =  "src/c/config/generate-win32-sigtbl-c.c";
+    char*       progname      =  "src/c/config/generate-win32-signal-table-c.c";
 
     FILE* f;
     int   i;
@@ -26,15 +26,15 @@ main ()
             
     fprintf (f, "\n");
 
-    fprintf (f, "static System_Constant SigInfo[NUM_SIGS] = {\n");
+    fprintf (f, "static System_Constant signal_sysconsts_table_guts__local[NUM_SIGS] = {\n");
     for (i = 0; i < NUM_SIGS; i++) {
       fprintf(f, "\t{ %d, \"%s\" },\n", win32SigTab[i].n, win32SigTab[i].sname);
     }
     fprintf (f, "};\n");
 
-    fprintf (f, "static Sysconsts SigTable = {\n");
+    fprintf (f, "static Sysconsts signal_sysconsts_table__local = {\n");
     fprintf (f, "    /* constants_count */ NUM_SIGS,\n");
-    fprintf (f, "    /* consts */    SigInfo\n");
+    fprintf (f, "    /* consts */    signal_sysconsts_table_guts__local\n");
     fprintf (f, "};\n");
 
     finish_generating_header_file( f, unique_string );

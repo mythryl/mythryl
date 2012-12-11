@@ -25,12 +25,12 @@
 #define CLIB_DATE	"October 29, 1995"
 #endif
 
-CFUNC("listSignals","listSignals",	_lib7_Sig_listsigs,	"Void -> List(System_Constant)")
-CFUNC("getSigState","getSigState",	_lib7_Sig_getsigstate,	"System_Constant -> Int")
-CFUNC("setSigState","setSigState",	_lib7_Sig_setsigstate,	"(System_Constant, Int) -> Int")
-CFUNC("getSigMask","getSigMask",	_lib7_Sig_getsigmask,	"Void -> Null_Or(List(System_Constant))")
-CFUNC("setSigMask","setSigMask",	_lib7_Sig_setsigmask,	"Null_Or(List(System_Constant)) -> Void")
-CFUNC("pause","pause",			_lib7_Sig_pause,	"Void -> Void")
+CFUNC("listSignals","listSignals",		_lib7_Sig_listsigs,		"Void -> List(System_Constant)")
+CFUNC("setSigMask","setSigMask",		_lib7_Sig_setsigmask,		"Null_Or(List(Int)) -> Void")
+CFUNC("pause","pause",				_lib7_Sig_pause,		"Void -> Void")
+CFUNC("get_signal_mask","get_signal_mask",	_lib7_Sig_get_signal_mask,	"Void -> Null_Or(List(Int))")
+CFUNC("get_signal_state","get_signal_state",	_lib7_Sig_get_signal_state,	"Int -> Int")
+CFUNC("set_signal_state","set_signal_state",	_lib7_Sig_set_signal_state,	"(Int, Int) -> Int")
 
 
 

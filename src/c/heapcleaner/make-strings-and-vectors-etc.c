@@ -691,9 +691,9 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
 
     for (int i = 0;  i < table->constants_count;  i++) {
 	//
-	if (table->consts[i].id == id) {
+	if (table->constants_vector[i].id == id) {
 	    //
-	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->consts[i].name, extra_roots);
+	    Val name =  make_ascii_string_from_c_string__may_heapclean (task, table->constants_vector[i].name, extra_roots);
 	    //	
 	    Val result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(id), name);
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
@@ -735,9 +735,9 @@ Val   dump_table_as_system_constants_list__may_heapclean   (Task* task,  Syscons
 	    call_heapcleaner_with_extra_roots( task,  0, &roots1 );
 	}
 
-	Val name            =  make_ascii_string_from_c_string__may_heapclean(task, table->consts[i].name, &roots1 );
+	Val name            =  make_ascii_string_from_c_string__may_heapclean(task, table->constants_vector[i].name, &roots1 );
 	//
-        Val system_constant =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
+        Val system_constant =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->constants_vector[i].id), name);
 	//
 	result_list = LIST_CONS(  task, system_constant, result_list );
     }
