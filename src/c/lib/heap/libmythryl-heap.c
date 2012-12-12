@@ -20,7 +20,7 @@
 //     src/lib/std/src/nj/heap-debug.pkg
 //     src/lib/std/src/nj/heapcleaner-control.pkg
 //     src/lib/std/src/nj/platform-properties.pkg
-//     src/lib/std/src/nj/runtime-signals-guts.pkg
+//     src/lib/std/src/nj/interprocess-signals-guts.pkg
 //     src/lib/std/src/unsafe/unsafe-chunk.pkg
 //     src/lib/std/src/unsafe/unsafe.pkg
 
@@ -203,7 +203,7 @@ static Val   do_debug   (Task* task,  Val arg)   {
     //
     // Mythryl type:   String -> Void
     //
-    // This fn gets bound to 'debug'     in:   src/lib/std/src/nj/runtime-signals-guts.pkg
+    // This fn gets bound to 'debug'     in:   src/lib/std/src/nj/interprocess-signals-guts.pkg
     // This fn gets bound to 'say_debug' in:   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
     //     
 

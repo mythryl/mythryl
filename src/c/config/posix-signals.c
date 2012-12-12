@@ -173,17 +173,18 @@
 static Signal_Descriptor   signal_table__local[]   = {				// Signal_Descriptor	is from   src/c/config/generate-system-signals.h-for-posix-systems.h
     //                     ====================
     //
-    { SIGALRM,	"SIGALRM",	"ALARM"},	// POSIX		// Alarm.  See also SIGVTALRM.
-    { SIGABRT,	"SIGABRT",	"ABRT"},	// ANSI			// Abort.     On Linux == BSD4.2 SIGIOT.
-    { SIGBUS,	"SIGBUS",	"BUS"},		// BSD 4.2		// BUS error.
-    { SIGCHLD,	"SIGCHLD",	"CHLD"},	// POSIX		// Child status has changed.
-    { SIGCONT,	"SIGCONT",	"CONT"},	// POSIX		// Continue.
-
+    { SIGHUP,	"SIGHUP",	"HUP"},			// POSIX		//  1 Hangup.
+    { SIGINT,	"SIGINT",	"INTERRUPT"},		// ANSI			//  2 Interrupt.
+    { SIGQUIT,	"SIGQUIT",	"QUIT"},		// POSIX		//  3 Quit.
+    { SIGILL,	"SIGILL",	"ILL"},			// ANSI			//  4 Illegal instruction
+    { SIGTRAP,	"SIGTRAP",	"TRAP"},		// POSIX		//  5 Trace trap
+    { SIGABRT,	"SIGABRT",	"ABRT"},		// ANSI			//  6 Abort.     On Linux == BSD4.2 SIGIOT.
+    { SIGBUS,	"SIGBUS",	"BUS"},			// BSD 4.2		//  7 BUS error.
 
     // For some reason uncommenting this and recompiling produces
     //     *** Internal error:  No signal_table entry for signal 8 ***
     // from
-    //     src/lib/std/src/nj/runtime-signals-guts.pkg
+    //     src/lib/std/src/nj/interprocess-signals-guts.pkg
     //
     // (See also SIGSEGV below.)
     //
@@ -196,29 +197,16 @@ static Signal_Descriptor   signal_table__local[]   = {				// Signal_Descriptor	i
     //            -- 2012-12-08 CrT
     //
     // #ifdef SIGFPE
-    //	{ SIGFPE,	"SIGFPE",	"FPE"},		// ANSI			// Floating-point exception.
+    //	{ SIGFPE,	"SIGFPE",	"FPE"},		// ANSI			//  8 Floating-point exception.
     // #endif
 
-
-    { SIGHUP,	"SIGHUP",	"HUP"},			// POSIX		// Hangup.
-    { SIGILL,	"SIGILL",	"ILL"},			// ANSI			// Illegal instruction
-    { SIGINT,	"SIGINT",	"INTERRUPT"},		// ANSI			// Interrupt.
-    { SIGIO,	"SIGIO",	"IO"},			// BSD4.2		// I/O now possible.
-
-    // SIGIOT:  See SIGABRT.
-
-    { SIGKILL,	"SIGKILL",	"KILL"},		// POSIX		// Kill, unblockable.
-    { SIGPIPE,	"SIGPIPE",	"PIPE"},		// POSIX		// Broken pipe.
-    { SIGPROF,	"SIGPROF",	"PROF"},		// BSD 4.2		// Profiling alarm clock.
-    { SIGPWR,	"SIGPWR",	"PWR"},			// SYS V		// Power failure restart.
-    { SIGQUIT,	"SIGQUIT",	"QUIT"},		// POSIX		// Quit.
-
-
+    { SIGKILL,	"SIGKILL",	"KILL"},		// POSIX		//  9 Kill, unblockable.
+    { SIGUSR1,	"SIGUSR1",	"USR1"},		// POSIX		// 10 User-defined signal 1.
 
     // For some reason uncommenting this and recompiling produces
     //     *** Internal error:  No signal_table entry for signal 11 ***
     // from
-    //     src/lib/std/src/nj/runtime-signals-guts.pkg
+    //     src/lib/std/src/nj/interprocess-signals-guts.pkg
     //
     // (See also SIGFPE above.)
     //
@@ -231,28 +219,44 @@ static Signal_Descriptor   signal_table__local[]   = {				// Signal_Descriptor	i
     //            -- 2012-12-08 CrT
     //
     // #ifdef SIGSEGV
-    //	{ SIGSEGV,	"SIGSEGV",	"SEGV"},	// ANSI			// Segmentation violation. (Typically due to use of an invalid C pointer.)
+    //	{ SIGSEGV,	"SIGSEGV",	"SEGV"},	// ANSI			// 11 Segmentation violation. (Typically due to use of an invalid C pointer.)
     // #endif
 
+    { SIGUSR2,	"SIGUSR2",	"USR2"},		// POSIX		// 12 User-defined signal 2.
+    { SIGPIPE,	"SIGPIPE",	"PIPE"},		// POSIX		// 13 Broken pipe.
+    { SIGALRM,	"SIGALRM",	"ALARM"},		// POSIX		// 14 Alarm.  See also SIGVTALRM.
+    { SIGTERM,	"SIGTERM",	"TERMINATE"},		// POSIX		// 15 Polite (catchable) request to terminate. http://en.wikipedia.org/wiki/SIGTERM
+    { SIGSTKFLT, "SIGSTKFLT",	"STKFLT"},		// Linux		// 16 Stack fault.
+    { SIGCHLD,	"SIGCHLD",	"CHLD"},		// POSIX		// 17 Child status has changed.
+    { SIGCONT,	"SIGCONT",	"CONT"},		// POSIX		// 18 Continue.
+    { SIGSTOP,	"SIGSTOP",	"STOP"},		// POSIX		// 19 Stop, unblockable.
+    { SIGTSTP,	"SIGTSTP",	"TSTP"},		// POSIX		// 20 Keyboard stop.
+    { SIGTTIN,	"SIGTTIN",	"TTIN"},		// POSIX		// 21 Background read from TTY.
+    { SIGTTOU,	"SIGTTOU",	"TTOU"},		// POSIX		// 22 Backround write to TTY.
+    { SIGURG,	"SIGURG",	"URG"},			// BSD 4.2		// 23 Urgent condition on socket.
+    { SIGXCPU,	"SIGXCPU",	"XCPU"},		// BSD 4.2		// 24 CPU limit exceeded.
+    { SIGXFSZ,	"SIGXFSZ",	"XFSZ"},		// BSD 4.2		// 25 File size limit exceeded.
+    { SIGVTALRM, "SIGVTALRM",	"VTALRM"},		// BSD 4.2		// 26 Alarm.  See also SIGALRM.
+    { SIGPROF,	"SIGPROF",	"PROF"},		// BSD 4.2		// 27 Profiling alarm clock.
+    { SIGWINCH,	"SIGWINCH",	"WINCH"},		// BSD 4.3		// 28 Window size change.
+    { SIGIO,	"SIGIO",	"IO"},			// BSD4.2		// 29 I/O now possible.
+    { SIGPWR,	"SIGPWR",	"PWR"},			// SYS V		// 30 Power failure restart.
+    { SIGSYS,	"SIGSYS",	"SYS"},			// Linux		// 31 Bad system call.
 
-    { SIGSTKFLT, "SIGSTKFLT",	"STKFLT"},		// Linux		// Stack fault.
 
 
 
-    { SIGSTOP,	"SIGSTOP",	"STOP"},		// POSIX		// Stop, unblockable.
-    { SIGSYS,	"SIGSYS",	"SYS"},			// Linux		// Bad system call.
-    { SIGTERM,	"SIGTERM",	"TERMINATE"},		// POSIX		// Polite (catchable) request to terminate. http://en.wikipedia.org/wiki/SIGTERM
-    { SIGTRAP,	"SIGTRAP",	"TRAP"},		// POSIX		// Trace trap
-    { SIGTSTP,	"SIGTSTP",	"TSTP"},		// POSIX		// Keyboard stop.
-    { SIGTTIN,	"SIGTTIN",	"TTIN"},		// POSIX		// Background read from TTY.
-    { SIGTTOU,	"SIGTTOU",	"TTOU"},		// POSIX		// Backround write to TTY.
-    { SIGURG,	"SIGURG",	"URG"},			// BSD 4.2		// Urgent condition on socket.
-    { SIGUSR1,	"SIGUSR1",	"USR1"},		// POSIX		// User-defined signal 1.
-    { SIGUSR2,	"SIGUSR2",	"USR2"},		// POSIX		// User-defined signal 2.
-    { SIGVTALRM, "SIGVTALRM",	"VTALRM"},		// BSD 4.2		// Alarm.  See also SIGALRM.
-    { SIGWINCH,	"SIGWINCH",	"WINCH"},		// BSD 4.3		// Window size change.
-    { SIGXCPU,	"SIGXCPU",	"XCPU"},		// BSD 4.2		// CPU limit exceeded.
-    { SIGXFSZ,	"SIGXFSZ",	"XFSZ"},		// BSD 4.2		// File size limit exceeded.
+
+
+    // SIGIOT:  See SIGABRT.
+
+
+
+
+
+
+
+
 };
 #define SIGNAL_TABLE_SIZE_IN_SLOTS	(sizeof(signal_table__local) / sizeof(Signal_Descriptor))
 

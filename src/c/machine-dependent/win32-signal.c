@@ -62,7 +62,7 @@ void   set_signal_mask   (Task* task, Val sigList)   {
     // Set the signal mask to the given list of signals.  The sigList has the
     // type: "sysconst list option", with the following semantics -- see
     //
-    //     src/lib/std/src/nj/runtime-signals.pkg
+    //     src/lib/std/src/nj/interprocess-signals.pkg
     //
     //	NULL	-- the empty mask
     //	THE[]	-- mask all signals

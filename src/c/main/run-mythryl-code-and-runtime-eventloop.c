@@ -180,7 +180,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		// from
                 //
-                //     src/lib/std/src/nj/runtime-signals-guts.pkg
+                //     src/lib/std/src/nj/interprocess-signals-guts.pkg
                 //
  		// resume_after_handling_signal  is assembly code from
 		// (depending upon platform) one of:

@@ -2,7 +2,7 @@
 //
 // This gets bound in:
 //
-//     src/lib/std/src/nj/runtime-signals-guts.pkg
+//     src/lib/std/src/nj/interprocess-signals-guts.pkg
 
 
 #include "../../mythryl-config.h"
@@ -30,7 +30,7 @@ Val   _lib7_Sig_setsigmask   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   set_sig_mask   in:
     //
-    //     src/lib/std/src/nj/runtime-signals-guts.pkg
+    //     src/lib/std/src/nj/interprocess-signals-guts.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 

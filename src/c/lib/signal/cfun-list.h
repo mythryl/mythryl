@@ -7,7 +7,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "signal", fun_name => "listSignals" };
 // 
-// or such -- see   src/lib/std/src/nj/runtime-signals-guts.pkg
+// or such -- see   src/lib/std/src/nj/interprocess-signals-guts.pkg
 // 
 // We get #included by both:
 //

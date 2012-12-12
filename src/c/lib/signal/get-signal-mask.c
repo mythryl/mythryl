@@ -22,7 +22,7 @@ Val   _lib7_Sig_get_signal_mask   (Task* task,  Val arg) {
     //
     // This gets bound as   get_signal_mask   in:
     //
-    //     src/lib/std/src/nj/runtime-signals-guts.pkg
+    //     src/lib/std/src/nj/interprocess-signals-guts.pkg
     //
 
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);

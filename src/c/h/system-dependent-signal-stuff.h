@@ -33,7 +33,7 @@ typedef struct {
 // These definitions must agree with
 // the values used in
 //
-//     src/lib/std/src/nj/runtime-signals.pkg
+//     src/lib/std/src/nj/interprocess-signals.pkg
 //
 #define LIB7_SIG_IGNORE		0
 #define LIB7_SIG_DEFAULT	1

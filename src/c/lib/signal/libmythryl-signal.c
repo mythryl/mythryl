@@ -14,7 +14,7 @@
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "signal", fun_name => "listSignals" };
 // 
-// or such -- see   src/lib/std/src/nj/runtime-signals-guts.pkg
+// or such -- see   src/lib/std/src/nj/interprocess-signals-guts.pkg
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {

@@ -36,7 +36,7 @@ extern Val	pervasive_package_pickle_list_refcell__global	[];
 // the mythryl-side function
 //     root_mythryl_handler_for_posix_signals
 // in
-//     src/lib/std/src/nj/runtime-signals-guts.pkg
+//     src/lib/std/src/nj/interprocess-signals-guts.pkg
 // All POSIX signals are handled via this single hook;
 // individual signals are distinguished
 //

@@ -90,7 +90,6 @@
 //     src/c/lib/win32/cfun-list.h
 //     src/c/lib/time/cfun-list.h
 //     src/c/lib/posix-error/cfun-list.h
-//     src/c/lib/posix-signal/cfun-list.h
 //     src/c/lib/socket/cfun-list.h
 //     src/c/lib/signal/cfun-list.h
 //     src/c/lib/posix-tty/cfun-list.h

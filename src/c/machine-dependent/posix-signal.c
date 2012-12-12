@@ -70,7 +70,7 @@ void   pause_until_signal   (Hostthread* hostthread) {
 }
 
 void   set_signal_state   (Hostthread* hostthread,  int sig_num,  int signal_state) {			// This fn is called (only) from   src/c/lib/signal/setsigstate.c
-    // ================											// Gets bound as   set_signal_state   in   src/lib/std/src/nj/runtime-signals-guts.pkg
+    // ================											// Gets bound as   set_signal_state   in   src/lib/std/src/nj/interprocess-signals-guts.pkg
     //
     // QUESTIONS:
     //
@@ -172,7 +172,7 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     // signals that are to be passed to
     // the Mythryl level via signal_handler in
     //
-    //     src/lib/std/src/nj/runtime-signals-guts.pkg
+    //     src/lib/std/src/nj/interprocess-signals-guts.pkg
     //
 
     ucontext_t* scp		/* This variable is unused on some platforms, so suppress 'unused var' compiler warning: */   __attribute__((unused))
@@ -352,7 +352,7 @@ static void   c_signal_handler   (
 
 
 void   set_signal_mask   (Task* task, Val arg)   {							// We are called (only) by   src/c/lib/signal/setsigmask.c
-    // ===============											// We get bound as   set_sig_mask   in   src/lib/std/src/nj/runtime-signals-guts.pkg
+    // ===============											// We get bound as   set_sig_mask   in   src/lib/std/src/nj/interprocess-signals-guts.pkg
     // 
     // Set the signal mask to the list of signals given by 'arg'.
     // The signal_list has the type
@@ -363,7 +363,7 @@ void   set_signal_mask   (Task* task, Val arg)   {							// We are called (only)
     //     Null_Or( List( Int ) )
 #endif
     //
-    // with the following semantics -- see src/lib/std/src/nj/runtime-signals.pkg
+    // with the following semantics -- see src/lib/std/src/nj/interprocess-signals.pkg
     //
     //	NULL	-- the empty mask
     //	THE[]	-- mask all signals

@@ -75,7 +75,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // of a heapcleaning being done:
     //
 // Currently uncommenting this here and balow yields
-// bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/runtime-signals-guts.pkg:620.25-620.120
+// bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/interprocess-signals-guts.pkg:620.25-620.120
 //    task->hostthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
 //    task->hostthread->all_posix_signals.seen_count++;
 
@@ -288,7 +288,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     // of a heapcleaning being done:
     //
 // Currently uncommenting this here and above yields
-// bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/runtime-signals-guts.pkg:620.25-620.120
+// bin/mythryld: Fatal error:  Uncaught exception FAIL with "inconsistent state IGNORE for signal 30" raised at src/lib/std/src/nj/interprocess-signals-guts.pkg:620.25-620.120
 //    task->hostthread->posix_signal_counts[ RUNSIG_HEAPCLEANING_DONE ].seen_count++;
 //    task->hostthread->all_posix_signals.seen_count++;
 

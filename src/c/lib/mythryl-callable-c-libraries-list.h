@@ -33,7 +33,6 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Filesys			)		// Libmythryl_Posix_Fi
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Io				)		// Libmythryl_Posix_Io			def in    src/c/lib/posix-io/libmythryl-posix-io.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Process_Environment	)		// Libmythryl_Posix_Process_Environment	def in    src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Process			)		// Libmythryl_Posix_Process		def in    src/c/lib/posix-process/libmythryl-posix-process.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Signal			)		// Libmythryl_Posix_Signal		def in    src/c/lib/posix-signal/libmythryl-posix-signal.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Passwd_Db			)		// Libmythryl_Posix_Passwd_Db		def in    src/c/lib/posix-passwd/libmythryl-posix-passwd-db.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Tty			)		// Libmythryl_Posix_Tty			def in    src/c/lib/posix-tty/libmythryl-posix-tty.c
 
