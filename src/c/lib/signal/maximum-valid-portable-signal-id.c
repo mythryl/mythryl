@@ -1,4 +1,4 @@
-// pause.c
+// maximum-valid-portable-signal-id.c
 //
 // This gets bound in:
 //
@@ -15,46 +15,36 @@
 #include "system-dependent-signal-stuff.h"
 #include "cfun-proto-list.h"
 
-/*
-###   "More than iron, more than lead, more than gold, I need electricity.
-###    I need it more than I need lamb or pork or lettuce or cucumber.
-###    I need it for my dreams."
-###
-###            -- Racter (a program that sometimes writes poetry)
-*/
-
 
 
 // One of the library bindings exported via
 //     src/c/lib/signal/cfun-list.h
 // and thence
 //     src/c/lib/signal/libmythryl-signal.c
+// to
+//     src/lib/std/src/nj/interprocess-signals-guts.pkg
 
-
-
-Val   _lib7_Sig_pause   (Task* task,  Val arg)   {
-    //===============
+Val   _lib7_Sig_maximum_valid_portable_signal_id   (Task* task,  Val arg)   {
+    //==========================================
     //
-    // Mythryl type:   Void -> Void
+    // Mythryl type:  Void -> Int
     //
-    // Pause until the next signal.
-    //
-    // This fn gets bound as   pause   in:
+    // This fn gets bound as   ascii_signal_name_to_portable_signal_id   in:
     //
     //     src/lib/std/src/nj/interprocess-signals-guts.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_pause", NULL );
 	//
-	pause_until_signal( task->hostthread );			//  pause_until_signal	def in   src/c/machine-dependent/interprocess-signals.c
+    int signal_id = maximum_valid_portable_signal_id ();			// maximum_valid_portable_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_pause" );
 
+    Val result = TAGGED_INT_FROM_C_INT( signal_id );
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
-    return HEAP_VOID;
+    return result;
 }
+
 
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.

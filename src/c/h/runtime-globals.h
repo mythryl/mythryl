@@ -27,7 +27,7 @@ extern Val	pervasive_package_pickle_list_refcell__global	[];
 
 // Hook to pass POSIX interprocess signals up to the Mythryl level.
 // Incoming posix signals are noted by   c_signal_handler   in
-//     src/c/machine-dependent/posix-signal.c
+//     src/c/machine-dependent/interprocess-signals.c
 // which sets a
 //     hostthread->posix_signal_pending
 // flag which gets noticed next pass through by the logic in

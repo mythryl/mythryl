@@ -10,9 +10,9 @@
 // This file defines the "signal" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
-//     my  list_signals':  Void -> String
+//     my  get_signal_state':  Int -> Int
 //         =
-//	   mythryl_callable_c_library_interface::find_c_function { lib_name => "signal", fun_name => "listSignals" };
+//	   mythryl_callable_c_library_interface::find_c_function { lib_name => "signal", fun_name => "get_signal_state" };
 // 
 // or such -- see   src/lib/std/src/nj/interprocess-signals-guts.pkg
 //

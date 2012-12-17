@@ -66,7 +66,7 @@
 //
 //         This macro is used only from within c_signal_handler() in one of
 //
-//             (only currently supported case:)  src/c/machine-dependent/posix-signal.c
+//             (only currently supported case:)  src/c/machine-dependent/interprocess-signals.c
 //             (maybe again someday:)            src/c/machine-dependent/win32-fault.c
 //             (maybe again someday:)		 src/c/machine-dependent/cygwin-fault.c
 //
@@ -150,7 +150,7 @@
 #    define SET_SIGNAL_HANDLER(sig, h)	{       		\
 	    struct sigaction __svec;        			\
 	    sigfillset(&(__svec.sa_mask));  			\
-	    __svec.sa_flags = 0;			\
+	    __svec.sa_flags = 0;				\
 	    __svec.sa_handler = (h);        			\
 	    sigaction ((sig), &__svec, 0);  			\
 	}
@@ -159,7 +159,7 @@
 #endif
 #define GET_SIGNAL_HANDLER(sig, h)  {				\
 	struct sigaction __svec;				\
-	sigaction ((sig), NULL, &__svec);	\
+	sigaction ((sig), NULL, &__svec);			\
 	(h) = __svec.sa_handler;				\
     }
 typedef sigset_t Signal_Set;
@@ -182,7 +182,7 @@ typedef sigset_t Signal_Set;
 #define SELECT_SIG_DFL_HANDLING_FOR_SIGNAL(sig)	SET_SIGNAL_HANDLER(sig, SIG_DFL)
 #define GET_SIGNAL_HANDLER(sig, h)  {			\
 	struct sigvec __svec;				\
-	sigvec ((sig), NULL, &__svec);	\
+	sigvec ((sig), NULL, &__svec);			\
 	(h) = __svec.sv_handler;			\
     }
 typedef int Signal_Set;

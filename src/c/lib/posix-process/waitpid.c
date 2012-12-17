@@ -93,12 +93,13 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 	} else if (WIFSIGNALED(status)) {
 
 	    how = 1;
-	    val = WTERMSIG(status);		// WTERMSIG() extracts the signal which killed the process.
-
+	    val = host_os_signal_id_to_portable_signal_id( WTERMSIG(status) );		// WTERMSIG() extracts the signal which killed the process.
+											// host_os_signal_id_to_portable_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
 	} else if (WIFSTOPPED(status)) {
 
 	    how = 2;
-	    val = WSTOPSIG(status);		// WSTOPSIG() extracts the signal which stopped the process.
+	    val = host_os_signal_id_to_portable_signal_id( WSTOPSIG(status) );		// WSTOPSIG() extracts the signal which stopped the process.
+											// host_os_signal_id_to_portable_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
 
 	} else {
 

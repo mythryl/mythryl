@@ -67,16 +67,23 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    int pid    =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    int signal =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
+    int pid                =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    int portable_signal_id =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
+    int host_os_signal_id  =  portable_signal_id_to_host_os_signal_id( portable_signal_id );				// portable_signal_id_to_host_os_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
+
+    if (!host_os_signal_id) {
+	char buf[ 132 ];
+	sprintf(buf, "Signal %d not supported on this OS", portable_signal_id);
+	return RAISE_ERROR__MAY_HEAPCLEAN(task,buf,NULL);
+    }
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill", NULL );
 	//
-	int status = kill( pid, signal );
+	int status = kill( pid, host_os_signal_id );
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill" );
 
-    Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
+    Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/raise-error.h
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;

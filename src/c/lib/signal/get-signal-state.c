@@ -39,7 +39,7 @@ Val   _lib7_Sig_get_signal_state   (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
-	int state = get_signal_state (task->hostthread, signal );
+	int state = get_signal_state (task->hostthread, signal );		// get_signal_state	is from   src/c/machine-dependent/interprocess-signals.c
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 

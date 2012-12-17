@@ -41,24 +41,24 @@ typedef struct {
 
 // Utility functions:
 //
-extern void   choose_signal			(Hostthread* hostthread);
+extern void   choose_signal			(Hostthread* hostthread);						// choose_signal	is from   src/c/machine-dependent/interprocess-signals.c
 extern Val    make_resumption_fate		(Task* task,  Val resume[]);
 extern Val    make_mythryl_signal_handler_arg	(Task* task,  Val resume[]);
 extern void   load_resume_state			(Task* task);
+extern void   clear_signal_counts		(Hostthread* hostthread);						// clear_signal_counts	is from   src/c/machine-dependent/interprocess-signals.c
 
 // Core signal operations.  Depending on the platform,
 // these are implemented in one of:
 //
-//     src/c/machine-dependent/posix-signal.c
+//     src/c/machine-dependent/interprocess-signals.c
 //     src/c/machine-dependent/win32-signal.c
 //
-extern void	pause_until_signal		(Hostthread* hostthread);						//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
+extern void	pause_until_signal		(Hostthread* hostthread);						//  pause_until_signal	def in   src/c/machine-dependent/interprocess-signals.c
 extern void	set_signal_state		(Hostthread* hostthread, int signal_number, int signal_state);
 extern int	get_signal_state		(Hostthread* hostthread, int signal_number);
 //
-extern Val	list_signals__may_heapclean	(Task* task, Roots*);
 extern void	set_signal_mask			(Task* task, Val signal_list);
-extern Val	get_signal_mask2__may_heapclean	(Task* task, Val arg, Roots*);
+extern Val	get_signal_mask__may_heapclean	(Task* task, Val arg, Roots*);
 
 #endif // SYSTEM_DEPENDENT_SIGNAL_STUFF_H
 

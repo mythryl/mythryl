@@ -27,7 +27,7 @@ Val   _lib7_Sig_get_signal_mask   (Task* task,  Val arg) {
 
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    Val result = get_signal_mask2__may_heapclean( task, arg, NULL );					// See, e.g., src/c/machine-dependent/posix-signal.c
+    Val result = get_signal_mask__may_heapclean( task, arg, NULL );					// See, e.g., src/c/machine-dependent/interprocess-signals.c
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;

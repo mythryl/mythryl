@@ -40,7 +40,7 @@ Val   _lib7_Sig_set_signal_state   (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate", NULL );
 	//
-	set_signal_state(								// set_signal_state	def in    src/c/machine-dependent/posix-signal.c
+	set_signal_state(								// set_signal_state	def in    src/c/machine-dependent/interprocess-signals.c
 	    //
 	    task->hostthread,
 	    signal_number,

@@ -456,7 +456,7 @@ void   print_stats_and_exit   (int code)   {
     //
 
     // Debug support hack.  If we're trying to keep ram.log and syscall.log
-    // up-to-date on disk -- see src/c/machine-dependent/posix-signal.c
+    // up-to-date on disk -- see src/c/machine-dependent/interprocess-signals.c
     // -- then update those files right before we exit:
     //
     if (getenv("MILLISECONDS_BETWEEN_RAMLOG_AND_SYSLOG_DUMPS")) {

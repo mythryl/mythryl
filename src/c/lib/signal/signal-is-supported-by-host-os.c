@@ -1,4 +1,4 @@
-// listsignals.c
+// signal-is-supported-by-host-os.c
 //
 // This gets bound in:
 //
@@ -7,7 +7,11 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
+#include "runtime-values.h"
 #include "system-dependent-signal-stuff.h"
 #include "cfun-proto-list.h"
 
@@ -20,24 +24,24 @@
 
 
 
-Val   _lib7_Sig_listsigs   (Task* task,  Val arg)   {
-    //==================
+Val   _lib7_Sig_signal_is_supported_by_host_os   (Task* task,  Val arg)   {
+    //========================================
     //
-    // List the supported signals.
+    // Mythryl type: Int /*signal*/ -> Void
     //
-    // Mythryl type:  Void -> List(System_Constant)
-    //
-    // This gets bound as   list_signals'   in:
+    // This fn gets bound as  signal_is_supported_by_host_os   in:
     //
     //     src/lib/std/src/nj/interprocess-signals-guts.pkg
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    Val result =  list_signals__may_heapclean( task, NULL );			// See src/c/machine-dependent/posix-signal.c
+    int signal = TAGGED_INT_TO_C_INT( arg );						// Last use of 'arg'.
+
+    int result = portable_signal_id_to_host_os_signal_id( signal );
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
-    return result;
-}									// This does not actually make a system call.
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
 
 
 

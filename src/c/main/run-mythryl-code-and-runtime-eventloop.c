@@ -151,7 +151,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 	if (request == REQUEST_CLEANING) {
 	    //
-	    if (hostthread->posix_signal_pending) {							// posix_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/posix-signal.c
+	    if (hostthread->posix_signal_pending) {							// posix_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/interprocess-signals.c
 		//
 		// This "request" is really a POSIX interprocess signal.
 
@@ -172,7 +172,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		// Our actual kernel-invoked signal handler is   c_signal_handler()   from
 		//
-		//     src/c/machine-dependent/posix-signal.c
+		//     src/c/machine-dependent/interprocess-signals.c
 		//
 		// POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL in practice points to
 		//
