@@ -472,7 +472,7 @@ static Val   do_send_fake_posix_signal_to_mythryl_hostthread   (Task* task,  Val
 	//	getting 1 or more signals, which I currently expect to be the case.
 	//
 	//    o The window for problems is extremely small, and in the envisioned
-	//	application (waking up thread-scheduler.pkg to do timeslicing) and
+	//	application (waking up microthread-preemptive-scheduler.pkg to do timeslicing) and
 	//	occasional dropped signal wouldn't be a signficant problem anyhow.
 
     Val result = HEAP_VOID;

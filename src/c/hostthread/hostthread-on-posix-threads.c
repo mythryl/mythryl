@@ -747,7 +747,7 @@ char* pth__pthread_create   (int* hostthread_table_slot, Val current_thread, Val
   
 
     // 2012-11-22 CrT: A turkey of a fix for Turkey Day:
-    // alarm_handler in src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    // alarm_handler in src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
     // is failing because it is being called by the bloodybedamned 50Hz SIGALRM
     // in secondary hostthreads (== posix threads).  And we don't have
     // process masks implemented apparently (grepping for sigprocmask shows nada)
