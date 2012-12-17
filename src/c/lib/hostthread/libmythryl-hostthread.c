@@ -443,6 +443,30 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     return result;
 }
 
+int h;
+int i;
+static Val   do_send_fake_posix_signal_to_mythryl_hostthread   (Task* task,  Val arg)   {
+    //       ===============================================
+    //
+    // Mythryl type:  (Int /*hostthread*/, Int /*signal*/) -> Void
+    //
+    // This fn gets bound as   send_fake_posix_signal_to_mythryl_hostthread   in:
+    //
+    //     src/lib/std/src/hostthread.pkg
+									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+
+    int hostthread         = GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int portable_signal_id = GET_TUPLE_SLOT_AS_INT(arg, 1);
+    //
+// Just to suppress variable-not-used compiler warnings:
+h = hostthread;
+i = portable_signal_id;
+    Val result = HEAP_VOID;
+
+									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+    return result;
+}
+
 
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
@@ -471,6 +495,9 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     { "barrier_free","barrier_free",			do_barrier_free,	""},
     { "barrier_init","barrier_init",			do_barrier_init,	""},
     { "barrier_wait","barrier_wait",			do_barrier_wait,	""},
+    //
+    { "send_fake_posix_signal_to_mythryl_hostthread",
+      "send_fake_posix_signal_to_mythryl_hostthread",	do_send_fake_posix_signal_to_mythryl_hostthread,	""},
     //
     CFUNC_NULL_BIND
 };
