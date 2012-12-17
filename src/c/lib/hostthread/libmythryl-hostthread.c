@@ -443,8 +443,7 @@ static Val   do_condvar_broadcast   (Task* task,  Val arg)   {
     return result;
 }
 
-int h;
-int i;
+
 static Val   do_send_fake_posix_signal_to_mythryl_hostthread   (Task* task,  Val arg)   {
     //       ===============================================
     //
@@ -455,12 +454,27 @@ static Val   do_send_fake_posix_signal_to_mythryl_hostthread   (Task* task,  Val
     //     src/lib/std/src/hostthread.pkg
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    int hostthread         = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    int portable_signal_id = GET_TUPLE_SLOT_AS_INT(arg, 1);
-    //
-// Just to suppress variable-not-used compiler warnings:
-h = hostthread;
-i = portable_signal_id;
+    int hostthread_id      =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int portable_signal_id =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+
+    Hostthread* hostthread =  hostthread_table__global[ hostthread_id ];
+
+    ++ hostthread->posix_signal_counts[ portable_signal_id ].seen_count;
+	//
+	// In principle one could argue that we should be using a mutex here.
+	// In practice:
+	//
+	//    o There will only be an issue of multiple hostthreads are sending
+	//      signals to a particular recipient hostthread, which I do not
+	//	currently envision happening.
+	//
+	//    o There still won't be an issue if the recipient doesn't distinguish
+	//	getting 1 or more signals, which I currently expect to be the case.
+	//
+	//    o The window for problems is extremely small, and in the envisioned
+	//	application (waking up thread-scheduler.pkg to do timeslicing) and
+	//	occasional dropped signal wouldn't be a signficant problem anyhow.
+
     Val result = HEAP_VOID;
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
