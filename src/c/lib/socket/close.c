@@ -44,7 +44,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
 //										log_if( "close.c/top: fd d=%d\n", fd );
     errno = 0;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_close", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	#if defined(OPSYS_WIN32)
 	    status = closesocket(fd);
@@ -57,7 +57,7 @@ if (errno == EINTR) puts("Error: EINTR in close.c\n");
 	/*  } while (status < 0 && errno == EINTR);	*/		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	#endif
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_close" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 //									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
 

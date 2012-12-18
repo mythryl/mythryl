@@ -38,7 +38,7 @@ Val   _lib7_Sig_set_signal_state   (Task* task,  Val arg)   {
     int signal_number =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int signal_state  =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	set_signal_state(								// set_signal_state	def in    src/c/machine-dependent/interprocess-signals.c
 	    //
@@ -47,7 +47,7 @@ Val   _lib7_Sig_set_signal_state   (Task* task,  Val arg)   {
 	    signal_state
 	);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sig_setsigstate" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return HEAP_VOID;

@@ -39,11 +39,11 @@ Val   _lib7_P_ProcEnv_getlogin   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getlogin", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	char* name = getlogin ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getlogin" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (name == NULL)   return RAISE_ERROR__MAY_HEAPCLEAN(task, "no login name", NULL);
   

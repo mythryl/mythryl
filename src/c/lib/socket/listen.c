@@ -43,11 +43,11 @@ Val   _lib7_Sock_listen   (Task* task,  Val arg)   {
     int socket  =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int backlog =  GET_TUPLE_SLOT_AS_INT( arg, 1 );				// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_listen", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int status =  listen( socket, backlog );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_listen" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN( task, status, NULL );
 

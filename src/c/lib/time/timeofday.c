@@ -129,11 +129,11 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
     int	c_microseconds;
     Val	lib7_seconds;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_timeofday", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int c_seconds = _lib7_time_gettimeofday( &c_microseconds );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_timeofday" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     lib7_seconds =  make_one_word_int(task,  c_seconds  );
 

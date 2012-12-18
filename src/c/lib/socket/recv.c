@@ -65,7 +65,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 //										log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
 	errno = 0;
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_recv", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 /**/        do { /**/								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//								// Restored   2012-08-07 CrT
@@ -74,7 +74,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 // if (errno == EINTR) puts("Error: EINTR in recv.c\n");
 /**/       } while (n < 0 && errno == EINTR);	/**/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_recv" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	if (n <= 0) {
 	    unbuffer_mythryl_heap_value( &read_buf );

@@ -61,11 +61,11 @@ Val   _lib7_P_FileSys_symlink   (Task* task,  Val arg)   {
     {	char* c_existing	=  buffer_mythryl_heap_value( &existing_buf, (void*) heap_existing, strlen( heap_existing ) +1 );		// '+1' for terminal NUL on string.
      	char* c_new_name	=  buffer_mythryl_heap_value( &new_name_buf, (void*) heap_new_name, strlen( heap_new_name ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_symlink", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = symlink( c_existing, c_new_name );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_symlink" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &existing_buf );
 	unbuffer_mythryl_heap_value( &new_name_buf );

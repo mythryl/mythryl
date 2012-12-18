@@ -53,11 +53,11 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     char  path[ MAXPATHLEN ];
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_getcwd", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	char* status = getcwd(path, MAXPATHLEN);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_getcwd" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status != NULL)    return make_ascii_string_from_c_string__may_heapclean (task, path, NULL);
 
@@ -70,11 +70,11 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     while (status == NULL) {
 	//
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_getcwd", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
             status = getcwd(buf, buflen);
 	    //
-    	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_getcwd" );
+    	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	//
 	//
         FREE (buf);

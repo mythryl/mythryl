@@ -50,11 +50,11 @@ Val   _lib7_P_Process_alarm   (Task* task,  Val arg)   {
 
     int seconds = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_alarm", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int iresult = alarm( seconds );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_alarm" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  TAGGED_INT_FROM_C_INT( iresult );
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);

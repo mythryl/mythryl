@@ -37,11 +37,11 @@ Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getppid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int ppid =  getppid ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getppid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = TAGGED_INT_FROM_C_INT( ppid );
 

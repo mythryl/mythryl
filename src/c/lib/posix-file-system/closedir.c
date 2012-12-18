@@ -44,11 +44,11 @@ Val   _lib7_P_FileSys_closedir   (Task* task,  Val arg) {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_closedir", &arg );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	//
         int status = closedir(PTR_CAST(DIR*, arg));				// Note that closedir() arg here does not actually reference Mythryl heap (forbidden) -- check code in src/c/lib/posix-file-system/opendir.c
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_closedir" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
     //
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 

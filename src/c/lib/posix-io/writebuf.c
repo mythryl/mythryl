@@ -65,11 +65,11 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
   do { 						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 						// Restored 2012-08-01 CrT due to consistent failures here when switching on thread-scheduler-control-g.pkg by default.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_writebuf", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    n = write (fd, c_data, nbytes);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_writebuf" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
   } while (n < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

@@ -77,11 +77,11 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
 	return RAISE_ERROR__MAY_HEAPCLEAN(task,buf,NULL);
     }
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int status = kill( pid, host_os_signal_id );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_kill" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);		// RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN	is from   src/c/lib/raise-error.h
 

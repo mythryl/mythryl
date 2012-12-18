@@ -38,11 +38,11 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
     char* status;
     char  name[ L_ctermid ];
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_ctermid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	status = ctermid( name );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_ctermid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status == NULL || *status == '\0') {
         //

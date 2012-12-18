@@ -48,11 +48,11 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
         //
 	socklen_t option_len = sizeof(int);
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_boolean_socket_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &option_len);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_boolean_socket_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	ASSERT((status < 0) || (option_len == sizeof(int)));
 
@@ -60,11 +60,11 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 
 	flag = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_boolean_socket_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_boolean_socket_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
     }
 
     if (status < 0)	return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);

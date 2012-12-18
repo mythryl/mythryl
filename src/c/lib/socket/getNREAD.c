@@ -37,12 +37,12 @@ Val   _lib7_Sock_getNREAD   (Task* task,  Val arg)   {
 
     int device = TAGGED_INT_TO_C_INT( arg );						// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getNREAD", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int	                                       n;
 	int status = ioctl( device, FIONREAD, (char*) &n );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getNREAD" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 

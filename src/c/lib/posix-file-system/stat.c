@@ -134,11 +134,11 @@ Val   _lib7_P_FileSys_stat   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_stat", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status =  stat( c_path, &buf );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_stat" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }
@@ -177,11 +177,11 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
     int           fd = TAGGED_INT_TO_C_INT(arg);
     struct stat   buf;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_fstat", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	status =  fstat( fd, &buf );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_fstat" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
@@ -230,11 +230,11 @@ Val   _lib7_P_FileSys_lstat   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_lstat", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = lstat(c_path, &buf);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_lstat" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }

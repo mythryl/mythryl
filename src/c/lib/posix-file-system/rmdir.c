@@ -57,11 +57,11 @@ Val   _lib7_P_FileSys_rmdir   (Task* task,  Val arg)   {
 	    buffer_mythryl_heap_value( &dir_buf, (void*) heap_dir, strlen( heap_dir ) +1 );		// '+1' for terminal NUL on string.
 
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_rmdir", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = rmdir( c_dir );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_rmdir" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &dir_buf );
     }

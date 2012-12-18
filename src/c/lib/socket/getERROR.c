@@ -36,12 +36,12 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
 
     socklen_t	opt_size = sizeof(int);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getERROR", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int	                                                                flag;
 	int status =  getsockopt( socket, SOL_SOCKET, SO_ERROR, (sockoptval_t) &flag, &opt_size );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getERROR" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status < 0)     return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 

@@ -64,11 +64,11 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 
       /**/  do { /**/									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 											// Restored 2012-08-07 CrT
-	    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_openf", NULL );
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 		//
 		fd    = open( c_path, flags, mode );
 		//
-	    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_openf" );
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 // printf("opened fd %d via open(\"%s\",...) -- openf.c thread id %lx\n", fd, c_path, pth__get_hostthread_id);	fflush(stdout);
 
 

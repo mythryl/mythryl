@@ -57,11 +57,11 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
 
     do {									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 										// Restored   2010-10-19 CrT
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_readbuf", &arg );	// 'arg' is still live here! 
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );	// 'arg' is still live here! 
 	    //
 	    n = read( fd, c_vec, nbytes );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_readbuf" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 // if (errno == EINTR) puts("Error: EINTR in readbuf.c\n");
     } while (n < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.

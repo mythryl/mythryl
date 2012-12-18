@@ -42,11 +42,11 @@ Val   _lib7_P_IO_pipe   (Task* task,  Val arg)   {
     int         status;
     int         fds[2];
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_pipe", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	status =  pipe(fds);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_pipe" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 // printf("Created pipe %d -> %d   -- pipe.c thread id %lx\n", fds[0], fds[1], pth__get_hostthread_id);	fflush(stdout);
 
     Val result;

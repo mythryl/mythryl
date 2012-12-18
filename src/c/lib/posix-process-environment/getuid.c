@@ -36,11 +36,11 @@ Val   _lib7_P_ProcEnv_getuid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getuid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int uid = getuid ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getuid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  make_one_word_unt(task,  (Vunt) uid  );
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);

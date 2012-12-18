@@ -56,11 +56,11 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
    
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_l", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = fcntl(fd, cmd, &flock);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fcntl_l" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 if (errno == EINTR) puts("Error: EINTR in fcntl_l.c\n");
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.

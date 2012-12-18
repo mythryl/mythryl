@@ -50,11 +50,11 @@ Val   _lib7_netdb_get_host_name  (Task* task,  Val arg)   {
 
     char hostname[ MAXHOSTNAMELEN ];
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	if (gethostname( hostname, MAXHOSTNAMELEN ) == -1)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =   make_ascii_string_from_c_string__may_heapclean( task, hostname, NULL );
 

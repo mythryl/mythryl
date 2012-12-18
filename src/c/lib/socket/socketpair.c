@@ -64,7 +64,7 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
 
     int	 socket[2];
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_socketpair", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int status
 	    =
@@ -76,7 +76,7 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
 		socket
 	    );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_socketpair" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 

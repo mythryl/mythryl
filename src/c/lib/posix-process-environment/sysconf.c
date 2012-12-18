@@ -77,7 +77,7 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
         return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
     }
  
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_sysconf", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	long val;
 	errno = 0;
@@ -87,7 +87,7 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
 	    continue;
 	}
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_sysconf" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result;
 

@@ -1041,11 +1041,11 @@ extern int   maximum_valid_portable_signal_id(         void              );
 // lengthy C operation (which does not involve the Mythryl heap!)
 // should do
 //
-//     RELEASE_MYTHRYL_HEAP( task->hostthread, "foo", &arg );		// Pass &arg if 'arg' (or any part of it) is live at this point, else NULL.
+//     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );		// Pass &arg if 'arg' (or any part of it) is live at this point, else NULL.
 //         //
 //         slow_c_operation_not_using_mythryl_heap();
 //         //
-//     RECOVER_MYTHRYL_HEAP( task->hostthread, "foo" );
+//     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 //
 //  (These are expected to be used in one of the 
 //  Mythryl/C interface fns taking (Task* task, Val arg)

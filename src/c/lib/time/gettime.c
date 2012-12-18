@@ -44,11 +44,11 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
 								// On posix: get_cpu_time()	def in   src/c/main/posix-timers.c
 								// On win32: get_cpu_time()     def in   src/c/main/win32-timers.c
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_gettime", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	get_cpu_time (&usr, &sys);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Time_gettime" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     usr_seconds =  make_one_word_int(task, usr.seconds            );
     sys_seconds =  make_one_word_int(task, sys.seconds            );

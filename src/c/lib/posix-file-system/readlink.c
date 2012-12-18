@@ -85,11 +85,11 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    len = readlink(c_path, buf, MAXPATHLEN);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }
@@ -113,11 +113,11 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    iresult = lstat (c_path, &sbuf);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }
@@ -141,11 +141,11 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    len = readlink(c_path, buf, len);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_readlink" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &path_buf );
     }

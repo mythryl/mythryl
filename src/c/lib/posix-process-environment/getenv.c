@@ -48,11 +48,11 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
 	    = 
 	    buffer_mythryl_heap_value( &key_buf, (void*) heap_key, strlen( heap_key ) +1 );		// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getenv", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = getenv( c_key );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getenv" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &key_buf );
     }

@@ -34,11 +34,11 @@ Val   _lib7_P_ProcEnv_getgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getgid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int gid = getgid ();
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_getgid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  make_one_word_unt(task,  (Vunt)gid   );
 

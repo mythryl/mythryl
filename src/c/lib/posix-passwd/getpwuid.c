@@ -42,11 +42,11 @@ Val   _lib7_P_SysDB_getpwuid   (Task* task,  Val arg)   {
 
     struct passwd*  info;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_SysDB_getpwuid", &arg );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	//
 	info =  getpwuid( WORD_LIB7toC( arg ));
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_SysDB_getpwuid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   

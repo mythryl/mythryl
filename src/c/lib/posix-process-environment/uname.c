@@ -43,11 +43,11 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
     Val  s;
     Val  field;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_uname", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int status =  uname( &name );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_uname" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (status == -1)    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 

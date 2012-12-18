@@ -178,7 +178,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     {   int status;
 
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 /**/        do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 								// Restored   2012-06-11 CrT as an experiment.
@@ -186,7 +186,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		//
 /**/        } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 
 	if (status < 0) {
@@ -293,11 +293,11 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 /**/  do { /**/							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 											// Restored 2012-08-07 CrT
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll", &arg );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	    //
 	    status = select (maxFD+1, rfds, wfds, efds, timeout);
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_OS_poll" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
  /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

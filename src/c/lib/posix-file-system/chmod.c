@@ -61,11 +61,11 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
 	    =
 	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );	// '+1' for terminal NUL on string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_chmod", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = chmod( c_path, mode );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_FileSys_chmod" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	//
 	unbuffer_mythryl_heap_value( &path_buf );
     }

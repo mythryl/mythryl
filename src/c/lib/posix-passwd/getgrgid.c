@@ -37,11 +37,11 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_SysDB_getgrgid", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	struct group* info =  getgrgid( WORD_LIB7toC( arg ));
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_SysDB_getgrgid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (info == NULL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
   

@@ -37,11 +37,11 @@ Val   _lib7_P_ProcEnv_setgid   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setgid", &arg );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	//
 	int status =  setgid( WORD_LIB7toC( arg ));
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_setgid" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 

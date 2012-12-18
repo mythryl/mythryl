@@ -48,11 +48,11 @@ Val   _lib7_P_IO_close   (Task* task,  Val arg)   {
 											// Restored 2012-08-07 CrT
 
 // printf("closing fd %d  -- close.c thread id %lx\n",fd, pth__get_hostthread_id); fflush( stdout );
-        RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_close", NULL );
+        RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = close( fd );
 	    //
-        RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_close" );
+        RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

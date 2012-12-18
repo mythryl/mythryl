@@ -44,11 +44,11 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 //  tm.tm_yday  = GET_TUPLE_SLOT_AS_INT(arg, 7);   // ignored by mktime.
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(arg, 8);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_make_time", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
         t = mktime (&tm);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_make_time" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (t < 0)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "Invalid date", NULL);
     else 	 result = make_one_word_int(task,  t  );

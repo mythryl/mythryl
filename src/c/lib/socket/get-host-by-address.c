@@ -49,11 +49,11 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
     struct in_addr*  heap_arg =  (struct in_addr*) HEAP_STRING_AS_C_STRING( arg );					// Last use of 'arg'.
     struct in_addr      c_arg = *heap_arg;
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_address", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	struct hostent* resultt = gethostbyaddr (&c_arg, sizeof(struct in_addr), AF_INET);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_netdb_get_host_by_address" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result =  _util_NetDB_mkhostent ( task, resultt );									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 

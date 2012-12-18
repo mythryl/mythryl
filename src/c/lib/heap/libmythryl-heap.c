@@ -215,11 +215,11 @@ static Val   do_debug   (Task* task,  Val arg)   {
 
     {	char* c_string = buffer_mythryl_heap_value( &string_buf, (void*) heap_string, strlen( heap_string ) +1 );	// '+1' for terminal NUL at end of string.
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "do_debug", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    debug_say( c_string );					// debug_say	is from   src/c/main/error-reporting.c
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "do_debug" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	unbuffer_mythryl_heap_value( &string_buf );
     }
@@ -968,11 +968,11 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
 //													log_if("setitimer.c: Turning ON SIGALRM interval itimer, sec,usec = (%d,%d)\n",new_itv.it_value.tv_sec, new_itv.it_value.tv_usec);
     }
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "do_set_sigalrm_frequency", &arg );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	//
         status = setitimer (ITIMER_REAL, &new_itv, NULL);						// See setitimer(2), Linux Reference Manual.
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "do_set_sigalrm_frequency" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 

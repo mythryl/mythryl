@@ -655,11 +655,11 @@ void   set_signal_mask   (Task* task, Val arg)   {								// We are called (only
     //
 //  log_if("interprocess-signals.c/set_signal_mask: setting host signal mask for process to x=%x", mask );	// Commented out because it floods mythryl.compile.log -- 2011-10-10 CrT
     //
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "set_signal_mask", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	SET_PROCESS_SIGNAL_MASK( mask );									// SET_PROCESS_SIGNAL_MASK		is from   src/c/h/system-dependent-signal-get-set-etc.h
 	//													// On posix it is a wrapper for sigprocmask() -- see  SIGPROGMASK(2)
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "set_signal_mask" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
     //									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 

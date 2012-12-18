@@ -64,11 +64,11 @@ Val   _lib7_P_Process_sleep   (Task* task,  Val arg)   {
 
     int seconds = TAGGED_INT_TO_C_INT( arg );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_sleep", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int iresult = sleep( seconds );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_Process_sleep" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = TAGGED_INT_FROM_C_INT( iresult );
 

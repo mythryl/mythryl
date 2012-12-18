@@ -37,11 +37,11 @@ Val   _lib7_P_ProcEnv_isatty   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_isatty", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int iresult = isatty(TAGGED_INT_TO_C_INT(arg));
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_ProcEnv_isatty" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = (iresult ? HEAP_TRUE : HEAP_FALSE);
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);

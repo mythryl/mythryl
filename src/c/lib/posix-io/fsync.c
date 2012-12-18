@@ -42,11 +42,11 @@ Val   _lib7_P_IO_fsync   (Task* task,  Val arg)   {
     int status;
     int fd = TAGGED_INT_TO_C_INT(arg);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fsync", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	status = fsync(fd);
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_P_IO_fsync" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 

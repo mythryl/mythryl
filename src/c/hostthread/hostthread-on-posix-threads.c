@@ -916,12 +916,12 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
 											//	return "pth__pthread_join: Bogus value for hostthread-to-join (already-dead thread?)";
 											//  }
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__pthread_join", NULL );			// Enter BLOCKED mode.
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );			// Enter BLOCKED mode.
 	//
         int err =  pthread_join( hostthread_to_join->ptid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
 	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__pthread_join" );				// Return to RUNNING mode.
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );				// Return to RUNNING mode.
 
 
     switch (err) {
@@ -1014,11 +1014,11 @@ char*  pth__mutex_lock  (Task* task, Vunt mutex_id) {				// http://pubs.opengrou
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__mutex_trylock", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int err =  pthread_mutex_lock( mutex );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__mutex_trylock" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     switch (err) {
 	//
@@ -1061,11 +1061,11 @@ char*  pth__mutex_unlock   (Task* task, Vunt mutex_id) {					// http://pubs.open
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__mutex_unlock", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int err =  pthread_mutex_unlock( mutex );						// pthread_mutex_unlock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__mutex_unlock" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     switch (err) {
 	//
@@ -1090,11 +1090,11 @@ char*  pth__mutex_unlock   (Task* task, Vunt mutex_id) {					// http://pubs.open
 char*    pth__condvar_init (Task* task, Condvar* condvar) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__condvar_init", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int result = pthread_cond_init( condvar, NULL );					// pthread_cond_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__condvar_init" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (result)	  return "pth__condvar_init: Unable to initialize condition variable.";
     else	  return NULL;
@@ -1129,11 +1129,11 @@ char*  pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id) {			// h
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__condvar_wait", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int result = pthread_cond_wait( condvar, mutex );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__condvar_wait" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (result)   return "pth__condvar_wait: Unable to wait on condition variable.";
     else	  return NULL;
@@ -1261,11 +1261,11 @@ char*  pth__barrier_wait   (Task* task, Vunt barrier_id, Bool* result) {			// ht
 
     if (!barrier->is_set)  return "pth__barrier_wait:  Must set barrier before waiting on it.";
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "pth__barrier_wait", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int err =  pthread_barrier_wait( &barrier->barrier );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "pth__barrier_wait" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     switch (err) {
 	//
@@ -1728,11 +1728,11 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 //
 //   o  We introduce a pair of macros
 //
-//          RELEASE_MYTHRYL_HEAP( hostthread, "fn_name", &arg );						// Use 'NULL' instead of '&arg' if 'arg' (and all its components) is dead at that point.
+//          RELEASE_MYTHRYL_HEAP( hostthread, __func__, &arg );						// Use 'NULL' instead of '&arg' if 'arg' (and all its components) is dead at that point.
 //              //
 //              syscall();
 //              //
-//          RECOVER_MYTHRYL_HEAP( hostthread, "fn_name"      );
+//          RECOVER_MYTHRYL_HEAP( hostthread, __func__      );
 //
 //      in   src/c/h/runtime-base.h
 //      to serve as brackets around every system call.

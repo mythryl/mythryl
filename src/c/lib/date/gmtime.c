@@ -34,11 +34,11 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
 
     time_t t =  (time_t) INT1_LIB7toC(arg);
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_greanwich_mean_time", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
         struct tm* tm =  gmtime( &t );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Date_greanwich_mean_time" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (tm == NULL) return RAISE_SYSERR__MAY_HEAPCLEAN(task,0,NULL);
 

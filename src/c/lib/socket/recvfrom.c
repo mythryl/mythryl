@@ -72,7 +72,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     //
     {   char* c_readbuf =  buffer_mythryl_heap_nonvalue( &readbuf_buf, nbytes );
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_recvfrom", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
@@ -88,7 +88,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 if (errno == EINTR) puts("Error: EINTR in recvfrom.c\n");
 	    /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_recvfrom" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	if (n < 0) {
 	    unbuffer_mythryl_heap_value( &readbuf_buf );

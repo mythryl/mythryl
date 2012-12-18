@@ -55,11 +55,11 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
 
     int number = TAGGED_INT_TO_C_INT( arg );							// Last use of 'arg'.
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_NetDB_getrpcbynum", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	rentry = getrpcbynumber( number );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_NetDB_getrpcbynum" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     if (rentry == NULL)   return OPTION_NULL;
 

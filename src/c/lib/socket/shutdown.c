@@ -36,11 +36,11 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
     int socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );							// Last use of 'arg'.
 													// shutdown is documented by	man 2 shutdown
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_shutdown", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	if (shutdown( socket, how ) < 0)   return  RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);	// Where is 'status' coming from? Is this rational?
 	//												// ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_shutdown" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return  HEAP_VOID;

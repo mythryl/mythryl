@@ -60,11 +60,11 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
         //
 	socklen_t  optSz =  sizeof( struct linger );
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_linger_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status =  getsockopt( socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, &optSz );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_linger_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
 	ASSERT( status < 0  ||  optSz == sizeof( struct linger ));
 	//
@@ -79,11 +79,11 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
 	    optVal.l_linger = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	}
 
-	RELEASE_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_linger_option", NULL );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, "get_or_set_socket_linger_option" );
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
     }
 
     if (status < 0)  		return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);

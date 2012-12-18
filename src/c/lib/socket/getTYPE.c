@@ -38,12 +38,12 @@ Val   _lib7_Sock_getTYPE   (Task* task,  Val arg)   {		//  : Socket -> Sock_type
 
     socklen_t opt_size = sizeof( int );
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getTYPE", NULL );
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int flag;
 	int status =  getsockopt( socket, SOL_SOCKET, SO_TYPE, (sockoptval_t)&flag, &opt_size );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, "_lib7_Sock_getTYPE" );
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
     Val result;
 
