@@ -160,15 +160,14 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		    call_heapcleaner( task, 0 );							// call_heapcleaner	def in   src/c/heapcleaner/call-heapcleaner.c
 		}
 
-	        // Figure out which unix signal needs handling
+	        // Figure out which interprocess signal needs handling
 		// and save its (number, count) in
 		//
                 //    hostthread->next_posix_signal_id,			// SIGALRM or whatever.
                 //    hostthread->next_posix_signal_count		// Number of times it has happened since last being handled.
 		//
-		// choose_signal() and make_mythryl_signal_handler_arg() are both from
-		//
-		//     src/c/machine-dependent/signal-stuff.c
+		// choose_signal() 			is from   src/c/machine-dependent/interprocess-signals.c
+		// make_mythryl_signal_handler_arg()	is from   src/c/machine-dependent/signal-stuff.c
 		//
 		// Our actual kernel-invoked signal handler is   c_signal_handler()   from
 		//
