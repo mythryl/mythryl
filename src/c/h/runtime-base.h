@@ -382,7 +382,7 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     // Signal related fields:
     //
     Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.
-    Bool	posix_signal_pending;				// Is there a posix signal awaiting handling?
+    Bool	interprocess_signal_pending;			// Is there an interprocess signal awaiting handling?
     Bool	mythryl_handler_for_posix_signal_is_running;	// Is a Mythryl signal handler active? 
     //
     Signals_Seen_And_Done_Counts

@@ -532,7 +532,7 @@ pending_sigs:				// There are pending signals.
 	bf	CR0_EQ,CSYM(run_mythryl_code)
 
 	li	r0,1
-	stw	r0,posix_signal_pending_byte_offset_in_hostthread_struct(atmp2)
+	stw	r0,interprocess_signal_pending_byte_offset_in_hostthread_struct(atmp2)
 	addi	heap_allocation_limit,heap_allocation_pointer,0
 	b	CSYM(run_mythryl_code)
 

@@ -555,7 +555,7 @@ pending:
 	CMP_L(CONST(0), REGOFF( mythryl_handler_for_posix_signal_is_running_byte_offset_in_hostthread_struct, hostthread ))   
 	JNE( restore_and_run_mythryl_code )
 											// Handler trap is now pending.
-	movl	IMMED(1), posix_signal_pending_byte_offset_in_hostthread_struct( hostthread ) 
+	movl	IMMED(1), interprocess_signal_pending_byte_offset_in_hostthread_struct( hostthread ) 
 
 	// Must restore here because heap_allocation_limit is on stack  		// XXX
 	//

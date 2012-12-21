@@ -151,7 +151,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 	if (request == REQUEST_HEAPCLEANING) {
 	    //
-	    if (hostthread->posix_signal_pending) {							// posix_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/interprocess-signals.c
+	    if (hostthread->interprocess_signal_pending) {						// interprocess_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/interprocess-signals.c
 		//
 		// This "request" is really a POSIX interprocess signal.
 
@@ -207,7 +207,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		hostthread->mythryl_handler_for_posix_signal_is_running	    = TRUE;
 		//
-		hostthread->posix_signal_pending= FALSE;
+		hostthread->interprocess_signal_pending= FALSE;
 	    }
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else if (task->software_generated_periodic_event_is_pending
@@ -378,7 +378,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	    case REQUEST_RETURN_FROM_SIGNAL_HANDLER:
 #ifdef SIGNAL_DEBUG
 debug_say("REQUEST_RETURN_FROM_SIGNAL_HANDLER: arg = %#x, pending = %d, inHandler = %d, nSigs = %d/%d\n",
-task->argument, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running,
+task->argument, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running,
 hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_count);
 #endif
 

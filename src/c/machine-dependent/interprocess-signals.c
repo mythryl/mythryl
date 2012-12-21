@@ -499,7 +499,7 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
 //    );
 
     #ifdef SIGNAL_DEBUG
-    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
+    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -510,13 +510,13 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
     hostthread->ccall_limit_pointer_mask = 0;
 
     if (  hostthread->executing_mythryl_code
-    &&  ! hostthread->posix_signal_pending
+    &&  ! hostthread->interprocess_signal_pending
     &&  ! hostthread->mythryl_handler_for_posix_signal_is_running
     ){
-	hostthread->posix_signal_pending = TRUE;
+	hostthread->interprocess_signal_pending = TRUE;
 
 	// The purpose of the following logic is to ensure that the TRUE
-	//    hostthread->posix_signal_pending
+	//    hostthread->interprocess_signal_pending
 	// flag set above gets noticed as quickly as practical, by making
 	// the heap-memory-low probe fire prematurely:
 	//
@@ -559,7 +559,7 @@ static void   c_signal_handler   (
 
     #ifdef SIGNAL_DEBUG
     debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n",
-    sig, hostthread->posix_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
+    sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -570,14 +570,14 @@ static void   c_signal_handler   (
     hostthread->ccall_limit_pointer_mask = 0;
 
     if (  hostthread-> executing_mythryl_code
-    && (! hostthread-> posix_signal_pending)
+    && (! hostthread-> interprocess_signal_pending)
     && (! hostthread-> mythryl_handler_for_posix_signal_is_running)
     ){
         //
-	hostthread->posix_signal_pending =  TRUE;
+	hostthread->interprocess_signal_pending =  TRUE;
 
 	// The purpose of the following logic is to ensure that the TRUE
-	//    hostthread->posix_signal_pending
+	//    hostthread->interprocess_signal_pending
 	// flag set above gets noticed as quickly as practical, by making
 	// the heap-memory-low probe fire prematurely:
 	//

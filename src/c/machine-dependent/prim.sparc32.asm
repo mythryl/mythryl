@@ -363,7 +363,7 @@ pending_sigs:					// There are pending signals.
 	bne	run_mythryl_code
 	set	1,TMPREG2			// (delay slot)
 						// Note that a handler trap is pending.
-	st	TMPREG2,[ hostthreadPtr + posix_signal_pending_byte_offset_in_hostthread_struct ]
+	st	TMPREG2,[ hostthreadPtr + interprocess_signal_pending_byte_offset_in_hostthread_struct ]
 	ba	run_mythryl_code
 	mov	HEAP_ALLOCATION_POINTER,HEAP_ALLOCATION_LIMIT		// (delay slot)
 
