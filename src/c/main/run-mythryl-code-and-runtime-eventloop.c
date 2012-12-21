@@ -281,7 +281,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		return;
 
 	    case REQUEST_HANDLE_UNCAUGHT_EXCEPTION:
-	        handle_uncaught_exception( task->argument );	// handle_uncaught_exception	def in    src/c/main/runtime-exception-stuff.c
+	        handle_uncaught_exception( task->argument );		// handle_uncaught_exception	def in    src/c/main/runtime-exception-stuff.c
 		return;
 
 	    case REQUEST_FAULT:                    			// A hardware fault.
@@ -389,7 +389,7 @@ hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_cou
 
 	        // Note that we are exiting the handler:
 		//
-		hostthread->mythryl_handler_for_posix_signal_is_running = FALSE;
+		hostthread->mythryl_handler_for_posix_signal_is_running =  FALSE;
 		break;
 
 
@@ -409,9 +409,9 @@ hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_cou
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    case REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER:
 #endif
-	    case REQUEST_RESUME_SIGNAL_HANDLER:
+	    case REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER:
 		#ifdef SIGNAL_DEBUG
-		    debug_say("REQUEST_RESUME_SIGNAL_HANDLER: arg = %#x\n", task->argument);
+		    debug_say("REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER: arg = %#x\n", task->argument);
 		#endif
 		    load_resume_state( task );					// load_resume_state	def in    src/c/machine-dependent/signal-stuff.c
 		break;

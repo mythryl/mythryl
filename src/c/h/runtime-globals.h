@@ -100,8 +100,8 @@ extern Val   runtime_package__global;
 //     src/c/machine-dependent/prim.pwrpc32.asm
 //
 // resume_after_handling_signal
-//     Code to to resume execution from where we
-//     were before we went off to handle a POSIX signal.
+//     Code to to resume execution from where we were
+//     before we went off to handle an interprocess signal.
 //     This is a standard two-argument function.
 // 
 // return_from_signal_handler_c

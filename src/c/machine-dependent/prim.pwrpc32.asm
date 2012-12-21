@@ -273,7 +273,7 @@ MYTHRYL_CODE_HEADER( return_from_signal_handler_asm )
 // before we went off to handle a POSIX signal:
 //
 ENTRY( resume_after_handling_signal )
-	li	atmp4, REQUEST_RESUME_SIGNAL_HANDLER
+	li	atmp4, REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER
 	b	set_request
 
 // return_from_software_generated_periodic_event_handler_a:

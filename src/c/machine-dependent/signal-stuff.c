@@ -46,7 +46,7 @@ Val   make_resumption_fate   (				// Called once from this file, once from   src
 }
 
 
-Val   make_mythryl_signal_handler_arg   (
+Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interprocess-signal code in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //=============================== 
     //
     Task* task,
@@ -87,8 +87,8 @@ Val   make_mythryl_signal_handler_arg   (
     //
     Val arg = make_three_slot_record( task, 
 	//
-	TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_id	),
-        TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_count	),
+	TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_id	   ),
+        TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_count ),
 	run_fate
     );
 

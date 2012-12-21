@@ -173,7 +173,7 @@ MYTHRYL_CODE_HEADER(return_from_signal_handler_asm)
 ENTRY(resume_after_handling_signal)
 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
-	set	REQUEST_RESUME_SIGNAL_HANDLER,TMPREG3		// (delay slot)
+	set	REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER,TMPREG3		// (delay slot)
 
 // return_from_software_generated_periodic_event_handler_asm:
 // The return fate for the Mythryl software

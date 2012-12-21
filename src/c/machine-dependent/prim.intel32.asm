@@ -282,11 +282,11 @@ MYTHRYL_CODE_HEADER( return_from_signal_handler_asm)
 	JMP(CSYM(set_request))
 
 // Here we pick up execution from where we were
-// before we went off to handle a POSIX signal:
+// before we went off to handle an interprocess signal:
 // This is a standard two-argument function, thus the closure is in fate.
 //
 ENTRY( resume_after_handling_signal )
-	MOV_L( CONST( REQUEST_RESUME_SIGNAL_HANDLER ), temp)
+	MOV_L( CONST( REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER ), temp)
 	JMP( CSYM(set_request))
 
 // return_from_software_generated_periodic_event_handler_asm:
