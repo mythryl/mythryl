@@ -52,7 +52,7 @@ Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interproc
     Task* task,
     Val*  resume_after_handling_signal
 ){
-    // We're handling a POSIX inteprocess signal for
+    // We're handling an interprocess signal for
     //
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //

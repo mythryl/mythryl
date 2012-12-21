@@ -193,7 +193,7 @@ MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 ENTRY(resume_after_handling_software_generated_periodic_event)
 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
-	set	REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER,TMPREG3	// (delay slot)
+	set	REQUEST_RESUME_AFTER_RUNNING_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER,TMPREG3	// (delay slot)
 
 // Exception handler for Mythryl functions called from C.
 // We delegate uncaught-exception handling to

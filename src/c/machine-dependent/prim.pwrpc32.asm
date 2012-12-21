@@ -292,7 +292,7 @@ MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
 // periodic event:
 //
 ENTRY(resume_after_handling_software_generated_periodic_event)
-	li	atmp4,REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER
+	li	atmp4,REQUEST_RESUME_AFTER_RUNNING_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER
 	b	set_request
 
 // Exception handler for Mythryl functions called from C.
