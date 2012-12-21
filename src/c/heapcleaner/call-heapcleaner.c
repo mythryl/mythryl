@@ -12,7 +12,7 @@
 //
 //     src/c/machine-dependent/prim.intel32.asm
 // 
-// and thence via   system_run_mythryl_task_and_runtime_eventloop__may_heapclean/REQUEST_CLEANING   in
+// and thence via   system_run_mythryl_task_and_runtime_eventloop__may_heapclean/REQUEST_HEAPCLEANING   in
 //
 //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
 //

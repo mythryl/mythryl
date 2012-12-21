@@ -378,7 +378,7 @@ MYTHRYL_CODE_HEADER(call_cfun_asm)
 // This is the entry point called from Mythryl to start a heapcleaning.
 //						Allen 6/5/1998
 ENTRY(call_heapcleaner_asm)
-	li	atmp4, REQUEST_CLEANING
+	li	atmp4, REQUEST_HEAPCLEANING
 	mflr	program_counter
 
 	// FALL THROUGH

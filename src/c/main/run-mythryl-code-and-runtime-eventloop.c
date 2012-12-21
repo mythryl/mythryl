@@ -149,7 +149,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 
 	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime.
 
-	if (request == REQUEST_CLEANING) {
+	if (request == REQUEST_HEAPCLEANING) {
 	    //
 	    if (hostthread->posix_signal_pending) {							// posix_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/interprocess-signals.c
 		//

@@ -204,7 +204,7 @@
 
 #define run_heapcleaner_ptr	REGOFF(32,ESP)			// Needs to match   run_heapcleaner__offset  in  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
 								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
-								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner_asm (below) which returns a REQUEST_CLEANING to
+								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner_asm (below) which returns a REQUEST_HEAPCLEANING to
 								// run_mythryl_task_and_runtime_eventloop__may_heaplcean ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/heapcleaner/call-heapcleaner.c
 #define unused_2		REGOFF(36,ESP)
@@ -402,7 +402,7 @@ MYTHRYL_CODE_HEADER(call_cfun_asm)					// See call_cfun in src/lib/core/init/run
 //						Allen 6/5/1998
 ENTRY(call_heapcleaner_asm)
 	POP_L(program_counter)
-	MOV_L(CONST(REQUEST_CLEANING), temp)
+	MOV_L(CONST(REQUEST_HEAPCLEANING), temp)
 	//
 	// FALL INTO set_request
 
