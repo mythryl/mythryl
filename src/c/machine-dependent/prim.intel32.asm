@@ -272,15 +272,19 @@
 	SEG_TEXT
 	ALIGNTEXT4
 
-// The return fate for the Mythryl signal handler.
+// This address will be placed in the fate register
+// before invoking a Mythryl signal handler.
 //
-MYTHRYL_CODE_HEADER( return_from_signal_handler_asm)
+ALIGNED_ENTRY( return_from_signal_handler_asm)
 	MOV_L( CONST(HEAP_VOID), stdlink)
 	MOV_L( CONST(HEAP_VOID), stdclos)
 	MOV_L( CONST(HEAP_VOID), program_counter)
 	MOV_L( CONST(REQUEST_RETURN_FROM_SIGNAL_HANDLER), temp)
 	JMP(CSYM(set_request))
 
+
+// This address will occupy the third and last slot
+// in the argument tuple handed to a Mythryl signal handler.
 // Here we pick up execution from where we were
 // before we went off to handle an interprocess signal:
 // This is a standard two-argument function, thus the closure is in fate.
@@ -293,7 +297,7 @@ ENTRY( resume_after_handling_signal )
 // The return fate for the Mythryl
 // software generated periodic events handler.
 //
-MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
+ALIGNED_ENTRY( return_from_software_generated_periodic_event_handler_asm )
 	MOV_L( CONST(HEAP_VOID), stdlink)
 	MOV_L( CONST(HEAP_VOID), stdclos)
 	MOV_L( CONST(HEAP_VOID), program_counter)
@@ -316,7 +320,7 @@ ENTRY( resume_after_handling_software_generated_periodic_event )
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and src/c/heapcleaner/import-heap.c
 //
-MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
+ALIGNED_ENTRY(handle_uncaught_exception_closure_asm)
 	MOVE_FROM_VIA_TO(stdlink,temp,program_counter)
 	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), temp)
 	JMP(CSYM(set_request))
@@ -346,7 +350,7 @@ MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 // and by                              import_heap_image__may_heapclean		in   src/c/heapcleaner/import-heap.c
 // and by                              pth__pthread_create			in   src/c/hostthread/hostthread-on-posix-threads.c
 //
-MYTHRYL_CODE_HEADER(return_to_c_level_asm)
+ALIGNED_ENTRY(return_to_c_level_asm)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
 	MOV_L(CONST(HEAP_VOID),program_counter)
@@ -376,12 +380,12 @@ ENTRY(request_fault)
 // We pass the buck via    REQUEST_FIND_CFUN	in    src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // to                      get_mythryl_callable_c_function		in    src/c/lib/mythryl-callable-c-libraries.c
 //
-MYTHRYL_CODE_HEADER(find_cfun_asm)
+ALIGNED_ENTRY(find_cfun_asm)
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_FIND_CFUN), temp)
 	JMP(CSYM(set_request))
 
-MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
+ALIGNED_ENTRY(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER), temp)
 	JMP(CSYM(set_request))
@@ -393,7 +397,7 @@ MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
 //
-MYTHRYL_CODE_HEADER(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.pkg
+ALIGNED_ENTRY(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.pkg
 	CHECKLIMIT
 	MOV_L(CONST(REQUEST_CALL_CFUN), temp)
 	JMP(CSYM(set_request))
@@ -552,7 +556,7 @@ run_mythryl_code:
 pending:
 											// Currently handling signal?
 
-	CMP_L(CONST(0), REGOFF( mythryl_handler_for_posix_signal_is_running_byte_offset_in_hostthread_struct, hostthread ))   
+	CMP_L(CONST(0), REGOFF( mythryl_handler_for_interprocess_signal_is_running_byte_offset_in_hostthread_struct, hostthread ))   
 	JNE( restore_and_run_mythryl_code )
 											// Handler trap is now pending.
 	movl	IMMED(1), interprocess_signal_pending_byte_offset_in_hostthread_struct( hostthread ) 
@@ -571,7 +575,7 @@ pending:
 // Allocate a new Rw_Vector and initialize with given value.
 // This can trigger cleaning.
 //
-MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
+ALIGNED_ENTRY(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT
 	MOV_L (REGIND(stdarg), temp)						// temp := length in words.
 	SAR_L (CONST(1), temp)							// temp := length untagged.
@@ -619,7 +623,7 @@ MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 
 // make_float64_rw_vector : Int -> Float64_Rw_Vector
 //
-MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
+ALIGNED_ENTRY(make_float64_rw_vector_asm)
 	CHECKLIMIT
 #define temp1 misc0
         PUSH_L(misc0)								// Free temp1.
@@ -663,7 +667,7 @@ MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 
 // make_unt8_rw_vector : Int -> Unt8_Rw_Vector
 //
-MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
+ALIGNED_ENTRY(make_unt8_rw_vector_asm)
 	CHECKLIMIT
 	MOV_L(stdarg,temp)							// temp := length(tagged int)
 	SAR_L(CONST(1),temp)							// temp := length(untagged)
@@ -706,7 +710,7 @@ MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 
 // make_string : Int -> String
 //
-MYTHRYL_CODE_HEADER(make_string_asm)
+ALIGNED_ENTRY(make_string_asm)
 	CHECKLIMIT
 	MOV_L(stdarg,temp)
 	SAR_L(CONST(1),temp)							// temp := length(untagged)
@@ -758,7 +762,7 @@ MYTHRYL_CODE_HEADER(make_string_asm)
 //	in
 //	    src/lib/core/init/pervasive.pkg
 //
-MYTHRYL_CODE_HEADER(make_vector_asm)
+ALIGNED_ENTRY(make_vector_asm)
 	CHECKLIMIT
 	PUSH_L(misc0)
 	PUSH_L(misc1)
@@ -826,7 +830,7 @@ MYTHRYL_CODE_HEADER(make_vector_asm)
 // it is likely to succeed.
 //    -- 2011-11-01 CrT
 //
-MYTHRYL_CODE_HEADER(try_lock_asm)
+ALIGNED_ENTRY(try_lock_asm)
 #if (MAX_PROCS > 1)
 #  error prim.intel32.asm:  try_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
@@ -841,7 +845,7 @@ MYTHRYL_CODE_HEADER(try_lock_asm)
 // This is an ancient mutex left-over from 1992 multi-processor
 // support: See src/src/A.HOSTTHREAD-SUPPORT.OVERVIEW.    -- 2011-11-01 CrT
 //
-MYTHRYL_CODE_HEADER(unlock_asm)
+ALIGNED_ENTRY(unlock_asm)
 #if (MAX_PROCS > 1)
     #error prim.intel32.asm:  unlock_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
@@ -918,7 +922,7 @@ ENTRY(fesetround)
 // Return the nearest integer that is less or equal to the argument.
 //	 Caller's responsibility to make sure arg is in range.
 
-MYTHRYL_CODE_HEADER(floor_asm)
+ALIGNED_ENTRY(floor_asm)
 	FSTCW(old_controlwd)			// Get FP control word.
 	MOV_W(old_controlwd, AX)
 	AND_W(CONST(0xf3ff), AX)		// Clear rounding field.
@@ -940,7 +944,7 @@ MYTHRYL_CODE_HEADER(floor_asm)
 // Extract the unbiased exponent pointed to by stdarg.
 // Note: Using fxtract, and fistl does not work for inf's and nan's.
 //
-MYTHRYL_CODE_HEADER(logb_asm)
+ALIGNED_ENTRY(logb_asm)
 	MOV_L(REGOFF(4,stdarg),temp)		// msb for little endian arch
 	SAR_L(CONST(20), temp)			// throw out 20 bits
 	AND_L(CONST(0x7ff),temp)		// clear all but 11 low bits
@@ -957,7 +961,7 @@ MYTHRYL_CODE_HEADER(logb_asm)
 // NB: We assume the first floating point "register" is
 // caller-save, so we can use it here (see intel32/intel32.pkg).
 
-MYTHRYL_CODE_HEADER(scalb_asm)
+ALIGNED_ENTRY(scalb_asm)
 	CHECKLIMIT
 	PUSH_L(REGOFF(4,stdarg))				// Get copy of scalar.				64-bit issue
 	SAR_L(CONST(1), REGIND(ESP))				// Untag it.

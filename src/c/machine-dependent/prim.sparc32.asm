@@ -158,7 +158,7 @@
 // return_from_signal_handler_asm:
 // The return fate for the Mythryl signal handler.
 //
-MYTHRYL_CODE_HEADER(return_from_signal_handler_asm)
+ALIGNED_ENTRY(return_from_signal_handler_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -179,7 +179,7 @@ ENTRY(resume_after_handling_signal)
 // The return fate for the Mythryl software
 // generated periodic event handler.
 //
-MYTHRYL_CODE_HEADER( return_from_software_generated_periodic_event_handler_asm )
+ALIGNED_ENTRY( return_from_software_generated_periodic_event_handler_asm )
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -203,7 +203,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and src/c/heapcleaner/import-heap.c
 //
-MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
+ALIGNED_ENTRY(handle_uncaught_exception_closure_asm)
 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_HANDLE_UNCAUGHT_EXCEPTION,TMPREG3		// (delay slot)
@@ -232,7 +232,7 @@ MYTHRYL_CODE_HEADER(handle_uncaught_exception_closure_asm)
 // We get slotted into task->fate by   save_c_state				in   src/c/main/runtime-state.c 
 // and by                              run_mythryl_function__may_heapclean	in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 //
-MYTHRYL_CODE_HEADER(return_to_c_level_asm)
+ALIGNED_ENTRY(return_to_c_level_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
 	set	HEAP_VOID,PROGRAM_COUNTER
@@ -251,12 +251,12 @@ ENTRY(request_fault)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg	
 //
-MYTHRYL_CODE_HEADER(find_cfun_asm)
+ALIGNED_ENTRY(find_cfun_asm)
 	CHECKLIMIT(find_cfun_v_limit)
 	ba	set_request
 	set	REQUEST_FIND_CFUN,TMPREG3		// (delay slot)
 
-MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
+ALIGNED_ENTRY(make_package_literals_via_bytecode_interpreter_asm)
 	CHECKLIMIT(make_package_literals_via_bytecode_interpreter_a_limit)
 	ba	set_request
 	set	REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER,TMPREG3	// (delay slot)
@@ -268,7 +268,7 @@ MYTHRYL_CODE_HEADER(make_package_literals_via_bytecode_interpreter_asm)
 //
 //     src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
 //
-MYTHRYL_CODE_HEADER(call_cfun_asm)
+ALIGNED_ENTRY(call_cfun_asm)
 	CHECKLIMIT(call_cfun_a_limit)
 	ba	set_request
 	set	REQUEST_CALL_CFUN,TMPREG3		// (delay slot)
@@ -358,7 +358,7 @@ CSYM(run_mythryl_code):					// Invoke the Mythryl code.
 
 pending_sigs:					// There are pending signals.
 						// Check if we are currently handling a signal.
-	ld	[ hostthreadPtr + mythryl_handler_for_posix_signal_is_running_byte_offset_in_hostthread_struct ], TMPREG2
+	ld	[ hostthreadPtr + mythryl_handler_for_interprocess_signal_is_running_byte_offset_in_hostthread_struct ], TMPREG2
 	tst	TMPREG2
 	bne	run_mythryl_code
 	set	1,TMPREG2			// (delay slot)
@@ -393,7 +393,7 @@ ENTRY(Zero_Heap_Allocation_Limit)
 // Allocate and initialize a new rw_vector.
 // This can trigger cleaning.
 //
-MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
+ALIGNED_ENTRY(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT(make_typeagnostic_rw_vector_a_limit)
 	ld	[STDARG],TMPREG1				// tmp1 = length in words
 	sra	TMPREG1,1,TMPREG2				// tmp2 = length (untagged)
@@ -431,7 +431,7 @@ MYTHRYL_CODE_HEADER(make_typeagnostic_rw_vector_asm)
 // make_float64_rw_vector:  Int -> Float64_Rw_Vector
 // Create a new Float64_Rw_Vector.
 //
-MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
+ALIGNED_ENTRY(make_float64_rw_vector_asm)
 	CHECKLIMIT(make_float64_rw_vector_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (untagged int)
 	sll	TMPREG2,1,TMPREG2				// tmp2 = length in words
@@ -469,7 +469,7 @@ MYTHRYL_CODE_HEADER(make_float64_rw_vector_asm)
 // make_unt8_rw_vector:  Int -> Unt8_Rw_Vector
 // Create a bytearray of the given length.
 //
-MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
+ALIGNED_ENTRY(make_unt8_rw_vector_asm)
 	CHECKLIMIT(make_unt8_rw_vector_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (sparc int)
 	add	TMPREG2,3,TMPREG2				// tmp2 = length in words
@@ -505,7 +505,7 @@ MYTHRYL_CODE_HEADER(make_unt8_rw_vector_asm)
 // make_string:  Int -> String
 // Create a string of the given length (> 0).
 //
-MYTHRYL_CODE_HEADER(make_string_asm)
+ALIGNED_ENTRY(make_string_asm)
 	CHECKLIMIT(make_string_a_limit)
 	sra	STDARG,1,TMPREG2				// tmp2 = length (sparc int)
 	add	TMPREG2,4,TMPREG2				// tmp2 = length in words
@@ -554,7 +554,7 @@ MYTHRYL_CODE_HEADER(make_string_asm)
 //	in
 //	    src/lib/core/init/pervasive.pkg
 //
-MYTHRYL_CODE_HEADER(make_vector_asm)
+ALIGNED_ENTRY(make_vector_asm)
 	CHECKLIMIT(make_vector_a_limit)
 	ld	[STDARG],TMPREG1				// tmp1 = length (tagged int)
 	sra	TMPREG1,1,TMPREG2				// tmp2 = length (untagged int)
@@ -599,7 +599,7 @@ MYTHRYL_CODE_HEADER(make_vector_asm)
 // Do not check for out-of-range -- it is the Mythryl
 // code's responsibility to check before calling.
 //
-MYTHRYL_CODE_HEADER(floor_asm)
+ALIGNED_ENTRY(floor_asm)
 	ld	[STDARG],%f0					// Fetch arg into %f0, %f1.
 	ld	[STDARG+4],%f1
 	ld	[STDARG],TMPREG2				// tmpreg2 gets high word.
@@ -632,7 +632,7 @@ MYTHRYL_CODE_HEADER(floor_asm)
 // Extract and unbias the exponent.
 // The IEEE bias is 1023.
 //
-MYTHRYL_CODE_HEADER(logb_asm)
+ALIGNED_ENTRY(logb_asm)
 	ld	[STDARG],TMPREG2				// Extract exponent.
 	srl	TMPREG2,19,TMPREG2
 	and	TMPREG2,2047*2,TMPREG2				// Unbias and convert to Mythryl int.
@@ -644,7 +644,7 @@ MYTHRYL_CODE_HEADER(logb_asm)
 // Scale the first argument by 2 raised to the second argument.
 // Raise Float("underflow") or Float("overflow") as appropriate.
 //
-MYTHRYL_CODE_HEADER(scalb_asm)
+ALIGNED_ENTRY(scalb_asm)
 	CHECKLIMIT(scalb_a_limit)
 	ld	[STDARG+4],TMPREG1					// tmpreg1 gets scale (second arg)
 	sra	TMPREG1,1,TMPREG1					// Convert scale to sparc int. 
@@ -802,7 +802,7 @@ _lib7_udiv:
 // low-level test-and-set style primitive for mutual-exclusion among 
 // processors.
 //
-MYTHRYL_CODE_HEADER(try_lock_asm)
+ALIGNED_ENTRY(try_lock_asm)
 #if (MAX_PROCS > 1)
 	???
 #else (MAX_PROCS == 1)
@@ -815,7 +815,7 @@ MYTHRYL_CODE_HEADER(try_lock_asm)
 
 // unlock : releases a spin lock 
 //
-MYTHRYL_CODE_HEADER(unlock_asm)
+ALIGNED_ENTRY(unlock_asm)
 #if (MAX_PROCS > 1)
 	???
 #else (MAX_PROCS == 1)

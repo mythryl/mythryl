@@ -361,7 +361,58 @@ int   get_signal_state   (Hostthread* hostthread,  int sig_num)   {					// Calle
 }
 
 
-#if defined(HAS_POSIX_SIGS) && defined(HAS_UCONTEXT)
+void   c_fake_signal_handler   (int hostthread_id, int sig /* portable signal id */) {				// This is called (only) from   do_send_fake_posix_signal_to_mythryl_hostthread()	in   src/c/lib/hostthread/libmythryl-hostthread.c
+    // =====================
+    //
+    // This function is used by Mythryl code to simulate reception of an
+    // interprocess signal.  It was introduced mainly to allow
+    //     src/lib/std/src/hostthread/io-wait-hostthread.pkg
+    // to send signals to
+    //     src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    // to drive microthread timeslicing, replacing the previously-used 50Hz setitimer SIGALRM.
+    // (The SIGALRM solution turned out to have various drawbacks, including monopolizing a
+    // scarce resource -- SIGALRM -- and pervasively triggering EINTR errors on "slow" syscalls.)
+    //
+    // We deliberately allow simulated reception of normally uncatchable signals like SIGKILL;
+    // sending them eliminates possiblity of confusion between real and faked signals.
+    // (Originally we introduced new signals for this purpose, but that introduces nasty
+    // special cases, for example we cannot assume that our new signals will be supported
+    // by the host-OS macros for constructing and manipulating sets of signals.  In particular,
+    // Linux defines 31 signals and probably uses a bitmap stored in a 32-bit word.)
+    //
+    // I'm hoping that placing c_fake_signal_handler()
+    // next to                      c_signal_handler()
+    // will increase the likelihood of maintainers keeping the two in sync.    -- 2012-12-22 CrT
+
+    Hostthread* hostthread =  hostthread_table__global[ hostthread_id ];				// We'll deliver the signal to this hostthread, which is normally different from the sending hostthread.
+
+    // Sanity check:  We compile in a SIGNAL_TABLE_SIZE_IN_SLOTS value but
+    // have no way to ensure that we don't wind up getting run
+    // on some custom kernel supporting more than SIGNAL_TABLE_SIZE_IN_SLOTS,
+    // so we check here to be safe:
+    //
+    if ((unsigned)sig >= SIGNAL_TABLE_SIZE_IN_SLOTS)    die ("interprocess-signals.c: c_signal_handler: sig d=%d >= SIGNAL_TABLE_SIZE_IN_SLOTS %d\n", sig, SIGNAL_TABLE_SIZE_IN_SLOTS ); 
+
+    ++ hostthread->posix_signal_counts[ sig ].seen_count;
+    ++ hostthread->all_posix_signals.seen_count;
+	//
+	// In principle one could argue that we should be using a mutex here.
+	// In practice:
+	//
+	//    o There will only be an issue of multiple hostthreads are sending
+	//      signals to a particular recipient hostthread, which I do not
+	//	currently envision happening.
+	//
+	//    o There still won't be an issue if the recipient doesn't distinguish
+	//	getting 1 or more signals, which I currently expect to be the case.
+	//
+	//    o The window for problems is extremely small, and in the envisioned
+	//	application (waking up microthread-preemptive-scheduler.pkg to do timeslicing) and
+	//	occasional dropped signal wouldn't be a signficant problem anyhow.
+
+}
+
+#if defined(HAS_POSIX_SIGS) && defined(HAS_UCONTEXT)							// This is the version which is used on Linux and consequently is well-tested.
 
 // In this case    src/c/h/system-dependent-signal-get-set-etc.h
 // set c_signal_handler up to be registered as a signal handler
@@ -499,7 +550,7 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
 //    );
 
     #ifdef SIGNAL_DEBUG
-    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
+    debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n", sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_interprocess_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -511,7 +562,7 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
 
     if (  hostthread->executing_mythryl_code
     &&  ! hostthread->interprocess_signal_pending
-    &&  ! hostthread->mythryl_handler_for_posix_signal_is_running
+    &&  ! hostthread->mythryl_handler_for_interprocess_signal_is_running
     ){
 	hostthread->interprocess_signal_pending = TRUE;
 
@@ -525,13 +576,13 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
 	    SIG_SavePC( hostthread->task, scp );
 	    SET_SIGNAL_PROGRAM_COUNTER( scp,  );
 	#else
-	    ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER( scp );			// OK to adjust the heap limit directly.
-	#endif
+	    ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER( scp );		// OK to adjust the heap limit directly.
+	#endif									// ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER	is from   src/c/h/system-dependent-signal-get-set-etc.h
     }
 //										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }
 
-#else
+#else										// This version is not used on Linux and consequently may have bit-rot at this point.   -- 2012-12-22 CrT
 
 static void   c_signal_handler   (
     //
@@ -559,7 +610,7 @@ static void   c_signal_handler   (
 
     #ifdef SIGNAL_DEBUG
     debug_say ("c_signal_handler: sig = %d, pending = %d, inHandler = %d\n",
-    sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running);
+    sig, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_interprocess_signal_is_running);
     #endif
 
     // The following line is needed only when
@@ -571,7 +622,7 @@ static void   c_signal_handler   (
 
     if (  hostthread-> executing_mythryl_code
     && (! hostthread-> interprocess_signal_pending)
-    && (! hostthread-> mythryl_handler_for_posix_signal_is_running)
+    && (! hostthread-> mythryl_handler_for_interprocess_signal_is_running)
     ){
         //
 	hostthread->interprocess_signal_pending =  TRUE;

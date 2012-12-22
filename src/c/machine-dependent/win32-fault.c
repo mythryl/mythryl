@@ -57,7 +57,7 @@ BOOL   win32_generic_handler   (int code) {
 
     if (hostthread->executing_mythryl_code && 
       (!hostthread->interprocess_signal_pending) && 
-      (!hostthread->mythryl_handler_for_posix_signal_is_running))
+      (!hostthread->mythryl_handler_for_interprocess_signal_is_running))
     {
 	hostthread->interprocess_signal_pending = TRUE;
 	ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER();

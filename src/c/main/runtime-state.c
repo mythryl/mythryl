@@ -108,7 +108,7 @@ static void   set_up_hostthread_state   (Hostthread* hostthread)   {
     //
     hostthread->executing_mythryl_code		= FALSE;
     hostthread->interprocess_signal_pending	= FALSE;
-    hostthread->mythryl_handler_for_posix_signal_is_running		= FALSE;
+    hostthread->mythryl_handler_for_interprocess_signal_is_running		= FALSE;
     //
     hostthread->all_posix_signals.seen_count	= 0;
     hostthread->all_posix_signals.done_count	= 0;

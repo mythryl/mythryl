@@ -51,37 +51,37 @@ int   main   (void) {
 
     FILE* fd =   start_generating_header_file( filename, unique_string, progname );			// start_generating_header_file		is from   src/c/config/start-and-finish-generating-header-file.c
 
-    PRINT_TASK_FIELD_BYTE_OFFSET( "hostthread",						hostthread						);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_buffer",				heap_allocation_buffer				);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_pointer",				heap_allocation_pointer				);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_limit",				heap_allocation_limit				);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_changelog",					heap_changelog					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "argument", 						argument					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "fate", 						fate						);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "current_closure",					current_closure					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "link_register",					link_register					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "program_counter",					program_counter					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "exception_fate",					exception_fate					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "current_thread",					current_thread					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_0", 				callee_saved_registers[0]			);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_1", 				callee_saved_registers[1]			);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_2",				callee_saved_registers[2]			);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "mythryl_stackframe__ptr_for__c_signal_handler",	mythryl_stackframe__ptr_for__c_signal_handler	);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "hostthread",							hostthread						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_buffer",					heap_allocation_buffer					);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_pointer",					heap_allocation_pointer					);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_limit",					heap_allocation_limit					);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_changelog",						heap_changelog						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "argument", 							argument						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "fate", 							fate							);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "current_closure",						current_closure						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "link_register",						link_register						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "program_counter",						program_counter						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "exception_fate",						exception_fate						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "current_thread",						current_thread						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_0", 					callee_saved_registers[0]				);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_1", 					callee_saved_registers[1]				);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_2",					callee_saved_registers[2]				);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "mythryl_stackframe__ptr_for__c_signal_handler",		mythryl_stackframe__ptr_for__c_signal_handler		);
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	PRINT_TASK_FIELD_BYTE_OFFSET( "real_heap_allocation_limit",			real_heap_allocation_limit			);	// Nowhere referenced.
-	PRINT_TASK_FIELD_BYTE_OFFSET( "software_generated_periodic_event_is_pending",	software_generated_periodic_event_is_pending	);	// Nowhere referenced.
-	PRINT_TASK_FIELD_BYTE_OFFSET( "in_software_generated_periodic_event_handler",	in_software_generated_periodic_event_handler	);	// Nowhere referenced.
+	PRINT_TASK_FIELD_BYTE_OFFSET( "real_heap_allocation_limit",				real_heap_allocation_limit				);	// Nowhere referenced.
+	PRINT_TASK_FIELD_BYTE_OFFSET( "software_generated_periodic_event_is_pending",		software_generated_periodic_event_is_pending		);	// Nowhere referenced.
+	PRINT_TASK_FIELD_BYTE_OFFSET( "in_software_generated_periodic_event_handler",		in_software_generated_periodic_event_handler		);	// Nowhere referenced.
 	//
     #endif
 
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "executing_mythryl_code",			executing_mythryl_code				);
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "ccall_limit_pointer_mask",			ccall_limit_pointer_mask			);	// Nowhere referenced.
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "interprocess_signal_pending", 			interprocess_signal_pending			);
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "mythryl_handler_for_posix_signal_is_running",	mythryl_handler_for_posix_signal_is_running	);
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_seen_count",			all_posix_signals.seen_count			);
-    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_done_count",			all_posix_signals.done_count			);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "executing_mythryl_code",				executing_mythryl_code					);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "ccall_limit_pointer_mask",				ccall_limit_pointer_mask				);	// Nowhere referenced.
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "interprocess_signal_pending", 				interprocess_signal_pending				);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "mythryl_handler_for_interprocess_signal_is_running",	mythryl_handler_for_interprocess_signal_is_running	);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_seen_count",				all_posix_signals.seen_count				);
+    PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET( "all_posix_signals_done_count",				all_posix_signals.done_count				);
 
     finish_generating_header_file( fd, unique_string );
 

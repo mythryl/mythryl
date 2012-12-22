@@ -12,12 +12,12 @@
 #include "system-dependent-signal-stuff.h"
 
 
-Val   make_resumption_fate   (				// Called once from this file, once from   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-    //==================== 
+Val   make_posthandler_resumption_fate_from_task   (				// Called once from this file, once from   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    //==========================================
     //
     Task* task,
-    Val*  resume					// Either   resume_after_handling_signal   or   resume_after_handling_software_generated_periodic_event
-){							// from a platform-dependent assembly file like    src/c/machine-dependent/prim.intel32.asm  
+    Val*  resume							// Either   resume_after_handling_signal   or   resume_after_handling_software_generated_periodic_event
+){									// from a platform-dependent assembly file like    src/c/machine-dependent/prim.intel32.asm  
     // 
     // Build the resume fate for a signal or poll event handler.
     // This closure contains the address of the resume entry-point and
@@ -81,7 +81,7 @@ Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interproc
 
     Hostthread* hostthread = task->hostthread;
 
-    Val run_fate =  make_resumption_fate( task,  resume_after_handling_signal );
+    Val run_fate =  make_posthandler_resumption_fate_from_task( task,  resume_after_handling_signal );
 
     // Allocate the Mythryl signal handler's argument record:
     //
@@ -100,16 +100,16 @@ Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interproc
 }
 
 
-void   load_resume_state   (Task* task) {						// Called exactly once, from   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-    // =================
+void   load_task_from_posthandler_resumption_fate   (Task* task) {						// Called exactly once, from   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    // ==========================================
     // 
     // Load the Mythryl state with the state preserved
-    // in resumption fate made by make_resumption_fate.
+    // in resumption fate made by make_posthandler_resumption_fate_from_task.
     //
     Val* current_closure;
 
     #ifdef SIGNAL_DEBUG
-        debug_say ("load_resume_state:\n");
+        debug_say ("load_task_from_posthandler_resumption_fate:\n");
     #endif
 
     current_closure = PTR_CAST(Val*, task->current_closure);

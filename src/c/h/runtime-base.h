@@ -311,7 +311,7 @@ struct task {
     Val		fault_exception;					// The exception packet for a hardware fault.
     Vunt	faulting_program_counter;				// The program counter of the faulting instruction.
 
-    Punt*	mythryl_stackframe__ptr_for__c_signal_handler;	// c_signal_handler() uses this pointer to zero heap_allocation_limit -- see ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER in src/c/h/system-dependent-signal-get-set-etc.h
+    Punt*	mythryl_stackframe__ptr_for__c_signal_handler;		// c_signal_handler() uses this pointer to zero heap_allocation_limit -- see ZERO_HEAP_ALLOCATION_LIMIT_FROM_C_SIGNAL_HANDLER in src/c/h/system-dependent-signal-get-set-etc.h
 
     Val*	protected_c_arg;					// Used to protect one arg from garbage collection by RELEASE_MYTHRYL_HEAP in src/c/h/runtime-base.h
     Val		heapvoid;						// Dummy for protected_c_arg to point to when not being used.  Initialized to HEAP_VOID.
@@ -383,7 +383,7 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
     //
     Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.
     Bool	interprocess_signal_pending;			// Is there an interprocess signal awaiting handling?
-    Bool	mythryl_handler_for_posix_signal_is_running;	// Is a Mythryl signal handler active? 
+    Bool	mythryl_handler_for_interprocess_signal_is_running;	// Is a Mythryl signal handler active? 
     //
     Signals_Seen_And_Done_Counts
 	all_posix_signals;					// Summary count for all system signals.
@@ -997,10 +997,11 @@ inline void  note_fn_exit_in_syscall_log   (Task* task, const char* fn_name) {
     }
 }
 
-extern int   portable_signal_id_to_host_os_signal_id(  int   signal_id   );
-extern int   host_os_signal_id_to_portable_signal_id(  int   signal_id   );
-extern int   ascii_signal_name_to_portable_signal_id(  char* signal_name );
-extern int   maximum_valid_portable_signal_id(         void              );
+extern int   portable_signal_id_to_host_os_signal_id(  int   signal_id       );			// portable_signal_id_to_host_os_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
+extern int   host_os_signal_id_to_portable_signal_id(  int   signal_id       );			// host_os_signal_id_to_portable_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
+extern int   ascii_signal_name_to_portable_signal_id(  char* signal_name     );			// ascii_signal_name_to_portable_signal_id	is from   src/c/machine-dependent/interprocess-signals.c
+extern int   maximum_valid_portable_signal_id(         void                  );			// maximum_valid_portable_signal_id		is from   src/c/machine-dependent/interprocess-signals.c
+extern void  c_fake_signal_handler( int hostthread_id, int portable_signal_id);			// c_fake_signal_handler			is from   src/c/machine-dependent/interprocess-signals.c
 
 #endif // _ASM_ 
 

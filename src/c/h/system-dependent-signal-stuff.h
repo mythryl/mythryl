@@ -41,11 +41,12 @@ typedef struct {
 
 // Utility functions:
 //
-extern void   choose_signal			(Hostthread* hostthread);						// choose_signal	is from   src/c/machine-dependent/interprocess-signals.c
-extern Val    make_resumption_fate		(Task* task,  Val resume[]);
-extern Val    make_mythryl_signal_handler_arg	(Task* task,  Val resume[]);
-extern void   load_resume_state			(Task* task);
-extern void   clear_signal_counts		(Hostthread* hostthread);						// clear_signal_counts	is from   src/c/machine-dependent/interprocess-signals.c
+extern void   choose_signal				  (Hostthread* hostthread);						// choose_signal				is from   src/c/machine-dependent/interprocess-signals.c
+extern void   clear_signal_counts			  (Hostthread* hostthread);						// clear_signal_counts				is from   src/c/machine-dependent/interprocess-signals.c
+//
+extern Val    make_mythryl_signal_handler_arg		  (Task* task,  Val resume[]);						// make_mythryl_signal_handler_arg		is from   src/c/machine-dependent/signal-stuff.c
+extern Val    make_posthandler_resumption_fate_from_task  (Task* task,  Val resume[]);						// make_posthandler_resumption_fate_from_task	is from   src/c/machine-dependent/signal-stuff.c
+extern void   load_task_from_posthandler_resumption_fate  (Task* task);								// load_task_from_posthandler_resumption_fate	is from   src/c/machine-dependent/signal-stuff.c
 
 // Core signal operations.  Depending on the platform,
 // these are implemented in one of:

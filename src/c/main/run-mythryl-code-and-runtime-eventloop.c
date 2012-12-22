@@ -175,7 +175,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		//
 		// POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL in practice points to
 		//
-		//     root_mythryl_handler_for_posix_interprocess_signals ()
+		//     root_mythryl_handler_for_interprocess_signals ()
 		//
 		// from
                 //
@@ -205,7 +205,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 		task->program_counter =
 		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
-		hostthread->mythryl_handler_for_posix_signal_is_running	    = TRUE;
+		hostthread->mythryl_handler_for_interprocess_signal_is_running =  TRUE;
 		//
 		hostthread->interprocess_signal_pending= FALSE;
 	    }
@@ -237,13 +237,13 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 													//     in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 		    call_heapcleaner (task, 0);
                 }
-		task->argument	      =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
+		task->argument	      =  make_posthandler_resumption_fate_from_task(task, resume_after_handling_software_generated_periodic_event);	// make_posthandler_resumption_fate_from_task is from  src/c/machine-dependent/signal-stuff.c
 		task->fate	      =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
 		task->exception_fate  =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
 		task->current_closure =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
 		//
-		task->program_counter=
-		task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
+		task->program_counter =
+		task->link_register   =  GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
 		task->in_software_generated_periodic_event_handler =  TRUE;
 		task->software_generated_periodic_event_is_pending =  FALSE;
@@ -287,7 +287,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	    case REQUEST_FAULT:                    			// A hardware fault.
                 {
 		    Unt8* namestring =  codechunk_comment_string_for_program_counter( task->faulting_program_counter );		// codechunk_comment_string_for_program_counter	def in   src/c/heapcleaner/hugechunk.c
-
+		    //
 		    Val loc;
 		    if (namestring != NULL) {
 		        //
@@ -378,7 +378,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	    case REQUEST_RETURN_FROM_SIGNAL_HANDLER:
 #ifdef SIGNAL_DEBUG
 debug_say("REQUEST_RETURN_FROM_SIGNAL_HANDLER: arg = %#x, pending = %d, inHandler = %d, nSigs = %d/%d\n",
-task->argument, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_posix_signal_is_running,
+task->argument, hostthread->interprocess_signal_pending, hostthread->mythryl_handler_for_interprocess_signal_is_running,
 hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_count);
 #endif
 
@@ -389,7 +389,7 @@ hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_cou
 
 	        // Note that we are exiting the handler:
 		//
-		hostthread->mythryl_handler_for_posix_signal_is_running =  FALSE;
+		hostthread->mythryl_handler_for_interprocess_signal_is_running =  FALSE;
 		break;
 
 
@@ -413,7 +413,7 @@ hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_cou
 		#ifdef SIGNAL_DEBUG
 		    debug_say("REQUEST_RESUME_AFTER_RUNNING_SIGNAL_HANDLER: arg = %#x\n", task->argument);
 		#endif
-		    load_resume_state( task );					// load_resume_state	def in    src/c/machine-dependent/signal-stuff.c
+		    load_task_from_posthandler_resumption_fate( task );			// load_task_from_posthandler_resumption_fate	def in    src/c/machine-dependent/signal-stuff.c
 		break;
 
 	    case REQUEST_MAKE_PACKAGE_LITERALS_VIA_BYTECODE_INTERPRETER:
