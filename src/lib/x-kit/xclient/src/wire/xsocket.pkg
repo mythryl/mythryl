@@ -197,9 +197,9 @@ herein
 
 	Xsocket =   XSOCKET   { xsocket_id:     Ref( Void ),				# The usual trick -- REFs are equal to themselves and
 				#							# nothing else, hence work fine as unique identifiers.
-				xevent_slot:    Mailslot( event_types::x::Event ),
-				plea_slot:      Mailslot( Plea_Mail ),
-				xerror_slot:    Mailslot( (un::Unt, v8::Vector) ),
+				xevent_mailslot:    Mailslot( event_types::x::Event ),
+				plea_mailslot:      Mailslot( Plea_Mail ),
+				xerror_mailslot:    Mailslot( (un::Unt, v8::Vector) ),
 				#
 				flush:    Void -> Void,
 				close:    Void -> Void
@@ -293,7 +293,7 @@ herein
 	#
 	# Here we monitor the input stream from the X-server
 	# socket and break it up into individual messages which
-	# are sent on out_slot to be unmarshalled and routed
+	# are sent on out_mailslot to be unmarshalled and routed
 	# by the sequencer.
 	#
 	# We get three kinds of messages from the X server:
@@ -317,42 +317,15 @@ herein
 	# where 'message-bytecode' is the first byte from the message
 	# and message-bytes is the complete message, including bytecode.
 	#
-	fun inbuf_imp (out_slot, socket) ()
+	fun inbuf_imp (out_mailslot, socket) ()
 	    =
 	    {   std_msg_size = 32;
 		#
 		stipulate
 		    #
-		    fun is_intr err =   err == psx::err::intr;				# == posix EINTR.
-
-		    # Read at most 'maxbytes' bytes from
-		    # X server socket without blocking,
-		    # return as a byte-vector.	
-		    #
-		    # This needs to be a nonblocking read because
-		    # if we block we lock up the whole GUI:				# XXX SUCKO FIXME
-		    #
-		    fun receive_vector_nonblocking  (arg as (socket, maxbytes))
+		    fun is_intr err
 			=
-{
-log::note .{ sprintf "%s\tinbuf_imp/receive_vector_nonblocking/TOP" (mps::thread_scheduler_statestring ()); };
-result =
-			case (sok::receive_vector_nonblocking  arg)
-			    #
-			    THE vector => vector;					# We got some bytes -- return them.
-
-			    NULL =>				    			# We got EWOULDBLOCK/EAGAIN or EINPROGRESS, so wait and retry.
-				{
-log::note .{ sprintf "%s\tinbuf_imp/receive_vector_nonblocking/NULL/AAA sleeping 50ms" (mps::thread_scheduler_statestring ()); };
-				    sleep_for 0.05;					# Wait.		(Ugly but servicable -- see note [2] at bottom of file.)
-log::note .{ sprintf "%s\tinbuf_imp/receive_vector_nonblocking/NULL/BBB back from sleeping 50ms" (mps::thread_scheduler_statestring ()); };
-				    receive_vector_nonblocking  arg;			# Retry.
-				};
-			esac;
-log::note .{ sprintf "%s\tinbuf_imp/receive_vector_nonblocking/BOT" (mps::thread_scheduler_statestring ()); };
-result;
-};
-
+			err == psx::err::intr;						# == posix EINTR.
 
 		    # Read exactly n bytes from the X server socket
 		    # and return it as a byte-vector:
@@ -371,12 +344,16 @@ result;
 
 				read (remaining_bytes_to_read, result_bytevectors)
 				    =>
-#				    {   bytevector =  sok::receive_vector (socket, remaining_bytes_to_read);			# Restored as an experiment 2012-12-03 CrT.  Still hangs, without or without socket redirection.
-				    {   bytevector =  receive_vector_nonblocking (socket, remaining_bytes_to_read);		# See note [1] at bottom of file.
+				    {
+					bytevector =  sok::receive_vector (socket, remaining_bytes_to_read);			# What we'd like to be doing.  Restored as an experiment 2012-12-03 CrT.  Still hangs, without or without socket redirection.
 					#
 					case (v8::length bytevector)
 					    #
-					    0   =>  raise exception FAIL "Socket closed"; 					# We need a more graceful way to signal that the socket has closed.  XXX BUGGO FIXME
+					    0   =>
+						{
+log::note .{ "inbuf_imp/read_vector: read zero bytes == socket closed, so raising exception FAIL"; };
+						    raise exception FAIL "Socket closed"; 					# We need a more graceful way to signal that the socket has closed.  XXX SUCKO FIXME
+						};
 					    #
 					    bytes_read
 						=>
@@ -394,7 +371,7 @@ result;
 			=
 			{   msg = read_vector (std_msg_size, []);
 			    #
-			    case (v8::get (msg, 0))
+			    case (v8::get (msg, 0))							# Read first byte of message.
 				#
 				0u1 =>  # Reply -- may need to read additional data bytes.
 					# 
@@ -413,9 +390,7 @@ result;
 					    };
 					};
 
-				k =>    # Error or event:
-					#	
-					{ code => k, msg };
+				k =>    {  code => k,  msg  };						# Error or event.
 			    esac;
 			};
 		end;
@@ -459,7 +434,7 @@ result;
 		    =
 		    for (;;) { 
 			#
-			give (out_slot, get_msg());
+			give (out_mailslot, get_msg());
 		    };
 
 		loop ()
@@ -482,7 +457,7 @@ result;
 	# after 50 milliseconds or when the buffer
 	# contents hit 2K, whichever comes first:
 	#
-	fun outbuf_imp (in_slot, socket) ()
+	fun outbuf_imp (in_mailslot, socket) ()
 	    =
 	    loop ([], 0)
 	    where
@@ -547,7 +522,7 @@ result;
 					# flush buffer on timeout; just
 					# wait for a command:
 					#
-					case (print_msg (take  in_slot))
+					case (print_msg (take  in_mailslot))
 					    #
 					    FLUSH_OUTBUF         =>  loop([], 0);			# Buffer empty, so flush is a no-op.
 					    ADD_TO_OUTBUF string =>  loop([string], v8::length string);
@@ -560,7 +535,7 @@ result;
 					# 
 					do_one_mailop [
 					    #
-					    (take' in_slot ==> print_msg)
+					    (take' in_mailslot ==> print_msg)
 						==>
 						fn FLUSH_OUTBUF          => {  flush_outbuf strings;  loop([], 0);  };
 						   SHUT_DOWN_OUTBUF      => {  flush_outbuf strings;  shut_down_outbuf_imp();       };
@@ -593,11 +568,11 @@ result;
 	#
 	# The sequencer communicates on five fixed channels:
 	#
-	#   plea_slot       -- request messages from clients
-	#   from_x_slot     -- reply, error and event messages from the X server (via the input buffer)
-	#   to_x_slot       -- requests messages to the X server (via the output buffer)
-	#   xevent_slot     -- X-events to the X-event buffer (and thence to clients)
-	#   error_sink_slot -- errors to the error handler
+	#   plea_mailslot       -- request messages from clients
+	#   from_x_mailslot     -- reply, error and event messages from the X server (via the input buffer)
+	#   to_x_mailslot       -- requests messages to the X server (via the output buffer)
+	#   xevent_mailslot     -- X-events to the X-event buffer (and thence to clients)
+	#   error_sink_mailslot -- errors to the error handler
 	#
 	# In addition, the sequencer sends replies
 	# to clients on the reply channel that was
@@ -838,28 +813,28 @@ result;
 		{
 		    case (get_pending_reply_n (n, pending_reply_queue))
 			#
-			{ found_it => TRUE, updated_queue => (EXPOSURE_REPLY(_, sync_1shot) ! rest,  rear) }
-			    =>
-			    {    set  (sync_1shot,  fn () = reply);
-
-				 (rest, rear);
-			    };
+			{ found_it      =>  TRUE,
+			  updated_queue =>  (EXPOSURE_REPLY(_, sync_1shot) ! rest,  rear)
+			}
+			    =>  {   set  (sync_1shot,  fn () = reply);
+				    #
+				    (rest, rear);
+				};
 
 			# For now, just drop it.
 			# When the gc-server supports graphics-exposures,
-			# these shouldn't happen:				XXX BUGGO FIXME
+			# these shouldn't happen:				XXX SUCKO FIXME
 			#
-			_ =>
-                            {
-                                pending_reply_queue;
-			    };
+			_   =>  {
+				    pending_reply_queue;
+				};
 
 		    esac;
 
-     /* +DEBUG 
-     (dumpPendingQ (n, q);
-     xgripe::impossible "ERROR: xsocket::handle_expose_message: bogus pending reply queue]")
-     -DEBUG */
+								# +DEBUG 
+								# (dumpPendingQ (n, q);
+								#  xgripe::impossible "ERROR: xsocket::handle_expose_message: bogus pending reply queue]")
+								# -DEBUG
 		};
 
 	    # Extract the pending-reply queue entry
@@ -924,74 +899,74 @@ result;
 
 	    fun sequencer_imp
 		(
-		  plea_slot,		# Traffic (requests) from client threads.
+		  plea_mailslot,		# Traffic (requests) from client threads.
 		  #
-		  from_x_slot,		# Traffic from X server (via buffer thread).
-		  to_x_slot,		# Traffic to   X server (via buffer thread).
+		  from_x_mailslot,		# Traffic from X server (via buffer thread).
+		  to_x_mailslot,		# Traffic to   X server (via buffer thread).
 		  #
-		  to_xbuf_slot,		# Traffic (request replies) to client threads.
+		  to_xbuf_mailslot,		# Traffic (request replies) to client threads.
 		  #
-		  error_sink_slot	# Where we send error messages.
+		  error_sink_mailslot		# Where we send error messages.
 		)
 		()
 		=
 		sequencer_imp_main_loop
-		  ( 0u0,		# Last sequence number read from X server.
-		    0u0,		# Last sequence number sent to   X server.
+		  ( 0u0,			# Last sequence number read from X server.
+		    0u0,			# Last sequence number sent to   X server.
 		    #
-		    ( [],		# Pending-reply queue, front.
-		      []		# Pending-reply queue, back.
+		    ( [],			# Pending-reply queue, front.
+		      []			# Pending-reply queue, back.
 		    )
 		  )
 		where
 		    fun quit ()
 			=
-			{   give (to_x_slot, SHUT_DOWN_OUTBUF);
+			{   give (to_x_mailslot, SHUT_DOWN_OUTBUF);
 			    thread_exit { success => TRUE };
 			};
 
-		    from_x'  = take'  from_x_slot;
-		    request' = take'  plea_slot;
+		    from_x'  = take'  from_x_mailslot;
+		    request' = take'  plea_mailslot;
 
 		    fun send_request (req, (last_seqn_read, last_seqn_sent, pending_reply_queue))
 			=
-			{   give (to_x_slot, ADD_TO_OUTBUF req);
+			{   give (to_x_mailslot, ADD_TO_OUTBUF req);
 			    #
 			    (last_seqn_read, last_seqn_sent+0u1, pending_reply_queue);
 			};
 
-		    fun send_request_and_check ((req, reply_slot), (last_seqn_read, last_seqn_sent, pending_reply_queue))
+		    fun send_request_and_check ((req, reply_mailslot), (last_seqn_read, last_seqn_sent, pending_reply_queue))
 			=
 			{   n = last_seqn_sent+0u1;
 			    #
-			    give (to_x_slot, ADD_TO_OUTBUF req);
+			    give (to_x_mailslot, ADD_TO_OUTBUF req);
 
-			    (last_seqn_read, n, add_to_pending_reply_queue (ERROR_CHECK (n, reply_slot), pending_reply_queue));
+			    (last_seqn_read, n, add_to_pending_reply_queue (ERROR_CHECK (n, reply_mailslot), pending_reply_queue));
 			};
 
-		    fun send_request_reply ((req, reply_slot), (last_seqn_read, last_seqn_sent, pending_reply_queue))
+		    fun send_request_reply ((req, reply_mailslot), (last_seqn_read, last_seqn_sent, pending_reply_queue))
 			=
 			{   n = last_seqn_sent+0u1;
 			    #
-			    give (to_x_slot, ADD_TO_OUTBUF req);
+			    give (to_x_mailslot, ADD_TO_OUTBUF req);
 
-			    (last_seqn_read, n, add_to_pending_reply_queue (ONE_REPLY (n, reply_slot), pending_reply_queue));
+			    (last_seqn_read, n, add_to_pending_reply_queue (ONE_REPLY (n, reply_mailslot), pending_reply_queue));
 			};
 
-		    fun send_request_replies ((req, reply_slot, remain), (last_seqn_read, last_seqn_sent, pending_reply_queue))
+		    fun send_request_replies ((req, reply_mailslot, remain), (last_seqn_read, last_seqn_sent, pending_reply_queue))
 			=
 			{   n = last_seqn_sent+0u1;
 			    #
-			    give (to_x_slot, ADD_TO_OUTBUF req);
+			    give (to_x_mailslot, ADD_TO_OUTBUF req);
 
-			    (last_seqn_read, n, add_to_pending_reply_queue (MULTI_REPLY (n, reply_slot, remain, []), pending_reply_queue));
+			    (last_seqn_read, n, add_to_pending_reply_queue (MULTI_REPLY (n, reply_mailslot, remain, []), pending_reply_queue));
 			};
 
 		    fun send_request_exposures ((req, sync_v), (last_seqn_read, last_seqn_sent, pending_reply_queue))
 			=
 			{   n = last_seqn_sent+0u1;
 			    #
-			    give (to_x_slot, ADD_TO_OUTBUF req);
+			    give (to_x_mailslot, ADD_TO_OUTBUF req);
 
 			    (last_seqn_read, n, add_to_pending_reply_queue (EXPOSURE_REPLY (n, sync_v), pending_reply_queue));
 			};
@@ -1003,14 +978,14 @@ result;
 			=
 			{   imp_state =  do_all_pending_pleas  imp_state;
 			    #
-			    give (to_x_slot, FLUSH_OUTBUF);
+			    give (to_x_mailslot, FLUSH_OUTBUF);
 
 			    imp_state;
 			}
 			where
 			    fun do_all_pending_pleas  imp_state
 				=
-				case (nonblocking_take  plea_slot)
+				case (nonblocking_take  plea_mailslot)
 				    #
 				    THE PLEA_FLUSH               =>  do_all_pending_pleas  imp_state;
 				    THE PLEA_QUIT                =>  quit ();
@@ -1059,7 +1034,7 @@ result;
 				#
 				do_plea (PLEA request)
 				    =>
-				    {   give (to_x_slot, ADD_TO_OUTBUF request);
+				    {   give (to_x_mailslot, ADD_TO_OUTBUF request);
 					#
 					(last_seqn_read, last_seqn_sent+0u1, pending_reply_queue);
 				    };
@@ -1104,7 +1079,7 @@ result;
 						    #
 						    seqn = get_seq_n();
 
-						    give (error_sink_slot, (seqn, msg));
+						    give (error_sink_mailslot, (seqn, msg));
 
 						    (seqn, last_seqn_sent, handle_error_message (seqn, msg, pending_reply_queue));
 						};
@@ -1120,7 +1095,7 @@ result;
 
 					0u11 => {   # KeymapNotify event:
 						    #
-						    give (to_xbuf_slot, (code, msg));
+						    give (to_xbuf_mailslot, (code, msg));
 
 						    ( last_seqn_read,
 						      last_seqn_sent,
@@ -1146,7 +1121,7 @@ result;
 
 								    read_expose_event_train (result_list, x::GRAPHICS_EXPOSE { box, ... } )
 									=>
-									case (take  from_x_slot)	# Read next expose event, add to result list.
+									case (take  from_x_mailslot)	# Read next expose event, add to result list.
 									    #
 									    { code => 0u13, msg=>s }
 										=>
@@ -1182,7 +1157,7 @@ result;
 
 						    seqn = get_seq_n();
 
-						    give (to_xbuf_slot, (code, msg));
+						    give (to_xbuf_mailslot, (code, msg));
 
 						    (seqn, last_seqn_sent, handle_event_message (seqn, pending_reply_queue));
 						};
@@ -1204,10 +1179,10 @@ result;
 	# 
 	# We communicate via two mailslots as follows:
 	# 
-	#   from_sequencer_slot      --  raw messages from the sequencer_imp
-	#   to_widget_slot           --  decoded events headed for the appropriate widget.
+	#   from_sequencer_mailslot      --  raw messages from the sequencer_imp
+	#   to_widget_mailslot           --  decoded events headed for the appropriate widget.
 	#
-	# X events that we send to 'to_widget_slot' get routed by
+	# X events that we send to 'to_widget_mailslot' get routed by
         #     xsocket_to_topwindow
 	# from
 	#     src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router.pkg
@@ -1224,7 +1199,7 @@ result;
 	# 
 	# -- see the dataflow diagram in top-of-file comments there.
 	#
-	fun xbuf_imp  (from_sequencer_slot,  to_widget_slot)
+	fun xbuf_imp  (from_sequencer_mailslot,  to_widget_mailslot)
 	    =
 	    route_p
 	    where
@@ -1251,7 +1226,7 @@ result;
 
 				pack (rl, x::EXPOSE { boxes, ... } )
 				    =>
-				    pack  (boxes @ rl,  decode (take  from_sequencer_slot));
+				    pack  (boxes @ rl,  decode (take  from_sequencer_mailslot));
 
 				pack (rl, _)
 				    =>
@@ -1275,7 +1250,7 @@ result;
 			e => (e ! q);
 		    esac;
 
-		take_xevent' = take'  from_sequencer_slot;
+		take_xevent' = take'  from_sequencer_mailslot;
 
 		fun route_p ()
 		    =
@@ -1283,7 +1258,7 @@ result;
 		    where
 			fun loop ([], [])
 				=>
-				loop  (do_xevent  (take  from_sequencer_slot,  []),  []);
+				loop  (do_xevent  (take  from_sequencer_mailslot,  []),  []);
 
 			    loop ([], rear)
 				=>
@@ -1298,7 +1273,7 @@ result;
 					    ==>
 					    (fn mail = (front, do_xevent (mail, rear))),
 
-					give' (to_widget_slot, x)
+					give' (to_widget_mailslot, x)
 					    ==>
 					    .{  (rest, rear);  }
 				    ]
@@ -1325,20 +1300,20 @@ result;
 	fun make_xsocket  socket
 	    =
 	    {
-                inbuf_to_sequencer_slot  = make_mailslot ();
-		sequencer_to_outbuf_slot = make_mailslot ();
+                inbuf_to_sequencer_mailslot  = make_mailslot ();
+		sequencer_to_outbuf_mailslot = make_mailslot ();
 
-		xbuf_to_client_slot      = make_mailslot ();
-		sequencer_to_xbuf_slot   = make_mailslot ();
+		xbuf_to_client_mailslot      = make_mailslot ();
+		sequencer_to_xbuf_mailslot   = make_mailslot ();
 
-		client_to_sequencer_slot = make_mailslot ();
-		xerror_slot              = make_mailslot ();
+		client_to_sequencer_mailslot = make_mailslot ();
+		xerror_mailslot              = make_mailslot ();
 
     #	    expose_strm = make_mailslot ();
 
 		fun flush_fn ()
 		    =
-		    give (client_to_sequencer_slot, PLEA_FLUSH);
+		    give (client_to_sequencer_mailslot, PLEA_FLUSH);
 
 		fun close_fn ()
 		    =
@@ -1346,40 +1321,40 @@ result;
 
 			flush_fn ();
 
-			give (client_to_sequencer_slot, PLEA_QUIT);
+			give (client_to_sequencer_mailslot, PLEA_QUIT);
 		    };
 
     /******
-		make_thread "xok seq"  (sequencer_imp (reqStrm, inStrm, outStrm, xevtMsgStrm, errStrm));
-		make_thread "xok in"   ( inbuf_imp ( inStrm, socket));
-		make_thread "xok out"  (outbuf_imp (outStrm, socket));
-		make_thread "xok buf"  (xeventBuffer (xevtMsgStrm, xevtStrm));
+		make_thread  "xok seq"  (sequencer_imp (reqStrm, inStrm, outStrm, xevtMsgStrm, errStrm));
+		make_thread  "xok in"   ( inbuf_imp ( inStrm, socket));
+		make_thread  "xok out"  (outbuf_imp (outStrm, socket));
+		make_thread  "xok buf"  (xeventBuffer (xevtMsgStrm, xevtStrm));
     ******/
 
     /* DEBUG */
                 xlogger::make_thread  "sequencer_imp"  (
 		    sequencer_imp
-		      ( client_to_sequencer_slot,
-			inbuf_to_sequencer_slot,
-			sequencer_to_outbuf_slot,
-			sequencer_to_xbuf_slot,
-			xerror_slot
+		      ( client_to_sequencer_mailslot,
+			inbuf_to_sequencer_mailslot,
+			sequencer_to_outbuf_mailslot,
+			sequencer_to_xbuf_mailslot,
+			xerror_mailslot
 		      )
 		  );
 
-		xlogger::make_thread  "inbuf_imp"    (inbuf_imp  ( inbuf_to_sequencer_slot, socket));
-		xlogger::make_thread  "outbuf_imp"   (outbuf_imp (sequencer_to_outbuf_slot, socket));
-		xlogger::make_thread  "xbuf_imp"     (xbuf_imp   (  sequencer_to_xbuf_slot, xbuf_to_client_slot));
+		xlogger::make_thread  "inbuf_imp"    (inbuf_imp  ( inbuf_to_sequencer_mailslot, socket));
+		xlogger::make_thread  "outbuf_imp"   (outbuf_imp (sequencer_to_outbuf_mailslot, socket));
+		xlogger::make_thread  "xbuf_imp"     (xbuf_imp   (  sequencer_to_xbuf_mailslot, xbuf_to_client_mailslot));
 
 		XSOCKET
-		  { xsocket_id => REF (),
-
-		    xevent_slot  => xbuf_to_client_slot,
-		    plea_slot    => client_to_sequencer_slot,
-		    xerror_slot,
-
-		    flush   => flush_fn,
-		    close   => close_fn
+		  { xsocket_id   =>  REF (),
+		    #
+		    xevent_mailslot  =>  xbuf_to_client_mailslot,
+		    plea_mailslot    =>  client_to_sequencer_mailslot,
+		    xerror_mailslot,
+		    #
+		    flush        =>  flush_fn,
+		    close        =>  close_fn
 		  };
 	    };
 
@@ -1391,10 +1366,10 @@ result;
 	    =
 	    a == b;
 
-	fun send_xrequest (XSOCKET { plea_slot, ... } ) s
+	fun send_xrequest (XSOCKET { plea_mailslot, ... } ) s
 	    =
 	    {
-	        give (plea_slot, PLEA s);
+	        give (plea_mailslot, PLEA s);
 	    };
 
 	# Reply handling in the Client-thread context.
@@ -1415,13 +1390,13 @@ result;
 	# This is a workhorse call,
 	# request-with-single-reply:
 	# 
-	fun send_xrequest_and_read_reply (XSOCKET { plea_slot, ... } ) s
+	fun send_xrequest_and_read_reply (XSOCKET { plea_mailslot, ... } ) s
 	    =
-	    {   reply_slot = make_mailslot ();
+	    {   reply_mailslot = make_mailslot ();
+		#
+		give (plea_mailslot, PLEA_REPLY (s, reply_mailslot));
 
-		give (plea_slot, PLEA_REPLY (s, reply_slot));
-
-		take'  reply_slot
+		take'  reply_mailslot
 		    ==>
 		    unwrap_reply;
 	    };
@@ -1441,15 +1416,15 @@ result;
 	# successful completion of the op before
 	# continuing.
 	#
-	fun send_xrequest_and_verify_success (XSOCKET { plea_slot, ... } ) s
+	fun send_xrequest_and_verify_success (XSOCKET { plea_mailslot, ... } ) s
 	    =
-	    {   reply_slot1 = make_mailslot ();
-		reply_slot2 = make_mailslot ();
+	    {   reply_mailslot1 =  make_mailslot ();
+		reply_mailslot2 =  make_mailslot ();
 
-		give (plea_slot, PLEA_AND_CHECK (s, reply_slot1));
-		give (plea_slot, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_slot2));
+		give (plea_mailslot, PLEA_AND_CHECK (s, reply_mailslot1));
+		give (plea_mailslot, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_mailslot2));
 
-		take' reply_slot1
+		take' reply_mailslot1
 		    ==>
 		    fn (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
 		       _               =>  ();
@@ -1459,14 +1434,14 @@ result;
 	# I cannot find any code which actually uses this:
 	#
 	fun sent_xrequest_and_read_replies
-		(XSOCKET { plea_slot, ... } )
+		(XSOCKET { plea_mailslot, ... } )
 		(s, remain)
 	    =
-	    {   reply_slot =  make_mailslot ();
+	    {   reply_mailslot =  make_mailslot ();
 		#
-		give (plea_slot, PLEA_REPLIES (s, reply_slot, remain));
+		give (plea_mailslot, PLEA_REPLIES (s, reply_mailslot, remain));
 
-		take'  reply_slot
+		take'  reply_mailslot
 		    ==>
 		    unwrap_reply;
 	    };
@@ -1477,12 +1452,12 @@ result;
 	# in draw_imp:
 	#
 	fun send_xrequest_and_handle_exposures
-		(XSOCKET { plea_slot, ... } )
+		(XSOCKET { plea_mailslot, ... } )
 		(s, sync_v)
 	    =
-	    {   reply_slot =  make_mailslot ();			# Um? This is never used. XXX BUGGO FIXME.
+	    {   reply_mailslot =  make_mailslot ();			# Um? This is never used. XXX BUGGO FIXME.
 		#
-		give (plea_slot, PLEA_EXPOSURES (s, sync_v));
+		give (plea_mailslot, PLEA_EXPOSURES (s, sync_v));
 	    };
 
 	fun flush (XSOCKET { flush, ... } )
@@ -1494,15 +1469,16 @@ result;
 	#
 	#     src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router.pkg
 	#
-	fun wait_for_xevent (XSOCKET { xevent_slot, ... } )
+	fun wait_for_xevent (XSOCKET { xevent_mailslot, ... } )
 	    =
-	    take'  xevent_slot;
+	    take'  xevent_mailslot;
 
 	# This is called (only) once, from   err_handler()   in:
 	#     src/lib/x-kit/xclient/src/wire/display.pkg
-	fun read_xerror     (XSOCKET { xerror_slot,  ... } )
+	#
+	fun read_xerror     (XSOCKET { xerror_mailslot,  ... } )
 	    =
-	    take  xerror_slot;
+	    take  xerror_mailslot;
 
 
 	################################################################################
@@ -1520,14 +1496,16 @@ result;
 	    =
 	    ask
 	    where
-		send_xrequest_and_read_reply' =  send_xrequest_and_read_reply  xsocket;
-
+		send_xrequest_and_read_reply'
+		    =
+		    send_xrequest_and_read_reply  xsocket;
+		#
 		fun ask msg
 		    =
 		    decode (block_until_mailop_fires (send_xrequest_and_read_reply' (encode msg)))
 		    except
-			LOST_REPLY      => raise exception (xgripe::XERROR "[reply lost]");
-			ERROR_REPLY err => raise exception (xgripe::XERROR (e2s::xerror_to_string err));
+			LOST_REPLY      =>  raise exception (xgripe::XERROR "[reply lost]");
+			ERROR_REPLY err =>  raise exception (xgripe::XERROR (e2s::xerror_to_string err));
 		    end;
 	    end;
 
