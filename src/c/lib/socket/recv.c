@@ -7,6 +7,8 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
@@ -42,7 +44,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val vec;
-    int n;
+    ssize_t n;
 
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int	nbytes = GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -67,12 +69,11 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
-/**/        do { /**/								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+            do {								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 		//								// Restored   2012-08-07 CrT
 		n = recv (socket, c_read, nbytes, flag);
 		//
-// if (errno == EINTR) puts("Error: EINTR in recv.c\n");
-/**/       } while (n < 0 && errno == EINTR);	/**/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+            } while (n < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 

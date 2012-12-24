@@ -41,12 +41,12 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
-    /*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
-
+        do {	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+	    //  // Backed in  2012-12-24 CrT 
+	    //	
 	    new_socket = accept (socket, (struct sockaddr*) address_buf, &address_len);
 
-if (errno == EINTR) puts("Error: EINTR in accept.c\n");
-    /*  } while (new_socket < 0 && errno == EINTR);	*/		/* Restart if interrupted by a SIGALRM or SIGCHLD or whatever.	*/
+        } while (new_socket < 0 && errno == EINTR);			/* Restart if interrupted by a SIGALRM or SIGCHLD or whatever.	*/
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
