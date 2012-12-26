@@ -597,7 +597,7 @@ extern void   pth__validate_running_hostthreads_count (void);		// Explicitly ver
 // to write lines into the tracelog file.
 
 
-extern void   log_if   (const char * fmt, ...);
+extern void   log_if   (const char * fmt, ...);					// log_if fmt string should NOT contain newlines -- one will be appended automatically.
 extern int    log_if_fd;
 
 

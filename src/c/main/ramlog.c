@@ -4,7 +4,8 @@
 //
 // See also:
 //
-//     SYSCALL_LOG stuff in   src/c/h/runtime-base.h
+//     Vanilla log_if stuff in   src/c/h/runtime-base.h
+//     SYSCALL_LOG    stuff in   src/c/h/runtime-base.h
 
 #include "../mythryl-config.h"
 
