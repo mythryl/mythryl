@@ -35,7 +35,7 @@
 #define CLIB_DATE	"December 21, 1995"
 #endif
 
-CFUNC("poll","poll",		_lib7_OS_poll,		"(List((Int, Unt)), Null_Or((Int, Int))) -> List( (Int, Unt))")
+CFUNC("select","poll",		_lib7_OS_select,	"(List((Int, Unt)), Null_Or((Int, Int))) -> List( (Int, Unt))")
 CFUNC("tmpname","tmpname",	_lib7_OS_tmpname,	"Void -> String")
 
 

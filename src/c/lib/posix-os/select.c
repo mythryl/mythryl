@@ -1,4 +1,4 @@
-// poll.c
+// select.c
 
 
 // The run-time code for winix::io::poll.
@@ -58,7 +58,7 @@
 #define OOBDABLE_BIT		0x4
 
 
-static Val   LIB7_Poll   (Task *task, Val arg, struct timeval *timeout);
+static Val   do_select   (Task *task, Val arg, struct timeval *timeout);
 
 
 // One of the library bindings exported via
@@ -68,8 +68,8 @@ static Val   LIB7_Poll   (Task *task, Val arg, struct timeval *timeout);
 
 
 
-Val   _lib7_OS_poll   (Task* task,  Val arg)   {
-    //=============
+Val   _lib7_OS_select   (Task* task,  Val arg)   {
+    //===============
     //
     // Mythryl type:   (List (Int, Unt), Null_Or(one_word_int::Int, Int)) -> List( (Int, Unt)  )
     //
@@ -85,13 +85,13 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
 // Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
 // XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-//  Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);			// We fetch this in LIB7_Poll() now.
+//  Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);			// We fetch this in do_select() now.
     Val	    timeout   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
     struct timeval  tv;
     struct timeval* tvp;
 
-// printf("src/c/lib/posix-os/poll.c: _lib7_OS_poll/TOP\n"); fflush(stdout);
+// printf("src/c/lib/posix-os/select.c: _lib7_OS_poll/TOP\n"); fflush(stdout);
     if (timeout == OPTION_NULL) {
         //
         tvp = NULL;
@@ -106,12 +106,12 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
         tv.tv_sec	= TUPLE_GET_INT1(        timeout, 0 );		// Yes, we really are passing tv_sec as a tagged int
         tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );		// but passing tv_usec as a boxed unt.
 									// Is this sane?  Deponent declines to declare.
-// printf("src/c/lib/posix-os/poll.c: _lib7_OS_poll: tv.tv_sec d=%ld tv.tv_usec d=%ld sec*1000000+usec d=%ld\n", tv.tv_sec, tv.tv_usec, tv.tv_sec*1000000+tv.tv_usec); fflush(stdout);
+// printf("src/c/lib/posix-os/select.c: _lib7_OS_poll: tv.tv_sec d=%ld tv.tv_usec d=%ld sec*1000000+usec d=%ld\n", tv.tv_sec, tv.tv_usec, tv.tv_sec*1000000+tv.tv_usec); fflush(stdout);
 
         tvp = &tv;
     }
 
-    Val result = LIB7_Poll( task, arg, tvp );					// See below.
+    Val result = do_select( task, arg, tvp );					// See below.
 
 // XXX SUCKO RESTOREME							    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
@@ -127,7 +127,7 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
 #endif
 
 
-static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
+static Val   do_select   (Task* task,  Val arg, struct timeval* timeout)   {
     //       ========= 
     //
     //
@@ -146,7 +146,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     Val l;
     Val item;
 
-// printf("src/c/lib/posix-os/poll.c: Using 'poll' implementation\n"); fflush(stdout);
+// printf("src/c/lib/posix-os/select.c: Using 'poll' implementation\n"); fflush(stdout);
     if (timeout == NULL)   tout = -1;
     else	           tout = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);        // Convert to miliseconds.
 
@@ -222,11 +222,14 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 #else // HAS_SELECT
 // #include <fcntl.h>/* 2008-03-15 CrT BUGGO -- DELETEME! Temporary debug hack. */
 
+								///////////////////////////////////////////////////////////////////////////////////////////////////////
+								// This is the implementation used on Linux, and consequently currently the best-tested implementation.
+								///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #undef  RESULT_VECTOR_BUF_SIZE
 #define RESULT_VECTOR_BUF_SIZE 256
 
-static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
+static Val   do_select   (Task* task,  Val arg, struct timeval* timeout)   {
     //       =========
     //
     // The version of the polling operation for systems that provide BSD select.
@@ -250,7 +253,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     Val	    l;
     Val     item;
 
-								// printf("src/c/lib/posix-os/poll.c: Using 'select' implementation\n"); fflush(stdout);
+								// printf("src/c/lib/posix-os/select.c: Using 'select' implementation\n"); fflush(stdout);
 
     								// When using select() just to sleep, first arg to select() should be zero.
     for (l = poll_list;  l != LIST_NIL;  l = LIST_TAIL(l)) {
@@ -266,7 +269,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		rfds = &rset;
 		FD_ZERO(rfds);
 	    }
-								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);  fflush(stdout);
+								// printf("src/c/lib/posix-os/select.c: Will check fd %d for readability. fd flags x=%x O_NONBLOCK x=%x\n",fd,fd_flags,O_NONBLOCK);  fflush(stdout);
 	    FD_SET (fd, rfds);
 	}
 	if ((flag & WRITABLE_BIT) != 0) {
@@ -274,7 +277,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		wfds = &wset;
 		FD_ZERO(wfds);
 	    }
-								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for writability.\n",fd);  fflush(stdout);
+								// printf("src/c/lib/posix-os/select.c: Will check fd %d for writability.\n",fd);  fflush(stdout);
 	    FD_SET (fd, wfds);
 	}
 	if ((flag & OOBDABLE_BIT) != 0) {
@@ -282,13 +285,13 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 		efds = &eset;
 		FD_ZERO(efds);
 	    }
-								// printf("src/c/lib/posix-os/poll.c: Will check fd %d for oobdability.\n",fd);   fflush(stdout);
+								// printf("src/c/lib/posix-os/select.c: Will check fd %d for oobdability.\n",fd);   fflush(stdout);
 	    FD_SET (fd, efds);
 	}
 	if (fd > maxFD) maxFD = fd;
     }
 
-								// printf("src/c/lib/posix-os/poll.c: maxFD d=%d\n",maxFD); fflush(stdout);
+								// printf("src/c/lib/posix-os/select.c: maxFD d=%d\n",maxFD); fflush(stdout);
 
 /**/  do { /**/							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 											// Restored 2012-08-07 CrT
@@ -301,7 +304,7 @@ static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
 
  /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-// printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status); fflush(stdout);
+// printf("src/c/lib/posix-os/select.c: result status d=%d.\n",status); fflush(stdout);
 
     if (status < 0)
         return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
@@ -397,7 +400,7 @@ if (task->heap_allocation_pointer
 
 	return l;
     }
-}						// fun LIB7_Poll
+}						// fun do_select
 #undef  RESULT_VECTOR_BUF_SIZE
 
 #endif

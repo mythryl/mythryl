@@ -223,7 +223,7 @@
 #define HAVE_VFORK_H 0
 
 /* Define to 1 if you have the <curses.h> header file. */
-#define HAVE_CURSES_H 0
+#define HAVE_CURSES_H 1
 
 /* Define to 1 if you have the <cv.h> header file. */
 #define HAVE_OPENCV_CV_H 1
@@ -250,7 +250,7 @@
 #define HAVE_LIBGTK 0
 
 /* Define to 1 if you have the libncurses library. */
-#define HAVE_LIBNCURSES 0
+#define HAVE_LIBNCURSES 1
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1

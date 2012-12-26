@@ -1354,7 +1354,7 @@ void   release_mythryl_heap   (Hostthread* hostthread,  const char* fn_name,  Va
 	//
 	if (arg)   hostthread->task->protected_c_arg = arg;				// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//										// This is seldom used; one use is in src/c/lib/posix-io/readbuf.c
-	//										//                  Another use is in src/c/lib/posix-os/poll.c
+	//										//                  Another use is in src/c/lib/posix-os/select.c
 	//										//		    Another use is in src/c/lib/posix-passwd/getpwuid.c
 	//										//		    Another use is in src/c/lib/posix-process-environment/setgid.c
 	//										//		    Another use is in src/c/lib/posix-process-environment/setuid.c
