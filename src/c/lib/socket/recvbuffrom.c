@@ -52,15 +52,15 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     char       address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t  address_len = MAX_SOCK_ADDR_BYTESIZE;
 
     int	  socket  = GET_TUPLE_SLOT_AS_INT( arg, 0);
-//  Val   buf     = GET_TUPLE_SLOT_AS_VAL( arg, 1);		// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.
-    int   offset  = GET_TUPLE_SLOT_AS_INT( arg, 2);		// Offset within buf to read bytes into.
-    int	  nbytes  = GET_TUPLE_SLOT_AS_INT( arg, 3);		// Number of bytes to read.
+//  Val   buf     = GET_TUPLE_SLOT_AS_VAL( arg, 1);				// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.
+    int   offset  = GET_TUPLE_SLOT_AS_INT( arg, 2);				// Offset within buf to read bytes into.
+    int	  nbytes  = GET_TUPLE_SLOT_AS_INT( arg, 3);				// Number of bytes to read.
 
     int	  flag = 0;
 
@@ -80,18 +80,16 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );		// 'arg' is still live here!
 	    //
-	    /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-		    n = recvfrom( socket,
-				  c_readbuf,
-				  nbytes,
-				  flag,
-				  (struct sockaddr *)address_buf,
-				  &address_len
-				);
-
-if (errno == EINTR) puts("Error: EINTR in recvbuffrom.c\n");
-	    /*  } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    do {
+		//
+		n = recvfrom( socket,
+			      c_readbuf,
+			      nbytes,
+			      flag,
+			      (struct sockaddr *)address_buf,
+			      &address_len
+			    );
+	    } while (n < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
@@ -100,7 +98,7 @@ if (errno == EINTR) puts("Error: EINTR in recvbuffrom.c\n");
 	    return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 	}
 
-	Val   buf      =  GET_TUPLE_SLOT_AS_VAL( arg, 1);		// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.
+	Val   buf      =  GET_TUPLE_SLOT_AS_VAL( arg, 1);			// Mythryl buffer to read bytes into.
 	char* bufstart =  HEAP_STRING_AS_C_STRING(buf) + offset;
 
 	memcpy( bufstart, c_readbuf, n);
@@ -113,7 +111,7 @@ if (errno == EINTR) puts("Error: EINTR in recvbuffrom.c\n");
 
     Val result  =  make_two_slot_record(task,  TAGGED_INT_FROM_C_INT(n), address);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
