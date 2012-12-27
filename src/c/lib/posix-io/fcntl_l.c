@@ -39,9 +39,7 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
     // This fn gets bound as   fcntl_l   in:
     //
     //     src/lib/std/src/psx/posix-io.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int fd        =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int cmd       =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     Val flock_rep =  GET_TUPLE_SLOT_AS_VAL( arg, 2 );
@@ -54,16 +52,15 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
     flock.l_start  =  GET_TUPLE_SLOT_AS_INT( flock_rep, 2 );
     flock.l_len    =  GET_TUPLE_SLOT_AS_INT( flock_rep, 3 );
    
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+    do {
+	//
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = fcntl(fd, cmd, &flock);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-if (errno == EINTR) puts("Error: EINTR in fcntl_l.c\n");
-/*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (status < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
 
@@ -75,7 +72,7 @@ if (errno == EINTR) puts("Error: EINTR in fcntl_l.c\n");
 		TAGGED_INT_FROM_C_INT( flock.l_len ),
 		TAGGED_INT_FROM_C_INT( flock.l_pid )
 	    );
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
