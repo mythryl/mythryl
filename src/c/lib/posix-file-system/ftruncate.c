@@ -37,28 +37,24 @@ Val   _lib7_P_FileSys_ftruncate   (Task* task,  Val arg)   {
     // This fn gets bound as   ftruncate'   in:
     //
     //     src/lib/std/src/psx/posix-file.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int	    fd = GET_TUPLE_SLOT_AS_INT(arg, 0);
     off_t  len = GET_TUPLE_SLOT_AS_INT(arg, 1);
 
     int	    status;
 
-/*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+    do {
         RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = ftruncate (fd, len);						// This call can return EINTR, so it is officially "slow".
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-if (errno == EINTR) puts("Error: EINTR in ftrucate.c\n");
-/*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (status < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
