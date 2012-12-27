@@ -40,10 +40,9 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
     //
-    // but in fact it appears to be nowhere referenced. (!) Should be called or deleted. XXX BUGGO FIXME
+    // but in fact it appears to be nowhere referenced. (!) Should be called or deleted. XXX SUCKO FIXME
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int		fd     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val		data   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
     size_t	nbytes = GET_TUPLE_SLOT_AS_INT( arg, 2 );
@@ -61,26 +60,29 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //
     {	char* c_data
 	    = 
-	    buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
+	    buffer_mythryl_heap_value(
+		&data_buf,
+		(void*) heap_data,
+		nbytes
+	    );
 
-
-/*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+	do {
 	    //
-	    n = write (fd, c_data, nbytes);
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+		//
+		n = write (fd, c_data, nbytes);
+		//
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
-if (errno == EINTR) puts("Error: EINTR in write.c\n");
-/*  } while (n < 0 && errno == EINTR);	*/						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	} while (n < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	unbuffer_mythryl_heap_value( &data_buf );
     }
 
     Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
