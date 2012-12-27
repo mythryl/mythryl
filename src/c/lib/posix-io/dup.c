@@ -37,25 +37,23 @@ Val   _lib7_P_IO_dup   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+												ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    int  fd0 =  TAGGED_INT_TO_C_INT( arg );
+    int  fd1;
 
-    int             fd0 = TAGGED_INT_TO_C_INT(arg);
-    int             fd1;
-
-/*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+    do {
+	//
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    fd1 = dup( fd0 );
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
+	//
+    } while (fd1 < 0 && errno == EINTR);							// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-if (errno == EINTR) puts("Error: EINTR in dup.c\n");
-/*  } while (fd1 < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+    Val result =  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN( task, fd1, NULL );
 
-    Val result = RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd1, NULL);
-
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+												EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
