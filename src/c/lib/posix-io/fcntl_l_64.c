@@ -30,7 +30,7 @@
 
 
 
-Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record locking.
+Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {			// Handle record locking.
     //=====================
     //
     // Mythryl type is
@@ -43,7 +43,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     //
     //     src/lib/std/src/psx/posix-io-64.pkg
     
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int        fd =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int       cmd =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -58,7 +58,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     flock.l_type   = GET_TUPLE_SLOT_AS_INT(flock_rep, 0);
     flock.l_whence = GET_TUPLE_SLOT_AS_INT(flock_rep, 1);
 
-    #if (SIZEOF_STRUCT_FLOCK_L_START > 4)				// i.e. sizeof(flock.l_start) > 4 -- see src/c/config/generate-sizes-of-some-c-types-h.c
+    #if (SIZEOF_STRUCT_FLOCK_L_START > 4)					// i.e. sizeof(flock.l_start) > 4 -- see src/c/config/generate-sizes-of-some-c-types-h.c
 	//
 	flock.l_start
 	    =
@@ -69,7 +69,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
 	flock.l_start =	  (off_t) (WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(flock_rep, 3)));
     #endif
 
-    #if (SIZEOF_STRUCT_FLOCK_L_LEN > 4)					// i.e. sizeof (flock.l_len) > 4)  -- see src/c/config/generate-sizes-of-some-c-types-h.c
+    #if (SIZEOF_STRUCT_FLOCK_L_LEN > 4)						// i.e. sizeof (flock.l_len) > 4)  -- see src/c/config/generate-sizes-of-some-c-types-h.c
 	//
 	flock.l_len
 	    =
@@ -83,16 +83,15 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     #endif
    
 
-/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+    do {
+	//
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = fcntl(fd, cmd, &flock);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-if (errno == EINTR) puts("Error: EINTR in fcntl_l_64.c\n");
-/*  } while (status < 0 && errno == EINTR);	*/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (status < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 
     if (status < 0)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);
