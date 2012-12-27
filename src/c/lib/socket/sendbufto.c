@@ -54,9 +54,7 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     // This fn gets bound as   send_to_v, send_to_a   in:
     //
     //     src/lib/std/src/socket/socket-guts.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+												ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int	  socket =   GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val	  buf    =   GET_TUPLE_SLOT_AS_VAL( arg, 1 );
     int   offset =   GET_TUPLE_SLOT_AS_INT( arg, 2 );
@@ -80,10 +78,10 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     Mythryl_Heap_Value_Buffer  data_buf;
     //
     {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
-
-      RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );			// 'arg' is still live here!
+	//
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );				// 'arg' is still live here!
 	    //
-	/*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+	    do {
 
 		n = sendto (
 			socket,
@@ -93,9 +91,7 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
 			&sockaddr,
 			sockaddr_len
 		    );
-
-if (errno == EINTR) puts("Error: EINTR in sendbufto.c\n");
-	/*  } while (n < 0 && errno == EINTR);	*/						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    } while (n < 0 && errno == EINTR);							// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
@@ -108,7 +104,7 @@ if (errno == EINTR) puts("Error: EINTR in sendbufto.c\n");
 
     Val result =  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+												EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
