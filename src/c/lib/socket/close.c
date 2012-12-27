@@ -49,21 +49,19 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
 	#if defined(OPSYS_WIN32)
 	    status = closesocket(fd);
 	#else
-	/*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
+	    do {
 		status = close(fd);
-
-if (errno == EINTR) puts("Error: EINTR in close.c\n");
-	/*  } while (status < 0 && errno == EINTR);	*/		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+		//
+	    } while (status < 0 && errno == EINTR);				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	#endif
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
-//									log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
+//										log_if( "close.c/bot: status d=%d errno d=%d\n", status, errno);
 
     Val result =  RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
