@@ -47,7 +47,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val vec;	
 
@@ -74,19 +74,17 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
-	    /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-		    n = recvfrom (
-			    socket,
-			    c_readbuf,
-			    nbytes,
-			    flag,
-			    (struct sockaddr *)addr_buf,
-			    &address_len
-			);
-
-if (errno == EINTR) puts("Error: EINTR in recvfrom.c\n");
-	    /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    do {
+		//
+		n = recvfrom (
+			socket,
+			c_readbuf,
+			nbytes,
+			flag,
+			(struct sockaddr *)addr_buf,
+			&address_len
+		    );
+	    } while (n < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
@@ -129,7 +127,7 @@ if (errno == EINTR) puts("Error: EINTR in recvfrom.c\n");
 
     result =  make_two_slot_record(task,  result, addr);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
