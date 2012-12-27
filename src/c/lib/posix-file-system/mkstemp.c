@@ -1,4 +1,4 @@
-// openf.c
+// mkstemp.c
 
 
 #include "../../mythryl-config.h"
@@ -42,29 +42,25 @@ Val   _lib7_P_FileSys_mkstemp   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-file.pkg
     //     src/lib/std/src/psx/posix-file-system-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     char buf[ 32 ];
-
     int	 fd;
 
-    strcpy( buf, "tmpfile.XXXXXX" );		// Must end with exactly six 'X's -- see man mkstemp(3).
+    strcpy( buf, "tmpfile.XXXXXX" );						// Must end with exactly six 'X's -- see man mkstemp(3).
 
-/*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-
-    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+    do {
 	//
-	fd  =  mkstemp( buf );
+	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+	    //
+	    fd  =  mkstemp( buf );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-if (errno == EINTR) puts("Error: EINTR in mkstemp.c\n");
-/*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever. HAVEN"T CHECKED WHETHER mkstemp IS INTERRUPTABLE -- this is copied blindly from openf.c.
-
+    } while (fd < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever. HAVEN"T CHECKED WHETHER mkstemp IS INTERRUPTABLE -- this is copied blindly from openf.c.
 
     Val result = RETURN_VAL_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, fd, TAGGED_INT_FROM_C_INT( fd ), NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
