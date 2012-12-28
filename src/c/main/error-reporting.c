@@ -149,7 +149,7 @@ void   log_if   (const char * fmt, ...) {
 	// We match the timestamp formats in make_logstring in
         // 
         //     src/lib/src/lib/thread-kit/src/lib/logger.pkg
-	// and src/lib/std/src/io/winix-text-file-for-os-g.pkg
+	// and src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
 	//
 	// Making the gettimeofday() system call here
 	// is a little bit risky in that the system
