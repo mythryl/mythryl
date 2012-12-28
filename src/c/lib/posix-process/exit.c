@@ -40,7 +40,7 @@ Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     //
     // which ultimately gets bound as  terminate  in
     //
-    //     src/lib/std/src/posix/winix-process.pkg
+    //     src/lib/std/src/posix/winix-process--premicrothread.pkg
     //
     // (The 'exit' fn there differs only in that it runs
     // at::run_functions_scheduled_to_run  at::SHUTDOWN;
