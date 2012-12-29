@@ -583,11 +583,11 @@ extern void   pth__validate_running_hostthreads_count (void);		// Explicitly ver
 //
 // At the Mythryl level one calls
 //
-//     internet_socket::set_printif_fd
+//     internet_socket__premicrothread::set_printif_fd
 //
 // from
 //
-//     src/lib/std/src/socket/internet-socket.pkg
+//     src/lib/std/src/socket/internet-socket--premicrothread.pkg
 //
 // to enable this tracing by setting
 //
