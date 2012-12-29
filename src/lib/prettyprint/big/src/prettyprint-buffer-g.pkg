@@ -76,1159 +76,1163 @@
 
 
 
-generic package   prettyprint_buffer_g   (
-    #             ====================
-    #
-    package token:   Prettyprint_Token;		# Prettyprint_Token	is from   src/lib/prettyprint/big/src/prettyprint-token.api
-    package device:  Prettyprint_Device;	# Prettyprint_Device	is from   src/lib/prettyprint/big/src/prettyprint-device.api
-
-    sharing token::Style == device::Style;
-)
-: (weak)
-api {
-    include Prettyprint_Buffer;			# Prettyprint_Buffer	is from   src/lib/prettyprint/big/src/prettyprint-buffer.api
-
-    dump:  ((file::Output_Stream, Stream))
-              ->
-              Void;
-}
-{
-    stipulate
-	package dvc =  device;
-	package tkn =  token;
-    herein
-	Device =  dvc::Device;		# Handles device-specific aspects of writing to ansi terminal, plain ascii stream or whatever.
-	Style  =  tkn::Style;			# Text attributes like color, underline, blink etc.
-	Token  =  tkn::Token;			# A token will usually contain some text plus whatever Style information is required to render it on the Device.
-
-	Indent = BOX_RELATIVE  Int		# Indent relative to enclosing box.
-	       | CURSOR_RELATIVE  Int;	# Indent relative to where box starts on current line.      
-
-	# *** DATA STRUCTURES ***
-	Prettyprint_Token
-	    = TEXT { string: String, length: Int }
-					    #  Raw text.  This includes tokens.  The 
-					    #  width and style information is taken 
-					    #  care of when they are inserted in 
-					    #  queue. 
-	    | NONBREAKABLE_SPACES  Int	#  Some number of non-breakable spaces 
-	    | BREAK  { wrap: Ref Bool,   spaces: Int,   indent_on_wrap: Int }
-	    | PUSH_STYLE  Style
-	    | POP_STYLE
-	    | NEWLINE
-	    | CONTROL  (Device -> Void)		#  Device control operation 
-	    | BOX Box
-	    | LINE (List Prettyprint_Token)
-
-
-	also
-	Wrap_Policy
-
-	    = NONE					# All on one line -- break never rendered as newline.
-	    | ALL					# One line each -- every break rendered as newline.
-	    | ALL_OR_NONE				# NONE if it fits, else ALL.
-	    | AS_NEEDED				# Normal wordwrap:  break rendered as newline only when necessary.
-
-	withtype
-	Box
-	    =
-	    { indent:              Indent,
-	      width:               Int,		# We try to fit box contents into this width.
-	      wrap_policy:         Wrap_Policy,
-	      id:                  Int,		# Unique id number per box.  Only used for debugging/display.
-
-	      first_line_length:   Ref Int,		# Length of contents if newline free, else length of first line.
-	      final_line_length:   Ref Int,		# Length of contents if newline free, else length of last line (zero if box contents end with newline)
-	      has_newlines:        Ref Bool,	# TRUE iff there's a NEWLINE somewhere inside.
-	      contents:            Ref List Prettyprint_Token
-	    };
-
-
-	Stream
-	    =
-	    STREAM  {
-		device:                   Device,		# The underlying device 
-		device_is_closed:         Ref( Bool ),	# TRUE iff the stream is closed. 
-
-
-		# We build up a prettyprint expression as a tree
-		# of nested_boxes until we are flushed, at which
-		# point we actually format and print it.
-		#
-		# At any given time, the currently open box is 'box',
-		# the one enclosing it is first in the nested_boxes
-		# list, and the root of the box tree is last in the
-		# nested_boxes list.  (Keeping the top of the stack
-		# in a separate variable lets us communicate to the
-		# type system that we always have at least one box
-		# on the stack, and thus avoid a lot of spurious
-		# checks for stack-empty.)
-		box:           Ref Box,
-		nested_boxes:  Ref (List Box),
-		box_nesting:   Ref Int,			# Current depth of 'nested_boxes'. Used only to catch infinite loops.
-
-		next_box_id:   Ref Int,
-
-		# We don't actually use the style_stack
-		# for anything in this module -- it is
-		# purely an opaque-to-us customer
-		# convenience:
-
-		style_stack
-		    :
-		    Ref(  List(  Style ) )
-	    };
-
-
-
-	max_box_nesting =   1000;			# Purely to catch prettyprint infinite recursions. 
-
-	exception  PRETTYPRINT_MAX_DEPTH_EXCEEDED;	# Raised when above is exceeded;
-
-	default_box_width = 60;			# There is currently no way to change box widths.
-
-
-	# *** DEBUGGING FUNCTIONS ***
-
-	package f = sfprintf;			# sfprintf	is from   src/lib/src/sfprintf.pkg
-
-	fun wrap_policy_to_string NONE        =>  "NONE";
-	    wrap_policy_to_string ALL         =>  "ALL";
-	    wrap_policy_to_string ALL_OR_NONE =>  "ALL_OR_NONE";
-	    wrap_policy_to_string AS_NEEDED   =>  "AS_NEEDED";
-	end;
-
-
-	fun indent_to_string (BOX_RELATIVE    n) =>  cat ["BOX_RELATIVE ",    int::to_string n];
-	    indent_to_string (CURSOR_RELATIVE n) =>  cat ["CURSOR_RELATIVE ", int::to_string n];
-	end;
-
-
-
-
-	fun dump (out_stream, STREAM stream)
-	    =
-	    {   fun print string
-		    =
-		    file::write (out_stream, string);
-
-
-		fun printf' (format, items)
-		    =
-		    print (f::sprintf' format items);
-
-
-    #	    fun format_box_stack_element_to_string (wrap_policy, box_indent, box_width)
-    #		=
-    #		f::sprintf'   "(%s, %d, %d)"   [f::STR (wrap_policy_to_string  wrap_policy), f::INT box_indent, f::INT box_width];
-
-
-		fun print_list format_element []
-			=>
-			print "[]";
-
-		    print_list format_element my_list
-			=>
-			print (
-			    list_to_string::list_to_string'
-
-				{  first     => "[\n    ",
-				   last      => "]",
-				   between   => "\n    ",
-				   to_string => format_element
-				}
-
-				my_list
-			);
-		end;
-
-		fun print_box   (box as { id, indent, width, first_line_length, final_line_length, has_newlines, wrap_policy, contents })   prefix
-		    =
-		    {   print (prefix + "Box");
-			print ("   id = "           + (int::to_string id));
-			print ("   indent = "       + (indent_to_string indent));
-			print ("   width = "        + (int::to_string width));
-			print ("   first_line_length = " + (int::to_string *first_line_length));
-			print ("   final_line_length = " + (int::to_string *final_line_length));
-			print ("   has_newlines = " + (*has_newlines ?? "TRUE" :: "FALSE"));
-			print ("   wrap_policy = "  + (wrap_policy_to_string  wrap_policy));
-			print ("   contents len = " + (int::to_string (list::length *contents)));
-			print  ":\n";
-
-			print_tokens  *contents  (prefix + "    ")
-			where
-			    fun print_tokens [] _
-				    =>
-				    ();
-
-				print_tokens  (token ! rest)  prefix
-				    =>
-				    {   case token
-
-					     TEXT { string, length }
-						 =>
-						 print (prefix + "TEXT (" + (int::to_string length) + ") '" + string + "'\n");
-
-					     NONBREAKABLE_SPACES  int
-						 =>
-						 print (prefix + "NONBREAKABLE_SPACES " + (int::to_string int) + "\n");
-
-					     BREAK  { wrap,   spaces,   indent_on_wrap }
-						 =>
-						 {   print (prefix + "BREAK");
-						     print ("   wrap = "    + (*wrap ?? "TRUE" :: "FALSE"));
-						     print ("   spaces = "  + (int::to_string spaces));
-						     print ("   indent_on_wrap = "  + (int::to_string indent_on_wrap));
-						     print  "\n";
-						 };
-
-					     PUSH_STYLE _
-						 =>
-						 print (prefix + "PUSH_STYLE ...\n");
-
-					     POP_STYLE
-						 =>
-						 print (prefix + "POP_STYLE\n");
-
-					     NEWLINE
-						 =>
-						 print (prefix + "NEWLINE\n");
-
-					     CONTROL _
-						 =>
-						 print (prefix + "CONTROL ...\n");
-
-					     BOX box
-						 =>
-						 {   print (prefix + "BOX:\n");
-						     print_box  box  (prefix + "    "); 
-						 };
-
-					     LINE tokens
-						 =>
-						 {   print (prefix + "LINE");
-						     print ("   length = "  + (int::to_string (list::length tokens)));
-						     print  ":\n";
-						     print_tokens  tokens  (prefix + "    "); 
-						 };
-					esac;
-
-					print_tokens  rest  prefix;
-				    };
-			    end;				# fun print_tokens
-			end;				# where
-		    };
-
-		print  ("BEGIN\n");
-		printf' (
-		    "box_nesting = %3d\n",
-		    [   f::INT *stream.box_nesting
-		    ]
-		);
-
-
-
-		print   "Expression:\n";
-
-		case *stream.nested_boxes
-
-		     [] => print_box *stream.box "";
-		     x  => case (reverse x)
-
-				bot ! rest => print_box bot "";
-				_          => raise exception FAIL "impossible";
-			   esac;
-		esac;
-		print "\n";
-
-
-		print  ("END\n");
-	    };
-
-
-
-	# *** UTILITY FUNCTIONS ***
-
-	too_long =  8888;   # A box-length value picked to be large
-			    # enough to not fit in any plausible box,
-			    # but small enough that adding a few
-			    # together won't produce integer overflow.
-
-
-	# Output functions 
-	fun write_newline (STREAM { device, ... }   ) =  dvc::newline device;
-	fun write         (STREAM { device, ... }, s) =  dvc::string (device, s);
-
-
-
-	fun blanks (_, 0)
-		=>
-		();
-
-	    blanks (STREAM { device, ... }, n)
-		=>
-		dvc::space (device, n);
-	end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	# Return the current style of the prettyprint stream,
-	# which is the top entry on the style stack, or else
-	# the default style if the stack is empty:
-
-	fun current_style (STREAM { style_stack => REF [], device,  ... } ) =>  dvc::default_style device;
-	    current_style (STREAM { style_stack => REF (style ! _), ... } ) =>  style;
-	end;
-
-
-
-	# Break up the 'contents' list of tokens in a box
-	# into LINEs terminated by NEWLINE tokens
-	# (except perhaps for the last):
-
-	fun make_lines  stream   (box as { contents, id,  wrap_policy, has_newlines, width, indent, first_line_length, final_line_length })
-	    =
-	    {
-		box_lines
-		    =
-		    make_lines'  (
-			*contents,
-			[],			# tokens
-			[]			# lines
-		    );
-
-		box.contents     :=   box_lines;  
-	    }
-	    where
-		fun make_lines'  ([],  tokens,  lines)
-			=>
-			{
-			    tokens =   reverse tokens;
-			    line   =   LINE tokens;
-			    lines  =   line ! lines;
-
-			    reverse lines;
-			};
-
-		    make_lines'  (token ! rest,  tokens,  lines)
-			=>
-			case token
-
-			     NEWLINE
-				 =>
-				 {
-				     tokens =   reverse (token ! tokens);
-				     make_lines'  (rest,  /*tokens=*/ [],   LINE tokens ! lines);
-				 };
-
-			     BOX box
-				 =>
-				 {
-				     box_contents
-					 =
-					 make_lines'  (
-					     *box.contents,
-					     [],			# token accumulator
-					     []			# line  accumulator
-					 );
-
-				     box.contents     :=   box_contents;
-
-				     make_lines'  (
-					 rest,
-					 token          !  tokens,
-					 lines
-				     );
-				 };
-
-			     LINE _
-				 =>
-				 {   print "Internal error: LINE in make_lines' input?!\n";
-				     dump (file::stdout, stream);
-    #                                 raise exception FAIL "Internal error: LINE in make_lines' input";
-				     make_lines'  (rest,  tokens,  lines);
-				 };
-
-			     _   =>
-				 {
-				     make_lines'  (rest,  token ! tokens,  lines);
-				 };
-
-			esac;
-		end; 
-	    end
-
-
-
-	# Given the list of tokens in a LINE,
-	# wrap either all BREAKs or none of them.
+stipulate
+    package fil =  file__premicrothread;				# file__premicrothread	is from   src/lib/std/src/posix/file--premicrothread.pkg
+herein
+
+    generic package   prettyprint_buffer_g   (
+	#             ====================
 	#
-	# Any embedded boxes have already been
-	# wrap_box()'d, so they have valid values
-	# of first_line_length, final_line_length and has_newlines.
-	#
+	package token:   Prettyprint_Token;		# Prettyprint_Token	is from   src/lib/prettyprint/big/src/prettyprint-token.api
+	package device:  Prettyprint_Device;	# Prettyprint_Device	is from   src/lib/prettyprint/big/src/prettyprint-device.api
 
-	also
-	fun wrap_all_or_none  (
-		width,		# Current box width
-		tokens,		# List of tokens in current line.
-		column,		# Current column, relative to box left margin
-		wrap_policy		# One of ALL, NONE, ALL_OR_NONE
-	    )
-	    =
-	    {
-		line_has_newlines = REF FALSE;
-		first_line_length = REF -1;
+	sharing token::Style == device::Style;
+    )
+    : (weak)
+    api {
+	include Prettyprint_Buffer;			# Prettyprint_Buffer	is from   src/lib/prettyprint/big/src/prettyprint-buffer.api
 
-		# Should we change all BREAKs to newlines, or none or them?
-		wrap_them
-		    =
-		    case wrap_policy
+	dump:  (fil::Output_Stream, Stream)
+		  ->
+		  Void;
+    }
+    {
+	stipulate
+	    package dvc =  device;
+	    package tkn =  token;
+	herein
+	    Device =  dvc::Device;		# Handles device-specific aspects of writing to ansi terminal, plain ascii stream or whatever.
+	    Style  =  tkn::Style;			# Text attributes like color, underline, blink etc.
+	    Token  =  tkn::Token;			# A token will usually contain some text plus whatever Style information is required to render it on the Device.
 
-			 ALL  =>  TRUE;
-			 NONE =>  FALSE;
+	    Indent = BOX_RELATIVE  Int		# Indent relative to enclosing box.
+		   | CURSOR_RELATIVE  Int;	# Indent relative to where box starts on current line.      
 
-			 ALL_OR_NONE
-			     =>
-			     {   unwrapped_length
-				     =
-				     tot_length (tokens, 0)
-				     where
-					 fun tot_length ([], result) => result;
-					     tot_length (((TEXT                { length, ... }) ! rest), result) =>   tot_length (rest, result +  length);
-					     tot_length (((NONBREAKABLE_SPACES   n          ) ! rest), result) =>   tot_length (rest, result +  n     );
-					     tot_length (((BREAK               { spaces, ... }) ! rest), result) =>   tot_length (rest, result +  spaces);
-
-					     tot_length (((BOX { first_line_length, has_newlines, ... }) ! rest), result)
-						 =>
-						 if   *has_newlines     too_long;
-								     else   tot_length (rest, result + *first_line_length);   fi;
-					     tot_length ((_ ! rest), result)
-						 =>
-						 tot_length (rest, result);
-					 end;
-				     end;
-
-				 if  (unwrapped_length > width   )   TRUE;
-								else   FALSE;   fi;
-			     };
-
-			 AS_NEEDED => raise exception FAIL "wrap_all_or_none: wrap_policy == AS_NEEDED!?";
-		    esac;
+	    # *** DATA STRUCTURES ***
+	    Prettyprint_Token
+		= TEXT { string: String, length: Int }
+						#  Raw text.  This includes tokens.  The 
+						#  width and style information is taken 
+						#  care of when they are inserted in 
+						#  queue. 
+		| NONBREAKABLE_SPACES  Int	#  Some number of non-breakable spaces 
+		| BREAK  { wrap: Ref Bool,   spaces: Int,   indent_on_wrap: Int }
+		| PUSH_STYLE  Style
+		| POP_STYLE
+		| NEWLINE
+		| CONTROL  (Device -> Void)		#  Device control operation 
+		| BOX Box
+		| LINE (List Prettyprint_Token)
 
 
-		fun per_token ([], column) =>   column;
+	    also
+	    Wrap_Policy
 
-		    per_token (token ! rest, column)
-			=>
-			case token
+		= NONE					# All on one line -- break never rendered as newline.
+		| ALL					# One line each -- every break rendered as newline.
+		| ALL_OR_NONE				# NONE if it fits, else ALL.
+		| AS_NEEDED				# Normal wordwrap:  break rendered as newline only when necessary.
 
-			     BREAK  { wrap, spaces, indent_on_wrap, ... }
-				 =>
-				 if   wrap_them
+	    withtype
+	    Box
+		=
+		{ indent:              Indent,
+		  width:               Int,		# We try to fit box contents into this width.
+		  wrap_policy:         Wrap_Policy,
+		  id:                  Int,		# Unique id number per box.  Only used for debugging/display.
 
-				      if   (*first_line_length == -1   )   first_line_length := column;   fi;
-				      wrap := TRUE;
-				      line_has_newlines := TRUE;
-				      per_token  (rest, indent_on_wrap);
-				 else
-				      per_token  (rest, column + spaces);
-				 fi;
-
-			     NEWLINE
-				 =>
-				 {   if   (*first_line_length == -1   )   first_line_length := column;   fi;
-				     line_has_newlines := TRUE;
-				     per_token  (rest, 0);
-				 };
-
-			     TEXT { length, ... }  =>   per_token  (rest, column + length        );
-			     NONBREAKABLE_SPACES n =>   per_token  (rest, column + n             );
-			     PUSH_STYLE _          =>   per_token  (rest, column                 );
-			     POP_STYLE             =>   per_token  (rest, column                 );
-			     CONTROL _             =>   per_token  (rest, column                 );
-
-			     BOX { final_line_length, indent, ... }
-				 =>
-				 case indent
-
-				      BOX_RELATIVE    i =>    per_token  (rest, *final_line_length + i         );
-				      CURSOR_RELATIVE i =>    per_token  (rest, *final_line_length + i + column);
-				 esac;
-
-			     LINE _  =>  raise exception FAIL "per_token: LINE within line?!";
-			esac;
-		end;							# fun per_token
-
-		column =   per_token (tokens, column);
-
-		if   (*first_line_length == -1   )   first_line_length := column;   fi;
-
-		(*first_line_length, column, *line_has_newlines);
-	    }								# fun wrap_all_or_none
-
-
-	# Here we implement a conventional word-wrap
-	# style algorithm where we wrap a line at
-	# a BREAK iff it is our last chance to avoid
-	# exceeding our assigned box width.
-
-	also
-	fun wrap_as_needed  (box_width, tokens, column)
-	    =
-	    {
-		line_has_newlines = REF FALSE;
-		first_line_length = REF -1;
-
-
-
-		# To decide whether to wrap a line at a break point,
-		# we must compute whether this is our last chance to
-		# avoid exceeding our allowed box width, which involves
-		# computing the text length from this BREAK to the
-		# next BREAK or NEWLINE (or end of token list).
-		# That's our job here:
-
-		fun forced_follow_on  tokens
-		    =
-		    forced_follow_on'  (tokens, 0)
-		    where 
-			fun forced_follow_on'  ([], column)
-				=>
-				column;
-
-			    forced_follow_on'  (token ! rest,  column)
-				=>
-				case token
-
-				     TEXT { length, ... }
-					 =>
-					 forced_follow_on'  (rest,  column + length);
-
-				     NONBREAKABLE_SPACES n
-					 =>
-					 forced_follow_on'  (rest,  column + n);
-
-				     (PUSH_STYLE _ | POP_STYLE | CONTROL _)
-					 =>
-					 forced_follow_on'  (rest,  column);
-
-				     (NEWLINE | BREAK _)
-					 =>
-					 column;
-
-				     BOX { first_line_length, has_newlines, ... }
-					 =>
-					 # If a box contains newlines, then 'first_line_length'
-					 # is the length of its first line, and we've
-					 # reached the end of our forced follow-on,
-					 # otherwise 'first_line_length' is the total box
-					 # length, and we need to keep on iterating:
-
-					 if *has_newlines
-
-					      column + *first_line_length;
-					 else
-					      forced_follow_on'  (rest,  column + *first_line_length);
-					 fi;
-
-				     LINE _
-					 =>
-					 {   /*raise exception FAIL*/ print "Internal error: forced_follow_on token is a LINE?!\n";
-					     column;
-					 };
-				esac;
-			end;			# fun forced_follow_on'
-		end;				# fun forced_follow_on
-
-
-		# Scan the tokens in a LINE setting
-		# BREAKs to wrap as appropriate.
-
-		fun per_token  ([], column)
-			=>
-			column;
-
-
-		    per_token  (token ! rest,   column)
-			=>
-			case token
-
-			     (PUSH_STYLE _
-			     | POP_STYLE
-			     | CONTROL _)          =>   per_token( rest,   column          );
-			     TEXT { length, ... }  =>   per_token( rest,   column + length );
-			     NONBREAKABLE_SPACES n =>   per_token( rest,   column + n      );
-
-			     NEWLINE
-				 =>
-				 {   line_has_newlines :=  TRUE;
-				     per_token( rest, /*column=*/ 0 );
-				 };
-
-			     BREAK  { wrap, spaces, indent_on_wrap }
-				 =>
-				 {
-				     # If next BREAK or NEWLINE
-				     # would be beyond right margin
-				     # of box, then we need to wrap:
-
-				     if   (column  +  spaces  +  forced_follow_on rest  >  box_width)
-
-					  if   (*first_line_length == -1   )   first_line_length := column;   fi;
-					  wrap := TRUE;
-					  line_has_newlines :=  TRUE;
-					  per_token( rest, /*column=*/ indent_on_wrap);
-				     else
-					  per_token( rest,   column + spaces );
-				     fi;
-				 };
-
-			     BOX (box as { id, first_line_length, indent, final_line_length, ... })
-				 =>
-				 {   column
-					 =
-					 case indent
-
-					      BOX_RELATIVE    i =>   *final_line_length + i;
-					      CURSOR_RELATIVE i =>   *final_line_length + i + column;
-					 esac;
-
-				     per_token( rest, column );
-				 };
-
-			     LINE _
-				 =>
-				 {   /*raise exception FAIL*/ print "Internal error: wrap_all_or_none token is a LINE?!\n";
-				     per_token( rest,   column );
-				 };
-			esac;
-
-		end;		# fun per_token
-
-		column =   per_token (tokens, column);
-
-		if   (*first_line_length == -1   )   first_line_length := column;   fi;
-
-		(*first_line_length, column, *line_has_newlines);
-	    }						# fun wrap_as_needed
-
-	also
-	fun wrap_line  (width, tokens, column, wrap_policy)
-	    =
-	    case wrap_policy
-
-		 AS_NEEDED  =>  wrap_as_needed   (width, tokens, column );
-		 _          =>  wrap_all_or_none (width, tokens, column, wrap_policy );
-	    esac
-
-	also
-	fun wrap_box {
-		box as { id, indent, width, first_line_length, final_line_length, has_newlines, wrap_policy, contents },
-		column
-	    }
-	    =
-	    {   # Start by recursively wrapping all sub-boxes
-		# of this box.  When this is done, we know for
-		# each subbox whether it contains newlines (which
-		# may be either NEWLINEs or BREAKs which wrapped)
-		# and also the lengths of its first and last lines:
-
-		{	per_line *contents
-		    where
-			fun per_line  ((LINE tokens) ! rest)
-				=>
-				{    per_token tokens;
-				     per_line  rest;
-				};
-			    per_line  (_ ! rest) =>   raise exception FAIL "wrap_subboxes_lines: Non-LINE arg?!";
-			    per_line        []   =>   ();
-			end
-
-			also
-			fun per_token  ((BOX box) ! rest)
-				=>
-				{   wrap_box { box, column => 0};
-				    per_token  rest;
-				};
-			    per_token (_ ! rest) =>   per_token  rest;
-			    per_token       []   =>   ();
-			end;
-		    end;
+		  first_line_length:   Ref Int,		# Length of contents if newline free, else length of first line.
+		  final_line_length:   Ref Int,		# Length of contents if newline free, else length of last line (zero if box contents end with newline)
+		  has_newlines:        Ref Bool,	# TRUE iff there's a NEWLINE somewhere inside.
+		  contents:            Ref List Prettyprint_Token
 		};
 
-		# With the wrap decisions for our sub-boxes all
-		# made, we now have enough information in hand
-		# to make those decisions for our own box:
 
-		per_line  (*contents, /*column=*/0, /*first_line=*/ TRUE)
-		where
-		    fun per_line ([], column, first_line)
+	    Stream
+		=
+		STREAM  {
+		    device:                   Device,		# The underlying device 
+		    device_is_closed:         Ref( Bool ),	# TRUE iff the stream is closed. 
+
+
+		    # We build up a prettyprint expression as a tree
+		    # of nested_boxes until we are flushed, at which
+		    # point we actually format and print it.
+		    #
+		    # At any given time, the currently open box is 'box',
+		    # the one enclosing it is first in the nested_boxes
+		    # list, and the root of the box tree is last in the
+		    # nested_boxes list.  (Keeping the top of the stack
+		    # in a separate variable lets us communicate to the
+		    # type system that we always have at least one box
+		    # on the stack, and thus avoid a lot of spurious
+		    # checks for stack-empty.)
+		    box:           Ref Box,
+		    nested_boxes:  Ref (List Box),
+		    box_nesting:   Ref Int,			# Current depth of 'nested_boxes'. Used only to catch infinite loops.
+
+		    next_box_id:   Ref Int,
+
+		    # We don't actually use the style_stack
+		    # for anything in this module -- it is
+		    # purely an opaque-to-us customer
+		    # convenience:
+
+		    style_stack
+			:
+			Ref(  List(  Style ) )
+		};
+
+
+
+	    max_box_nesting =   1000;			# Purely to catch prettyprint infinite recursions. 
+
+	    exception  PRETTYPRINT_MAX_DEPTH_EXCEEDED;	# Raised when above is exceeded;
+
+	    default_box_width = 60;			# There is currently no way to change box widths.
+
+
+	    # *** DEBUGGING FUNCTIONS ***
+
+	    package f = sfprintf;			# sfprintf	is from   src/lib/src/sfprintf.pkg
+
+	    fun wrap_policy_to_string NONE        =>  "NONE";
+		wrap_policy_to_string ALL         =>  "ALL";
+		wrap_policy_to_string ALL_OR_NONE =>  "ALL_OR_NONE";
+		wrap_policy_to_string AS_NEEDED   =>  "AS_NEEDED";
+	    end;
+
+
+	    fun indent_to_string (BOX_RELATIVE    n) =>  cat ["BOX_RELATIVE ",    int::to_string n];
+		indent_to_string (CURSOR_RELATIVE n) =>  cat ["CURSOR_RELATIVE ", int::to_string n];
+	    end;
+
+
+
+
+	    fun dump (out_stream, STREAM stream)
+		=
+		{   fun print string
+			=
+			fil::write (out_stream, string);
+
+
+		    fun printf' (format, items)
+			=
+			print (f::sprintf' format items);
+
+
+	#	    fun format_box_stack_element_to_string (wrap_policy, box_indent, box_width)
+	#		=
+	#		f::sprintf'   "(%s, %d, %d)"   [f::STR (wrap_policy_to_string  wrap_policy), f::INT box_indent, f::INT box_width];
+
+
+		    fun print_list format_element []
 			    =>
-			    ();
+			    print "[]";
 
-			per_line (line ! rest,  column, first_line)
+			print_list format_element my_list
 			    =>
-			    {   case line
+			    print (
+				list_to_string::list_to_string'
 
-				     LINE tokens
-					 =>
-					 {   (wrap_line (width, tokens, column, wrap_policy ))
-						 ->
-						 (initial_line_length, last_line_length, line_has_newlines);
+				    {  first     => "[\n    ",
+				       last      => "]",
+				       between   => "\n    ",
+				       to_string => format_element
+				    }
 
-					     if   first_line      first_line_length :=  initial_line_length;   fi;
-
-					     final_line_length :=  last_line_length;		# Gets overwritten unless this -is- the last LINE.
-					     has_newlines :=  (*has_newlines or line_has_newlines);
-					 };
-
-				     _   =>
-					 {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
-					     ();
-					 };
-				esac;
-
-				per_line (rest,  column, /*first_line=*/ FALSE);
-			    };
+				    my_list
+			    );
 		    end;
-		end;
-	    }						# fun wrap_box
+
+		    fun print_box   (box as { id, indent, width, first_line_length, final_line_length, has_newlines, wrap_policy, contents })   prefix
+			=
+			{   print (prefix + "Box");
+			    print ("   id = "           + (int::to_string id));
+			    print ("   indent = "       + (indent_to_string indent));
+			    print ("   width = "        + (int::to_string width));
+			    print ("   first_line_length = " + (int::to_string *first_line_length));
+			    print ("   final_line_length = " + (int::to_string *final_line_length));
+			    print ("   has_newlines = " + (*has_newlines ?? "TRUE" :: "FALSE"));
+			    print ("   wrap_policy = "  + (wrap_policy_to_string  wrap_policy));
+			    print ("   contents len = " + (int::to_string (list::length *contents)));
+			    print  ":\n";
+
+			    print_tokens  *contents  (prefix + "    ")
+			    where
+				fun print_tokens [] _
+					=>
+					();
+
+				    print_tokens  (token ! rest)  prefix
+					=>
+					{   case token
+
+						 TEXT { string, length }
+						     =>
+						     print (prefix + "TEXT (" + (int::to_string length) + ") '" + string + "'\n");
+
+						 NONBREAKABLE_SPACES  int
+						     =>
+						     print (prefix + "NONBREAKABLE_SPACES " + (int::to_string int) + "\n");
+
+						 BREAK  { wrap,   spaces,   indent_on_wrap }
+						     =>
+						     {   print (prefix + "BREAK");
+							 print ("   wrap = "    + (*wrap ?? "TRUE" :: "FALSE"));
+							 print ("   spaces = "  + (int::to_string spaces));
+							 print ("   indent_on_wrap = "  + (int::to_string indent_on_wrap));
+							 print  "\n";
+						     };
+
+						 PUSH_STYLE _
+						     =>
+						     print (prefix + "PUSH_STYLE ...\n");
+
+						 POP_STYLE
+						     =>
+						     print (prefix + "POP_STYLE\n");
+
+						 NEWLINE
+						     =>
+						     print (prefix + "NEWLINE\n");
+
+						 CONTROL _
+						     =>
+						     print (prefix + "CONTROL ...\n");
+
+						 BOX box
+						     =>
+						     {   print (prefix + "BOX:\n");
+							 print_box  box  (prefix + "    "); 
+						     };
+
+						 LINE tokens
+						     =>
+						     {   print (prefix + "LINE");
+							 print ("   length = "  + (int::to_string (list::length tokens)));
+							 print  ":\n";
+							 print_tokens  tokens  (prefix + "    "); 
+						     };
+					    esac;
+
+					    print_tokens  rest  prefix;
+					};
+				end;				# fun print_tokens
+			    end;				# where
+			};
+
+		    print  ("BEGIN\n");
+		    printf' (
+			"box_nesting = %3d\n",
+			[   f::INT *stream.box_nesting
+			]
+		    );
 
 
-	also
-	fun print_lines (
-		box,
-		column,		# 0-based column relative to device (not box!) left margin
-		left_margin,	# Left margin of current box.
-		stream
-	    )
-	    =
-	    {   box ->   { indent, width, wrap_policy, contents, ... };
 
-		left_margin
-		    =
-		    case indent
+		    print   "Expression:\n";
 
-			 BOX_RELATIVE    i =>   left_margin + i;
-			 CURSOR_RELATIVE i =>   column      + i;
+		    case *stream.nested_boxes
+
+			 [] => print_box *stream.box "";
+			 x  => case (reverse x)
+
+				    bot ! rest => print_box bot "";
+				    _          => raise exception FAIL "impossible";
+			       esac;
 		    esac;
+		    print "\n";
 
-		per_line (*contents, column)
+
+		    print  ("END\n");
+		};
+
+
+
+	    # *** UTILITY FUNCTIONS ***
+
+	    too_long =  8888;   # A box-length value picked to be large
+				# enough to not fit in any plausible box,
+				# but small enough that adding a few
+				# together won't produce integer overflow.
+
+
+	    # Output functions 
+	    fun write_newline (STREAM { device, ... }   ) =  dvc::newline device;
+	    fun write         (STREAM { device, ... }, s) =  dvc::string (device, s);
+
+
+
+	    fun blanks (_, 0)
+		    =>
+		    ();
+
+		blanks (STREAM { device, ... }, n)
+		    =>
+		    dvc::space (device, n);
+	    end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	    # Return the current style of the prettyprint stream,
+	    # which is the top entry on the style stack, or else
+	    # the default style if the stack is empty:
+
+	    fun current_style (STREAM { style_stack => REF [], device,  ... } ) =>  dvc::default_style device;
+		current_style (STREAM { style_stack => REF (style ! _), ... } ) =>  style;
+	    end;
+
+
+
+	    # Break up the 'contents' list of tokens in a box
+	    # into LINEs terminated by NEWLINE tokens
+	    # (except perhaps for the last):
+
+	    fun make_lines  stream   (box as { contents, id,  wrap_policy, has_newlines, width, indent, first_line_length, final_line_length })
+		=
+		{
+		    box_lines
+			=
+			make_lines'  (
+			    *contents,
+			    [],			# tokens
+			    []			# lines
+			);
+
+		    box.contents     :=   box_lines;  
+		}
 		where
-		    fun per_token ([], column)
+		    fun make_lines'  ([],  tokens,  lines)
 			    =>
-			    column;
+			    {
+				tokens =   reverse tokens;
+				line   =   LINE tokens;
+				lines  =   line ! lines;
 
-			per_token  (token ! rest, column)
+				reverse lines;
+			    };
+
+			make_lines'  (token ! rest,  tokens,  lines)
 			    =>
 			    case token
 
-				 TEXT { length, string }
+				 NEWLINE
 				     =>
-				     {   write (stream, string);
-					 per_token( rest, column + length );
+				     {
+					 tokens =   reverse (token ! tokens);
+					 make_lines'  (rest,  /*tokens=*/ [],   LINE tokens ! lines);
 				     };
 
-				 NONBREAKABLE_SPACES n
+				 BOX box
 				     =>
-				     {   blanks (stream, n);
-					 per_token( rest, column + n );
+				     {
+					 box_contents
+					     =
+					     make_lines'  (
+						 *box.contents,
+						 [],			# token accumulator
+						 []			# line  accumulator
+					     );
+
+					 box.contents     :=   box_contents;
+
+					 make_lines'  (
+					     rest,
+					     token          !  tokens,
+					     lines
+					 );
 				     };
 
-				 BREAK { wrap, spaces, indent_on_wrap }
+				 LINE _
 				     =>
-				     if *wrap
+				     {   print "Internal error: LINE in make_lines' input?!\n";
+					 dump (fil::stdout, stream);
+	#                                 raise exception FAIL "Internal error: LINE in make_lines' input";
+					 make_lines'  (rest,  tokens,  lines);
+				     };
 
-					  column = left_margin + indent_on_wrap;
-					  write_newline stream;
-					  blanks (stream, column);
-					  per_token( rest, column );
+				 _   =>
+				     {
+					 make_lines'  (rest,  token ! tokens,  lines);
+				     };
+
+			    esac;
+		    end; 
+		end
+
+
+
+	    # Given the list of tokens in a LINE,
+	    # wrap either all BREAKs or none of them.
+	    #
+	    # Any embedded boxes have already been
+	    # wrap_box()'d, so they have valid values
+	    # of first_line_length, final_line_length and has_newlines.
+	    #
+
+	    also
+	    fun wrap_all_or_none  (
+		    width,		# Current box width
+		    tokens,		# List of tokens in current line.
+		    column,		# Current column, relative to box left margin
+		    wrap_policy		# One of ALL, NONE, ALL_OR_NONE
+		)
+		=
+		{
+		    line_has_newlines = REF FALSE;
+		    first_line_length = REF -1;
+
+		    # Should we change all BREAKs to newlines, or none or them?
+		    wrap_them
+			=
+			case wrap_policy
+
+			     ALL  =>  TRUE;
+			     NONE =>  FALSE;
+
+			     ALL_OR_NONE
+				 =>
+				 {   unwrapped_length
+					 =
+					 tot_length (tokens, 0)
+					 where
+					     fun tot_length ([], result) => result;
+						 tot_length (((TEXT                { length, ... }) ! rest), result) =>   tot_length (rest, result +  length);
+						 tot_length (((NONBREAKABLE_SPACES   n          ) ! rest), result) =>   tot_length (rest, result +  n     );
+						 tot_length (((BREAK               { spaces, ... }) ! rest), result) =>   tot_length (rest, result +  spaces);
+
+						 tot_length (((BOX { first_line_length, has_newlines, ... }) ! rest), result)
+						     =>
+						     if   *has_newlines     too_long;
+									 else   tot_length (rest, result + *first_line_length);   fi;
+						 tot_length ((_ ! rest), result)
+						     =>
+						     tot_length (rest, result);
+					     end;
+					 end;
+
+				     if  (unwrapped_length > width   )   TRUE;
+								    else   FALSE;   fi;
+				 };
+
+			     AS_NEEDED => raise exception FAIL "wrap_all_or_none: wrap_policy == AS_NEEDED!?";
+			esac;
+
+
+		    fun per_token ([], column) =>   column;
+
+			per_token (token ! rest, column)
+			    =>
+			    case token
+
+				 BREAK  { wrap, spaces, indent_on_wrap, ... }
+				     =>
+				     if   wrap_them
+
+					  if   (*first_line_length == -1   )   first_line_length := column;   fi;
+					  wrap := TRUE;
+					  line_has_newlines := TRUE;
+					  per_token  (rest, indent_on_wrap);
 				     else
-					  blanks  (stream, spaces);
-					  per_token( rest, column + spaces );
+					  per_token  (rest, column + spaces);
 				     fi;
 
 				 NEWLINE
 				     =>
-				     {   column = left_margin;
-					 write_newline stream;
-					 blanks (stream, column);
-					 per_token( rest, column );
+				     {   if   (*first_line_length == -1   )   first_line_length := column;   fi;
+					 line_has_newlines := TRUE;
+					 per_token  (rest, 0);
 				     };
 
+				 TEXT { length, ... }  =>   per_token  (rest, column + length        );
+				 NONBREAKABLE_SPACES n =>   per_token  (rest, column + n             );
+				 PUSH_STYLE _          =>   per_token  (rest, column                 );
+				 POP_STYLE             =>   per_token  (rest, column                 );
+				 CONTROL _             =>   per_token  (rest, column                 );
 
-				 BOX box
+				 BOX { final_line_length, indent, ... }
 				     =>
-				     {   column =  print_lines (box, column, left_margin, stream );
-					 per_token( rest, column );
+				     case indent
+
+					  BOX_RELATIVE    i =>    per_token  (rest, *final_line_length + i         );
+					  CURSOR_RELATIVE i =>    per_token  (rest, *final_line_length + i + column);
+				     esac;
+
+				 LINE _  =>  raise exception FAIL "per_token: LINE within line?!";
+			    esac;
+		    end;							# fun per_token
+
+		    column =   per_token (tokens, column);
+
+		    if   (*first_line_length == -1   )   first_line_length := column;   fi;
+
+		    (*first_line_length, column, *line_has_newlines);
+		}								# fun wrap_all_or_none
+
+
+	    # Here we implement a conventional word-wrap
+	    # style algorithm where we wrap a line at
+	    # a BREAK iff it is our last chance to avoid
+	    # exceeding our assigned box width.
+
+	    also
+	    fun wrap_as_needed  (box_width, tokens, column)
+		=
+		{
+		    line_has_newlines = REF FALSE;
+		    first_line_length = REF -1;
+
+
+
+		    # To decide whether to wrap a line at a break point,
+		    # we must compute whether this is our last chance to
+		    # avoid exceeding our allowed box width, which involves
+		    # computing the text length from this BREAK to the
+		    # next BREAK or NEWLINE (or end of token list).
+		    # That's our job here:
+
+		    fun forced_follow_on  tokens
+			=
+			forced_follow_on'  (tokens, 0)
+			where 
+			    fun forced_follow_on'  ([], column)
+				    =>
+				    column;
+
+				forced_follow_on'  (token ! rest,  column)
+				    =>
+				    case token
+
+					 TEXT { length, ... }
+					     =>
+					     forced_follow_on'  (rest,  column + length);
+
+					 NONBREAKABLE_SPACES n
+					     =>
+					     forced_follow_on'  (rest,  column + n);
+
+					 (PUSH_STYLE _ | POP_STYLE | CONTROL _)
+					     =>
+					     forced_follow_on'  (rest,  column);
+
+					 (NEWLINE | BREAK _)
+					     =>
+					     column;
+
+					 BOX { first_line_length, has_newlines, ... }
+					     =>
+					     # If a box contains newlines, then 'first_line_length'
+					     # is the length of its first line, and we've
+					     # reached the end of our forced follow-on,
+					     # otherwise 'first_line_length' is the total box
+					     # length, and we need to keep on iterating:
+
+					     if *has_newlines
+
+						  column + *first_line_length;
+					     else
+						  forced_follow_on'  (rest,  column + *first_line_length);
+					     fi;
+
+					 LINE _
+					     =>
+					     {   /*raise exception FAIL*/ print "Internal error: forced_follow_on token is a LINE?!\n";
+						 column;
+					     };
+				    esac;
+			    end;			# fun forced_follow_on'
+		    end;				# fun forced_follow_on
+
+
+		    # Scan the tokens in a LINE setting
+		    # BREAKs to wrap as appropriate.
+
+		    fun per_token  ([], column)
+			    =>
+			    column;
+
+
+			per_token  (token ! rest,   column)
+			    =>
+			    case token
+
+				 (PUSH_STYLE _
+				 | POP_STYLE
+				 | CONTROL _)          =>   per_token( rest,   column          );
+				 TEXT { length, ... }  =>   per_token( rest,   column + length );
+				 NONBREAKABLE_SPACES n =>   per_token( rest,   column + n      );
+
+				 NEWLINE
+				     =>
+				     {   line_has_newlines :=  TRUE;
+					 per_token( rest, /*column=*/ 0 );
 				     };
 
-
-				 PUSH_STYLE style
+				 BREAK  { wrap, spaces, indent_on_wrap }
 				     =>
-				     {   stream ->   STREAM { device, ... };
-					 dvc::push_style (device, style);
-					 per_token( rest, column );
+				     {
+					 # If next BREAK or NEWLINE
+					 # would be beyond right margin
+					 # of box, then we need to wrap:
+
+					 if   (column  +  spaces  +  forced_follow_on rest  >  box_width)
+
+					      if   (*first_line_length == -1   )   first_line_length := column;   fi;
+					      wrap := TRUE;
+					      line_has_newlines :=  TRUE;
+					      per_token( rest, /*column=*/ indent_on_wrap);
+					 else
+					      per_token( rest,   column + spaces );
+					 fi;
 				     };
 
-
-				 POP_STYLE
+				 BOX (box as { id, first_line_length, indent, final_line_length, ... })
 				     =>
-				     {   stream ->   STREAM { device, ... };
-					 dvc::pop_style device;
-					 per_token( rest, column );
-				     };
+				     {   column
+					     =
+					     case indent
 
+						  BOX_RELATIVE    i =>   *final_line_length + i;
+						  CURSOR_RELATIVE i =>   *final_line_length + i + column;
+					     esac;
 
-				 CONTROL ctl_g
-				     =>
-				     {   stream ->   STREAM { device, ... };
-					 ctl_g device;
 					 per_token( rest, column );
 				     };
 
 				 LINE _
 				     =>
-				     {   /*raise exception FAIL*/ print "Internal error: per_token encountered LINE within LINE token list\n";
-					 per_token( rest, column );
+				     {   /*raise exception FAIL*/ print "Internal error: wrap_all_or_none token is a LINE?!\n";
+					 per_token( rest,   column );
 				     };
 			    esac;
-		    end;				# fun per_token
 
-		    fun per_line  ([], column)
-			    =>
-			    column;
+		    end;		# fun per_token
 
-			per_line  (line ! rest, column)
-			    =>
-			    case line
+		    column =   per_token (tokens, column);
 
-				 LINE tokens
-				     =>
-				     {   column =  per_token  (tokens, column);
-					 per_line  (rest, column);
-				     };
+		    if   (*first_line_length == -1   )   first_line_length := column;   fi;
 
-				 _   =>
-				     {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
-					 per_line  (rest, column);
-				     };
-			    esac;
-		    end;
-		end;
-	    };				# fun print_lines
+		    (*first_line_length, column, *line_has_newlines);
+		}						# fun wrap_as_needed
 
+	    also
+	    fun wrap_line  (width, tokens, column, wrap_policy)
+		=
+		case wrap_policy
 
+		     AS_NEEDED  =>  wrap_as_needed   (width, tokens, column );
+		     _          =>  wrap_all_or_none (width, tokens, column, wrap_policy );
+		esac
 
+	    also
+	    fun wrap_box {
+		    box as { id, indent, width, first_line_length, final_line_length, has_newlines, wrap_policy, contents },
+		    column
+		}
+		=
+		{   # Start by recursively wrapping all sub-boxes
+		    # of this box.  When this is done, we know for
+		    # each subbox whether it contains newlines (which
+		    # may be either NEWLINEs or BREAKs which wrapped)
+		    # and also the lengths of its first and last lines:
 
-	# Here's the heart of the module.
-	# We prettyprint in four passes:
-	# 1) Build up the box tree -- complete by the time we get here.
-	# 2) Break the contents of each box up into
-	#    NEWLINE-delimited lines, and precompute box lengths:   make_lines
-	# 3) Decide which breaks to wrap (change to newlines):      wrap_box
-	# 4) Print the result out:                                  print_lines
+		    {	per_line *contents
+			where
+			    fun per_line  ((LINE tokens) ! rest)
+				    =>
+				    {    per_token tokens;
+					 per_line  rest;
+				    };
+				per_line  (_ ! rest) =>   raise exception FAIL "wrap_subboxes_lines: Non-LINE arg?!";
+				per_line        []   =>   ();
+			    end
 
-	fun prettyprint_box (stream, box)
-	    =
-	    {   make_lines   stream   box;
-		wrap_box             { box,   column => 0};
-		print_lines          (box,   /*column=*/ 0,   /*left_margin=*/    0,   stream    );
-	    };
-
-
-
-
-	#  Add a token to the contents of currently-open box:
-
-	fun add_token (STREAM { box as REF box', ... }, token)
-	    =
-	    {   box' -> { contents, ... };
-
-		contents
-		    :=
-		    token ! *contents;
-	    };
-
-
-	fun add_string (stream, string, length)
-	    =
-	    add_token (stream, TEXT { string, length } );
-
-
-
-	fun prettyprint_open_box (stream as STREAM { box, nested_boxes, box_nesting, next_box_id, /*uneeded*/  device, device_is_closed, style_stack }, indent, wrap_policy)
-	    =
-	    {   id = *next_box_id;
-
-		next_box_id := id + 1;
-
-		# Set up empty record for new box:
-		new_box
-		    =
-		    { indent,
-		      wrap_policy,
-		      width             => default_box_width,
-		      id,
-
-		      has_newlines      => REF FALSE,
-		      first_line_length => REF 0,
-		      final_line_length => REF 0,
-		      contents          => REF []
+			    also
+			    fun per_token  ((BOX box) ! rest)
+				    =>
+				    {   wrap_box { box, column => 0};
+					per_token  rest;
+				    };
+				per_token (_ ! rest) =>   per_token  rest;
+				per_token       []   =>   ();
+			    end;
+			end;
 		    };
 
+		    # With the wrap decisions for our sub-boxes all
+		    # made, we now have enough information in hand
+		    # to make those decisions for our own box:
 
-		# Add new child box to contents
-		# of previously open box: 
-		{   (*box) ->   { contents, ... }; 
+		    per_line  (*contents, /*column=*/0, /*first_line=*/ TRUE)
+		    where
+			fun per_line ([], column, first_line)
+				=>
+				();
+
+			    per_line (line ! rest,  column, first_line)
+				=>
+				{   case line
+
+					 LINE tokens
+					     =>
+					     {   (wrap_line (width, tokens, column, wrap_policy ))
+						     ->
+						     (initial_line_length, last_line_length, line_has_newlines);
+
+						 if   first_line      first_line_length :=  initial_line_length;   fi;
+
+						 final_line_length :=  last_line_length;		# Gets overwritten unless this -is- the last LINE.
+						 has_newlines :=  (*has_newlines or line_has_newlines);
+					     };
+
+					 _   =>
+					     {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
+						 ();
+					     };
+				    esac;
+
+				    per_line (rest,  column, /*first_line=*/ FALSE);
+				};
+			end;
+		    end;
+		}						# fun wrap_box
+
+
+	    also
+	    fun print_lines (
+		    box,
+		    column,		# 0-based column relative to device (not box!) left margin
+		    left_margin,	# Left margin of current box.
+		    stream
+		)
+		=
+		{   box ->   { indent, width, wrap_policy, contents, ... };
+
+		    left_margin
+			=
+			case indent
+
+			     BOX_RELATIVE    i =>   left_margin + i;
+			     CURSOR_RELATIVE i =>   column      + i;
+			esac;
+
+		    per_line (*contents, column)
+		    where
+			fun per_token ([], column)
+				=>
+				column;
+
+			    per_token  (token ! rest, column)
+				=>
+				case token
+
+				     TEXT { length, string }
+					 =>
+					 {   write (stream, string);
+					     per_token( rest, column + length );
+					 };
+
+				     NONBREAKABLE_SPACES n
+					 =>
+					 {   blanks (stream, n);
+					     per_token( rest, column + n );
+					 };
+
+				     BREAK { wrap, spaces, indent_on_wrap }
+					 =>
+					 if *wrap
+
+					      column = left_margin + indent_on_wrap;
+					      write_newline stream;
+					      blanks (stream, column);
+					      per_token( rest, column );
+					 else
+					      blanks  (stream, spaces);
+					      per_token( rest, column + spaces );
+					 fi;
+
+				     NEWLINE
+					 =>
+					 {   column = left_margin;
+					     write_newline stream;
+					     blanks (stream, column);
+					     per_token( rest, column );
+					 };
+
+
+				     BOX box
+					 =>
+					 {   column =  print_lines (box, column, left_margin, stream );
+					     per_token( rest, column );
+					 };
+
+
+				     PUSH_STYLE style
+					 =>
+					 {   stream ->   STREAM { device, ... };
+					     dvc::push_style (device, style);
+					     per_token( rest, column );
+					 };
+
+
+				     POP_STYLE
+					 =>
+					 {   stream ->   STREAM { device, ... };
+					     dvc::pop_style device;
+					     per_token( rest, column );
+					 };
+
+
+				     CONTROL ctl_g
+					 =>
+					 {   stream ->   STREAM { device, ... };
+					     ctl_g device;
+					     per_token( rest, column );
+					 };
+
+				     LINE _
+					 =>
+					 {   /*raise exception FAIL*/ print "Internal error: per_token encountered LINE within LINE token list\n";
+					     per_token( rest, column );
+					 };
+				esac;
+			end;				# fun per_token
+
+			fun per_line  ([], column)
+				=>
+				column;
+
+			    per_line  (line ! rest, column)
+				=>
+				case line
+
+				     LINE tokens
+					 =>
+					 {   column =  per_token  (tokens, column);
+					     per_line  (rest, column);
+					 };
+
+				     _   =>
+					 {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
+					     per_line  (rest, column);
+					 };
+				esac;
+			end;
+		    end;
+		};				# fun print_lines
+
+
+
+
+	    # Here's the heart of the module.
+	    # We prettyprint in four passes:
+	    # 1) Build up the box tree -- complete by the time we get here.
+	    # 2) Break the contents of each box up into
+	    #    NEWLINE-delimited lines, and precompute box lengths:   make_lines
+	    # 3) Decide which breaks to wrap (change to newlines):      wrap_box
+	    # 4) Print the result out:                                  print_lines
+
+	    fun prettyprint_box (stream, box)
+		=
+		{   make_lines   stream   box;
+		    wrap_box             { box,   column => 0};
+		    print_lines          (box,   /*column=*/ 0,   /*left_margin=*/    0,   stream    );
+		};
+
+
+
+
+	    #  Add a token to the contents of currently-open box:
+
+	    fun add_token (STREAM { box as REF box', ... }, token)
+		=
+		{   box' -> { contents, ... };
 
 		    contents
-			:= 
-			    BOX new_box
-			    !
-			    *contents;
-		}; 
-
-		nested_boxes :=   *box ! *nested_boxes;		# Push currently open box on stack.
-		box_nesting  :=   *box_nesting + 1;			# Remember new stack depth.
-		box          :=   new_box;				# Establish new (empty) currently-open box. 
-
-
-		if (*box_nesting > max_box_nesting)			# Catch prettyprint infinite loops.
-		     raise exception     PRETTYPRINT_MAX_DEPTH_EXCEEDED;
-		fi;
-	    };
-
-
-
-	fun prettyprint_end_box (stream as  STREAM {  nested_boxes as REF [], ... } )
-		=>
-		{   /*raise exception FAIL*/ print "User error: Attempted to close nonexistent box!";
-		    ();
+			:=
+			token ! *contents;
 		};
 
-	    prettyprint_end_box (stream as  STREAM { nested_boxes as REF (topbox ! rest),
-						       box as REF { contents, ... },
-						       box_nesting,
-						       ...
-						     }
-		)
-		=>
-		{   # We've accumulated the box contents
-		    # in reverse order.  Now that we're
-		    # done accumulating stuff for this
-		    # box, put the contents in their
-		    # proper order:
 
-		    contents     :=   reverse *contents;
+	    fun add_string (stream, string, length)
+		=
+		add_token (stream, TEXT { string, length } );
 
 
-		    # Pop box stack:
-		    box          :=   topbox;
-		    nested_boxes :=   rest;
-		    box_nesting  :=   *box_nesting - 1;
-		};
-	end;
 
+	    fun prettyprint_open_box (stream as STREAM { box, nested_boxes, box_nesting, next_box_id, /*uneeded*/  device, device_is_closed, style_stack }, indent, wrap_policy)
+		=
+		{   id = *next_box_id;
 
-	fun prettyprint_break  (stream as STREAM { box as REF { contents, ... }, ... },  { spaces, indent_on_wrap } )
-	    =
-	    contents
-		:=
-		    (BREAK { spaces,  indent_on_wrap,  wrap => REF FALSE } )
-		    !
-		    *contents;
+		    next_box_id := id + 1;
 
-
-	fun prettyprint_newline (stream as STREAM { box as REF { contents, ... }, ... })
-	    =
-	    contents
-		:=
-		NEWLINE ! *contents;
-
-
-	fun prettyprint_flush (stream as STREAM { box, nested_boxes, device, next_box_id, ... }, with_newline)
-	    =
-	    {   end_boxes ()
-		where
-		    fun end_boxes ()
+		    # Set up empty record for new box:
+		    new_box
 			=
-			case *nested_boxes
+			{ indent,
+			  wrap_policy,
+			  width             => default_box_width,
+			  id,
 
-			     []	# NB: To avoid special cases, we always leave one box on the stack.
-				 =>
-				 {   (*box) ->    { contents, first_line_length, final_line_length, has_newlines, ... };
-
-				     # Box contents accumulate in reverse order.
-				     # Normally we correct for this by reversing
-				     # the contents list when we close a box, but
-				     # the root box never gets closed, so we have
-				     # to reverse the contents here, right before
-				     # prettyprinting them:
-				     contents :=   reverse *contents;
-
-				     prettyprint_box (stream, *box);
-
-				     # Clear out the prettyprint stuff, so
-				     # we don't wind up printing it again: 
-				     contents          :=  [];
-				     first_line_length :=  0;
-				     final_line_length :=  0;
-				     has_newlines      :=  FALSE;
-				     next_box_id       :=  1;
-				 };
-
-			     topbox ! rest
-				 =>
-				 {   prettyprint_end_box  stream;
-				     end_boxes ();
-				 };
-			esac; 
-		end;
-
-		if   with_newline      write_newline  stream;   fi;
-
-		dvc::flush device;
-	    };
+			  has_newlines      => REF FALSE,
+			  first_line_length => REF 0,
+			  final_line_length => REF 0,
+			  contents          => REF []
+			};
 
 
-	# *** USER FUNCTIONS ***
+		    # Add new child box to contents
+		    # of previously open box: 
+		    {   (*box) ->   { contents, ... }; 
 
-	fun open_stream d
-	    =
-	    STREAM {
-	      device           =>  d,
-	      device_is_closed =>  REF FALSE,
-	      style_stack      =>  REF [],
-	      box_nesting      =>  REF 0,
-	      next_box_id      =>  REF 1,
-	      nested_boxes     =>  REF [],
-	      box              =>  REF { indent            =>   BOX_RELATIVE 0,
-					 width             =>   default_box_width,
-					 wrap_policy       =>   AS_NEEDED,
-					 id                =>       0,
-					 first_line_length =>   REF 0,
-					 final_line_length =>   REF 0,
-					 has_newlines      =>   REF FALSE,
-					 contents          =>   REF []
-				       }
-	    };
+			contents
+			    := 
+				BOX new_box
+				!
+				*contents;
+		    }; 
+
+		    nested_boxes :=   *box ! *nested_boxes;		# Push currently open box on stack.
+		    box_nesting  :=   *box_nesting + 1;			# Remember new stack depth.
+		    box          :=   new_box;				# Establish new (empty) currently-open box. 
 
 
-	fun flush_stream stream
-	    =
-	    prettyprint_flush (stream, FALSE);
+		    if (*box_nesting > max_box_nesting)			# Catch prettyprint infinite loops.
+			 raise exception     PRETTYPRINT_MAX_DEPTH_EXCEEDED;
+		    fi;
+		};
 
 
-	fun close_stream (stream as STREAM { device_is_closed, ... } )
-	    =
-	    {   flush_stream stream;
-		device_is_closed := TRUE;
-	    };
 
-
-	fun get_device (STREAM { device, ... } )
-	    =
-	    device;
-
-
-	fun begin_horizontal_box     stream   = prettyprint_open_box (stream,  BOX_RELATIVE 4, NONE);
-	fun begin_vertical_box     stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), ALL);
-	fun begin_horizontal_else_vertical_box  stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), ALL_OR_NONE);
-	fun begin_wrap_box  stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), AS_NEEDED);
-	fun begin_wrap'_box stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), AS_NEEDED);
-
-	fun begin_indented_vertical_box      stream indent  = prettyprint_open_box (stream, indent, ALL);
-	fun begin_indented_horizontal_else_vertical_box   stream indent  = prettyprint_open_box (stream, indent, ALL_OR_NONE);
-	fun begin_indented_wrap_box   stream indent  = prettyprint_open_box (stream, indent, AS_NEEDED);
-	fun begin_indented_wrap'_box  stream indent  = prettyprint_open_box (stream, indent, AS_NEEDED);
-
-	fun end_box   stream 
-	    =
-	    prettyprint_end_box   stream;
-
-	fun horizontal_box     stream thunk =   { begin_horizontal_box     stream;   thunk();   end_box stream; };
-	fun vertical_box     stream thunk =   { begin_vertical_box     stream;   thunk();   end_box stream; };
-	fun horizontal_else_vertical_box  stream thunk =   { begin_horizontal_else_vertical_box  stream;   thunk();   end_box stream; };
-	fun wrap_box  stream thunk =   { begin_wrap_box  stream;   thunk();   end_box stream; };
-	fun wrap'_box stream thunk =   { begin_wrap'_box stream;   thunk();   end_box stream; };
-
-
-	fun token (stream as STREAM { device, ... } ) token
-	    =
-	    {   token_style =  tkn::style token;
-
-		if (dvc::same_style (current_style stream, token_style))
-		    #
-		    add_string (stream, tkn::string token, tkn::size token);
-		else
-		    add_token (stream, PUSH_STYLE token_style);
-		    add_string (stream, tkn::string token, tkn::size token);
-		    add_token (stream, POP_STYLE);
-		fi;
-	    };
-
-
-	fun string stream s
-	    =
-	    add_string (stream, s, size s);
-
-
-	fun push_style (stream as STREAM { style_stack, ... }, sty)
-	    =
-	    {   if (not (dvc::same_style (current_style stream, sty)))
-		    #
-		    add_token (stream, PUSH_STYLE sty);
-		fi;
-
-		style_stack :=   sty ! *style_stack;
-	    };
-
-
-	fun pop_style (stream as STREAM { style_stack, ... } )
-	    =
-	    case *style_stack
-		#
-		[] => {  /*raise exception FAIL*/ print "User error: pp: unmatched pop_style\n";
-		      };
-
-		(sty ! rest)
+	    fun prettyprint_end_box (stream as  STREAM {  nested_boxes as REF [], ... } )
 		    =>
-		    {   style_stack := rest;
-
-			if (not (dvc::same_style (current_style stream, sty)))
-			    #
-			     add_token (stream, POP_STYLE);
-			fi;
+		    {   /*raise exception FAIL*/ print "User error: Attempted to close nonexistent box!";
+			();
 		    };
-	    esac;
+
+		prettyprint_end_box (stream as  STREAM { nested_boxes as REF (topbox ! rest),
+							   box as REF { contents, ... },
+							   box_nesting,
+							   ...
+							 }
+		    )
+		    =>
+		    {   # We've accumulated the box contents
+			# in reverse order.  Now that we're
+			# done accumulating stuff for this
+			# box, put the contents in their
+			# proper order:
+
+			contents     :=   reverse *contents;
 
 
-	fun break               stream arg =  prettyprint_break (stream, arg);
-	fun space               stream n   =  break stream { spaces => n, indent_on_wrap => 0 };
-	fun cut                 stream     =  break stream { spaces => 0, indent_on_wrap => 0 };
-	fun newline             stream     =  prettyprint_newline stream;
-	fun nonbreakable_spaces stream n   =  add_token (stream, NONBREAKABLE_SPACES n );
+			# Pop box stack:
+			box          :=   topbox;
+			nested_boxes :=   rest;
+			box_nesting  :=   *box_nesting - 1;
+		    };
+	    end;
 
-	fun control stream control_g
-	    =
-	    add_token (stream, CONTROL control_g);
-    end;												# stipulate
-};
 
+	    fun prettyprint_break  (stream as STREAM { box as REF { contents, ... }, ... },  { spaces, indent_on_wrap } )
+		=
+		contents
+		    :=
+			(BREAK { spaces,  indent_on_wrap,  wrap => REF FALSE } )
+			!
+			*contents;
+
+
+	    fun prettyprint_newline (stream as STREAM { box as REF { contents, ... }, ... })
+		=
+		contents
+		    :=
+		    NEWLINE ! *contents;
+
+
+	    fun prettyprint_flush (stream as STREAM { box, nested_boxes, device, next_box_id, ... }, with_newline)
+		=
+		{   end_boxes ()
+		    where
+			fun end_boxes ()
+			    =
+			    case *nested_boxes
+
+				 []	# NB: To avoid special cases, we always leave one box on the stack.
+				     =>
+				     {   (*box) ->    { contents, first_line_length, final_line_length, has_newlines, ... };
+
+					 # Box contents accumulate in reverse order.
+					 # Normally we correct for this by reversing
+					 # the contents list when we close a box, but
+					 # the root box never gets closed, so we have
+					 # to reverse the contents here, right before
+					 # prettyprinting them:
+					 contents :=   reverse *contents;
+
+					 prettyprint_box (stream, *box);
+
+					 # Clear out the prettyprint stuff, so
+					 # we don't wind up printing it again: 
+					 contents          :=  [];
+					 first_line_length :=  0;
+					 final_line_length :=  0;
+					 has_newlines      :=  FALSE;
+					 next_box_id       :=  1;
+				     };
+
+				 topbox ! rest
+				     =>
+				     {   prettyprint_end_box  stream;
+					 end_boxes ();
+				     };
+			    esac; 
+		    end;
+
+		    if   with_newline      write_newline  stream;   fi;
+
+		    dvc::flush device;
+		};
+
+
+	    # *** USER FUNCTIONS ***
+
+	    fun open_stream d
+		=
+		STREAM {
+		  device           =>  d,
+		  device_is_closed =>  REF FALSE,
+		  style_stack      =>  REF [],
+		  box_nesting      =>  REF 0,
+		  next_box_id      =>  REF 1,
+		  nested_boxes     =>  REF [],
+		  box              =>  REF { indent            =>   BOX_RELATIVE 0,
+					     width             =>   default_box_width,
+					     wrap_policy       =>   AS_NEEDED,
+					     id                =>       0,
+					     first_line_length =>   REF 0,
+					     final_line_length =>   REF 0,
+					     has_newlines      =>   REF FALSE,
+					     contents          =>   REF []
+					   }
+		};
+
+
+	    fun flush_stream stream
+		=
+		prettyprint_flush (stream, FALSE);
+
+
+	    fun close_stream (stream as STREAM { device_is_closed, ... } )
+		=
+		{   flush_stream stream;
+		    device_is_closed := TRUE;
+		};
+
+
+	    fun get_device (STREAM { device, ... } )
+		=
+		device;
+
+
+	    fun begin_horizontal_box     stream   = prettyprint_open_box (stream,  BOX_RELATIVE 4, NONE);
+	    fun begin_vertical_box     stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), ALL);
+	    fun begin_horizontal_else_vertical_box  stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), ALL_OR_NONE);
+	    fun begin_wrap_box  stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), AS_NEEDED);
+	    fun begin_wrap'_box stream   = prettyprint_open_box (stream, (BOX_RELATIVE 4), AS_NEEDED);
+
+	    fun begin_indented_vertical_box      stream indent  = prettyprint_open_box (stream, indent, ALL);
+	    fun begin_indented_horizontal_else_vertical_box   stream indent  = prettyprint_open_box (stream, indent, ALL_OR_NONE);
+	    fun begin_indented_wrap_box   stream indent  = prettyprint_open_box (stream, indent, AS_NEEDED);
+	    fun begin_indented_wrap'_box  stream indent  = prettyprint_open_box (stream, indent, AS_NEEDED);
+
+	    fun end_box   stream 
+		=
+		prettyprint_end_box   stream;
+
+	    fun horizontal_box     stream thunk =   { begin_horizontal_box     stream;   thunk();   end_box stream; };
+	    fun vertical_box     stream thunk =   { begin_vertical_box     stream;   thunk();   end_box stream; };
+	    fun horizontal_else_vertical_box  stream thunk =   { begin_horizontal_else_vertical_box  stream;   thunk();   end_box stream; };
+	    fun wrap_box  stream thunk =   { begin_wrap_box  stream;   thunk();   end_box stream; };
+	    fun wrap'_box stream thunk =   { begin_wrap'_box stream;   thunk();   end_box stream; };
+
+
+	    fun token (stream as STREAM { device, ... } ) token
+		=
+		{   token_style =  tkn::style token;
+
+		    if (dvc::same_style (current_style stream, token_style))
+			#
+			add_string (stream, tkn::string token, tkn::size token);
+		    else
+			add_token (stream, PUSH_STYLE token_style);
+			add_string (stream, tkn::string token, tkn::size token);
+			add_token (stream, POP_STYLE);
+		    fi;
+		};
+
+
+	    fun string stream s
+		=
+		add_string (stream, s, size s);
+
+
+	    fun push_style (stream as STREAM { style_stack, ... }, sty)
+		=
+		{   if (not (dvc::same_style (current_style stream, sty)))
+			#
+			add_token (stream, PUSH_STYLE sty);
+		    fi;
+
+		    style_stack :=   sty ! *style_stack;
+		};
+
+
+	    fun pop_style (stream as STREAM { style_stack, ... } )
+		=
+		case *style_stack
+		    #
+		    [] => {  /*raise exception FAIL*/ print "User error: pp: unmatched pop_style\n";
+			  };
+
+		    (sty ! rest)
+			=>
+			{   style_stack := rest;
+
+			    if (not (dvc::same_style (current_style stream, sty)))
+				#
+				 add_token (stream, POP_STYLE);
+			    fi;
+			};
+		esac;
+
+
+	    fun break               stream arg =  prettyprint_break (stream, arg);
+	    fun space               stream n   =  break stream { spaces => n, indent_on_wrap => 0 };
+	    fun cut                 stream     =  break stream { spaces => 0, indent_on_wrap => 0 };
+	    fun newline             stream     =  prettyprint_newline stream;
+	    fun nonbreakable_spaces stream n   =  add_token (stream, NONBREAKABLE_SPACES n );
+
+	    fun control stream control_g
+		=
+		add_token (stream, CONTROL control_g);
+	end;												# stipulate
+    };
+end;
 
 ## COPYRIGHT (c) 2005 John Reppy (http://www.cs.uchicago.edu/~jhr)
 ## All rights reserved.
