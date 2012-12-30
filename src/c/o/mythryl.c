@@ -100,8 +100,8 @@
 
 // #define SCRIPT_EXIT_BOILERPLATE "\n posixlib::kill (posixlib::K_PROC (posixlib::get_process_id' () ), posixlib::signal::term );;\n"
     //
-#define SCRIPT_EXIT_BOILERPLATE "\n  winix__premicrothresd::process::exit winix__premicrothresd::process::success;\n"
-    // #define SCRIPT_EXIT_BOILERPLATE "\n (winix__premicrothresd::process::exit winix__premicrothresd::process::success): Void;\n"
+#define SCRIPT_EXIT_BOILERPLATE "\n  winix__premicrothread::process::exit winix__premicrothread::process::success;\n"
+    // #define SCRIPT_EXIT_BOILERPLATE "\n (winix__premicrothread::process::exit winix__premicrothread::process::success): Void;\n"
     //
     // See Note[2] at bottom of file.
 
@@ -1108,7 +1108,7 @@ int   main   ( int argc, char** argv ) {
 //
 //     The thematic way to exit from a script should be to do 
 //
-//         winix__premicrothresd::process::exit  winix__premicrothresd::process::success;
+//         winix__premicrothread::process::exit  winix__premicrothread::process::success;
 //
 //     but unfortunately the interactive compiler currently barfs on
 //     this because 'exit' has a type with a free type variable.
@@ -1118,7 +1118,7 @@ int   main   ( int argc, char** argv ) {
 //
 // Cynbe, 2012-06-13:
 //
-//     Changed back after changing the type of  winix__premicrothresd::process::exit  from
+//     Changed back after changing the type of  winix__premicrothread::process::exit  from
 //
 //         Status -> X
 //     to
@@ -1128,7 +1128,7 @@ int   main   ( int argc, char** argv ) {
 //
 //     We still need the  Status -> X  version on occasion (in particular
 //     in 'case' statements, so the branch types all match) so I made it
-//     available as winix__premicrothresd::process::exit.
+//     available as winix__premicrothread::process::exit.
 
 
 

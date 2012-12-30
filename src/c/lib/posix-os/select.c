@@ -1,7 +1,7 @@
 // select.c
 
 
-// The run-time code for winix__premicrothresd::io::poll.
+// The run-time code for winix__premicrothread::io::poll.
 //
 // Note that this implementation must
 // satisfy the following two requirements:
