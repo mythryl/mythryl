@@ -177,14 +177,12 @@ static Val   do_select   (Task* task,  Val arg, struct timeval* timeout)   {
 
     {   int status;
 
-
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
-/**/        do { /**/						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-								// Restored   2012-06-11 CrT as an experiment.
+	    do {
 		status = poll (fds, nfds, tout);
 		//
-/**/        } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    } while (status < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
@@ -293,18 +291,15 @@ static Val   do_select   (Task* task,  Val arg, struct timeval* timeout)   {
 
 								// printf("src/c/lib/posix-os/select.c: maxFD d=%d\n",maxFD); fflush(stdout);
 
-/**/  do { /**/							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-											// Restored 2012-08-07 CrT
-
+    do {
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );
 	    //
 	    status = select (maxFD+1, rfds, wfds, efds, timeout);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
+	//
+    } while (status < 0 && errno == EINTR);			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
- /**/  } while (status < 0 && errno == EINTR);	/**/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
-
-// printf("src/c/lib/posix-os/select.c: result status d=%d.\n",status); fflush(stdout);
 
     if (status < 0)
         return RAISE_SYSERR__MAY_HEAPCLEAN(task, status, NULL);

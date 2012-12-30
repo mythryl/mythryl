@@ -36,29 +36,24 @@ Val   _lib7_P_IO_dup2   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int fd0 =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int fd1 =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
     int status;
 
-    do {						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-							// Restored   2012-09-03 CrT
-
+    do {
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = dup2( fd0, fd1 );
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-// if (errno == EINTR) puts("Error: EINTR in dup2.c\n");
-    } while (status < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (status < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

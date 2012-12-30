@@ -75,9 +75,9 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &name_buf );
     }
 
-    Val result =  _util_NetDB_mkhostent (task, resultt);							// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+    Val result =  _util_NetDB_mkhostent (task, resultt);						// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+													EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

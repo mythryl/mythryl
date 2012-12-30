@@ -74,16 +74,14 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     {	char* c_vec =   buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );	// buffer_mythryl_heap_nonvalue		is from   src/c/main/runtime-state.c
 
 
-  /**/  do { /**/									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-											// Restored 2012-08-07 CrT
-
-	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+	do {
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
+		//
+		n = read (fd, c_vec, nbytes);
+		//
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	    //
-	    n = read (fd, c_vec, nbytes);
-	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-  /**/  } while (n < 0 && errno == EINTR);	/**/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	} while (n < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	if (n <  0)    	{ unbuffer_mythryl_heap_value( &vec_buf );	return RAISE_SYSERR__MAY_HEAPCLEAN(task, n, NULL);		}
 	if (n == 0)	{ unbuffer_mythryl_heap_value( &vec_buf );	return ZERO_LENGTH_STRING__GLOBAL;				}
@@ -94,10 +92,6 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	vec = allocate_nonempty_wordslots_vector__may_heapclean( task, BYTES_TO_WORDS(n), NULL );
 
 	memcpy( PTR_CAST(char*, vec), c_vec, n );
-    
-//	if (n < nbytes) {							// Left-over hack from old code that created vector before doing the read.
-//	    shrink_fresh_wordslots_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.
-//	}
 
 	unbuffer_mythryl_heap_value( &vec_buf );
     }

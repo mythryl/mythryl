@@ -56,9 +56,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
     // This fn gets bound as   waitpid'   in:
     //
     //     src/lib/std/src/psx/posix-process.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+											ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     int status;
     int how;
     int val;
@@ -68,21 +66,21 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
     int pid     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int options = TUPLE_GETWORD(         arg, 1 );    
 
-  do { 						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-						// Restored 2012-08-01 CrT due to consistent failures here when switching on thread-scheduler-control-g.pkg by default.
+    do {
         RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    iresult = waitpid( pid, &status, options );
 	    //
         RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-  } while (iresult < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (iresult < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     Val result;
 
     if (iresult < 0) {
-        //
+	//
         result =  RAISE_SYSERR__MAY_HEAPCLEAN(task, iresult, NULL);
+	//
     } else {
 
 	if (WIFEXITED(status)) {
@@ -103,14 +101,18 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
 
 	} else {
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
 	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "unknown child status", NULL);
 	}
 
-	result =  make_three_slot_record(task,  TAGGED_INT_FROM_C_INT(iresult), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val) );
+	result =    make_three_slot_record(task,
+			TAGGED_INT_FROM_C_INT(iresult),
+			TAGGED_INT_FROM_C_INT(how),
+			TAGGED_INT_FROM_C_INT(val)
+		    );
     }
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+											EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

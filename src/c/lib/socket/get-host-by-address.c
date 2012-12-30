@@ -55,9 +55,9 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 
-    Val result =  _util_NetDB_mkhostent ( task, resultt );									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
+    Val result =  _util_NetDB_mkhostent ( task, resultt );								// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+															EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

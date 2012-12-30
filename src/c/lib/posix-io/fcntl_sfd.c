@@ -37,29 +37,24 @@ Val   _lib7_P_IO_fcntl_sfd   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    int  status;
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+    int	 fd0  = GET_TUPLE_SLOT_AS_INT( arg, 0 );
+    Vunt flag = TUPLE_GETWORD(         arg, 1 );
 
-    int             status;
-
-    int             fd0  = GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    Vunt   flag = TUPLE_GETWORD(         arg, 1 );
-
-
-    do {						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-							// Restored   2012-09-03 CrT
+    do {
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //
 	    status = fcntl(fd0, F_SETFD, flag);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-// if (errno == EINTR) puts("Error: EINTR in fcntl_sfd.c\n");
-    } while (status < 0 && errno == EINTR);		// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	//
+    } while (status < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     Val result = RETURN_VOID_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, status, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

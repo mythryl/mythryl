@@ -40,7 +40,7 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/psx/posix-io.pkg
     //     src/lib/std/src/psx/posix-io-64.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
+										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     int	  fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
 //  Val	  buf    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );	// We'll do this after the read().
@@ -55,16 +55,14 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
 	    = 									// (i.e., ram guaranteed not to move around during a heapcleaning).
 	    buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );
 
-    do {									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
-										// Restored   2010-10-19 CrT
-	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );	// 'arg' is still live here! 
+	do {
+	    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );		// 'arg' is still live here! 
+		//
+		n = read( fd, c_vec, nbytes );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
 	    //
-	    n = read( fd, c_vec, nbytes );
-	    //
-	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
-
-// if (errno == EINTR) puts("Error: EINTR in readbuf.c\n");
-    } while (n < 0 && errno == EINTR);						// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	} while (n < 0 && errno == EINTR);					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 	// The heapcleaner may have moved everything around
 	// during our read() call, so we wait until now to
@@ -83,7 +81,7 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
 
     Val result =  RETURN_STATUS_EXCEPT_RAISE_SYSERR_ON_NEGATIVE_STATUS__MAY_HEAPCLEAN(task, n, NULL);
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+										EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 

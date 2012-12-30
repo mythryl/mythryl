@@ -40,9 +40,7 @@ Val   _lib7_netdb_get_service_by_name   (Task* task,  Val arg)   {
     // This fn gets bound as   get_service_by_name'   in:
     //
     //     src/lib/std/src/socket/net-service-db.pkg
-
-									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-
+													ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
     Val	ml_service  =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     Val	ml_protocol =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );
 
@@ -79,7 +77,7 @@ Val   _lib7_netdb_get_service_by_name   (Task* task,  Val arg)   {
 
     Val result = _util_NetDB_mkservent( task, resultt );						// _util_NetDB_mkservent	def in   src/c/lib/socket/util-mkservent.c
 
-									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
+													EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
     return result;
 }
 
