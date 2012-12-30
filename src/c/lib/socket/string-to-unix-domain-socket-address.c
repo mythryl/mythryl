@@ -29,7 +29,7 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     //
     // This fn gets bound to   string_to_unix_domain_socket_address'   in:
     //
-    //     src/lib/std/src/socket/unix-domain-socket.pkg
+    //     src/lib/std/src/socket/unix-domain-socket--premicrothread.pkg
 
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 										ramlog_printf("#%d  %s/TOP, arg x=%08x\n",syscalls_seen,__func__, arg);
