@@ -155,7 +155,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
     //
     // This fn gets bound to   c_socket   in:
     //
-    //     src/lib/std/src/socket/plain-socket.pkg
+    //     src/lib/std/src/socket/plain-socket--premicrothread.pkg
 
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
