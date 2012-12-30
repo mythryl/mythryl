@@ -80,7 +80,7 @@ Val   _lib7_OS_select   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   poll'   in:
     //
-    //     src/lib/std/src/posix/winix-io.pkg
+    //     src/lib/std/src/posix/winix-io--premicrothread.pkg
 
 // Commented out 2012-10-28 because they were flooding the ramlog, hiding what I wanted to see:
 // XXX SUCKO RESTOREME							    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
