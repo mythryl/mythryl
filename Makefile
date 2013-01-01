@@ -248,7 +248,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-slave
+	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-server
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -323,8 +323,8 @@ bin/lexgen:
 bin/heap2asm:
 	(cd src/app/heap2asm; ./build-heap2asm-app)
 
-bin/mythryl-gtk-slave:
-	(cd src/c/o; make mythryl-gtk-slave)
+bin/mythryl-gtk-server:
+	(cd src/c/o; make mythryl-gtk-server)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
@@ -634,7 +634,7 @@ somewhat-clean:	ppless
 clean: somewhat-clean
 	@-rm -f bin/*.old
 	@-rm -f bin/nowhere
-	@-rm -f bin/gtk-slave
+	@-rm -f bin/gtk-server
 	@-rm -f ID
 	@-rm -f TAGS
 	@-rm -f v-intel32-linux
@@ -651,7 +651,7 @@ clean: somewhat-clean
 	@-rm -f bin/mythryl
 	@-rm -f bin/passthrough
 	@-rm -f bin/set-heapdump-shebang
-	@-rm -f bin/mythryl-gtk-slave
+	@-rm -f bin/mythryl-gtk-server
 	@-rm -f src/app/tut/factor/factor
 
 
