@@ -1,7 +1,7 @@
 // cfun-list.h
 //
 //
-// This file lists the directory library of C functions that are callable by lib7.
+// This file lists the directory library of C functions that are callable from Mythryl.
 
 // This table ultimately gets searched by
 //
