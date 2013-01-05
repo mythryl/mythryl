@@ -426,7 +426,7 @@ for (Hashtable_Entry*
 //
 
 Heapfile_Cfun_Table*   make_heapfile_cfun_table   ()   {
-    //        =================
+    //                 =================
     //
     // This function is called from:
     //     src/c/heapcleaner/datastructure-pickler-cleaner.c

@@ -216,10 +216,11 @@ if (!strcmp(cfuns[j].nickname, function_name)) {
 	return PTR_CAST( Val,  cfuns[j].cfunc );
     #endif
 }
+
 	    }
 
 
-	    return HEAP_VOID;			// Didn't find the library.
+	    return HEAP_VOID;			// Didn't find the function.
 	}
     }
 
