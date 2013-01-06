@@ -101,7 +101,7 @@ etags:
               try/* \
               try/*/* \
 	      src/lib/src/make-gtk-glue \
-	      src/lib/src/make-sdl-glue \
+	      src/lib/src/make-ogl-glue \
               src/lib/core/internal/version.template \
 	      src/c/Configure.in \
              src/lib/html/html-gram \
@@ -155,7 +155,7 @@ tart:    clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 
-cheg:	gtk-glue sdl-glue benchmarks check		# I use this just to exercise benchmarks, gtk-glue and sdl-glue regularly, as insurance against creeping bitrot. -- CrT
+cheg:	gtk-glue ogl-glue benchmarks check		# I use this just to exercise benchmarks, gtk-glue and ogl-glue regularly, as insurance against creeping bitrot. -- CrT
 
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
@@ -249,7 +249,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-server bin/mythryl-sdl-server
+	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-server bin/mythryl-ogl-server
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -306,8 +306,8 @@ summary:
 gtk-glue:
 	src/lib/src/make-gtk-glue
 
-sdl-glue:
-	src/lib/src/make-sdl-glue
+ogl-glue:
+	src/lib/src/make-ogl-glue
 
 # The various individual apps and libraries
 # which get built by 'make rest':
@@ -330,8 +330,8 @@ bin/heap2asm:
 bin/mythryl-gtk-server:					# Is this ever actually used?
 	(cd src/c/o; make mythryl-gtk-server)
 
-bin/mythryl-sdl-server:
-	(cd src/c/o; make mythryl-sdl-server)
+bin/mythryl-ogl-server:
+	(cd src/c/o; make mythryl-ogl-server)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
@@ -659,7 +659,7 @@ clean: somewhat-clean
 	@-rm -f bin/passthrough
 	@-rm -f bin/set-heapdump-shebang
 	@-rm -f bin/mythryl-gtk-server
-	@-rm -f bin/mythryl-sdl-server
+	@-rm -f bin/mythryl-ogl-server
 	@-rm -f src/app/tut/factor/factor
 
 

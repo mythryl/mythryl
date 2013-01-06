@@ -1,19 +1,19 @@
-// sdl-driver.c
+// ogl-driver.c
 //
 // This file handles the C side
 // of the Mythryl <-> C interface
 // layer for the Mythryl in-process
-// Sdl binding.  The Mythryl side
+// Ogl binding.  The Mythryl side
 // is implemented by
 //
-//     src/lib/src/sdl-driver.pkg
+//     src/lib/src/ogl-driver.pkg
 //
 
 // ########### NOTE! #############
 // When resuming work on this project,
 // should take a look at
 //
-//     src/lib/c-glue/sdl/sml-sdl-runtime.c
+//     src/lib/c-glue/ogl/sml-ogl-runtime.c
 //
 // to see what they did.
 
@@ -33,7 +33,7 @@
    #include <gtk/gtk.h>
 
 #else
-    #error "No SDL Library Installed"
+    #error "No OGL Library Installed"
 #endif
 
 #include "runtime-base.h"
@@ -51,7 +51,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/lib/sdl/sdl-driver.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
+    printf( "FATAL src/c/lib/ogl/ogl-driver.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
 }
 
@@ -62,7 +62,7 @@ static void   moan_and_die   (void)   {
 // code directly from the C level;
 // that would lead to messy problems.
 //
-// Consequently when Sdl issues a
+// Consequently when Ogl issues a
 // widget callback we queue up the
 // event and then read it in response
 // to calls from the Mythryl side.
@@ -77,7 +77,7 @@ static void   moan_and_die   (void)   {
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/lib/src/sdl-driver.pkg 
+//     src/lib/src/ogl-driver.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2
@@ -237,47 +237,7 @@ static int   get_widget_id   (GtkWidget* query_widget)   {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Val   _lib7_Sdl_sdl_init   (Task* task,  Val arg)   {	// : Void -> Void
+Val   _lib7_Ogl_ogl_init   (Task* task,  Val arg)   {	// : Void -> Void
     //==================
 
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
@@ -289,26 +249,26 @@ Val   _lib7_Sdl_sdl_init   (Task* task,  Val arg)   {	// : Void -> Void
 
 	if (!gtk_init_check( &argc, &commandline_args_without_argv0_or_runtime_args__global )) {
 	    //
-	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "sdl_init: failed to initialize GUI support", NULL);
+	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "ogl_init: failed to initialize GUI support", NULL);
 	}
 
-	// XXX BUGGO FIXME: sdl_init_check installs sdl default signal handlers,
+	// XXX BUGGO FIXME: ogl_init_check installs ogl default signal handlers,
 	//		    which most likely screws up Mythryl's own signal
 	//		    handling no end.  At some point should put some work
 	//		    into keeping both happy.
 	//
 	return HEAP_VOID;
     #else
-	extern char*  no_sdl_support_in_runtime;
+	extern char*  no_ogl_support_in_runtime;
 	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_sdl_support_in_runtime, NULL);
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ogl_support_in_runtime, NULL);
     #endif
 }
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> Bool
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> Bool
 //
-Val   _lib7_Sdl_callback_queue_is_empty   (Task* task,  Val arg)   {
+Val   _lib7_Ogl_callback_queue_is_empty   (Task* task,  Val arg)   {
     //=================================
     //
     return  callback_queue_is_empty()
@@ -316,10 +276,10 @@ Val   _lib7_Sdl_callback_queue_is_empty   (Task* task,  Val arg)   {
               : HEAP_FALSE;
 }
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> Int
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> Int
 //
-Val   _lib7_Sdl_number_of_queued_callbacks   (Task* task,  Val arg)   {
+Val   _lib7_Ogl_number_of_queued_callbacks   (Task* task,  Val arg)   {
     //====================================
     //
     int result =  number_of_queued_callbacks ();
@@ -327,20 +287,20 @@ Val   _lib7_Sdl_number_of_queued_callbacks   (Task* task,  Val arg)   {
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> Int
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> Int
 //
-Val   _lib7_Sdl_type_of_next_queued_callback   (Task* task,  Val arg)   {
+Val   _lib7_Ogl_type_of_next_queued_callback   (Task* task,  Val arg)   {
     //======================================
     int result =  type_of_next_queued_callback ();
     //
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> Int
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> Int
 //
-Val   _lib7_Sdl_get_queued_void_callback   (Task* task,  Val arg)   {
+Val   _lib7_Ogl_get_queued_void_callback   (Task* task,  Val arg)   {
     //==================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -355,10 +315,10 @@ Val   _lib7_Sdl_get_queued_void_callback   (Task* task,  Val arg)   {
 }
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int, Bool)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int, Bool)
 //
-Val   _lib7_Sdl_get_queued_bool_callback   (Task *task,  Val arg)   {
+Val   _lib7_Ogl_get_queued_bool_callback   (Task *task,  Val arg)   {
     //==================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -376,10 +336,10 @@ Val   _lib7_Sdl_get_queued_bool_callback   (Task *task,  Val arg)   {
 }
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int, Float)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int, Float)
 //
-Val   _lib7_Sdl_get_queued_float_callback   (Task* task, Val arg)  {
+Val   _lib7_Ogl_get_queued_float_callback   (Task* task, Val arg)  {
     //===================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -400,11 +360,11 @@ Val   _lib7_Sdl_get_queued_float_callback   (Task* task, Val arg)  {
 }
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
 //                                 callback widget button x      y      time modifiers
 //
-Val   _lib7_Sdl_get_queued_button_press_callback   (Task *task, Val arg)   {
+Val   _lib7_Ogl_get_queued_button_press_callback   (Task *task, Val arg)   {
     //==========================================
     Callback_Queue_Entry e = get_next_queued_callback ();
 
@@ -430,11 +390,11 @@ Val   _lib7_Sdl_get_queued_button_press_callback   (Task *task, Val arg)   {
 
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
 //                                 callback key    keycode time modifiers
 //
-Val   _lib7_Sdl_get_queued_key_press_callback   (Task *task,  Val arg)   {
+Val   _lib7_Ogl_get_queued_key_press_callback   (Task *task,  Val arg)   {
     //=======================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -456,11 +416,11 @@ Val   _lib7_Sdl_get_queued_key_press_callback   (Task *task,  Val arg)   {
 
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
 //                                 callback time  x      y      modifiers is_hint
 //
-Val   _lib7_Sdl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
+Val   _lib7_Ogl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
     //===========================================
     //
     Callback_Queue_Entry e =  get_next_queued_callback ();
@@ -487,11 +447,11 @@ Val   _lib7_Sdl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
 
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
 //                                 callback widget count area_x area_y area_wide area_high
 //
-Val   _lib7_Sdl_get_queued_expose_callback   (Task *task,  Val arg)   {
+Val   _lib7_Ogl_get_queued_expose_callback   (Task *task,  Val arg)   {
     //====================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -515,11 +475,11 @@ Val   _lib7_Sdl_get_queued_expose_callback   (Task *task,  Val arg)   {
 
 
 
-// sdl.api        type:   (None -- not exported to sdl.api level.)
-// sdl-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
+// ogl.api        type:   (None -- not exported to ogl.api level.)
+// ogl-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
 //                                 callback widget x    y    wide high
 //
-Val   _lib7_Sdl_get_queued_configure_callback   (Task *task, Val arg)   {
+Val   _lib7_Ogl_get_queued_configure_callback   (Task *task, Val arg)   {
     //=======================================
     //
     Callback_Queue_Entry e = get_next_queued_callback ();
@@ -542,7 +502,7 @@ Val   _lib7_Sdl_get_queued_configure_callback   (Task *task, Val arg)   {
 
 
 
-Val   _lib7_Sdl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget -> (Int, Int, Int, Int)
+Val   _lib7_Ogl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget -> (Int, Int, Int, Int)
     //===============================
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
@@ -570,7 +530,7 @@ Val   _lib7_Sdl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
 }
 
 
-Val   _lib7_Sdl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, Int)       # (dialog, vbox, action_area)
+Val   _lib7_Ogl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, Int)       # (dialog, vbox, action_area)
     //=====================
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
@@ -597,7 +557,7 @@ Val   _lib7_Sdl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, 
 
 
 
-Val   _lib7_Sdl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void       # Widget -> Void
+Val   _lib7_Ogl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void       # Widget -> Void
     //======================
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
@@ -618,7 +578,7 @@ Val   _lib7_Sdl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void    
 
 
 
-Val   _lib7_Sdl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool       # Bool -> Bool
+Val   _lib7_Ogl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool       # Bool -> Bool
     //============================
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
@@ -640,8 +600,8 @@ Val   _lib7_Sdl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 
 
 
-/* Do not edit this or following lines -- they are autogenerated by make-sdl-glue. */
-/* Do not edit this or preceding lines -- they are autogenerated by make-sdl-glue. */
+/* Do not edit this or following lines -- they are autogenerated by make-ogl-glue. */
+/* Do not edit this or preceding lines -- they are autogenerated by make-ogl-glue. */
 
 
 

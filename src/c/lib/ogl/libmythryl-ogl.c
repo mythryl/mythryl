@@ -1,4 +1,4 @@
-// libmythryl-sdl.c
+// libmythryl-ogl.c
 
 #include "../../mythryl-config.h"
 
@@ -12,24 +12,24 @@
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {
-#include "cfun-list.h"										// Actual function list is in src/c/lib/sdl/cfun-list.h
+#include "cfun-list.h"										// Actual function list is in src/c/lib/ogl/cfun-list.h
 	CFUNC_NULL_BIND
     };
 #undef CFUNC
 
 #if !(HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-char* no_sdl_support_in_runtime = "No SDL support in runtime";
+char* no_ogl_support_in_runtime = "No OGL support in runtime";
 #endif
 
 
-// The Sdl library:
+// The Ogl library:
 //
-// Our record                Libmythryl_Sdl
+// Our record                Libmythryl_Ogl
 // gets compiled into        src/c/lib/mythryl-callable-c-libraries-list.h
 // and thus ultimately       mythryl_callable_c_libraries__local []
 // in                        src/c/lib/mythryl-callable-c-libraries.c
 //
-Mythryl_Callable_C_Library	    Libmythryl_Sdl = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h
+Mythryl_Callable_C_Library	    Libmythryl_Ogl = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h
     //                              ================ 
     CLIB_NAME,
     CLIB_VERSION,
