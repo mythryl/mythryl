@@ -418,8 +418,10 @@ for (Hashtable_Entry*
 	return  p->addr;
     }
 }
+// TOTALLY BOGUS:
+return HEAP_TRUE;
 
-    return HEAP_VOID;
+//    return HEAP_VOID;
 }
 
 

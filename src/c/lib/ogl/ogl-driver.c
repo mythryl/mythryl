@@ -22,29 +22,20 @@
 #include <stdio.h>
 #include <string.h>
 
-#if (defined(HAVE_GTK_2_0_GTK_GTK_H) || defined(HAVE_GTK_GTK_H))
-    
-  // Don't do this: #include <gtk-2.0/gtk/gtk.h> because the command `pkg-config --cflags gtk+-2.0`
-  // returns the path of the gtk-2.0 directory.  the only reason it worked before is because of a 
-  // coincidence that the directory containing the gtk-2.0 was also in the list of include paths
-  // which happens on some systems like Linux.  On OpenBSD, it doesn't, so we have to just trust that
-  // pkg-config returns the correct path for including gtk/gtk.h.
-
-   #include <gtk/gtk.h>
-
-#else
-    #error "No OGL Library Installed"
-#endif
-
+#include <GL/freeglut.h> 
+ 
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
 #include "../raise-error.h"
 
-#define MAX_WIDGETS 1024
-static GtkWidget* widget[ MAX_WIDGETS ];	// XXX BUGGO FIXME Should expand in size as needed.
+#define GtkWidget void
 
+#define MAX_WIDGETS 1024
+#ifdef SOON
+static GtkWidget* widget[ MAX_WIDGETS ];	// XXX BUGGO FIXME Should expand in size as needed.
+#endif
 
 static char text_buf[ 1024 ];
 
@@ -198,6 +189,7 @@ static Callback_Queue_Entry   get_next_queued_callback   ()   {
 }
 
 
+#ifdef OLD
 static int   find_free_widget_slot   (void)   {
     //       =====================
     //
@@ -208,7 +200,9 @@ static int   find_free_widget_slot   (void)   {
     moan_and_die();
     return 0;						// Can't happen, but keeps gcc quiet.
 }
+#endif
 
+#ifdef OLD
 static int   find_widget_id   (GtkWidget* query_widget)   {
     //       ==============
     for (int i = 1;   i < MAX_WIDGETS;   ++i) {
@@ -217,8 +211,10 @@ static int   find_widget_id   (GtkWidget* query_widget)   {
     }
     return 0;
 }
+#endif
 
 
+#ifdef OLD
 static int   get_widget_id   (GtkWidget* query_widget)   {
     //       =============
     int slot =  find_widget_id( query_widget );
@@ -231,12 +227,12 @@ static int   get_widget_id   (GtkWidget* query_widget)   {
 
     return slot;
 }
+#endif
 
 
 
 
-
-
+#ifdef OLD
 Val   _lib7_Ogl_ogl_init   (Task* task,  Val arg)   {	// : Void -> Void
     //==================
 
@@ -264,6 +260,7 @@ Val   _lib7_Ogl_ogl_init   (Task* task,  Val arg)   {	// : Void -> Void
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_ogl_support_in_runtime, NULL);
     #endif
 }
+#endif
 
 // ogl.api        type:   (None -- not exported to ogl.api level.)
 // ogl-driver.api type:   Void -> Bool
@@ -501,7 +498,7 @@ Val   _lib7_Ogl_get_queued_configure_callback   (Task *task, Val arg)   {
 }
 
 
-
+#ifdef OLD
 Val   _lib7_Ogl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget -> (Int, Int, Int, Int)
     //===============================
     //
@@ -528,8 +525,9 @@ Val   _lib7_Ogl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
     #endif
 }
+#endif
 
-
+#ifdef OLD
 Val   _lib7_Ogl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, Int)       # (dialog, vbox, action_area)
     //=====================
     //
@@ -554,9 +552,10 @@ Val   _lib7_Ogl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, 
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
     #endif
 }
+#endif
 
 
-
+#ifdef OLD
 Val   _lib7_Ogl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void       # Widget -> Void
     //======================
     //
@@ -575,9 +574,10 @@ Val   _lib7_Ogl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void    
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
     #endif
 }
+#endif
 
 
-
+#ifdef OLD
 Val   _lib7_Ogl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool       # Bool -> Bool
     //============================
     //
@@ -594,7 +594,7 @@ Val   _lib7_Ogl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
     #endif
 }
-
+#endif
 
 
 
