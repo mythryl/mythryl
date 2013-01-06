@@ -218,10 +218,9 @@ if (!strcmp(cfuns[j].nickname, function_name)) {
 }
 
 	    }
-// TOTALLY BOGUS:
-return HEAP_TRUE;
 
-//	    return HEAP_VOID;			// Didn't find the function.
+
+	    return HEAP_VOID;			// Didn't find the function.
 	}
     }
 
