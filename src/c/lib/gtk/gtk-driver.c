@@ -6,7 +6,7 @@
 // Gtk binding.  The Mythryl side
 // is implemented by
 //
-//     src/lib/src/gtk-driver.pkg
+//     src/lib/src/gtk-client-driver-for-server-in-main-process.pkg
 //
 
 // ########### NOTE! #############
@@ -77,7 +77,7 @@ static void   moan_and_die   (void)   {
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/lib/src/gtk-driver.pkg 
+//     src/lib/src/gtk-client-driver-for-server-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2
@@ -635,8 +635,8 @@ static int   int_to_range_update_policy   (int i1)   {
 }
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> Bool
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> Bool
 //
 Val   _lib7_Gtk_callback_queue_is_empty   (Task* task,  Val arg)   {
     //=================================
@@ -646,8 +646,8 @@ Val   _lib7_Gtk_callback_queue_is_empty   (Task* task,  Val arg)   {
               : HEAP_FALSE;
 }
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> Int
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Gtk_number_of_queued_callbacks   (Task* task,  Val arg)   {
     //====================================
@@ -657,8 +657,8 @@ Val   _lib7_Gtk_number_of_queued_callbacks   (Task* task,  Val arg)   {
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> Int
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Gtk_type_of_next_queued_callback   (Task* task,  Val arg)   {
     //======================================
@@ -667,8 +667,8 @@ Val   _lib7_Gtk_type_of_next_queued_callback   (Task* task,  Val arg)   {
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> Int
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Gtk_get_queued_void_callback   (Task* task,  Val arg)   {
     //==================================
@@ -685,8 +685,8 @@ Val   _lib7_Gtk_get_queued_void_callback   (Task* task,  Val arg)   {
 }
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int, Bool)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int, Bool)
 //
 Val   _lib7_Gtk_get_queued_bool_callback   (Task *task,  Val arg)   {
     //==================================
@@ -706,8 +706,8 @@ Val   _lib7_Gtk_get_queued_bool_callback   (Task *task,  Val arg)   {
 }
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int, Float)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int, Float)
 //
 Val   _lib7_Gtk_get_queued_float_callback   (Task* task, Val arg)  {
     //===================================
@@ -730,8 +730,8 @@ Val   _lib7_Gtk_get_queued_float_callback   (Task* task, Val arg)  {
 }
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
 //                                 callback widget button x      y      time modifiers
 //
 Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
@@ -760,8 +760,8 @@ Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
 
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
 //                                 callback key    keycode time modifiers
 //
 Val   _lib7_Gtk_get_queued_key_press_callback   (Task *task,  Val arg)   {
@@ -786,8 +786,8 @@ Val   _lib7_Gtk_get_queued_key_press_callback   (Task *task,  Val arg)   {
 
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
 //                                 callback time  x      y      modifiers is_hint
 //
 Val   _lib7_Gtk_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
@@ -817,8 +817,8 @@ Val   _lib7_Gtk_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
 
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
 //                                 callback widget count area_x area_y area_wide area_high
 //
 Val   _lib7_Gtk_get_queued_expose_callback   (Task *task,  Val arg)   {
@@ -845,8 +845,8 @@ Val   _lib7_Gtk_get_queued_expose_callback   (Task *task,  Val arg)   {
 
 
 
-// gtk.api        type:   (None -- not exported to gtk.api level.)
-// gtk-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
+// gtk-client.api        type:   (None -- not exported to gtk-client.api level.)
+// gtk-client-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
 //                                 callback widget x    y    wide high
 //
 Val   _lib7_Gtk_get_queued_configure_callback   (Task *task, Val arg)   {
@@ -1003,8 +1003,8 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 /* Do not edit this or following lines -- they are autogenerated by make-gtk-glue. */
 /* _lib7_Gtk_make_window
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_window   (Task* task, Val arg)
 {
@@ -1026,8 +1026,8 @@ Val   _lib7_Gtk_make_window   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_label   (Task* task, Val arg)
 {
@@ -1050,8 +1050,8 @@ Val   _lib7_Gtk_make_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_status_bar_context_id
  *
- * gtk.api        type:   (Session, Widget, String) -> Int
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Int
+ * gtk-client.api        type:   (Session, Widget, String) -> Int
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Int
  */
 Val   _lib7_Gtk_make_status_bar_context_id   (Task* task, Val arg)
 {
@@ -1073,8 +1073,8 @@ Val   _lib7_Gtk_make_status_bar_context_id   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_menu
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_menu   (Task* task, Val arg)
 {
@@ -1096,8 +1096,8 @@ Val   _lib7_Gtk_make_menu   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_option_menu
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_option_menu   (Task* task, Val arg)
 {
@@ -1119,8 +1119,8 @@ Val   _lib7_Gtk_make_option_menu   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_menu_bar
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_menu_bar   (Task* task, Val arg)
 {
@@ -1142,8 +1142,8 @@ Val   _lib7_Gtk_make_menu_bar   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_combo_box
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_combo_box   (Task* task, Val arg)
 {
@@ -1165,8 +1165,8 @@ Val   _lib7_Gtk_make_combo_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_text_combo_box
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_text_combo_box   (Task* task, Val arg)
 {
@@ -1188,8 +1188,8 @@ Val   _lib7_Gtk_make_text_combo_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_frame
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_frame   (Task* task, Val arg)
 {
@@ -1212,8 +1212,8 @@ Val   _lib7_Gtk_make_frame   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_button
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_button   (Task* task, Val arg)
 {
@@ -1235,8 +1235,8 @@ Val   _lib7_Gtk_make_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_button_with_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_button_with_label   (Task* task, Val arg)
 {
@@ -1259,8 +1259,8 @@ Val   _lib7_Gtk_make_button_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_button_with_mnemonic
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_button_with_mnemonic   (Task* task, Val arg)
 {
@@ -1283,8 +1283,8 @@ Val   _lib7_Gtk_make_button_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_toggle_button
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_toggle_button   (Task* task, Val arg)
 {
@@ -1306,8 +1306,8 @@ Val   _lib7_Gtk_make_toggle_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_toggle_button_with_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_toggle_button_with_label   (Task* task, Val arg)
 {
@@ -1330,8 +1330,8 @@ Val   _lib7_Gtk_make_toggle_button_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_toggle_button_with_mnemonic
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_toggle_button_with_mnemonic   (Task* task, Val arg)
 {
@@ -1354,8 +1354,8 @@ Val   _lib7_Gtk_make_toggle_button_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_check_button
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_check_button   (Task* task, Val arg)
 {
@@ -1377,8 +1377,8 @@ Val   _lib7_Gtk_make_check_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_check_button_with_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_check_button_with_label   (Task* task, Val arg)
 {
@@ -1401,8 +1401,8 @@ Val   _lib7_Gtk_make_check_button_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_check_button_with_mnemonic
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_check_button_with_mnemonic   (Task* task, Val arg)
 {
@@ -1425,8 +1425,8 @@ Val   _lib7_Gtk_make_check_button_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_menu_item
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_menu_item   (Task* task, Val arg)
 {
@@ -1448,8 +1448,8 @@ Val   _lib7_Gtk_make_menu_item   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_menu_item_with_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_menu_item_with_label   (Task* task, Val arg)
 {
@@ -1472,8 +1472,8 @@ Val   _lib7_Gtk_make_menu_item_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_menu_item_with_mnemonic
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_menu_item_with_mnemonic   (Task* task, Val arg)
 {
@@ -1496,8 +1496,8 @@ Val   _lib7_Gtk_make_menu_item_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_first_radio_button
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_first_radio_button   (Task* task, Val arg)
 {
@@ -1519,8 +1519,8 @@ Val   _lib7_Gtk_make_first_radio_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_next_radio_button
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_next_radio_button   (Task* task, Val arg)
 {
@@ -1543,8 +1543,8 @@ Val   _lib7_Gtk_make_next_radio_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_first_radio_button_with_label
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_first_radio_button_with_label   (Task* task, Val arg)
 {
@@ -1567,8 +1567,8 @@ Val   _lib7_Gtk_make_first_radio_button_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_next_radio_button_with_label
  *
- * gtk.api        type:   (Session, Widget, String) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Widget, String) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_next_radio_button_with_label   (Task* task, Val arg)
 {
@@ -1592,8 +1592,8 @@ Val   _lib7_Gtk_make_next_radio_button_with_label   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_first_radio_button_with_mnemonic
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_first_radio_button_with_mnemonic   (Task* task, Val arg)
 {
@@ -1616,8 +1616,8 @@ Val   _lib7_Gtk_make_first_radio_button_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_next_radio_button_with_mnemonic
  *
- * gtk.api        type:   (Session, Widget, String) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Widget, String) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_next_radio_button_with_mnemonic   (Task* task, Val arg)
 {
@@ -1641,8 +1641,8 @@ Val   _lib7_Gtk_make_next_radio_button_with_mnemonic   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_arrow
  *
- * gtk.api        type:   (Session, Arrow_Direction, Shadow_Style) -> Widget
- * gtk-driver.api type:   (Session, Int, Int) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Arrow_Direction, Shadow_Style) -> Widget
+ * gtk-client-driver.api type:   (Session, Int, Int) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_arrow   (Task* task, Val arg)
 {
@@ -1666,8 +1666,8 @@ Val   _lib7_Gtk_make_arrow   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_arrow
  *
- * gtk.api        type:   (Session, Widget, Arrow_Direction, Shadow_Style) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Arrow_Direction, Shadow_Style) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_arrow   (Task* task, Val arg)
 {
@@ -1690,8 +1690,8 @@ Val   _lib7_Gtk_set_arrow   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_box
  *
- * gtk.api        type:   (Session, Bool, Int)   ->   Widget
- * gtk-driver.api type:   (Session, Bool, Int) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Bool, Int)   ->   Widget
+ * gtk-client-driver.api type:   (Session, Bool, Int) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_box   (Task* task, Val arg)
 {
@@ -1715,8 +1715,8 @@ Val   _lib7_Gtk_make_horizontal_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_box
  *
- * gtk.api        type:   (Session, Bool, Int)   ->   Widget
- * gtk-driver.api type:   (Session, Bool, Int) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Bool, Int)   ->   Widget
+ * gtk-client-driver.api type:   (Session, Bool, Int) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_box   (Task* task, Val arg)
 {
@@ -1740,8 +1740,8 @@ Val   _lib7_Gtk_make_vertical_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_button_box
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_button_box   (Task* task, Val arg)
 {
@@ -1763,8 +1763,8 @@ Val   _lib7_Gtk_make_horizontal_button_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_button_box
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_button_box   (Task* task, Val arg)
 {
@@ -1786,8 +1786,8 @@ Val   _lib7_Gtk_make_vertical_button_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_table
  *
- * gtk.api        type:    { session: Session,   rows: Int,   cols: Int,   homogeneous: Bool }   ->   Widget
- * gtk-driver.api type:   (Session, Int, Int, Bool) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session,   rows: Int,   cols: Int,   homogeneous: Bool }   ->   Widget
+ * gtk-client-driver.api type:   (Session, Int, Int, Bool) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_table   (Task* task, Val arg)
 {
@@ -1812,8 +1812,8 @@ Val   _lib7_Gtk_make_table   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_event_box
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_event_box   (Task* task, Val arg)
 {
@@ -1835,8 +1835,8 @@ Val   _lib7_Gtk_make_event_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_image_from_file
  *
- * gtk.api        type:   (Session, String) -> Widget
- * gtk-driver.api type:   (Session, String) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, String) -> Widget
+ * gtk-client-driver.api type:   (Session, String) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_image_from_file   (Task* task, Val arg)
 {
@@ -1859,8 +1859,8 @@ Val   _lib7_Gtk_make_image_from_file   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_separator
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_separator   (Task* task, Val arg)
 {
@@ -1882,8 +1882,8 @@ Val   _lib7_Gtk_make_horizontal_separator   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_separator
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_separator   (Task* task, Val arg)
 {
@@ -1905,8 +1905,8 @@ Val   _lib7_Gtk_make_vertical_separator   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_layout_container
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_layout_container   (Task* task, Val arg)
 {
@@ -1928,8 +1928,8 @@ Val   _lib7_Gtk_make_layout_container   (Task* task, Val arg)
 
 /* _lib7_Gtk_layout_put
  *
- * gtk.api        type:    { session: Session,  layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,  layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_layout_put   (Task* task, Val arg)
 {
@@ -1953,8 +1953,8 @@ Val   _lib7_Gtk_layout_put   (Task* task, Val arg)
 
 /* _lib7_Gtk_layout_move
  *
- * gtk.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_layout_move   (Task* task, Val arg)
 {
@@ -1978,8 +1978,8 @@ Val   _lib7_Gtk_layout_move   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_fixed_container
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_fixed_container   (Task* task, Val arg)
 {
@@ -2001,8 +2001,8 @@ Val   _lib7_Gtk_make_fixed_container   (Task* task, Val arg)
 
 /* _lib7_Gtk_fixed_put
  *
- * gtk.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_fixed_put   (Task* task, Val arg)
 {
@@ -2026,8 +2026,8 @@ Val   _lib7_Gtk_fixed_put   (Task* task, Val arg)
 
 /* _lib7_Gtk_fixed_move
  *
- * gtk.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session, layout: Widget,  kid: Widget,  x: Int,  y: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_fixed_move   (Task* task, Val arg)
 {
@@ -2051,8 +2051,8 @@ Val   _lib7_Gtk_fixed_move   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_adjustment
  *
- * gtk.api        type:    { session: Session,   value: Float,   lower: Float,   upper: Float,   step_increment: Float,   page_increment: Float,   page_size: Float }   ->   Widget
- * gtk-driver.api type:   (Session, Float, Float, Float, Float, Float, Float) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session,   value: Float,   lower: Float,   upper: Float,   step_increment: Float,   page_increment: Float,   page_size: Float }   ->   Widget
+ * gtk-client-driver.api type:   (Session, Float, Float, Float, Float, Float, Float) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_adjustment   (Task* task, Val arg)
 {
@@ -2080,8 +2080,8 @@ Val   _lib7_Gtk_make_adjustment   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_viewport
  *
- * gtk.api        type:    { session: Session, horizontal_adjustment: Null_Or(Widget), vertical_adjustment: Null_Or(Widget) } -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session, horizontal_adjustment: Null_Or(Widget), vertical_adjustment: Null_Or(Widget) } -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_viewport   (Task* task, Val arg)
 {
@@ -2105,8 +2105,8 @@ Val   _lib7_Gtk_make_viewport   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_scrolled_window
  *
- * gtk.api        type:    { session: Session, horizontal_adjustment: Null_Or(Widget), vertical_adjustment: Null_Or(Widget) } -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session, horizontal_adjustment: Null_Or(Widget), vertical_adjustment: Null_Or(Widget) } -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_scrolled_window   (Task* task, Val arg)
 {
@@ -2130,8 +2130,8 @@ Val   _lib7_Gtk_make_scrolled_window   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_ruler
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_ruler   (Task* task, Val arg)
 {
@@ -2153,8 +2153,8 @@ Val   _lib7_Gtk_make_horizontal_ruler   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_ruler
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_ruler   (Task* task, Val arg)
 {
@@ -2176,8 +2176,8 @@ Val   _lib7_Gtk_make_vertical_ruler   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_scrollbar
  *
- * gtk.api        type:   (Session, Null_Or(Widget)) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Null_Or(Widget)) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_scrollbar   (Task* task, Val arg)
 {
@@ -2200,8 +2200,8 @@ Val   _lib7_Gtk_make_vertical_scrollbar   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_scrollbar
  *
- * gtk.api        type:   (Session, Null_Or(Widget)) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Null_Or(Widget)) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_scrollbar   (Task* task, Val arg)
 {
@@ -2224,8 +2224,8 @@ Val   _lib7_Gtk_make_horizontal_scrollbar   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_scale
  *
- * gtk.api        type:   (Session, Null_Or(Widget)) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Null_Or(Widget)) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_scale   (Task* task, Val arg)
 {
@@ -2248,8 +2248,8 @@ Val   _lib7_Gtk_make_vertical_scale   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_scale
  *
- * gtk.api        type:   (Session, Null_Or(Widget)) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
+ * gtk-client.api        type:   (Session, Null_Or(Widget)) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_scale   (Task* task, Val arg)
 {
@@ -2272,8 +2272,8 @@ Val   _lib7_Gtk_make_horizontal_scale   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_vertical_scale_with_range
  *
- * gtk.api        type:    { session: Session, min: Float, max: Float, step: Float } -> Widget
- * gtk-driver.api type:   (Session, Float, Float, Float) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session, min: Float, max: Float, step: Float } -> Widget
+ * gtk-client-driver.api type:   (Session, Float, Float, Float) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_vertical_scale_with_range   (Task* task, Val arg)
 {
@@ -2298,8 +2298,8 @@ Val   _lib7_Gtk_make_vertical_scale_with_range   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_horizontal_scale_with_range
  *
- * gtk.api        type:    { session: Session, min: Float, max: Float, step: Float } -> Widget
- * gtk-driver.api type:   (Session, Float, Float, Float) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session, min: Float, max: Float, step: Float } -> Widget
+ * gtk-client-driver.api type:   (Session, Float, Float, Float) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_horizontal_scale_with_range   (Task* task, Val arg)
 {
@@ -2324,8 +2324,8 @@ Val   _lib7_Gtk_make_horizontal_scale_with_range   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_drawing_area
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_drawing_area   (Task* task, Val arg)
 {
@@ -2347,8 +2347,8 @@ Val   _lib7_Gtk_make_drawing_area   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_pixmap
  *
- * gtk.api        type:    { session: Session, window: Widget, wide: Int, high: Int } -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Int (*new Widget*)
+ * gtk-client.api        type:    { session: Session, window: Widget, wide: Int, high: Int } -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_pixmap   (Task* task, Val arg)
 {
@@ -2373,8 +2373,8 @@ Val   _lib7_Gtk_make_pixmap   (Task* task, Val arg)
 
 /* _lib7_Gtk_make_status_bar
  *
- * gtk.api        type:    Session -> Widget
- * gtk-driver.api type:   (Session) -> Int (*new Widget*)
+ * gtk-client.api        type:    Session -> Widget
+ * gtk-client-driver.api type:   (Session) -> Int (*new Widget*)
  */
 Val   _lib7_Gtk_make_status_bar   (Task* task, Val arg)
 {
@@ -2396,8 +2396,8 @@ Val   _lib7_Gtk_make_status_bar   (Task* task, Val arg)
 
 /* _lib7_Gtk_push_text_on_status_bar
  *
- * gtk.api        type:   (Session, Widget, Int, String) -> Int
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, String) -> Int
+ * gtk-client.api        type:   (Session, Widget, Int, String) -> Int
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, String) -> Int
  */
 Val   _lib7_Gtk_push_text_on_status_bar   (Task* task, Val arg)
 {
@@ -2420,8 +2420,8 @@ Val   _lib7_Gtk_push_text_on_status_bar   (Task* task, Val arg)
 
 /* _lib7_Gtk_pop_text_off_status_bar
  *
- * gtk.api        type:   (Session, Widget, Int) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Int) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_pop_text_off_status_bar   (Task* task, Val arg)
 {
@@ -2443,8 +2443,8 @@ Val   _lib7_Gtk_pop_text_off_status_bar   (Task* task, Val arg)
 
 /* _lib7_Gtk_remove_text_from_status_bar
  *
- * gtk.api        type:    { session: Session,   status_bar: Widget,   context: Int,   message: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   status_bar: Widget,   context: Int,   message: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_remove_text_from_status_bar   (Task* task, Val arg)
 {
@@ -2467,8 +2467,8 @@ Val   _lib7_Gtk_remove_text_from_status_bar   (Task* task, Val arg)
 
 /* _lib7_Gtk_pack_box
  *
- * gtk.api        type:    { session: Session,   box: Widget,   kid: Widget,   pack: Pack_From,   expand: Bool,   fill: Bool,   padding: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Bool, Bool, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   box: Widget,   kid: Widget,   pack: Pack_From,   expand: Bool,   fill: Bool,   padding: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Bool, Bool, Int) -> Void
  */
 Val   _lib7_Gtk_pack_box   (Task* task, Val arg)
 {
@@ -2494,8 +2494,8 @@ Val   _lib7_Gtk_pack_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_menu_shell_append
  *
- * gtk.api        type:    { session: Session,   menu: Widget,   kid: Widget } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
+ * gtk-client.api        type:    { session: Session,   menu: Widget,   kid: Widget } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_menu_shell_append   (Task* task, Val arg)
 {
@@ -2517,8 +2517,8 @@ Val   _lib7_Gtk_menu_shell_append   (Task* task, Val arg)
 
 /* _lib7_Gtk_menu_bar_append
  *
- * gtk.api        type:    { session: Session,   menu: Widget,   kid: Widget } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
+ * gtk-client.api        type:    { session: Session,   menu: Widget,   kid: Widget } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_menu_bar_append   (Task* task, Val arg)
 {
@@ -2540,8 +2540,8 @@ Val   _lib7_Gtk_menu_bar_append   (Task* task, Val arg)
 
 /* _lib7_Gtk_append_text_to_combo_box
  *
- * gtk.api        type:   (Session, Widget, String) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_append_text_to_combo_box   (Task* task, Val arg)
 {
@@ -2563,8 +2563,8 @@ Val   _lib7_Gtk_append_text_to_combo_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_option_menu_menu
  *
- * gtk.api        type:    { session: Session,   option_menu: Widget,   menu: Widget } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
+ * gtk-client.api        type:    { session: Session,   option_menu: Widget,   menu: Widget } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_set_option_menu_menu   (Task* task, Val arg)
 {
@@ -2586,8 +2586,8 @@ Val   _lib7_Gtk_set_option_menu_menu   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_text_tooltip_on_widget
  *
- * gtk.api        type:   (Session, Widget, String) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_set_text_tooltip_on_widget   (Task* task, Val arg)
 {
@@ -2609,8 +2609,8 @@ Val   _lib7_Gtk_set_text_tooltip_on_widget   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_ruler_metric
  *
- * gtk.api        type:   (Session, Widget, Metric) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Metric) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_ruler_metric   (Task* task, Val arg)
 {
@@ -2632,8 +2632,8 @@ Val   _lib7_Gtk_set_ruler_metric   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_ruler_range
  *
- * gtk.api        type:    { session: Session,   ruler: Widget,   lower: Float,   upper: Float,   position: Float,   max_size: Float } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Float, Float, Float, Float) -> Void
+ * gtk-client.api        type:    { session: Session,   ruler: Widget,   lower: Float,   upper: Float,   position: Float,   max_size: Float } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Float, Float, Float, Float) -> Void
  */
 Val   _lib7_Gtk_set_ruler_range   (Task* task, Val arg)
 {
@@ -2658,8 +2658,8 @@ Val   _lib7_Gtk_set_ruler_range   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_scrollbar_policy
  *
- * gtk.api        type:    { session: Session,   window: Widget,   horizontal_scrollbar: Scrollbar_Policy,   vertical_scrollbar: Scrollbar_Policy } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   window: Widget,   horizontal_scrollbar: Scrollbar_Policy,   vertical_scrollbar: Scrollbar_Policy } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_scrollbar_policy   (Task* task, Val arg)
 {
@@ -2682,8 +2682,8 @@ Val   _lib7_Gtk_set_scrollbar_policy   (Task* task, Val arg)
 
 /* _lib7_Gtk_draw_rectangle
  *
- * gtk.api        type:    { session: Session,   drawable: Widget,   gcontext: Widget,   filled:	Bool,   x: Int,   y: Int,   wide: Int,   high: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Bool, Int, Int, Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   drawable: Widget,   gcontext: Widget,   filled:	Bool,   x: Int,   y: Int,   wide: Int,   high: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Bool, Int, Int, Int, Int) -> Void
  */
 Val   _lib7_Gtk_draw_rectangle   (Task* task, Val arg)
 {
@@ -2710,8 +2710,8 @@ Val   _lib7_Gtk_draw_rectangle   (Task* task, Val arg)
 
 /* _lib7_Gtk_draw_drawable
  *
- * gtk.api        type:    { session: Session,   drawable: Widget,   gcontext: Widget,   from: Widget,   from_x:	Int,   from_y: Int,   to_x: Int,   to_y: Int,   wide: Int,   high: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int(*Widget*), Int, Int, Int, Int, Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   drawable: Widget,   gcontext: Widget,   from: Widget,   from_x:	Int,   from_y: Int,   to_x: Int,   to_y: Int,   wide: Int,   high: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int(*Widget*), Int, Int, Int, Int, Int, Int) -> Void
  */
 Val   _lib7_Gtk_draw_drawable   (Task* task, Val arg)
 {
@@ -2740,8 +2740,8 @@ Val   _lib7_Gtk_draw_drawable   (Task* task, Val arg)
 
 /* _lib7_Gtk_queue_redraw
  *
- * gtk.api        type:    { session: Session,   widget:	Widget,   x: Int,   y: Int,   wide: Int,   high: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int, Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   widget:	Widget,   x: Int,   y: Int,   wide: Int,   high: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int, Int, Int) -> Void
  */
 Val   _lib7_Gtk_queue_redraw   (Task* task, Val arg)
 {
@@ -2766,8 +2766,8 @@ Val   _lib7_Gtk_queue_redraw   (Task* task, Val arg)
 
 /* _lib7_Gtk_press_button
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_press_button   (Task* task, Val arg)
 {
@@ -2788,8 +2788,8 @@ Val   _lib7_Gtk_press_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_release_button
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_release_button   (Task* task, Val arg)
 {
@@ -2810,8 +2810,8 @@ Val   _lib7_Gtk_release_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_click_button
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_click_button   (Task* task, Val arg)
 {
@@ -2832,8 +2832,8 @@ Val   _lib7_Gtk_click_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_enter_button
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_enter_button   (Task* task, Val arg)
 {
@@ -2854,8 +2854,8 @@ Val   _lib7_Gtk_enter_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_leave_button
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_leave_button   (Task* task, Val arg)
 {
@@ -2876,8 +2876,8 @@ Val   _lib7_Gtk_leave_button   (Task* task, Val arg)
 
 /* _lib7_Gtk_show_widget
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_show_widget   (Task* task, Val arg)
 {
@@ -2898,8 +2898,8 @@ Val   _lib7_Gtk_show_widget   (Task* task, Val arg)
 
 /* _lib7_Gtk_show_widget_tree
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_show_widget_tree   (Task* task, Val arg)
 {
@@ -2920,8 +2920,8 @@ Val   _lib7_Gtk_show_widget_tree   (Task* task, Val arg)
 
 /* _lib7_Gtk_destroy_widget
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_destroy_widget   (Task* task, Val arg)
 {
@@ -2942,8 +2942,8 @@ Val   _lib7_Gtk_destroy_widget   (Task* task, Val arg)
 
 /* _lib7_Gtk_emit_changed_signal
  *
- * gtk.api        type:   (Session, Widget)   -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget)   -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_emit_changed_signal   (Task* task, Val arg)
 {
@@ -2964,8 +2964,8 @@ Val   _lib7_Gtk_emit_changed_signal   (Task* task, Val arg)
 
 /* _lib7_Gtk_pop_up_combo_box
  *
- * gtk.api        type:   (Session, Widget)   -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget)   -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_pop_up_combo_box   (Task* task, Val arg)
 {
@@ -2986,8 +2986,8 @@ Val   _lib7_Gtk_pop_up_combo_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_pop_down_combo_box
  *
- * gtk.api        type:   (Session, Widget) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Void
+ * gtk-client.api        type:   (Session, Widget) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_pop_down_combo_box   (Task* task, Val arg)
 {
@@ -3008,8 +3008,8 @@ Val   _lib7_Gtk_pop_down_combo_box   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_combo_box_title
  *
- * gtk.api        type:   (Session, Widget, String)   -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String)   -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_set_combo_box_title   (Task* task, Val arg)
 {
@@ -3031,8 +3031,8 @@ Val   _lib7_Gtk_set_combo_box_title   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_window_title
  *
- * gtk.api        type:   (Session, Widget, String) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_set_window_title   (Task* task, Val arg)
 {
@@ -3054,8 +3054,8 @@ Val   _lib7_Gtk_set_window_title   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_window_default_size
  *
- * gtk.api        type:   (Session, Widget, (Int,Int)) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, (Int,Int)) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_window_default_size   (Task* task, Val arg)
 {
@@ -3078,8 +3078,8 @@ Val   _lib7_Gtk_set_window_default_size   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_minimum_widget_size
  *
- * gtk.api        type:   (Session, Widget, (Int,Int)) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, (Int,Int)) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_minimum_widget_size   (Task* task, Val arg)
 {
@@ -3102,8 +3102,8 @@ Val   _lib7_Gtk_set_minimum_widget_size   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_border_width
  *
- * gtk.api        type:   (Session, Widget, Int) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Int) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_border_width   (Task* task, Val arg)
 {
@@ -3125,8 +3125,8 @@ Val   _lib7_Gtk_set_border_width   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_event_box_visibility
  *
- * gtk.api        type:   (Session, Widget, Bool) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
+ * gtk-client.api        type:   (Session, Widget, Bool) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
  */
 Val   _lib7_Gtk_set_event_box_visibility   (Task* task, Val arg)
 {
@@ -3148,8 +3148,8 @@ Val   _lib7_Gtk_set_event_box_visibility   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_widget_alignment
  *
- * gtk.api        type:    { session: Session, widget: Widget, x: Float, y: Float } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Float, Float) -> Void
+ * gtk-client.api        type:    { session: Session, widget: Widget, x: Float, y: Float } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Float, Float) -> Void
  */
 Val   _lib7_Gtk_set_widget_alignment   (Task* task, Val arg)
 {
@@ -3172,8 +3172,8 @@ Val   _lib7_Gtk_set_widget_alignment   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_widget_events
  *
- * gtk.api        type:   (Session, Widget, List( Event_Mask )) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, List( Event_Mask )) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_widget_events   (Task* task, Val arg)
 {
@@ -3195,8 +3195,8 @@ Val   _lib7_Gtk_set_widget_events   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_widget_name
  *
- * gtk.api        type:   (Session, Widget, String) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_set_widget_name   (Task* task, Val arg)
 {
@@ -3218,8 +3218,8 @@ Val   _lib7_Gtk_set_widget_name   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_label_justification
  *
- * gtk.api        type:   (Session, Widget, Justification) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Justification) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_label_justification   (Task* task, Val arg)
 {
@@ -3241,8 +3241,8 @@ Val   _lib7_Gtk_set_label_justification   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_label_line_wrapping
  *
- * gtk.api        type:   (Session, Widget, Bool) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
+ * gtk-client.api        type:   (Session, Widget, Bool) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
  */
 Val   _lib7_Gtk_set_label_line_wrapping   (Task* task, Val arg)
 {
@@ -3264,8 +3264,8 @@ Val   _lib7_Gtk_set_label_line_wrapping   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_label_underlines
  *
- * gtk.api        type:   (Session, Widget, String) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), String) -> Void
+ * gtk-client.api        type:   (Session, Widget, String) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), String) -> Void
  */
 Val   _lib7_Gtk_set_label_underlines   (Task* task, Val arg)
 {
@@ -3287,8 +3287,8 @@ Val   _lib7_Gtk_set_label_underlines   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_scale_value_position
  *
- * gtk.api        type:   (Session, Widget, Position_Type) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Position_Type) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_scale_value_position   (Task* task, Val arg)
 {
@@ -3310,8 +3310,8 @@ Val   _lib7_Gtk_set_scale_value_position   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_draw_scale_value
  *
- * gtk.api        type:   (Session, Widget, Bool) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
+ * gtk-client.api        type:   (Session, Widget, Bool) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
  */
 Val   _lib7_Gtk_set_draw_scale_value   (Task* task, Val arg)
 {
@@ -3333,8 +3333,8 @@ Val   _lib7_Gtk_set_draw_scale_value   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_scale_value_digits_shown
  *
- * gtk.api        type:   (Session, Widget) -> Int
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int
+ * gtk-client.api        type:   (Session, Widget) -> Int
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int
  */
 Val   _lib7_Gtk_get_scale_value_digits_shown   (Task* task, Val arg)
 {
@@ -3355,8 +3355,8 @@ Val   _lib7_Gtk_get_scale_value_digits_shown   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_scale_value_digits_shown
  *
- * gtk.api        type:   (Session, Widget, Int)  -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Int)  -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_scale_value_digits_shown   (Task* task, Val arg)
 {
@@ -3378,8 +3378,8 @@ Val   _lib7_Gtk_set_scale_value_digits_shown   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_range_update_policy
  *
- * gtk.api        type:   (Session, Widget, Update_Policy) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Update_Policy) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_range_update_policy   (Task* task, Val arg)
 {
@@ -3401,8 +3401,8 @@ Val   _lib7_Gtk_set_range_update_policy   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_toggle_button_state
  *
- * gtk.api        type:   (Session, Widget) -> Bool
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Bool
+ * gtk-client.api        type:   (Session, Widget) -> Bool
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Bool
  */
 Val   _lib7_Gtk_get_toggle_button_state   (Task* task, Val arg)
 {
@@ -3423,8 +3423,8 @@ Val   _lib7_Gtk_get_toggle_button_state   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_toggle_button_state
  *
- * gtk.api        type:   (Session, Widget, Bool) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
+ * gtk-client.api        type:   (Session, Widget, Bool) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Bool) -> Void
  */
 Val   _lib7_Gtk_set_toggle_button_state   (Task* task, Val arg)
 {
@@ -3446,8 +3446,8 @@ Val   _lib7_Gtk_set_toggle_button_state   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_adjustment_value
  *
- * gtk.api        type:   (Session, Widget) -> Float
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Float
+ * gtk-client.api        type:   (Session, Widget) -> Float
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Float
  */
 Val   _lib7_Gtk_get_adjustment_value   (Task* task, Val arg)
 {
@@ -3468,8 +3468,8 @@ Val   _lib7_Gtk_get_adjustment_value   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_adjustment_value
  *
- * gtk.api        type:   (Session, Widget, Float) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Float) -> Void
+ * gtk-client.api        type:   (Session, Widget, Float) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Float) -> Void
  */
 Val   _lib7_Gtk_set_adjustment_value   (Task* task, Val arg)
 {
@@ -3491,8 +3491,8 @@ Val   _lib7_Gtk_set_adjustment_value   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_white_graphics_context
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_white_graphics_context   (Task* task, Val arg)
 {
@@ -3515,8 +3515,8 @@ Val   _lib7_Gtk_get_white_graphics_context   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_black_graphics_context
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_black_graphics_context   (Task* task, Val arg)
 {
@@ -3539,8 +3539,8 @@ Val   _lib7_Gtk_get_black_graphics_context   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_current_foreground_graphics_context
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_current_foreground_graphics_context   (Task* task, Val arg)
 {
@@ -3563,8 +3563,8 @@ Val   _lib7_Gtk_get_current_foreground_graphics_context   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_current_background_graphics_context
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_current_background_graphics_context   (Task* task, Val arg)
 {
@@ -3587,8 +3587,8 @@ Val   _lib7_Gtk_get_current_background_graphics_context   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_widget_window
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_widget_window   (Task* task, Val arg)
 {
@@ -3611,8 +3611,8 @@ Val   _lib7_Gtk_get_widget_window   (Task* task, Val arg)
 
 /* _lib7_Gtk_add_kid
  *
- * gtk.api        type:    { session: Session,   mom: Widget,   kid: Widget } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
+ * gtk-client.api        type:    { session: Session,   mom: Widget,   kid: Widget } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_add_kid   (Task* task, Val arg)
 {
@@ -3634,8 +3634,8 @@ Val   _lib7_Gtk_add_kid   (Task* task, Val arg)
 
 /* _lib7_Gtk_add_scrolled_window_kid
  *
- * gtk.api        type:    { session: Session,   window: Widget,   kid: Widget } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
+ * gtk-client.api        type:    { session: Session,   window: Widget,   kid: Widget } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*)) -> Void
  */
 Val   _lib7_Gtk_add_scrolled_window_kid   (Task* task, Val arg)
 {
@@ -3657,8 +3657,8 @@ Val   _lib7_Gtk_add_scrolled_window_kid   (Task* task, Val arg)
 
 /* _lib7_Gtk_add_table_kid
  *
- * gtk.api        type:    { session: Session,   table: Widget,   kid: Widget,   left: Int,   right: Int,   top: Int,   bottom: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int, Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   table: Widget,   kid: Widget,   left: Int,   right: Int,   top: Int,   bottom: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int, Int, Int) -> Void
  */
 Val   _lib7_Gtk_add_table_kid   (Task* task, Val arg)
 {
@@ -3684,8 +3684,8 @@ Val   _lib7_Gtk_add_table_kid   (Task* task, Val arg)
 
 /* _lib7_Gtk_add_table_kid2
  *
- * gtk.api        type:    { session: Session,   table: Widget,   kid: Widget,   left: Int,   right: Int,   top: Int,   bottom: Int,   xoptions: List( Table_Attach_Option ),   yoptions: List( Table_Attach_Option ),   xpadding: Int,   ypadding: Int }   ->   Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int, Int, Int, Int, Int, Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session,   table: Widget,   kid: Widget,   left: Int,   right: Int,   top: Int,   bottom: Int,   xoptions: List( Table_Attach_Option ),   yoptions: List( Table_Attach_Option ),   xpadding: Int,   ypadding: Int }   ->   Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int(*Widget*), Int, Int, Int, Int, Int, Int, Int, Int) -> Void
  */
 Val   _lib7_Gtk_add_table_kid2   (Task* task, Val arg)
 {
@@ -3715,8 +3715,8 @@ Val   _lib7_Gtk_add_table_kid2   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_viewport_vertical_adjustment
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_viewport_vertical_adjustment   (Task* task, Val arg)
 {
@@ -3739,8 +3739,8 @@ Val   _lib7_Gtk_get_viewport_vertical_adjustment   (Task* task, Val arg)
 
 /* _lib7_Gtk_get_viewport_horizontal_adjustment
  *
- * gtk.api        type:   (Session, Widget) -> Widget
- * gtk-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
+ * gtk-client.api        type:   (Session, Widget) -> Widget
+ * gtk-client-driver.api type:   (Session, Int(*Widget*)) -> Int (*Widget*)
  */
 Val   _lib7_Gtk_get_viewport_horizontal_adjustment   (Task* task, Val arg)
 {
@@ -3763,8 +3763,8 @@ Val   _lib7_Gtk_get_viewport_horizontal_adjustment   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_table_row_spacing
  *
- * gtk.api        type:    { session: Session, table: Widget, row: Int, spacing: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session, table: Widget, row: Int, spacing: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_table_row_spacing   (Task* task, Val arg)
 {
@@ -3787,8 +3787,8 @@ Val   _lib7_Gtk_set_table_row_spacing   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_table_col_spacing
  *
- * gtk.api        type:    { session: Session, table: Widget, col: Int, spacing: Int } -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
+ * gtk-client.api        type:    { session: Session, table: Widget, col: Int, spacing: Int } -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int, Int) -> Void
  */
 Val   _lib7_Gtk_set_table_col_spacing   (Task* task, Val arg)
 {
@@ -3811,8 +3811,8 @@ Val   _lib7_Gtk_set_table_col_spacing   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_table_row_spacings
  *
- * gtk.api        type:   (Session, Widget, Int) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Int) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_table_row_spacings   (Task* task, Val arg)
 {
@@ -3834,8 +3834,8 @@ Val   _lib7_Gtk_set_table_row_spacings   (Task* task, Val arg)
 
 /* _lib7_Gtk_set_table_col_spacings
  *
- * gtk.api        type:   (Session, Widget, Int) -> Void
- * gtk-driver.api type:   (Session, Int(*Widget*), Int) -> Void
+ * gtk-client.api        type:   (Session, Widget, Int) -> Void
+ * gtk-client-driver.api type:   (Session, Int(*Widget*), Int) -> Void
  */
 Val   _lib7_Gtk_set_table_col_spacings   (Task* task, Val arg)
 {

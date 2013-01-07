@@ -6,7 +6,7 @@
 // Ogl binding.  The Mythryl side
 // is implemented by
 //
-//     src/lib/src/ogl-driver.pkg
+//     src/lib/src/ogl-client-driver-for-server-in-main-process.pkg
 //
 
 // ########### NOTE! #############
@@ -68,7 +68,7 @@ static void   moan_and_die   (void)   {
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/lib/src/ogl-driver.pkg 
+//     src/lib/src/ogl-client-driver-for-server-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2
@@ -262,8 +262,8 @@ Val   _lib7_Ogl_ogl_init   (Task* task,  Val arg)   {	// : Void -> Void
 }
 #endif
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> Bool
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> Bool
 //
 Val   _lib7_Ogl_callback_queue_is_empty   (Task* task,  Val arg)   {
     //=================================
@@ -273,8 +273,8 @@ Val   _lib7_Ogl_callback_queue_is_empty   (Task* task,  Val arg)   {
               : HEAP_FALSE;
 }
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> Int
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Ogl_number_of_queued_callbacks   (Task* task,  Val arg)   {
     //====================================
@@ -284,8 +284,8 @@ Val   _lib7_Ogl_number_of_queued_callbacks   (Task* task,  Val arg)   {
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> Int
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Ogl_type_of_next_queued_callback   (Task* task,  Val arg)   {
     //======================================
@@ -294,8 +294,8 @@ Val   _lib7_Ogl_type_of_next_queued_callback   (Task* task,  Val arg)   {
     return TAGGED_INT_FROM_C_INT( result );
 }
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> Int
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> Int
 //
 Val   _lib7_Ogl_get_queued_void_callback   (Task* task,  Val arg)   {
     //==================================
@@ -312,8 +312,8 @@ Val   _lib7_Ogl_get_queued_void_callback   (Task* task,  Val arg)   {
 }
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int, Bool)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int, Bool)
 //
 Val   _lib7_Ogl_get_queued_bool_callback   (Task *task,  Val arg)   {
     //==================================
@@ -333,8 +333,8 @@ Val   _lib7_Ogl_get_queued_bool_callback   (Task *task,  Val arg)   {
 }
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int, Float)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int, Float)
 //
 Val   _lib7_Ogl_get_queued_float_callback   (Task* task, Val arg)  {
     //===================================
@@ -357,8 +357,8 @@ Val   _lib7_Ogl_get_queued_float_callback   (Task* task, Val arg)  {
 }
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
 //                                 callback widget button x      y      time modifiers
 //
 Val   _lib7_Ogl_get_queued_button_press_callback   (Task *task, Val arg)   {
@@ -387,8 +387,8 @@ Val   _lib7_Ogl_get_queued_button_press_callback   (Task *task, Val arg)   {
 
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
 //                                 callback key    keycode time modifiers
 //
 Val   _lib7_Ogl_get_queued_key_press_callback   (Task *task,  Val arg)   {
@@ -413,8 +413,8 @@ Val   _lib7_Ogl_get_queued_key_press_callback   (Task *task,  Val arg)   {
 
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
 //                                 callback time  x      y      modifiers is_hint
 //
 Val   _lib7_Ogl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
@@ -444,8 +444,8 @@ Val   _lib7_Ogl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
 
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
 //                                 callback widget count area_x area_y area_wide area_high
 //
 Val   _lib7_Ogl_get_queued_expose_callback   (Task *task,  Val arg)   {
@@ -472,8 +472,8 @@ Val   _lib7_Ogl_get_queued_expose_callback   (Task *task,  Val arg)   {
 
 
 
-// ogl.api        type:   (None -- not exported to ogl.api level.)
-// ogl-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
+// ogl-client.api        type:   (None -- not exported to ogl-client.api level.)
+// ogl-client-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
 //                                 callback widget x    y    wide high
 //
 Val   _lib7_Ogl_get_queued_configure_callback   (Task *task, Val arg)   {

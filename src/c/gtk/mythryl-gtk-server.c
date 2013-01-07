@@ -121,8 +121,8 @@
 //
 // The glue library for accessing us from Mythryl is implemented in:
 //
-//     src/lib/src/gtk.api
-//     src/lib/src/gtk.pkg
+//     src/lib/src/gtk-client.api
+//     src/lib/src/gtk-client-for-server-in-main-process.pkg
 
 
 
