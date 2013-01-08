@@ -628,8 +628,9 @@ do_init( int argc, unsigned char** argv )
     check_argc( "do_init", 0, argc );
 
     if (!gtk_init_check( &main_argc, &main_argv )) {
-
-      sprintf( text_buf, "do_init: failed to initialize GUI support.");  moan_and_die();
+	//
+	sprintf( text_buf, "do_init: failed to initialize GUI support.");
+	moan_and_die();
     } else {
 puts("NB: gtk_init_check returned true\n"); fflush(stdout);
     }

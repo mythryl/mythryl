@@ -406,7 +406,6 @@ get_trie( Trie_Node*trie, unsigned char* name )
     return get_trie( trie->child[ name[0] ], name+1 );
 }
 
-#ifdef SOON
 static void
 set_trie_u( Trie_Node*trie, unsigned char* name, Trie_Fn trie_fn )
 {
@@ -421,11 +420,9 @@ set_trie_u( Trie_Node*trie, unsigned char* name, Trie_Fn trie_fn )
 
     set_trie_u( trie->child[ name[0] ], name+1, trie_fn );
 }
-#endif
 
 static int duplicate_trie_entries = 0;
 
-#ifdef SOON
 static void
 set_trie( Trie_Node*trie, char* name, Trie_Fn trie_fn )
 {
@@ -441,7 +438,6 @@ set_trie( Trie_Node*trie, char* name, Trie_Fn trie_fn )
 
     set_trie_u( trie, (unsigned char*) name, trie_fn);
 }
-#endif
 
 #ifdef SOON
 static void
@@ -468,20 +464,17 @@ do_quit_eventloop( int argc, unsigned char** argv )
 }
 #endif
 
-#ifdef OLD
 static void
 do_init( int argc, unsigned char** argv )
 {
-    check_argc( "do_init", 0, argc );
-
-    if (!gtk_init_check( &main_argc, &main_argv )) {
-
-      sprintf( text_buf, "do_init: failed to initialize GUI support.");  moan_and_die();
-    } else {
-puts("NB: gtk_init_check returned true\n"); fflush(stdout);
+    if (!glfwInit()) {
+	//
+        sprintf( text_buf, "do_init: failed to initialize OpenGL support.");
+	moan_and_die();
+} else {
+puts("NB: glfwInit() returned TRUE -- mythryl-ogl-server-in-c-subprocess.c\n"); fflush(stdout);
     }
 }
-#endif
 
 
 
@@ -646,11 +639,12 @@ init  (void)
     /* Define the set of supported input line verbs:
     */
 
+    set_trie( trie, "init",					do_init						);
+
 #ifdef OLD
     set_trie( trie, "make_dialog",				do_make_dialog					);
     set_trie( trie, "unref_object",				do_unref_object					);
     set_trie( trie, "quit_eventloop",				do_quit_eventloop				);
-    set_trie( trie, "init",					do_init						);
     set_trie( trie, "run_eventloop_indefinitely",		do_run_eventloop_indefinitely			);
     set_trie( trie, "run_eventloop_once",			do_run_eventloop_once				);
     set_trie( trie, "test",					do_test						);

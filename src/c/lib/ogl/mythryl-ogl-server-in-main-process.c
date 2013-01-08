@@ -9,13 +9,6 @@
 //     src/lib/src/ogl-client-driver-for-server-in-main-process.pkg
 //
 
-// ########### NOTE! #############
-// When resuming work on this project,
-// should take a look at
-//
-//     src/lib/c-glue/ogl/sml-ogl-runtime.c
-//
-// to see what they did.
 
 #include "../../mythryl-config.h"
 
@@ -45,6 +38,14 @@ static void   moan_and_die   (void)   {
     //
     printf( "FATAL src/c/lib/ogl/mythryl-ogl-server-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
+}
+
+Val   _lib7_Ogl_ogl_init   (Task* task,  Val arg)   {	// : Void -> Void
+    //==================
+
+    if (!glfwInit())   exit( EXIT_FAILURE );
+
+    return HEAP_VOID;
 }
 
 void ogl_driver_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. Public only to keep gcc from muttering about unused code.

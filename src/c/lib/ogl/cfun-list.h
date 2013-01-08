@@ -14,8 +14,9 @@
 #define CLIB_DATE	"February 13, 2008"
 #endif
 
-#ifdef OLD
 CFUNC("init","init",	_lib7_Ogl_ogl_init,		"Void -> Void")
+
+#ifdef OLD
 
 CFUNC("callback_queue_is_empty","callback_queue_is_empty",	   _lib7_Ogl_callback_queue_is_empty,		"Void -> Bool")
 CFUNC("number_of_queued_callbacks","number_of_queued_callbacks",	   _lib7_Ogl_number_of_queued_callbacks,	"Void -> Int")
