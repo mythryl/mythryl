@@ -100,8 +100,8 @@ etags:
               sh/* \
               try/* \
               try/*/* \
-	      src/lib/src/make-gtk-glue \
-	      src/lib/src/make-ogl-glue \
+	      src/srv/gtk/sh/make-gtk-glue \
+	      src/srv/ogl/sh/make-ogl-glue \
               src/lib/core/internal/version.template \
 	      src/c/Configure.in \
              src/lib/html/html-gram \
@@ -301,13 +301,13 @@ summary:
 
 
 
-# Stuff related to src/lib/src/make-gtk-glue:
+# Stuff related to src/srv/gtk/sh/make-gtk-glue:
 
 gtk-glue:
-	src/lib/src/make-gtk-glue
+	src/srv/gtk/sh/make-gtk-glue
 
 ogl-glue:
-	src/lib/src/make-ogl-glue
+	src/srv/ogl/sh/make-ogl-glue
 
 # The various individual apps and libraries
 # which get built by 'make rest':
