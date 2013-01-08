@@ -1,4 +1,4 @@
-// ogl-driver.c
+// mythryl-ogl-server-in-main-process.c
 //
 // This file handles the C side
 // of the Mythryl <-> C interface
@@ -43,7 +43,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/lib/ogl/ogl-driver.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
+    printf( "FATAL src/c/lib/ogl/mythryl-ogl-server-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
 }
 
