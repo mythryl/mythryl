@@ -1,4 +1,4 @@
-// mythryl-gtk-server.c -- a simple Gtk subprocess server for Mythryl.
+// mythryl-gtk-server-in-c-subprocess.c -- a simple Gtk subprocess server for Mythryl.
 
 // MOTIVATION
 //
@@ -53,7 +53,7 @@
 //     milliseconds.  For some interactive applications
 //     such as CNC control, games, or multimedia editing,
 //     this may be unacceptable:  Putting the time-critical
-//     display and response loops in mythryl-gtk-server can
+//     display and response loops in mythryl-gtk-server-in-c-subprocess can
 //     work around this issue.
 
 // OVERVIEW
@@ -159,7 +159,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "src/c/gtk/mythryl-gtk-server.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
+    printf( "src/c/gtk/mythryl-gtk-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
@@ -178,7 +178,7 @@ open_logfile (void)
 {
     char filename[ 128 ];
 
-    sprintf (filename, "mythryl-gtk-server-%d.log~", getpid());
+    sprintf (filename, "mythryl-gtk-server-in-c-subprocess-%d.log~", getpid());
 
     log_fd = fopen( filename, "w" );
 

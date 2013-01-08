@@ -1,4 +1,4 @@
-// mythryl-ogl-server.c -- a simple Ogl subprocess server for Mythryl.
+// mythryl-ogl-server-in-c-subprocess.c -- a simple Ogl subprocess server for Mythryl.
 
 
 // OVERVIEW
@@ -101,10 +101,49 @@ FILE* log_fd = 0;
 
 static char text_buf[ 1024 ];
 
+void mythryl_ogl_server_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. Public only to keep gcc from muttering about unused code.
+    //
+    int running = GL_TRUE;
+
+    // Initialize GLFW
+    //
+    if (!glfwInit())   exit( EXIT_FAILURE );
+
+    // Open an OpenGL window
+    //
+    if( !glfwOpenWindow( 300,300, 0,0,0,0,0,0, GLFW_WINDOW ) )
+    {
+	glfwTerminate();
+
+	exit( EXIT_FAILURE );
+    }
+
+    // Main loop
+
+    while( running )
+    {
+	// OpenGL rendering goes here...
+
+	glClear( GL_COLOR_BUFFER_BIT );
+
+	glfwSwapBuffers();				// Swap front and back rendering buffers
+
+	running =  !glfwGetKey( GLFW_KEY_ESC )		// Check if ESC key was pressed or window was closed
+                &&  glfwGetWindowParam( GLFW_OPENED );
+
+    }
+
+
+    glfwTerminate();					// Close window and terminate GLFW
+
+    exit( EXIT_SUCCESS );				// Exit program
+
+}
+
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "src/c/ogl/mythryl-ogl-server.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
+    printf( "src/c/ogl/mythryl-ogl-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
@@ -125,7 +164,7 @@ open_logfile (void)
 {
     char filename[ 128 ];
 
-    sprintf (filename, "mythryl-ogl-server-%d.log~", getpid());
+    sprintf (filename, "mythryl-ogl-server-in-c-subprocess-%d.log~", getpid());
 
     log_fd = fopen( filename, "w" );
 

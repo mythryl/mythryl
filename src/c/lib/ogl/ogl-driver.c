@@ -47,6 +47,45 @@ static void   moan_and_die   (void)   {
     exit(1);
 }
 
+void ogl_driver_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. Public only to keep gcc from muttering about unused code.
+    //
+    int running = GL_TRUE;
+
+    // Initialize GLFW
+    //
+    if (!glfwInit())   exit( EXIT_FAILURE );
+
+    // Open an OpenGL window
+    //
+    if( !glfwOpenWindow( 300,300, 0,0,0,0,0,0, GLFW_WINDOW ) )
+    {
+	glfwTerminate();
+
+	exit( EXIT_FAILURE );
+    }
+
+    // Main loop
+
+    while( running )
+    {
+	// OpenGL rendering goes here...
+
+	glClear( GL_COLOR_BUFFER_BIT );
+
+	glfwSwapBuffers();				// Swap front and back rendering buffers
+
+	running =  !glfwGetKey( GLFW_KEY_ESC )		// Check if ESC key was pressed or window was closed
+                &&  glfwGetWindowParam( GLFW_OPENED );
+
+    }
+
+
+    glfwTerminate();					// Close window and terminate GLFW
+
+    exit( EXIT_SUCCESS );				// Exit program
+
+}
+
 
 
 
