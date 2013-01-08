@@ -95,7 +95,7 @@
 #include <unistd.h>	// For getpid(), STDIN_FILENO...
 #endif
 
-#include <GL/freeglut.h> 
+#include <GL/glfw.h>
 
 FILE* log_fd = 0;
 
