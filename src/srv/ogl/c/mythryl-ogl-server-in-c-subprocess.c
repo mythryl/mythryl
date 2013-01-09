@@ -66,8 +66,8 @@
 //
 // The glue library for accessing us from Mythryl is implemented in:
 //
-//     src/lib/src/ogl-client.api
-//     src/lib/src/ogl-client-for-server-in-main-process.pkg
+//     src/srv/ogl/src/ogl-client.api
+//     src/srv/ogl/src/ogl-client-for-server-in-main-process.pkg
 
 
 

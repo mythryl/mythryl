@@ -5,7 +5,7 @@
 
 // This table ultimately gets searched by
 //
-//     src/lib/src/gtk-client-driver-for-server-in-main-process.pkg
+//     src/srv/gtk/src/gtk-client-driver-for-server-in-main-process.pkg
 // via
 //     get_mythryl_callable_c_function() 	in   src/c/lib/mythryl-callable-c-libraries.c
 

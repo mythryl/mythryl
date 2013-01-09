@@ -6,7 +6,7 @@
 // Ogl binding.  The Mythryl side
 // is implemented by
 //
-//     src/lib/src/ogl-client-driver-for-server-in-main-process.pkg
+//     src/srv/ogl/src/ogl-client-driver-for-server-in-main-process.pkg
 //
 
 
@@ -109,7 +109,7 @@ void ogl_driver_dummy( void ) {				// This just a test to see if the appropriate
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/lib/src/ogl-client-driver-for-server-in-main-process.pkg 
+//     src/srv/ogl/src/ogl-client-driver-for-server-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2

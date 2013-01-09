@@ -6,7 +6,7 @@
 // Gtk binding.  The Mythryl side
 // is implemented by
 //
-//     src/lib/src/gtk-client-driver-for-server-in-main-process.pkg
+//     src/srv/gtk/src/gtk-client-driver-for-server-in-main-process.pkg
 //
 
 // ########### NOTE! #############
@@ -77,7 +77,7 @@ static void   moan_and_die   (void)   {
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/lib/src/gtk-client-driver-for-server-in-main-process.pkg 
+//     src/srv/gtk/src/gtk-client-driver-for-server-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2
