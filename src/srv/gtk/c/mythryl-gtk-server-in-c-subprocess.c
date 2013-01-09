@@ -131,7 +131,7 @@
  */
 
 
-#include "../mythryl-config.h"
+#include "../../../c/mythryl-config.h"
 
 #include <stdio.h>	// For printf()...
 #include <stdlib.h>	// For exit(), atoi(), strtod ...
@@ -159,7 +159,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "src/c/gtk/mythryl-gtk-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
+    printf( "src/srv/gtk/c/mythryl-gtk-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
