@@ -160,9 +160,6 @@ cheg:	gtk-glue ogl-glue benchmarks check		# I use this just to exercise benchmar
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
 
-gtk-check:
-	@MYTHRYL_ROOT=`pwd` sh/make-gtk-check
-
 compiler-libraries: bin/mythryl-runtime-intel32
 	@MYTHRYL_ROOT=`pwd` sh/make-compiler-libraries
 
@@ -762,8 +759,8 @@ api-reference:
         rm-gnu-autotools-output rest-unfrozen dist-clean clean   \
         somewhat-clean ppless comments gnu bootstrap             \
         gnu-autotools-output nil help all c-stuff id_only        \
-        etags etags-makelib id example yacc-example fixpoint       \
-        update tk tarball tar tart dist check gtk-check          \
+        etags etags-makelib id example yacc-example fixpoint	\
+        update tk tarball tar tart dist check			\
         compiler-libraries compiler-libraries-soon               \
         compiler-executable compiler compiler-soon               \
         rest rest2 rest3 save_yacc_and_lex summary               \
