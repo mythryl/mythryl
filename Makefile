@@ -460,7 +460,7 @@ install:
 isntall:	install			# Man, I just can't type any more...
 
 uninstall:
-	@sh/uninstall
+	@sh/make-uninstall
 
 
 # Run the GNU autotools-generated Configure script

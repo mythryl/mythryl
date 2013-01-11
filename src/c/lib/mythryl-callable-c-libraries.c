@@ -82,7 +82,6 @@
 //     src/c/lib/dynamic-loading/cfun-list.h
 //     src/c/lib/hostthread/cfun-list.h
 //     src/c/lib/win32-file-system/cfun-list.h
-//     src/c/lib/gtk/cfun-list.h
 //     src/c/lib/posix-io/cfun-list.h
 //     src/c/lib/posix-file-system/cfun-list.h
 //     src/c/lib/win32-io/cfun-list.h
