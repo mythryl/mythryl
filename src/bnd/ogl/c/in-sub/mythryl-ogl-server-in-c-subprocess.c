@@ -76,7 +76,7 @@
  */
 
 
-#include "../../../c/mythryl-config.h"
+#include "../../../../c/mythryl-config.h"
 
 #include <stdio.h>	// For printf()...
 #include <stdlib.h>	// For exit(), atoi(), strtod ...
