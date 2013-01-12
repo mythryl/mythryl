@@ -1,4 +1,4 @@
-// mythryl-gtk-server-in-main-process.c
+// mythryl-gtk-library-in-main-process.c
 //
 // This file handles the C side
 // of the Mythryl <-> C interface
@@ -6,7 +6,7 @@
 // Gtk binding.  The Mythryl side
 // is implemented by
 //
-//     src/bnd/gtk/src/gtk-client-driver-for-server-in-main-process.pkg
+//     src/bnd/gtk/src/gtk-client-driver-for-library-in-main-process.pkg
 //
 
 // ########### NOTE! #############
@@ -52,7 +52,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/lib/gtk/mythryl-gtk-server-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
+    printf( "FATAL src/c/lib/gtk/mythryl-gtk-library-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
 }
 
@@ -78,7 +78,7 @@ static void   moan_and_die   (void)   {
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/bnd/gtk/src/gtk-client-driver-for-server-in-main-process.pkg 
+//     src/bnd/gtk/src/gtk-client-driver-for-library-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2

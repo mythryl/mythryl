@@ -1,4 +1,4 @@
-// mythryl-gtk-server-in-c-subprocess.c -- a simple Gtk subprocess server for Mythryl.
+// mythryl-gtk-library-in-c-subprocess.c -- a simple Gtk subprocess server for Mythryl.
 
 // MOTIVATION
 //
@@ -53,7 +53,7 @@
 //     milliseconds.  For some interactive applications
 //     such as CNC control, games, or multimedia editing,
 //     this may be unacceptable:  Putting the time-critical
-//     display and response loops in mythryl-gtk-server-in-c-subprocess can
+//     display and response loops in mythryl-gtk-library-in-c-subprocess can
 //     work around this issue.
 
 // OVERVIEW
@@ -122,7 +122,7 @@
 // The glue library for accessing us from Mythryl is implemented in:
 //
 //     src/bnd/gtk/src/gtk-client.api
-//     src/bnd/gtk/src/gtk-client-for-server-in-main-process.pkg
+//     src/bnd/gtk/src/gtk-client-for-library-in-main-process.pkg
 
 
 
@@ -159,7 +159,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "src/bnd/gtk/c/in-sub/mythryl-gtk-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
+    printf( "src/bnd/gtk/c/in-sub/mythryl-gtk-library-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
@@ -178,7 +178,7 @@ open_logfile (void)
 {
     char filename[ 128 ];
 
-    sprintf (filename, "mythryl-gtk-server-in-c-subprocess-%d.log~", getpid());
+    sprintf (filename, "mythryl-gtk-library-in-c-subprocess-%d.log~", getpid());
 
     log_fd = fopen( filename, "w" );
 

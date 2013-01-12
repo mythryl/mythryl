@@ -1,4 +1,4 @@
-// mythryl-ogl-server-in-main-process.c
+// mythryl-ogl-library-in-main-process.c
 //
 // This file handles the C side
 // of the Mythryl <-> C interface
@@ -6,7 +6,7 @@
 // Ogl binding.  The Mythryl side
 // is implemented by
 //
-//     src/bnd/ogl/src/ogl-client-driver-for-server-in-main-process.pkg
+//     src/bnd/ogl/src/ogl-client-driver-for-library-in-main-process.pkg
 //
 
 
@@ -37,7 +37,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/lib/ogl/mythryl-ogl-server-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
+    printf( "FATAL src/c/lib/ogl/mythryl-ogl-library-in-main-process.c: %s  exit(1)ing.\n", text_buf );		fflush(stdout);
     exit(1);
 }
 
@@ -110,7 +110,7 @@ void ogl_driver_dummy( void ) {				// This just a test to see if the appropriate
 // WARNING! Must be kept in sync
 // with matching declarations in
 //
-//     src/bnd/ogl/src/ogl-client-driver-for-server-in-main-process.pkg 
+//     src/bnd/ogl/src/ogl-client-driver-for-library-in-main-process.pkg 
 //
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2

@@ -246,7 +246,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-server-in-c-subprocess bin/mythryl-ogl-server-in-c-subprocess
+	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess bin/mythryl-ogl-library-in-c-subprocess
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -324,11 +324,11 @@ bin/lexgen:
 bin/heap2asm:
 	(cd src/app/heap2asm; ./build-heap2asm-app)
 
-bin/mythryl-gtk-server-in-c-subprocess:					# Is this ever actually used?
-	(cd src/c/o; make mythryl-gtk-server-in-c-subprocess)
+bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
+	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
 
-bin/mythryl-ogl-server-in-c-subprocess:
-	(cd src/c/o; make mythryl-ogl-server-in-c-subprocess)
+bin/mythryl-ogl-library-in-c-subprocess:
+	(cd src/c/o; make mythryl-ogl-library-in-c-subprocess)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
@@ -655,8 +655,8 @@ clean: somewhat-clean
 	@-rm -f bin/mythryl
 	@-rm -f bin/passthrough
 	@-rm -f bin/set-heapdump-shebang
-	@-rm -f bin/mythryl-gtk-server-in-c-subprocess
-	@-rm -f bin/mythryl-ogl-server-in-c-subprocess
+	@-rm -f bin/mythryl-gtk-library-in-c-subprocess
+	@-rm -f bin/mythryl-ogl-library-in-c-subprocess
 	@-rm -f src/app/tut/factor/factor
 
 

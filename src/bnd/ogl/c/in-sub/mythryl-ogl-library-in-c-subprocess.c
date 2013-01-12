@@ -1,4 +1,4 @@
-// mythryl-ogl-server-in-c-subprocess.c -- a simple Ogl subprocess server for Mythryl.
+// mythryl-ogl-library-in-c-subprocess.c -- a simple Ogl subprocess server for Mythryl.
 
 
 // OVERVIEW
@@ -67,7 +67,7 @@
 // The glue library for accessing us from Mythryl is implemented in:
 //
 //     src/bnd/ogl/src/ogl-client.api
-//     src/bnd/ogl/src/ogl-client-for-server-in-main-process.pkg
+//     src/bnd/ogl/src/ogl-client-for-library-in-main-process.pkg
 
 
 
@@ -143,7 +143,7 @@ void mythryl_ogl_server_dummy( void ) {				// This just a test to see if the app
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "src/c/ogl/mythryl-ogl-server-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
+    printf( "src/c/ogl/mythryl-ogl-library-in-c-subprocess.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
@@ -164,7 +164,7 @@ open_logfile (void)
 {
     char filename[ 128 ];
 
-    sprintf (filename, "mythryl-ogl-server-in-c-subprocess-%d.log~", getpid());
+    sprintf (filename, "mythryl-ogl-library-in-c-subprocess-%d.log~", getpid());
 
     log_fd = fopen( filename, "w" );
 
@@ -472,7 +472,7 @@ do_init( int argc, unsigned char** argv )
         sprintf( text_buf, "do_init: failed to initialize OpenGL support.");
 	moan_and_die();
 } else {
-puts("NB: glfwInit() returned TRUE -- mythryl-ogl-server-in-c-subprocess.c\n"); fflush(stdout);
+puts("NB: glfwInit() returned TRUE -- mythryl-ogl-library-in-c-subprocess.c\n"); fflush(stdout);
     }
 }
 
