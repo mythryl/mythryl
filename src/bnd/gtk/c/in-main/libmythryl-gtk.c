@@ -1,6 +1,6 @@
 // libmythryl-gtk.c
 
-#include "../../../c/mythryl-config.h"
+#include "../../../../c/mythryl-config.h"
 
 #include "runtime-base.h"
 #include "mythryl-callable-c-libraries.h"

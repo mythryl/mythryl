@@ -10,7 +10,7 @@
 //
 
 
-#include "../../../c/mythryl-config.h"
+#include "../../../../c/mythryl-config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +22,8 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include "../../../c/lib/raise-error.h"
+
+#include "../../../../c/lib/raise-error.h"
 
 #define GtkWidget void
 

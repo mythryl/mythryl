@@ -17,7 +17,7 @@
 //
 // to see what they did.
 
-#include "../../../c/mythryl-config.h"
+#include "../../../../c/mythryl-config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,7 +40,8 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include "../../../c/lib/raise-error.h"
+
+#include "../../../../c/lib/raise-error.h"
 
 #define MAX_WIDGETS 1024
 static GtkWidget* widget[ MAX_WIDGETS ];	// XXX BUGGO FIXME Should expand in size as needed.

@@ -22,8 +22,8 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Date				)		// Libmythryl_Date			def in   
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Math				)		// Libmythryl_Math			def in    src/c/lib/math/libmythryl-math.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Socket				)		// Libmythryl_Socket			def in    src/c/lib/socket/libmythryl-socket.c
 
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Gtk				)		// Libmythryl_Gtk			def in    src/c/lib/gtk/libmythryl-gtk.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ogl				)		// Libmythryl_Ogl			def in    src/c/lib/ogl/libmythryl-ogl.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Gtk				)		// Libmythryl_Gtk			def in    src/bnd/gtk/c/in-main/libmythryl-gtk.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ogl				)		// Libmythryl_Ogl			def in    src/bnd/ogl/c/in-main/libmythryl-ogl.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ncurses				)		// Libmythryl_Ncurses			def in    src/c/lib/ncurses/libmythryl-ncurses.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def in    src/c/lib/opencv/libmythryl-opencv.c
 
