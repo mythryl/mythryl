@@ -101,7 +101,7 @@ FILE* log_fd = 0;
 
 static char text_buf[ 1024 ];
 
-void mythryl_ogl_server_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. Public only to keep gcc from muttering about unused code.
+void mythryl_ogl_server_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. It is non-static only to keep gcc from muttering about unused code.
     //
     int running = GL_TRUE;
 
@@ -370,10 +370,10 @@ static char** main_argv;
 typedef void (*Trie_Fn) ( int argc, unsigned char** argv );
 
 typedef struct _trie_node {
-
+    //
     struct _trie_node* child  [ 256 ];		// Hey, RAM is cheap, right? :)
     Trie_Fn            trie_fn[ 256 ];
-
+    //
 } Trie_Node;    
 
 Trie_Node* trie = NULL;
@@ -388,11 +388,10 @@ make_trie_node (void)
 
     if (!result) {  sprintf( text_buf, "make_trie_node: Couln't allocate node." ); moan_and_die(); }
 
-    {   int i;
-        for (i = 256; i --> 0; ) {
-            result->child  [i] = NULL;
-            result->trie_fn[i] = NULL;
-        }
+    for (int i = 256; i --> 0; ) {
+	//
+	result->child  [i] =  NULL;
+	result->trie_fn[i] =  NULL;
     }
 
     return result;

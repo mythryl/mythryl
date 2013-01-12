@@ -532,10 +532,10 @@ static char** main_argv;
 typedef void (*Trie_Fn) ( int argc, unsigned char** argv );
 
 typedef struct _trie_node {
-
+    //
     struct _trie_node* child  [ 256 ];		// Hey, RAM is cheap, right? :)
     Trie_Fn            trie_fn[ 256 ];
-
+    //
 } Trie_Node;    
 
 Trie_Node* trie = NULL;
@@ -550,11 +550,10 @@ make_trie_node (void)
 
     if (!result) {  sprintf( text_buf, "make_trie_node: Couln't allocate node." ); moan_and_die(); }
 
-    {   int i;
-        for (i = 256; i --> 0; ) {
-            result->child  [i] = NULL;
-            result->trie_fn[i] = NULL;
-        }
+    for (int i = 256; i --> 0; ) {
+	//
+	result->child  [i] =  NULL;
+	result->trie_fn[i] =  NULL;
     }
 
     return result;
