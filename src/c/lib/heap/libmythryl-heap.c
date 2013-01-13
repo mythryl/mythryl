@@ -1145,8 +1145,6 @@ Val   do_breakpoint_9   (Task* task, Val arg)   { return HEAP_VOID; }
     // See comments in   src/lib/std/src/nj/heap-debug.api
 
 
-
-#define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 //
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
@@ -1197,7 +1195,6 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     CFUNC_NULL_BIND
 };
-#undef CFUNC
 
 
 // The Runtime library.
