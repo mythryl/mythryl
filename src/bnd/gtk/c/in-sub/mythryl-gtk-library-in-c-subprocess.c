@@ -250,8 +250,8 @@ widget_arg( int iargc, unsigned char** argv, int ii)
     if (i >= argc) {
         sprintf (text_buf, "widget_arg: Attempted to use arg %d from length-%d argv.\n", ii, iargc); moan_and_die();
     }
-    {   unsigned char* id = argv[ii];
-
+    {   unsigned char*  id =  argv[ ii ];
+	//
         if (id[0] != 'W'
         ||  id[1] != 'I'
         ||  id[2] != 'D'
@@ -268,7 +268,7 @@ widget_arg( int iargc, unsigned char** argv, int ii)
 	        sprintf (text_buf, "widget_arg: widget id '%s' out of range (max is %d).\n", id, MAX_WIDGETS); moan_and_die();
 	    }
             {   GtkWidget* result = widget[ widget_id ];
-
+	        //
 	        if (!result && widget_id) {
 		    sprintf (text_buf, "widget_arg: widget id '%s' is not assigned.\n", id); moan_and_die();
 	        }
@@ -331,7 +331,7 @@ bool_arg( int iargc, unsigned char** argv, int ii)
         sprintf (text_buf, "bool_arg: Attempted to use arg %d from length-%d argv.\n", ii, iargc); moan_and_die();
     }
     {   char* arg = (char*) argv[ii];
-
+	//
         if (!strcmp( arg, "TRUE"     ))  return TRUE;
         if (!strcmp( arg, "FALSE"    ))  return FALSE;
 
