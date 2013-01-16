@@ -643,6 +643,22 @@ Val   _lib7_Ogl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+/* do__print_hello_world
+ *
+ * ogl-client.api        type:    Session -> Void
+ * ogl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__print_hello_world   (Task* task, Val arg)
+{
+
+
+    fprintf(stderr,"Hello, world!\n");
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-binding/make-library-binding.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/bnd/ogl/etc/library-binding.specification. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
 
 
@@ -698,6 +714,7 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Ogl_run_ev
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
 
 	CFUNC_NULL_BIND

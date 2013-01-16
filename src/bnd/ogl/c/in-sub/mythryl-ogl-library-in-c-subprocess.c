@@ -149,14 +149,12 @@ static void   moan_and_die   (void)   {
     exit(1);
 }
 
-#ifdef OLD
 static void
 check_argc( char* name, int need, int argc )
 {
     if (need == argc) return;
     sprintf(text_buf, "%s: argc should be %d, was %d.\n", name, need, argc); moan_and_die();
 }
-#endif
 
 
 static void
@@ -478,6 +476,18 @@ puts("NB: glfwInit() returned TRUE -- mythryl-ogl-library-in-c-subprocess.c\n");
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+
+static void
+do__print_hello_world( int argc, unsigned char** argv )
+{
+    check_argc( "do__print_hello_world", 0, argc );
+
+    {
+
+        fprintf(stderr,"Hello, world!\n");
+    }
+}
+/* Above fn built by src/lib/make-library-binding/make-library-binding.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/bnd/ogl/etc/library-binding.specification. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
 
 #ifdef OLD
@@ -651,6 +661,7 @@ init  (void)
 #endif
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+    set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
 
     if (duplicate_trie_entries) {
