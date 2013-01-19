@@ -475,7 +475,7 @@ puts("NB: glfwInit() returned TRUE -- mythryl-ogl-library-in-c-subprocess.c\n");
 
 
 
-/* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
 do__print_hello_world( int argc, unsigned char** argv )
@@ -487,8 +487,8 @@ do__print_hello_world( int argc, unsigned char** argv )
         fprintf(stderr,"Hello, world!\n");
     }
 }
-/* Above fn built by src/lib/make-library-binding/make-library-binding.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/bnd/ogl/etc/library-binding.specification. */
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/bnd/ogl/etc/library-binding.specification. */
+/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 #ifdef OLD
 static void
@@ -660,9 +660,9 @@ init  (void)
     set_trie( trie, "get_widget_allocation",			do_get_widget_allocation			);
 #endif
 
-/* Do not edit this or following lines -- they are autobuilt by make-library-binding. */
+/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-binding. */
+/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
     if (duplicate_trie_entries) {
         fprintf(stderr, "%d duplicate trie entries.\n", duplicate_trie_entries );    fflush( stderr );
