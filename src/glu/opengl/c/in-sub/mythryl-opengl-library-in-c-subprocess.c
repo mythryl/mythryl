@@ -276,7 +276,6 @@ string_arg( int iargc, unsigned char** argv, int ii)
 }
 #endif
 
-#ifdef SOON
 static double
 double_arg( int iargc, unsigned char** argv, int ii)
 {
@@ -291,7 +290,6 @@ double_arg( int iargc, unsigned char** argv, int ii)
         return result;
     }
 }
-#endif
 
 static int
 int_arg( int iargc, unsigned char** argv, int ii)
@@ -502,6 +500,22 @@ do__negate_int( int argc, unsigned char** argv )
     }
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__negate_float( int argc, unsigned char** argv )
+{
+    check_argc( "do__negate_float", 1, argc );
+
+    {
+        double            f0 =                      double_arg( argc, argv, 0 );
+
+        double result = -f0;
+
+         printf(              "negate_float%f\n", result);      fflush( stdout );
+        fprintf(log_fd, "SENT: negate_float%f\n", result);      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 #ifdef OLD
@@ -677,6 +691,7 @@ init  (void)
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
     set_trie( trie, "negate_int",                                 do__negate_int                                );
+    set_trie( trie, "negate_float",                               do__negate_float                              );
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
     if (duplicate_trie_entries) {

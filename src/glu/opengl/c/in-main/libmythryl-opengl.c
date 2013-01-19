@@ -676,6 +676,23 @@ static Val   do__negate_int   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
 
+/* do__negate_float
+ *
+ * opengl-client.api        type:   (Session, Float) -> Float
+ * opengl-client-driver.api type:   (Session, Float) -> Float
+ */
+static Val   do__negate_float   (Task* task, Val arg)
+{
+
+    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 1)));
+
+    double d = -f0;
+
+    return  make_float64(task, d );
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 
@@ -733,6 +750,7 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Opengl_run
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
+CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 	CFUNC_NULL_BIND
