@@ -97,12 +97,12 @@ etags:
 	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
-	     src/bnd/*/etc/library-glue.plan \
+	     src/glu/*/etc/library-glue.plan \
               sh/* \
               try/* \
               try/*/* \
-	      src/bnd/gtk/sh/make-gtk-glue \
-	      src/bnd/ogl/sh/make-ogl-glue \
+	      src/glu/gtk/sh/make-gtk-glue \
+	      src/glu/ogl/sh/make-ogl-glue \
               src/lib/core/internal/version.template \
 	      src/c/Configure.in \
              src/lib/html/html-gram \
@@ -299,13 +299,13 @@ summary:
 
 
 
-# Stuff related to src/bnd/gtk/sh/make-gtk-glue:
+# Stuff related to src/glu/gtk/sh/make-gtk-glue:
 
 gtk-glue:
-	src/bnd/gtk/sh/make-gtk-glue
+	src/glu/gtk/sh/make-gtk-glue
 
 ogl-glue:
-	src/bnd/ogl/sh/make-ogl-glue
+	src/glu/ogl/sh/make-ogl-glue
 
 # The various individual apps and libraries
 # which get built by 'make rest':
