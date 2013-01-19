@@ -97,7 +97,7 @@ etags:
 	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
-	     src/bnd/*/etc/library-binding.specification \
+	     src/bnd/*/etc/library-glue.plan \
               sh/* \
               try/* \
               try/*/* \

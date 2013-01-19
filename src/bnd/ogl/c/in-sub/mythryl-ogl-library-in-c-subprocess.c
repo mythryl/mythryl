@@ -487,7 +487,7 @@ do__print_hello_world( int argc, unsigned char** argv )
         fprintf(stderr,"Hello, world!\n");
     }
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/bnd/ogl/etc/library-binding.specification. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/bnd/ogl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 #ifdef OLD

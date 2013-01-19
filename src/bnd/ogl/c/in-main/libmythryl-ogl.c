@@ -656,7 +656,7 @@ static Val   do__print_hello_world   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/bnd/ogl/etc/library-binding.specification. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/bnd/ogl/etc/library-glue.plan. */
 
 
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
