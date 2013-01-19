@@ -659,6 +659,23 @@ static Val   do__print_hello_world   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
 
+/* do__negate_int
+ *
+ * opengl-client.api        type:   (Session, Int) -> Int
+ * opengl-client-driver.api type:   (Session, Int) -> Int
+ */
+static Val   do__negate_int   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+
+    int result = -i0;
+
+    return TAGGED_INT_FROM_C_INT(result);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 
@@ -715,6 +732,7 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Opengl_run
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
+CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 	CFUNC_NULL_BIND

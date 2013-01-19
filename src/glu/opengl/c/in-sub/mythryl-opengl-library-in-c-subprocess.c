@@ -293,7 +293,6 @@ double_arg( int iargc, unsigned char** argv, int ii)
 }
 #endif
 
-#ifdef SOON
 static int
 int_arg( int iargc, unsigned char** argv, int ii)
 {
@@ -308,7 +307,6 @@ int_arg( int iargc, unsigned char** argv, int ii)
         return result;
     }
 }
-#endif
 
 #ifdef OLD
 static int
@@ -488,6 +486,22 @@ do__print_hello_world( int argc, unsigned char** argv )
     }
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__negate_int( int argc, unsigned char** argv )
+{
+    check_argc( "do__negate_int", 1, argc );
+
+    {
+        int               i0 =                         int_arg( argc, argv, 0 );
+
+        int result = -i0;
+
+         printf(              "negate_int%d\n", result);      fflush( stdout );
+        fprintf(log_fd, "SENT: negate_int%d\n", result);      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 #ifdef OLD
@@ -662,6 +676,7 @@ init  (void)
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
+    set_trie( trie, "negate_int",                                 do__negate_int                                );
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
     if (duplicate_trie_entries) {
