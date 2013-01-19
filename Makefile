@@ -98,13 +98,15 @@ etags:
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
 	     src/glu/*/etc/library-glue.plan \
-              sh/* \
-              try/* \
-              try/*/* \
-	      src/glu/gtk/sh/make-gtk-glue \
-	      src/glu/ogl/sh/make-ogl-glue \
-              src/lib/core/internal/version.template \
-	      src/c/Configure.in \
+             sh/* \
+	     src/glu/*/sh/* \
+	     src/glu/*/try/* \
+             try/* \
+             try/*/* \
+	     src/glu/gtk/sh/make-gtk-glue \
+	     src/glu/opengl/sh/make-opengl-glue \
+             src/lib/core/internal/version.template \
+	     src/c/Configure.in \
              src/lib/html/html-gram \
              src/lib/core/init/init.cmi \
              src/lib/core/init/mythryl-primordial-library.cmi \
@@ -156,7 +158,7 @@ tart:    clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 
-cheg:	gtk-glue ogl-glue benchmarks check		# I use this just to exercise benchmarks, gtk-glue and ogl-glue regularly, as insurance against creeping bitrot. -- CrT
+cheg:	gtk-glue opengl-glue benchmarks check		# I use this just to exercise benchmarks, gtk-glue and opengl-glue regularly, as insurance against creeping bitrot. -- CrT
 
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
@@ -247,7 +249,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess bin/mythryl-ogl-library-in-c-subprocess
+	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess bin/mythryl-opengl-library-in-c-subprocess
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -304,8 +306,8 @@ summary:
 gtk-glue:
 	src/glu/gtk/sh/make-gtk-glue
 
-ogl-glue:
-	src/glu/ogl/sh/make-ogl-glue
+opengl-glue:
+	src/glu/opengl/sh/make-opengl-glue
 
 # The various individual apps and libraries
 # which get built by 'make rest':
@@ -328,8 +330,8 @@ bin/heap2asm:
 bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
 	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
 
-bin/mythryl-ogl-library-in-c-subprocess:
-	(cd src/c/o; make mythryl-ogl-library-in-c-subprocess)
+bin/mythryl-opengl-library-in-c-subprocess:
+	(cd src/c/o; make mythryl-opengl-library-in-c-subprocess)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
@@ -657,7 +659,7 @@ clean: somewhat-clean
 	@-rm -f bin/passthrough
 	@-rm -f bin/set-heapdump-shebang
 	@-rm -f bin/mythryl-gtk-library-in-c-subprocess
-	@-rm -f bin/mythryl-ogl-library-in-c-subprocess
+	@-rm -f bin/mythryl-opengl-library-in-c-subprocess
 	@-rm -f src/app/tut/factor/factor
 
 
