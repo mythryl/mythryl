@@ -648,6 +648,31 @@ Val   _lib7_Opengl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> B
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* do__glfw_open_window
+ *
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Void
+ * opengl-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Void
+ */
+static Val   do__glfw_open_window   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
+    int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
+    int               b8 =                            GET_TUPLE_SLOT_AS_VAL( arg, 9) == HEAP_TRUE;
+
+    glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* do__glfw_terminate
  *
  * opengl-client.api        type:    Session -> Void
@@ -783,6 +808,7 @@ CFUNC("init","init",	do__init,		"Void -> Void")
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+CFUNC("glfw_open_window",                         "glfw_open_window",                         do__glfw_open_window,                                  "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Void")
 CFUNC("glfw_terminate",                           "glfw_terminate",                           do__glfw_terminate,                                    "Session -> Void")
 CFUNC("glfw_swap_buffers",                        "glfw_swap_buffers",                        do__glfw_swap_buffers,                                 "Session -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")

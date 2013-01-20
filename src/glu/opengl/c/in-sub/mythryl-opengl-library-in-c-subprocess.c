@@ -472,6 +472,27 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
+do__glfw_open_window( int argc, unsigned char** argv )
+{
+    check_argc( "do__glfw_open_window", 9, argc );
+
+    {
+        int               i0 =                         int_arg( argc, argv, 0 );
+        int               i1 =                         int_arg( argc, argv, 1 );
+        int               i2 =                         int_arg( argc, argv, 2 );
+        int               i3 =                         int_arg( argc, argv, 3 );
+        int               i4 =                         int_arg( argc, argv, 4 );
+        int               i5 =                         int_arg( argc, argv, 5 );
+        int               i6 =                         int_arg( argc, argv, 6 );
+        int               i7 =                         int_arg( argc, argv, 7 );
+        int               b8 =                        bool_arg( argc, argv, 8 );
+
+        glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
 do__glfw_terminate( int argc, unsigned char** argv )
 {
     check_argc( "do__glfw_terminate", 0, argc );
@@ -727,6 +748,7 @@ init  (void)
 #endif
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    set_trie( trie, "glfw_open_window",                           do__glfw_open_window                          );
     set_trie( trie, "glfw_terminate",                             do__glfw_terminate                            );
     set_trie( trie, "glfw_swap_buffers",                          do__glfw_swap_buffers                         );
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
