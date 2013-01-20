@@ -472,9 +472,9 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
-do__open_window( int argc, unsigned char** argv )
+do__open_window2( int argc, unsigned char** argv )
 {
-    check_argc( "do__open_window", 9, argc );
+    check_argc( "do__open_window2", 9, argc );
 
     {
         int               i0 =                         int_arg( argc, argv, 0 );
@@ -488,6 +488,24 @@ do__open_window( int argc, unsigned char** argv )
         int               b8 =                        bool_arg( argc, argv, 8 );
 
         int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+
+         printf(              "open_window2%d\n", result);      fflush( stdout );
+        fprintf(log_fd, "SENT: open_window2%d\n", result);      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__open_window( int argc, unsigned char** argv )
+{
+    check_argc( "do__open_window", 3, argc );
+
+    {
+        int               i0 =                         int_arg( argc, argv, 0 );
+        int               i1 =                         int_arg( argc, argv, 1 );
+        int               b2 =                        bool_arg( argc, argv, 2 );
+
+        int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/b2 ? GLFW_FULLSCREEN : GLFW_WINDOW );
 
          printf(              "open_window%d\n", result);      fflush( stdout );
         fprintf(log_fd, "SENT: open_window%d\n", result);      fflush( log_fd );
@@ -780,6 +798,7 @@ init  (void)
 #endif
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    set_trie( trie, "open_window2",                               do__open_window2                              );
     set_trie( trie, "open_window",                                do__open_window                               );
     set_trie( trie, "terminate",                                  do__terminate                                 );
     set_trie( trie, "swap_buffers",                               do__swap_buffers                              );

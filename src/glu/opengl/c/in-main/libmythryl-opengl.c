@@ -648,12 +648,12 @@ Val   _lib7_Opengl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> B
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
-/* do__open_window
+/* do__open_window2
  *
  * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
  * opengl-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Bool
  */
-static Val   do__open_window   (Task* task, Val arg)
+static Val   do__open_window2   (Task* task, Val arg)
 {
 
     int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
@@ -667,6 +667,25 @@ static Val   do__open_window   (Task* task, Val arg)
     int               b8 =                            GET_TUPLE_SLOT_AS_VAL( arg, 9) == HEAP_TRUE;
 
     int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
+/* do__open_window
+ *
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool
+ * opengl-client-driver.api type:   (Session, Int, Int, Bool) -> Bool
+ */
+static Val   do__open_window   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               b2 =                            GET_TUPLE_SLOT_AS_VAL( arg, 3) == HEAP_TRUE;
+
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/b2 ? GLFW_FULLSCREEN : GLFW_WINDOW );
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
@@ -842,7 +861,8 @@ CFUNC("init","init",	do__init,		"Void -> Void")
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
-CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
+CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
+CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool")
 CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")
 CFUNC("swap_buffers",                             "swap_buffers",                             do__swap_buffers,                                      "Session -> Void")
 CFUNC("get_window_param",                         "get_window_param",                         do__get_window_param,                                  "Session -> Bool")
