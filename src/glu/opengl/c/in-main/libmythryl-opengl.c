@@ -650,8 +650,8 @@ Val   _lib7_Opengl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> B
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 /* do__glfw_open_window
  *
- * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Void
- * opengl-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Void
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
+ * opengl-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Bool
  */
 static Val   do__glfw_open_window   (Task* task, Val arg)
 {
@@ -666,9 +666,9 @@ static Val   do__glfw_open_window   (Task* task, Val arg)
     int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
     int               b8 =                            GET_TUPLE_SLOT_AS_VAL( arg, 9) == HEAP_TRUE;
 
-    glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
 
-    return HEAP_VOID;
+    return  result ? HEAP_TRUE : HEAP_FALSE;
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -699,6 +699,24 @@ static Val   do__glfw_swap_buffers   (Task* task, Val arg)
 
 
     glfwSwapBuffers();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
+/* do__gl_clear
+ *
+ * opengl-client.api        type:    {  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void
+ * opengl-client-driver.api type:   (Session, Bool, Bool) -> Void
+ */
+static Val   do__gl_clear   (Task* task, Val arg)
+{
+
+    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
+
+    glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
 
     return HEAP_VOID;
 }
@@ -808,9 +826,10 @@ CFUNC("init","init",	do__init,		"Void -> Void")
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
-CFUNC("glfw_open_window",                         "glfw_open_window",                         do__glfw_open_window,                                  "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Void")
+CFUNC("glfw_open_window",                         "glfw_open_window",                         do__glfw_open_window,                                  "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
 CFUNC("glfw_terminate",                           "glfw_terminate",                           do__glfw_terminate,                                    "Session -> Void")
 CFUNC("glfw_swap_buffers",                        "glfw_swap_buffers",                        do__glfw_swap_buffers,                                 "Session -> Void")
+CFUNC("gl_clear",                                 "gl_clear",                                 do__gl_clear,                                          "{  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
