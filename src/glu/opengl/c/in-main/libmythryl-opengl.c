@@ -705,6 +705,22 @@ static Val   do__glfw_swap_buffers   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
 
+/* do__glfw_get_window_param
+ *
+ * opengl-client.api        type:    Session -> Bool
+ * opengl-client-driver.api type:   (Session) -> Bool
+ */
+static Val   do__glfw_get_window_param   (Task* task, Val arg)
+{
+
+
+    int result = glfwGetWindowParam( GLFW_OPENED );
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* do__gl_clear
  *
  * opengl-client.api        type:    {  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void
@@ -829,6 +845,7 @@ CFUNC("init","init",	do__init,		"Void -> Void")
 CFUNC("glfw_open_window",                         "glfw_open_window",                         do__glfw_open_window,                                  "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
 CFUNC("glfw_terminate",                           "glfw_terminate",                           do__glfw_terminate,                                    "Session -> Void")
 CFUNC("glfw_swap_buffers",                        "glfw_swap_buffers",                        do__glfw_swap_buffers,                                 "Session -> Void")
+CFUNC("glfw_get_window_param",                    "glfw_get_window_param",                    do__glfw_get_window_param,                             "Session -> Bool")
 CFUNC("gl_clear",                                 "gl_clear",                                 do__gl_clear,                                          "{  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")

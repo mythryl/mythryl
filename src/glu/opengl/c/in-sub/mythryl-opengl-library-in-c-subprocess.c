@@ -520,6 +520,21 @@ do__glfw_swap_buffers( int argc, unsigned char** argv )
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
 static void
+do__glfw_get_window_param( int argc, unsigned char** argv )
+{
+    check_argc( "do__glfw_get_window_param", 0, argc );
+
+    {
+
+        int result = glfwGetWindowParam( GLFW_OPENED );
+
+         printf(              "glfw_get_window_param%d\n", result);      fflush( stdout );
+        fprintf(log_fd, "SENT: glfw_get_window_param%d\n", result);      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
 do__gl_clear( int argc, unsigned char** argv )
 {
     check_argc( "do__gl_clear", 2, argc );
@@ -768,6 +783,7 @@ init  (void)
     set_trie( trie, "glfw_open_window",                           do__glfw_open_window                          );
     set_trie( trie, "glfw_terminate",                             do__glfw_terminate                            );
     set_trie( trie, "glfw_swap_buffers",                          do__glfw_swap_buffers                         );
+    set_trie( trie, "glfw_get_window_param",                      do__glfw_get_window_param                     );
     set_trie( trie, "gl_clear",                                   do__gl_clear                                  );
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
     set_trie( trie, "negate_int",                                 do__negate_int                                );
