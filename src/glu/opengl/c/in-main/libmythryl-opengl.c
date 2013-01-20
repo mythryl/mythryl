@@ -120,11 +120,7 @@ void opengl_driver_dummy( void ) {				// This just a test to see if the appropri
 #define          QUEUED_VOID_CALLBACK   1
 #define          QUEUED_BOOL_CALLBACK   2
 #define         QUEUED_FLOAT_CALLBACK   3
-#define  QUEUED_BUTTON_PRESS_CALLBACK   4
-#define     QUEUED_KEY_PRESS_CALLBACK   5
-#define QUEUED_MOTION_NOTIFY_CALLBACK   6
-#define        QUEUED_EXPOSE_CALLBACK   7
-#define     QUEUED_CONFIGURE_CALLBACK   8
+#define      QUEUED_INT_PAIR_CALLBACK   4
 
 typedef struct {
     //
@@ -137,50 +133,11 @@ typedef struct {
 	//
         double float_value; 
 	//
-        struct {		// button_press;
-	    int    widget_id;
-	    int    button;
-	    double x;
-	    double y;
-	    int    time;
-	    int    modifiers;
-        } button_press;
+        struct {		// int_pair;
+	    int x;
+	    int y;
+        } int_pair;
 
-        struct {
-	    int  key;
-	    int  keycode;
-	    int  time;
-	    int  modifiers;
-        }                     key_press;
-
-        struct {
-	    int    widget_id;
-
-	    int    time;
-	    double x;
-	    double y;
-	    int    modifiers;
-	    int    is_hint;
-        }                     motion_notify;
-
-        struct {
-	    int    widget_id;
-
-	    int    count;
-	    int    area_x;
-	    int    area_y;
-	    int    area_wide;
-	    int    area_high;
-        }                     expose;
-
-        struct {
-	    int    widget_id;
-
-	    int    x;
-	    int    y;
-	    int    wide;
-	    int    high;
-        }                     configure;
 
     } entry;
 
@@ -279,41 +236,12 @@ static int   get_widget_id   (GtkWidget* query_widget)   {
 
 
 
-#ifdef OLD
-Val   _lib7_Opengl_opengl_init   (Task* task,  Val arg)   {	// : Void -> Void
-    //==================
-
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	extern char	**commandline_args_without_argv0_or_runtime_args__global;
-
-	int argc = 0;
-	while (commandline_args_without_argv0_or_runtime_args__global[argc]) ++argc;    
-
-	if (!gtk_init_check( &argc, &commandline_args_without_argv0_or_runtime_args__global )) {
-	    //
-	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "opengl_init: failed to initialize GUI support", NULL);
-	}
-
-	// XXX BUGGO FIXME: opengl_init_check installs opengl default signal handlers,
-	//		    which most likely screws up Mythryl's own signal
-	//		    handling no end.  At some point should put some work
-	//		    into keeping both happy.
-	//
-	return HEAP_VOID;
-    #else
-	extern char*  no_opengl_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_opengl_support_in_runtime, NULL);
-    #endif
-}
-#endif
 
 // opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
 // opengl-client-driver.api type:   Void -> Bool
 //
-Val   _lib7_Opengl_callback_queue_is_empty   (Task* task,  Val arg)   {
-    //=================================
+static Val   do__callback_queue_is_empty   (Task* task,  Val arg)   {
+    //       ===========================
     //
     return  callback_queue_is_empty()
               ?  HEAP_TRUE
@@ -323,8 +251,8 @@ Val   _lib7_Opengl_callback_queue_is_empty   (Task* task,  Val arg)   {
 // opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
 // opengl-client-driver.api type:   Void -> Int
 //
-Val   _lib7_Opengl_number_of_queued_callbacks   (Task* task,  Val arg)   {
-    //====================================
+static Val   do__number_of_queued_callbacks   (Task* task,  Val arg)   {
+    //       ==============================
     //
     int result =  number_of_queued_callbacks ();
     //
@@ -334,8 +262,8 @@ Val   _lib7_Opengl_number_of_queued_callbacks   (Task* task,  Val arg)   {
 // opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
 // opengl-client-driver.api type:   Void -> Int
 //
-Val   _lib7_Opengl_type_of_next_queued_callback   (Task* task,  Val arg)   {
-    //======================================
+static Val   do__type_of_next_queued_callback   (Task* task,  Val arg)   {
+    //       ================================
     int result =  type_of_next_queued_callback ();
     //
     return TAGGED_INT_FROM_C_INT( result );
@@ -405,243 +333,27 @@ Val   _lib7_Opengl_get_queued_float_callback   (Task* task, Val arg)  {
 
 
 // opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
-// opengl-client-driver.api type:   Void -> (Int,     Int,   Int,   Float, Float, Int, Int)
-//                                 callback widget button x      y      time modifiers
+// opengl-client-driver.api type:   Void -> (Int,     Int)
+//                                 callback x      y
 //
-Val   _lib7_Opengl_get_queued_button_press_callback   (Task *task, Val arg)   {
-    //==========================================
+static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
+    //       ================================
     Callback_Queue_Entry e = get_next_queued_callback ();
 
-    if (e.callback_type != QUEUED_BUTTON_PRESS_CALLBACK) {
-        strcpy( text_buf, "get_queued_button_press_callback: Next callback not Button_Press." );
+    if (e.callback_type != QUEUED_INT_PAIR_CALLBACK) {
+        strcpy( text_buf, "get_queued_int_pair_callback: Next callback not Int_Pair." );
         moan_and_die();
     }
 
-    Val boxed_x =  make_float64(task, e.entry.button_press.x );
-    Val boxed_y =  make_float64(task, e.entry.button_press.y );
-
-    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                );
-    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number              ));
-    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.button_press.widget_id ));
-    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.button_press.button    ));
-    set_slot_in_nascent_heapchunk(  task, 4, boxed_x                                      );
-    set_slot_in_nascent_heapchunk(  task, 5, boxed_y                                      );
-    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.button_press.time      ));
-    set_slot_in_nascent_heapchunk(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.button_press.modifiers ));
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3)      );
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number    ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.int_pair.x	 ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.int_pair.y ));
     //
-    return commit_nascent_heapchunk(task, 7);
+    return commit_nascent_heapchunk(task, 3);
 }
 
 
-
-// opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
-// opengl-client-driver.api type:   Void -> (Int,     Int,   Int,    Int, Int)
-//                                 callback key    keycode time modifiers
-//
-Val   _lib7_Opengl_get_queued_key_press_callback   (Task *task,  Val arg)   {
-    //=======================================
-    //
-    Callback_Queue_Entry e = get_next_queued_callback ();
-
-    if (e.callback_type != QUEUED_KEY_PRESS_CALLBACK) {
-        strcpy( text_buf, "get_queued_key_press_callback: Next callback not Key_Press." );
-        moan_and_die();
-    }
-
-    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 5)                 );
-    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
-    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.key_press.key       ));
-    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.key_press.keycode   ));
-    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.key_press.time      ));
-    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.key_press.modifiers ));
-    //
-    return commit_nascent_heapchunk(task, 5);
-}
-
-
-
-// opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
-// opengl-client-driver.api type:   Void -> (Int,     Int,  Float, Float, Int,      Bool)
-//                                 callback time  x      y      modifiers is_hint
-//
-Val   _lib7_Opengl_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
-    //===========================================
-    //
-    Callback_Queue_Entry e =  get_next_queued_callback ();
-    //
-    if (e.callback_type != QUEUED_MOTION_NOTIFY_CALLBACK) {
-        strcpy( text_buf, "get_queued_motion_notify_callback: Next callback not Motion_Notify." );
-        moan_and_die();
-    }
-
-    Val boxed_x =  make_float64(task, e.entry.motion_notify.x );
-    Val boxed_y =  make_float64(task, e.entry.motion_notify.y );
-
-    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                 );
-    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number               ));
-    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.widget_id ));
-    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.time      ));
-    set_slot_in_nascent_heapchunk(  task, 4, boxed_x                                       );
-    set_slot_in_nascent_heapchunk(  task, 5, boxed_y                                       );
-    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.modifiers ));
-    set_slot_in_nascent_heapchunk(  task, 7, e.entry.motion_notify.is_hint ? HEAP_TRUE : HEAP_FALSE );
-    //
-    return commit_nascent_heapchunk(task, 7);
-}
-
-
-
-// opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
-// opengl-client-driver.api type:   Void -> (Int,     Int,   Int,  Int,   Int,   Int,      Int)
-//                                 callback widget count area_x area_y area_wide area_high
-//
-Val   _lib7_Opengl_get_queued_expose_callback   (Task *task,  Val arg)   {
-    //====================================
-    //
-    Callback_Queue_Entry e = get_next_queued_callback ();
-    //
-    if (e.callback_type != QUEUED_EXPOSE_CALLBACK) {
-        strcpy( text_buf, "get_queued_expose_callback: Next callback not Expose." );
-        moan_and_die();
-    }
-
-    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)              );
-    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number        ));
-    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.expose.widget_id ));
-    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.expose.count     ));
-    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.expose.area_x    ));
-    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.expose.area_y    ));
-    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.expose.area_wide ));
-    set_slot_in_nascent_heapchunk(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.expose.area_high ));
-    //
-    return commit_nascent_heapchunk(task, 7);
-}
-
-
-
-// opengl-client.api        type:   (None -- not exported to opengl-client.api level.)
-// opengl-client-driver.api type:   Void -> (Int,     Int,   Int, Int, Int, Int)
-//                                 callback widget x    y    wide high
-//
-Val   _lib7_Opengl_get_queued_configure_callback   (Task *task, Val arg)   {
-    //=======================================
-    //
-    Callback_Queue_Entry e = get_next_queued_callback ();
-
-    if (e.callback_type != QUEUED_CONFIGURE_CALLBACK) {
-        strcpy( text_buf, "get_queued_configure_callback: Next callback not Configure." );
-        moan_and_die();
-    }
-
-    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 6)                 );
-    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
-    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.configure.widget_id ));
-    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.configure.x         ));
-    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.configure.y         ));
-    set_slot_in_nascent_heapchunk(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.configure.wide      ));
-    set_slot_in_nascent_heapchunk(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.configure.high      ));
-    //
-    return commit_nascent_heapchunk(task, 6);
-}
-
-
-#ifdef OLD
-Val   _lib7_Opengl_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget -> (Int, Int, Int, Int)
-    //===============================
-    //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
-
-	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
-
-	int x    =  w0->allocation.x;
-	int y    =  w0->allocation.y;
-	int wide =  w0->allocation.width;
-	int high =  w0->allocation.height;
-
-	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
-	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
-	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
-	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
-	set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
-	return commit_nascent_heapchunk(task, 4);
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
-}
-#endif
-
-#ifdef OLD
-Val   _lib7_Opengl_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, Int)       # (dialog, vbox, action_area)
-    //=====================
-    //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	int dialog;
-	int vbox;
-	int action_area;
-	//
-	dialog      = find_free_widget_slot ();   widget[dialog]      = gtk_dialog_new();
-	vbox        = find_free_widget_slot ();   widget[vbox]        = GTK_DIALOG( widget[dialog] )->vbox;
-	action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
-	//
-	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
-	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
-	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
-	return commit_nascent_heapchunk(task, 3);
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
-}
-#endif
-
-
-#ifdef OLD
-Val   _lib7_Opengl_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void       # Widget -> Void
-    //======================
-    //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
-
-	g_object_unref( G_OBJECT( w0 ) );
-
-	widget[ get_widget_id( w0 ) ] = 0;
-
-	return HEAP_VOID;
-    #else
-	extern char*  no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
-}
-#endif
-
-
-#ifdef OLD
-Val   _lib7_Opengl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool       # Bool -> Bool
-    //============================
-    //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	int block_until_event = TAGGED_INT_TO_C_INT(arg);
-
-	int quit_called = gtk_main_iteration_do( block_until_event );
-
-	return quit_called ? HEAP_TRUE : HEAP_FALSE;
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
-}
-#endif
 
 
 
@@ -911,6 +623,10 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
 
 CFUNC("init","init",	do__init,		"Void -> Void")
 
+CFUNC("callback_queue_is_empty","callback_queue_is_empty",	   do__callback_queue_is_empty,		"Void -> Bool")
+CFUNC("number_of_queued_callbacks","number_of_queued_callbacks",	   do__number_of_queued_callbacks,	"Void -> Int")
+CFUNC("type_of_next_queued_callback","type_of_next_queued_callback",	   do__type_of_next_queued_callback,	"Void -> Int")
+CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__get_queued_int_pair_callback,	"Void -> (Int, Int, Int)")  // Void -> (callback_number, x, y)
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
