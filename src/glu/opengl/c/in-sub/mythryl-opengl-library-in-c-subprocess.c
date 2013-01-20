@@ -107,7 +107,10 @@ void mythryl_opengl_server_dummy( void ) {				// This just a test to see if the 
 
     // Initialize GLFW
     //
-    if (!glfwInit())   exit( EXIT_FAILURE );
+    if (!glfwInit()) {
+	fprintf(stderr,"glfwInit() returned FALSE (?!) -- exiting.   -- do__init() in libmythryl-opengl.c\n");
+        exit( EXIT_FAILURE );
+    }
 
     // Open an OpenGL window
     //
@@ -469,6 +472,30 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
+do__glfw_terminate( int argc, unsigned char** argv )
+{
+    check_argc( "do__glfw_terminate", 0, argc );
+
+    {
+
+        glfwTerminate();
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__glfw_swap_buffers( int argc, unsigned char** argv )
+{
+    check_argc( "do__glfw_swap_buffers", 0, argc );
+
+    {
+
+        glfwSwapBuffers();
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
 do__print_hello_world( int argc, unsigned char** argv )
 {
     check_argc( "do__print_hello_world", 0, argc );
@@ -700,6 +727,8 @@ init  (void)
 #endif
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    set_trie( trie, "glfw_terminate",                             do__glfw_terminate                            );
+    set_trie( trie, "glfw_swap_buffers",                          do__glfw_swap_buffers                         );
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
     set_trie( trie, "negate_int",                                 do__negate_int                                );
     set_trie( trie, "negate_float",                               do__negate_float                              );

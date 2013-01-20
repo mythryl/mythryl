@@ -44,7 +44,12 @@ static void   moan_and_die   (void)   {
 Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
     //========
 
-    if (!glfwInit())   exit( EXIT_FAILURE );
+    // Initialize GLFW
+    //
+    if (!glfwInit()) {
+	fprintf(stderr,"glfwInit() returned FALSE (?!) -- exiting.   -- do__init() in libmythryl-opengl.c\n");
+        exit( EXIT_FAILURE );
+    }
 
     return HEAP_VOID;
 }
@@ -643,6 +648,38 @@ Val   _lib7_Opengl_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> B
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* do__glfw_terminate
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__glfw_terminate   (Task* task, Val arg)
+{
+
+
+    glfwTerminate();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
+/* do__glfw_swap_buffers
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__glfw_swap_buffers   (Task* task, Val arg)
+{
+
+
+    glfwSwapBuffers();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* do__print_hello_world
  *
  * opengl-client.api        type:    Session -> Void
@@ -746,6 +783,8 @@ CFUNC("init","init",	do__init,		"Void -> Void")
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+CFUNC("glfw_terminate",                           "glfw_terminate",                           do__glfw_terminate,                                    "Session -> Void")
+CFUNC("glfw_swap_buffers",                        "glfw_swap_buffers",                        do__glfw_swap_buffers,                                 "Session -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
