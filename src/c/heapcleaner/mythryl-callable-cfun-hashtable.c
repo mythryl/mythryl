@@ -420,6 +420,7 @@ for (Hashtable_Entry*
 }
 
     return HEAP_VOID;
+//  return HEAP_TRUE;		// The kludge eternal. :-)
 }
 
 
