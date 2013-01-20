@@ -740,6 +740,59 @@ static Val   do__get_window_param   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
 
+/* do__set_window_title
+ *
+ * opengl-client.api        type:   (Session, String) -> Void
+ * opengl-client-driver.api type:   (Session, String) -> Void
+ */
+static Val   do__set_window_title   (Task* task, Val arg)
+{
+
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
+
+    glfwSetWindowTitle( s0 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
+/* do__set_window_size
+ *
+ * opengl-client.api        type:    { session: Session, wide: Int, high: Int } -> Void
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Void
+ */
+static Val   do__set_window_size   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
+/* do__set_window_position
+ *
+ * opengl-client.api        type:    { session: Session, x: Int, y: Int } -> Void
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Void
+ */
+static Val   do__set_window_position   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    glfwSetWindowPos( /*x*/i0, /*y*/i1 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* do__clear
  *
  * opengl-client.api        type:    {  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void
@@ -866,6 +919,9 @@ CFUNC("open_window",                              "open_window",                
 CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")
 CFUNC("swap_buffers",                             "swap_buffers",                             do__swap_buffers,                                      "Session -> Void")
 CFUNC("get_window_param",                         "get_window_param",                         do__get_window_param,                                  "Session -> Bool")
+CFUNC("set_window_title",                         "set_window_title",                         do__set_window_title,                                 "(Session, String) -> Void")
+CFUNC("set_window_size",                          "set_window_size",                          do__set_window_size,                                   "{ session: Session, wide: Int, high: Int } -> Void")
+CFUNC("set_window_position",                      "set_window_position",                      do__set_window_position,                               "{ session: Session, x: Int, y: Int } -> Void")
 CFUNC("clear",                                    "clear",                                    do__clear,                                             "{  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")

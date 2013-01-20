@@ -265,7 +265,6 @@ widget_arg( int iargc, unsigned char** argv, int ii)
 }
 #endif
 
-#ifdef SOON
 static char*
 string_arg( int iargc, unsigned char** argv, int ii)
 {
@@ -277,7 +276,6 @@ string_arg( int iargc, unsigned char** argv, int ii)
     }
     return (char*) argv[ ii ];
 }
-#endif
 
 static double
 double_arg( int iargc, unsigned char** argv, int ii)
@@ -553,6 +551,47 @@ do__get_window_param( int argc, unsigned char** argv )
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
 static void
+do__set_window_title( int argc, unsigned char** argv )
+{
+    check_argc( "do__set_window_title", 1, argc );
+
+    {
+        char*             s0 =                      string_arg( argc, argv, 0 );
+
+        glfwSetWindowTitle( s0 );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__set_window_size( int argc, unsigned char** argv )
+{
+    check_argc( "do__set_window_size", 2, argc );
+
+    {
+        int               i0 =                         int_arg( argc, argv, 0 );
+        int               i1 =                         int_arg( argc, argv, 1 );
+
+        glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__set_window_position( int argc, unsigned char** argv )
+{
+    check_argc( "do__set_window_position", 2, argc );
+
+    {
+        int               i0 =                         int_arg( argc, argv, 0 );
+        int               i1 =                         int_arg( argc, argv, 1 );
+
+        glfwSetWindowPos( /*x*/i0, /*y*/i1 );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
 do__clear( int argc, unsigned char** argv )
 {
     check_argc( "do__clear", 2, argc );
@@ -803,6 +842,9 @@ init  (void)
     set_trie( trie, "terminate",                                  do__terminate                                 );
     set_trie( trie, "swap_buffers",                               do__swap_buffers                              );
     set_trie( trie, "get_window_param",                           do__get_window_param                          );
+    set_trie( trie, "set_window_title",                           do__set_window_title                          );
+    set_trie( trie, "set_window_size",                            do__set_window_size                           );
+    set_trie( trie, "set_window_position",                        do__set_window_position                       );
     set_trie( trie, "clear",                                      do__clear                                     );
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
     set_trie( trie, "negate_int",                                 do__negate_int                                );
