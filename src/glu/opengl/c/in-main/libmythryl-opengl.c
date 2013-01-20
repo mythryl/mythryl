@@ -41,8 +41,8 @@ static void   moan_and_die   (void)   {
     exit(1);
 }
 
-Val   _lib7_Opengl_opengl_init   (Task* task,  Val arg)   {	// : Void -> Void
-    //==================
+Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
+    //========
 
     if (!glfwInit())   exit( EXIT_FAILURE );
 
@@ -693,6 +693,23 @@ static Val   do__negate_float   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
 
 
+/* do__negate_boolean
+ *
+ * opengl-client.api        type:   (Session, Bool) -> Bool
+ * opengl-client-driver.api type:   (Session, Bool) -> Bool
+ */
+static Val   do__negate_boolean   (Task* task, Val arg)
+{
+
+    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
+
+    int result = !b0;
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 
@@ -724,33 +741,15 @@ static Val   do__negate_float   (Task* task, Val arg)
 static Mythryl_Name_With_C_Function CFunTable[] = {
 
 
-CFUNC("init","init",	_lib7_Opengl_opengl_init,		"Void -> Void")
+CFUNC("init","init",	do__init,		"Void -> Void")
 
-#ifdef OLD
-
-CFUNC("callback_queue_is_empty","callback_queue_is_empty",	   _lib7_Opengl_callback_queue_is_empty,		"Void -> Bool")
-CFUNC("number_of_queued_callbacks","number_of_queued_callbacks",	   _lib7_Opengl_number_of_queued_callbacks,	"Void -> Int")
-CFUNC("type_of_next_queued_callback","type_of_next_queued_callback",	   _lib7_Opengl_type_of_next_queued_callback,	"Void -> Int")
-CFUNC("get_queued_void_callback","get_queued_void_callback",	   _lib7_Opengl_get_queued_void_callback,		"Void -> Int")
-CFUNC("get_queued_bool_callback","get_queued_bool_callback",	   _lib7_Opengl_get_queued_bool_callback,		"Void -> (Int, Bool)")
-CFUNC("get_queued_float_callback","get_queued_float_callback",	   _lib7_Opengl_get_queued_float_callback,		"Void -> (Int, Float)")
-CFUNC("get_queued_button_press_callback","get_queued_button_press_callback",  _lib7_Opengl_get_queued_button_press_callback,	"Void -> (Int, Int, Int, Float, Float, Int, Int)")  // Void -> (callback_number, widget_id, button, x, y, time, modifiers)
-CFUNC("get_queued_key_press_callback","get_queued_key_press_callback",     _lib7_Opengl_get_queued_key_press_callback,	"Void -> (Int, Int, Int, Int, Int)")                // Void -> (callback_number, key, keycode, time, modifiers)
-CFUNC("get_queued_motion_notify_callback","get_queued_motion_notify_callback", _lib7_Opengl_get_queued_motion_notify_callback,	"Void -> (Int, Int, Int, Float, Float, Int, Bool)") // Void -> (callback_number, widget_id, time, x, y, modifiers, is_hint)
-CFUNC("get_queued_expose_callback","get_queued_expose_callback",        _lib7_Opengl_get_queued_expose_callback,	"Void -> (Int, Int, Int, Int, Int, Int, Int)")      // Void -> (callback_number, widget, count, area_x, area_y, area_wide, area_high)
-CFUNC("get_queued_configure_callback","get_queued_configure_callback",     _lib7_Opengl_get_queued_configure_callback,	"Void -> (Int, Int, Int, Int, Int, Int)")           // Void -> (callback_number, widget, x,    y,    wide, high)
-
-CFUNC("get_widget_allocation","get_widget_allocation",             _lib7_Opengl_get_widget_allocation,		"Int -> (Int, Int, Int, Int)")                      // Widget -> (x,    y,    wide, high)
-CFUNC("make_dialog","make_dialog",                       _lib7_Opengl_make_dialog,			"Void -> (Int, Int, Int)")                          // Void   -> (dialog, vbox, action-area)
-CFUNC("unref_object","unref_object",                      _lib7_Opengl_unref_object,			"Int -> Void")                                      // Widget -> Void
-CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Opengl_run_eventloop_once,		"Bool -> Bool")                                     // Bool -> Bool
-#endif
 
 
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
+CFUNC("negate_boolean",                           "negate_boolean",                           do__negate_boolean,                                   "(Session, Bool) -> Bool")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 	CFUNC_NULL_BIND

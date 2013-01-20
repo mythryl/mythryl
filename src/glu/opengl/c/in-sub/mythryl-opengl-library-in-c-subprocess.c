@@ -306,7 +306,6 @@ int_arg( int iargc, unsigned char** argv, int ii)
     }
 }
 
-#ifdef OLD
 static int
 bool_arg( int iargc, unsigned char** argv, int ii)
 {
@@ -326,11 +325,7 @@ bool_arg( int iargc, unsigned char** argv, int ii)
     }
     return 0;								// Cannot execute; keeps gcc quiet.
 }
-#endif
 
-// These are operationally identical, but for debugging
-// it is convenient to log them separately:
-//
 
 
 
@@ -516,6 +511,22 @@ do__negate_float( int argc, unsigned char** argv )
     }
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+
+static void
+do__negate_boolean( int argc, unsigned char** argv )
+{
+    check_argc( "do__negate_boolean", 1, argc );
+
+    {
+        int               b0 =                        bool_arg( argc, argv, 0 );
+
+        int result = !b0;
+
+         printf(              "negate_boolean%d\n", result);      fflush( stdout );
+        fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_plain_fun_to_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
 #ifdef OLD
@@ -692,6 +703,7 @@ init  (void)
     set_trie( trie, "print_hello_world",                          do__print_hello_world                         );
     set_trie( trie, "negate_int",                                 do__negate_int                                );
     set_trie( trie, "negate_float",                               do__negate_float                              );
+    set_trie( trie, "negate_boolean",                             do__negate_boolean                            );
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
 
     if (duplicate_trie_entries) {
