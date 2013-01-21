@@ -100,7 +100,8 @@ api      Make_Library_Binding
 
     Plugin  = LIBCALL_TO_ARGS_FN  (String -> List(String))
 	    | BUILD_A        (String, Builder_Stuff -> Void)							# ("callback-fn", build_callback_function)
-	    | BUILD_ARG_LOAD (String, (String, Int, String) -> String)
+	    | BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_C_SUBPROCESS_C (String, (String, Int, String) -> String)
+	    | BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_MAIN_PROCESS_C (String, (String, Int, String) -> String)
 	    ;
 
     make_library_binding: Paths -> List(Plugin) -> Void;
@@ -290,7 +291,8 @@ herein
 
 	Plugin  = LIBCALL_TO_ARGS_FN  (String -> List(String))
 		| BUILD_A (String, Builder_Stuff -> Void)
-		| BUILD_ARG_LOAD (String, (String, Int, String) -> String)
+		| BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_C_SUBPROCESS_C (String, (String, Int, String) -> String)
+		| BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_MAIN_PROCESS_C (String, (String, Int, String) -> String)
 		;
 
 	fun make_library_binding  (path: Paths)  (plugins: List(Plugin))
@@ -374,8 +376,10 @@ herein
 		callback_fns_handbuilt_for_'xxx_client_g_pkg'  =  REF 0;
 
 
-		build_fns    =  REF (string_map::empty: string_map::Map( Builder_Stuff -> Void ));
-		arg_load_fns =  REF (string_map::empty: string_map::Map( (String,Int,String) -> String ));
+		build_fns                     =  REF (string_map::empty: string_map::Map( Builder_Stuff -> Void ));
+		#
+		arg_load_fns_for_c_subprocess =  REF (string_map::empty: string_map::Map( (String,Int,String) -> String ));
+		arg_load_fns_for_main_process =  REF (string_map::empty: string_map::Map( (String,Int,String) -> String ));
 
 		fun libcall_to_args_fn  libcall
 		    =
@@ -476,9 +480,13 @@ herein
 				=>
 				build_fns :=  string_map::set  (*build_fns,  build_a,  function_builder);
 
-			    note_plugin (BUILD_ARG_LOAD (arg_type, arg_load_builder))
+			    note_plugin (BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_C_SUBPROCESS_C (arg_type, arg_load_builder))
 				=>
-				arg_load_fns :=  string_map::set  (*arg_load_fns,  arg_type,  arg_load_builder);
+				arg_load_fns_for_c_subprocess :=  string_map::set  (*arg_load_fns_for_c_subprocess,  arg_type,  arg_load_builder);
+
+			    note_plugin (BUILD_ARG_LOAD_FOR_MYTHRYL_XXX_LIBRARY_IN_MAIN_PROCESS_C (arg_type, arg_load_builder))
+				=>
+				arg_load_fns_for_main_process :=  string_map::set  (*arg_load_fns_for_main_process,  arg_type,  arg_load_builder);
 			end;
 		    end;
 
@@ -1188,39 +1196,14 @@ herein
 			    elif (arg_type == "f")    to_mythryl_xxx_library_in_c_subprocess_c_funs (sprintf  "        double            f%d =                      double_arg( argc, argv, %d );\n"  a a);
 			    elif (arg_type == "i")    to_mythryl_xxx_library_in_c_subprocess_c_funs (sprintf  "        int               i%d =                         int_arg( argc, argv, %d );\n"  a a);
 			    elif (arg_type == "s")    to_mythryl_xxx_library_in_c_subprocess_c_funs (sprintf  "        char*             s%d =                      string_arg( argc, argv, %d );\n"  a a);
-			    elif (arg_type == "w")
-
-# The logic here has
-# inputs:
-#     arg_type
-#     a
-#     libcall
-# output:
-#     String
-# This logic is (largely?) duplicated in    build_fun_arg_loads_into_'libmythryl_xxx_c'
-				# Usually we fetch a widget as just
-				#
-				#    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
-				#
-				# or such, but in a few cases we must cast to
-				# another type:
-				#  o If we see   GTK_ADJUSTMENT(w0)    we must do   GtkAdjustment*  w0 =  (GtkAdjustment*)   widget_arg( argc, argv, 0 );
-				#  o If we see   GTK_SCALE(w0)         we must do   GtkScale*       w0 =  (GtkScale*)        widget_arg( argc, argv, 0 );
-				#  o If we wee   GTK_RADIO_BUTTON(w0)  we must do   GtkRadioButton* w0 =  (GtkRadioButton*)  widget_arg( argc, argv, 0 );
-
-				widget_type =  REF "GtkWidget";
-
-				if   (libcall =~ (sprintf   "GTK_ADJUSTMENT\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkAdjustment";
-				elif (libcall =~ (sprintf        "GTK_SCALE\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkScale";
-				elif (libcall =~ (sprintf "GTK_RADIO_BUTTON\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkRadioButton";
-				fi;
-
-				to_mythryl_xxx_library_in_c_subprocess_c_funs (sprintf  "        %-14s    w%d =    %-16s  widget_arg( argc, argv, %d );\n" (*widget_type + "*") a  ("(" + *widget_type + "*)") a);
 
 			    else
-				raise exception FAIL ("Bug: unsupported arg type '" + arg_type + "' #" + int::to_string a + " from libcall '" + libcall + "\n");
+				case (string_map::get  (*arg_load_fns_for_c_subprocess, arg_type))	# Custom library-specific arg type handling for "w" etc.
+				    #
+				    THE build_arg_load_fn =>  to_mythryl_xxx_library_in_c_subprocess_c_funs  (build_arg_load_fn (arg_type, a, libcall));
+				    NULL                  =>  raise exception FAIL ("Bug: unsupported arg type '" + arg_type + "' #" + int::to_string a + " from libcall '" + libcall + "\n");
+				esac;
 			    fi;
-
 			};
 		    };
 
@@ -1464,43 +1447,14 @@ herein
 					elif (arg_type == "f")    to_libmythryl_xxx_c_funs (sprintf  "    double            f%d =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, %d)));\n"              a (a+1));
 					elif (arg_type == "i")    to_libmythryl_xxx_c_funs (sprintf  "    int               i%d =                            GET_TUPLE_SLOT_AS_INT( arg, %d);\n"                a (a+1));
 					elif (arg_type == "s")    to_libmythryl_xxx_c_funs (sprintf  "    char*             s%d =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, %d));\n"               a (a+1));
-					elif (arg_type == "w")
-
-# The logic here has
-# inputs:
-#     a
-#     libcall
-# output:
-#     String
-# This logic is (largely?) duplicated in    build_fun_arg_loads_into_'mythryl_xxx_library_in_c_subprocess_c'
-					    # Usually we fetch a widget as just
-					    #
-					    #    GtkWidget* widget    =  widget[ GET_TUPLE_SLOT_AS_INT (arg, i) ];
-					    #
-					    # or such, but in a few cases we must cast to
-					    # another type:
-					    #  o If we see   GTK_ADJUSTMENT(w0)    we must do   GtkAdjustment*  w0 =  (GtkAdjustment*)   widget[ GET_TUPLE_SLOT_AS_INT( arg, i) ];
-					    #  o If we see   GTK_SCALE(w0)         we must do   GtkScale*       w0 =  (GtkScale*)        widget[ GET_TUPLE_SLOT_AS_INT( arg, i) ];
-					    #  o If we wee   GTK_RADIO_BUTTON(w0)  we must do   GtkRadioButton* w0  =  (GtkRadioButton*) widget[ GET_TUPLE_SLOT_AS_INT( arg, i) ];
-
-					    widget_type = REF "GtkWidget";
-
-					    if   (libcall =~ (sprintf   "GTK_ADJUSTMENT\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkAdjustment";
-					    elif (libcall =~ (sprintf        "GTK_SCALE\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkScale";
-					    elif (libcall =~ (sprintf "GTK_RADIO_BUTTON\\(\\s*w%d\\s*\\)" a))   widget_type := "GtkRadioButton";
-					    fi;
-
-					    to_libmythryl_xxx_c_funs (sprintf  "    %-14s    w%d  =    %-16s  widget[ GET_TUPLE_SLOT_AS_INT( arg, %d) ];\n"
-								      (*widget_type + "*")
-								      a
-								      ("(" + *widget_type + "*)")
-								      (a+1)				# +1 because first arg is always Session.
-							    );
 
 					else
-					    raise exception FAIL ("Bug: unsupported arg type '" + arg_type + "' #" + int::to_string a + " from libcall '" + libcall + "\n");
+					    case (string_map::get  (*arg_load_fns_for_main_process, arg_type))		# Custom library-specific arg type handling for "w" etc.
+						#
+						THE build_arg_load_fn =>  to_libmythryl_xxx_c_funs  (build_arg_load_fn (arg_type, a, libcall));
+						NULL                  =>  raise exception FAIL ("Bug: unsupported arg type '" + arg_type + "' #" + int::to_string a + " from libcall '" + libcall + "\n");
+					    esac;
 					fi;
-
 				    };
 				};
 			esac;
