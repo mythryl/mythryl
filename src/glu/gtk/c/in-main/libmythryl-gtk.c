@@ -1000,7 +1000,38 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 
 
 
-
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/gtk/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//  build_plain_fn
+//  -> build_plain_fun_for_'libmythryl_xxx_c'
+//     -> build_fun_header_for_'libmythryl_xxx_c'
+//      + build_fun_arg_loads_for_'libmythryl_xxx_c'
+//      + build_fun_body_for_'libmythryl_xxx_c'			# Optionally invokes new_widget_custom_body_plain_fun_mainprocess
+//                                                              # or                     widget_custom_body_plain_fun_mainprocess,
+//                                                              # from src/glu/gtk/sh/make-gtk-glue
+//      + build_fun_trailer_for_'libmythryl_xxx_c'
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//   mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/gtk/sh/make-gtk-glue
+//   ->  build_callback_function						# In src/glu/gtk/sh/make-gtk-glue
+//       ->  build_set_callback_fn_for_'libmythryl_xxx_c'			# In src/glu/gtk/sh/make-gtk-glue
+//           ->  r.to_libmythryl_xxx_c_funs					# In src/lib/make-library-glue/make-library-glue.pkg
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 /* do__make_window
  *
@@ -3869,7 +3900,7 @@ static Val   do__set_value_changed_callback (Task* task, Val arg)
 
 
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
-
+/////////////////////////////////////////////////////////////////////////////////////
 
 /////////////// old libmythryl-gtk.c contents follow //////////////////////////////////
 
@@ -3923,6 +3954,32 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Gtk_run_ev
 
 
 
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/gtk/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//   build_plain_function
+//     -> build_table_entry_for_'libmythryl_xxx_c
+//        -> to_libmythryl_xxx_c_table
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//   mlb::BUILD_A ("callback-fn", build_callback_function)				# In src/glu/gtk/sh/make-gtk-glue
+//   ->  build_callback_function							# In src/glu/gtk/sh/make-gtk-glue
+//       ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);		# In src/lib/make-library-glue/make-library-glue.pkg
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("make_window",                              "make_window",                              do__make_window,                                       "Session -> Widget")
 CFUNC("make_label",                               "make_label",                               do__make_label,                                       "(Session, String) -> Widget")
@@ -4079,6 +4136,7 @@ CFUNC("set_window_state_event_callback",          "set_window_state_event_callba
 CFUNC("set_toggled_callback",                     "set_toggled_callback",                     do__set_toggled_callback,                              "Session -> Widget -> Bool_Callback -> Void")
 CFUNC("set_value_changed_callback",               "set_value_changed_callback",               do__set_value_changed_callback,                        "Session -> Widget -> Float_Callback -> Void")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/////////////////////////////////////////////////////////////////////////////////////
 
 	CFUNC_NULL_BIND
     };

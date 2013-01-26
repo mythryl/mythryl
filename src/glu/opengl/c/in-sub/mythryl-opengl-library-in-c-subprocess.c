@@ -466,7 +466,37 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 }
 
 
-
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/opengl/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//  build_plain_fn
+//  -> build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'
+//     -> build_fun_header_for_'mythryl_xxx_library_in_c_subprocess_c'
+//      + build_fun_arg_loads_for_'mythryl_xxx_library_in_c_subprocess_c'
+//       							# Optionally invokes new_widget_custom_body_plain_fun_subprocess
+//                                                              # or                     widget_custom_body_plain_fun_subprocess,
+//                                                              # from src/glu/opengl/sh/make-opengl-glue
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//   mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/opengl/sh/make-opengl-glue
+//   ->  build_callback_function						# In src/glu/opengl/sh/make-opengl-glue
+//       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/opengl/sh/make-opengl-glue
+//           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
@@ -665,6 +695,9 @@ do__negate_boolean( int argc, unsigned char** argv )
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/////////////////////////////////////////////////////////////////////////////////////
+
+
 
 #ifdef OLD
 static void
@@ -836,7 +869,33 @@ init  (void)
     set_trie( trie, "get_widget_allocation",			do_get_widget_allocation			);
 #endif
 
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    /////////////////////////////////////////////////////////////////////////////////////
+    // The following stuff gets built from paragraphs in
+    //     src/glu/opengl/etc/library-glue.plan
+    // via logic in
+    //     src/lib/make-library-glue/make-library-glue.pkg
+    //
+    // Paragraphs like
+    //     build-a: plain-fn
+    //     fn-name:
+    //     fn-type:
+    //     libcall:
+    // drive the code-build path
+    //   build_plain_function
+    //     -> build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'
+    //        -> to_mythryl_xxx_library_in_c_subprocess_c_trie
+    // 
+    // Paragraphs like
+    //     build-a: callback-fn
+    //     fn-name:
+    //     fn-type:
+    //     lowtype:
+    // drive the code-build path
+    //   mlb::BUILD_A ("callback-fn", build_callback_function)				# In src/glu/opengl/sh/make-opengl-glue
+    //   ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
+    //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
+    //
+    /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "open_window2",                               do__open_window2                              );
     set_trie( trie, "open_window",                                do__open_window                               );
     set_trie( trie, "terminate",                                  do__terminate                                 );
@@ -850,7 +909,8 @@ init  (void)
     set_trie( trie, "negate_int",                                 do__negate_int                                );
     set_trie( trie, "negate_float",                               do__negate_float                              );
     set_trie( trie, "negate_boolean",                             do__negate_boolean                            );
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /////////////////////////////////////////////////////////////////////////////////////
 
     if (duplicate_trie_entries) {
         fprintf(stderr, "%d duplicate trie entries.\n", duplicate_trie_entries );    fflush( stderr );

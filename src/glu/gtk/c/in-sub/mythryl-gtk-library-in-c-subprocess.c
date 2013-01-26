@@ -767,6 +767,37 @@ static int int_to_range_update_policy( int i1 ) {
     return i1;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/gtk/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//  build_plain_fn
+//  -> build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'
+//     -> build_fun_header_for_'mythryl_xxx_library_in_c_subprocess_c'
+//      + build_fun_arg_loads_for_'mythryl_xxx_library_in_c_subprocess_c'
+//       							# Optionally invokes new_widget_custom_body_plain_fun_subprocess
+//                                                              # or                     widget_custom_body_plain_fun_subprocess,
+//                                                              # from src/glu/gtk/sh/make-gtk-glue
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//   mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/gtk/sh/make-gtk-glue
+//   ->  build_callback_function						# In src/glu/gtk/sh/make-gtk-glue
+//       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/gtk/sh/make-gtk-glue
+//           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 
 static void
@@ -3313,6 +3344,9 @@ do__set_value_changed_callback( int argc, unsigned char** argv )
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/////////////////////////////////////////////////////////////////////////////////////
+
+
 
 static void
 do_make_dialog( int argc, unsigned char** argv )
@@ -3490,7 +3524,33 @@ init  (void)
     set_trie( trie, "test",					do_test						);
     set_trie( trie, "get_widget_allocation",			do_get_widget_allocation			);
 
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    /////////////////////////////////////////////////////////////////////////////////////
+    // The following stuff gets built from paragraphs in
+    //     src/glu/gtk/etc/library-glue.plan
+    // via logic in
+    //     src/lib/make-library-glue/make-library-glue.pkg
+    //
+    // Paragraphs like
+    //     build-a: plain-fn
+    //     fn-name:
+    //     fn-type:
+    //     libcall:
+    // drive the code-build path
+    //   build_plain_function
+    //     -> build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'
+    //        -> to_mythryl_xxx_library_in_c_subprocess_c_trie
+    // 
+    // Paragraphs like
+    //     build-a: callback-fn
+    //     fn-name:
+    //     fn-type:
+    //     lowtype:
+    // drive the code-build path
+    //   mlb::BUILD_A ("callback-fn", build_callback_function)				# In src/glu/gtk/sh/make-gtk-glue
+    //   ->  build_callback_function							# In src/glu/gtk/sh/make-gtk-glue
+    //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
+    //
+    /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "make_window",                                do__make_window                               );
     set_trie( trie, "make_label",                                 do__make_label                                );
     set_trie( trie, "make_status_bar_context_id",                 do__make_status_bar_context_id                );
@@ -3645,7 +3705,8 @@ init  (void)
     set_trie( trie, "set_window_state_event_callback",            do__set_window_state_event_callback           );
     set_trie( trie, "set_toggled_callback",                       do__set_toggled_callback                      );
     set_trie( trie, "set_value_changed_callback",                 do__set_value_changed_callback                );
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /////////////////////////////////////////////////////////////////////////////////////
 
     if (duplicate_trie_entries) {
         fprintf(stderr, "%d duplicate trie entries.\n", duplicate_trie_entries );    fflush( stderr );

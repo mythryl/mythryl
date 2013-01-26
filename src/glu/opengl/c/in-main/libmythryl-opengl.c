@@ -358,7 +358,36 @@ static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
 
 
 
-
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/opengl/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//  build_plain_fn
+//  -> build_plain_fun_for_'libmythryl_xxx_c'
+//     -> build_fun_header_for_'libmythryl_xxx_c'
+//      + build_fun_arg_loads_for_'libmythryl_xxx_c'
+//      + build_fun_body_for_'libmythryl_xxx_c'
+//      + build_fun_trailer_for_'libmythryl_xxx_c'
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//     mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/opengl/sh/make-opengl-glue
+//  ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
+//  ->  build_set_callback_fn_for_'libmythryl_xxx_c'				# In src/glu/opengl/sh/make-opengl-glue
+//  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 /* do__open_window2
  *
@@ -591,6 +620,8 @@ static Val   do__negate_boolean   (Task* task, Val arg)
 
 
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/////////////////////////////////////////////////////////////////////////////////////
+
 
 
 /////////////// old libmythryl-opengl.c contents follow //////////////////////////////////
@@ -629,6 +660,33 @@ CFUNC("type_of_next_queued_callback","type_of_next_queued_callback",	   do__type
 CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__get_queued_int_pair_callback,	"Void -> (Int, Int, Int)")  // Void -> (callback_number, x, y)
 
 
+/////////////////////////////////////////////////////////////////////////////////////
+// The following stuff gets built from paragraphs in
+//     src/glu/opengl/etc/library-glue.plan
+// via logic in
+//     src/lib/make-library-glue/make-library-glue.pkg
+//
+// Paragraphs like
+//     build-a: plain-fn
+//     fn-name:
+//     fn-type:
+//     libcall:
+// drive the code-build path
+//   build_plain_function
+//     -> build_table_entry_for_'libmythryl_xxx_c
+//        -> to_libmythryl_xxx_c_table
+// 
+// Paragraphs like
+//     build-a: callback-fn
+//     fn-name:
+//     fn-type:
+//     lowtype:
+// drive the code-build path
+//   mlb::BUILD_A ("callback-fn", build_callback_function)				# In src/glu/opengl/sh/make-opengl-glue
+//   ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
+//       ->  build_set_callback_fn_for_'libmythryl_xxx_c'				# In src/glu/opengl/sh/make-opengl-glue
+//           ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);
+//
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
 CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool")
@@ -644,6 +702,7 @@ CFUNC("negate_int",                               "negate_int",                 
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
 CFUNC("negate_boolean",                           "negate_boolean",                           do__negate_boolean,                                   "(Session, Bool) -> Bool")
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/////////////////////////////////////////////////////////////////////////////////////
 
 	CFUNC_NULL_BIND
     };
