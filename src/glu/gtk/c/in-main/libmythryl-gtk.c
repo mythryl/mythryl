@@ -1015,8 +1015,8 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 //  build_plain_fn
 //  -> build_plain_fun_for_'libmythryl_xxx_c'
 //     -> build_fun_header_for_'libmythryl_xxx_c'
-//      + build_fun_arg_loads_for_'libmythryl_xxx_c'
-//      + build_fun_body_for_'libmythryl_xxx_c'			# Optionally invokes new_widget_custom_body_plain_fun_mainprocess
+//      + build_fun_arg_loads_for__'libmythryl_xxx_c'
+//      + build_fun_body_for__'libmythryl_xxx_c'			# Optionally invokes new_widget_custom_body_plain_fun_mainprocess
 //                                                              # or                     widget_custom_body_plain_fun_mainprocess,
 //                                                              # from src/glu/gtk/sh/make-gtk-glue
 //      + build_fun_trailer_for_'libmythryl_xxx_c'

@@ -373,8 +373,8 @@ static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
 //  build_plain_fn
 //  -> build_plain_fun_for_'libmythryl_xxx_c'
 //     -> build_fun_header_for_'libmythryl_xxx_c'
-//      + build_fun_arg_loads_for_'libmythryl_xxx_c'
-//      + build_fun_body_for_'libmythryl_xxx_c'
+//      + build_fun_arg_loads_for__'libmythryl_xxx_c'
+//      + build_fun_body_for__'libmythryl_xxx_c'
 //      + build_fun_trailer_for_'libmythryl_xxx_c'
 // 
 // Paragraphs like
