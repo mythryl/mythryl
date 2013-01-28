@@ -456,7 +456,6 @@ static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
 //     build-a: callback-fn
 //     fn-name:
 //     fn-type:
-//     lowtype:
 // drive the code-build path
 //     mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/opengl/sh/make-opengl-glue
 //  ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
@@ -464,6 +463,23 @@ static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
 //  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
 //
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+
+
+/*  do__set_window_size_event_callback : Session -> Window_Size_Event_Callback -> Void
+ */
+static Val   do__set_window_size_event_callback (Task* task, Val arg)
+{
+
+    int id   =  find_free_callback_id ();
+    window_size_event_callback_number =  id;
+
+    glfwSetWindowSizeCallback( run_window_size_event_callback );
+
+    return TAGGED_INT_FROM_C_INT(id);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/opengl/etc/library-glue.plan.*/
+
+
 /* do__open_window2
  *
  * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
@@ -763,6 +779,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 //           ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);
 //
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
 CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
 CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool")
 CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")

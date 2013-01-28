@@ -421,7 +421,6 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 //     build-a: callback-fn
 //     fn-name:
 //     fn-type:
-//     lowtype:
 // drive the code-build path
 //   mlb::BUILD_A ("callback-fn", build_callback_function)			# In src/glu/opengl/sh/make-opengl-glue
 //   ->  build_callback_function						# In src/glu/opengl/sh/make-opengl-glue
@@ -429,6 +428,22 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 //           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
 //
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+
+static void
+do__set_window_size_event_callback( int argc, unsigned char** argv )
+{
+    check_argc( "do__set_window_size_event_callback", 0, argc );
+
+    {   int id   =  find_free_callback_id ();
+        window_size_event_callback_number =  id;
+
+        glfwSetWindowSizeCallback( run_window_size_event_callback );
+
+         printf(              "set_window_size_event_callback%d\n", id );      fflush( stdout );
+        fprintf(log_fd, "SENT: set_window_size_event_callback%d\n", id );      fflush( log_fd );
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan.*/
 
 static void
 do__open_window2( int argc, unsigned char** argv )
@@ -821,6 +836,7 @@ init  (void)
     //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
     //
     /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    set_trie( trie, "set_window_size_event_callback",             do__set_window_size_event_callback            );
     set_trie( trie, "open_window2",                               do__open_window2                              );
     set_trie( trie, "open_window",                                do__open_window                               );
     set_trie( trie, "terminate",                                  do__terminate                                 );
