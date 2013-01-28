@@ -192,6 +192,81 @@ static Callback_Queue_Entry   get_next_queued_callback   ()   {
     return callback_queue[ cat ];
 }
 
+static void   queue_up_callback   (Callback_Queue_Entry entry)   {
+    //        =================
+    int rat = callback_queue_rat;
+
+    callback_queue_rat = callback_queue_bump( callback_queue_rat );
+
+    if (callback_queue_is_empty()) {
+	//
+        strcpy( text_buf, "queue_up_callback(): Callback queue overflowed.\n" );
+        moan_and_die();
+    }
+    callback_queue[ rat ] = entry;
+}
+
+static void   queue_up_void_callback   (int callback)   {
+    //        ======================
+    Callback_Queue_Entry e;
+    //
+    e.callback_type   =  QUEUED_VOID_CALLBACK;
+    e.callback_number =  callback;
+    //
+    queue_up_callback(e);
+}
+void dummy_call_to__queue_up_void_callback() { queue_up_void_callback(1); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+
+static void   queue_up_bool_callback   (int callback, int bool_value)   {
+    //        ======================  
+    Callback_Queue_Entry e;
+    //
+    e.callback_type    =  QUEUED_BOOL_CALLBACK;
+    e.callback_number  =  callback;
+    e.entry.bool_value =  bool_value;
+    //
+    queue_up_callback( e );
+}
+										void dummy_call_to__queue_up_bool_callback() { queue_up_bool_callback(1,TRUE); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+
+static void   queue_up_float_callback   (int callback,  double float_value)   {
+    //        =======================
+    Callback_Queue_Entry e;
+    //
+    e.callback_type     =  QUEUED_FLOAT_CALLBACK;
+    e.callback_number   =  callback;
+    e.entry.float_value =  float_value;
+    //
+    queue_up_callback( e );
+}
+										void dummy_call_to__queue_up_float_callback() { queue_up_float_callback(1,1.0); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+
+static int   find_free_callback_id   ()   {
+    //       =====================
+    static int next_callback_id = 1;
+
+    return next_callback_id++;
+}
+										void dummy_call_to__find_free_callback_id() { find_free_callback_id(); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+
+static int               window_size_event_callback_number;
+static void GLFWCALL run_window_size_event_callback   (int wide,  int high)   {
+    //               ==============================
+
+    Callback_Queue_Entry e;
+
+    e.callback_type    =  QUEUED_INT_PAIR_CALLBACK;
+    e.callback_number  =  window_size_event_callback_number;
+
+    e.entry.int_pair.x  = wide;
+    e.entry.int_pair.y  = high;
+
+    queue_up_callback(e);
+}
+										void dummy_call_to__run_window_size_event_callback() { run_window_size_event_callback(1,2); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+
+
+
 
 #ifdef OLD
 static int   find_free_widget_slot   (void)   {

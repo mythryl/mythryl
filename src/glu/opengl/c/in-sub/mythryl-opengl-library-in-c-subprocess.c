@@ -175,95 +175,15 @@ open_logfile (void)
     }
 }
 
-
-
-#define GtkWidget void
-
-
-#define MAX_WIDGETS 1024
-static GtkWidget* widget[ MAX_WIDGETS ];			// XXX BUGGO FIXME Should expand in size as needed.
-
-#ifdef SOON
 static int
-find_free_widget_slot(void)
+find_free_callback_id ()
 {
-    int i;
-    for (i = 1; i < MAX_WIDGETS; ++i) {				// We reserve 0 as an always-invalid analog to NULL.
-        if (!widget[i])  return i;
-    }
-    sprintf(text_buf, "find_free_widget_slot: All slots full.");
-    moan_and_die();
-    return 0;							// Can't happen, but keeps gcc quiet. */
+    static int next_callback_id = 1;
+    //
+    return next_callback_id++;
 }
-#endif
 
-#ifdef SOON
-static int
-find_widget_id( GtkWidget* query_widget )
-{   int  i;
-    for (i = 1;   i < MAX_WIDGETS;   ++i) {
-
-        if (widget[i] == query_widget)   return i;
-    }
-    return 0;
-}
-#endif
-
-#ifdef OLD
-static int
-get_widget_id( GtkWidget* query_widget )
-{
-    int slot = find_widget_id( query_widget );
-
-    if (!slot) {
-	 slot = find_free_widget_slot ();
-
-	 widget[slot] = (GtkWidget*) query_widget;
-    }
-
-    return slot;
-}
-#endif
-
-#ifdef OLD
-static GtkWidget*
-widget_arg( int iargc, unsigned char** argv, int ii)
-{
-    unsigned int argc = (unsigned int) iargc;
-    unsigned int i    = (unsigned int) ii;
-
-    if (i >= argc) {
-        sprintf (text_buf, "widget_arg: Attempted to use arg %d from length-%d argv.\n", ii, iargc); moan_and_die();
-    }
-    {   unsigned char* id = argv[ii];
-
-        if (id[0] != 'W'
-        ||  id[1] != 'I'
-        ||  id[2] != 'D'
-        ||  id[3] != 'G'
-        ||  id[4] != 'E'
-        ||  id[5] != 'T'
-        ||  !isdigit( id[6] )
-	){
-	  sprintf (text_buf, "FATAL widget_arg bad widget id '%s'\n", id); moan_and_die();
-        }
-
-        {   int widget_id = atoi( (char*) (id + 6) );
-	    if (widget_id >= MAX_WIDGETS) {
-	        sprintf (text_buf, "widget_arg: widget id '%s' out of range (max is %d).\n", id, MAX_WIDGETS); moan_and_die();
-	    }
-            {   GtkWidget* result = widget[ widget_id ];
-
-	        if (!result && widget_id) {
-		    sprintf (text_buf, "widget_arg: widget id '%s' is not assigned.\n", id); moan_and_die();
-	        }
-
-                return result;
-            }
-        }
-    }
-}
-#endif
+										void dummy_call_to__find_free_callback_id() { find_free_callback_id (); }	// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static char*
 string_arg( int iargc, unsigned char** argv, int ii)
@@ -327,6 +247,17 @@ bool_arg( int iargc, unsigned char** argv, int ii)
     return 0;								// Cannot execute; keeps gcc quiet.
 }
 
+static int               window_size_event_callback_number;
+static void GLFWCALL run_window_size_event_callback	(int wide, int high)
+{
+    char buf[ 4096 ];
+
+    sprintf( buf, "%d %d %d", window_size_event_callback_number, wide, high );
+
+    printf (             "WINDOW_SIZE_CALLBACK%s\n", buf); fflush( stdout );
+    fprintf(log_fd,"SENT: WINDOW_SIZE_CALLBACK%s\n", buf); fflush( log_fd );
+}
+										void dummy_call_to__run_window_size_event_callback() { run_window_size_event_callback (1,2); }	// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 
 
@@ -843,12 +774,6 @@ static void
 init  (void)
 {
     open_logfile ();
-
-    /* Initialize our widget array:
-    */
-    {   int i;
-        for (i = MAX_WIDGETS;  i --> 0;  )  widget[i] = NULL;
-    }
 
     /* Initialize our verb trie:
     */
