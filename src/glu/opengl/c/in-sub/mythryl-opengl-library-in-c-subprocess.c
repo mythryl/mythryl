@@ -472,14 +472,13 @@ do__open_window2( int argc, unsigned char** argv )
 static void
 do__open_window( int argc, unsigned char** argv )
 {
-    check_argc( "do__open_window", 3, argc );
+    check_argc( "do__open_window", 2, argc );
 
     {
         int               i0 =                         int_arg( argc, argv, 0 );
         int               i1 =                         int_arg( argc, argv, 1 );
-        int               b2 =                        bool_arg( argc, argv, 2 );
 
-        int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/b2 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+        int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
 
          printf(              "open_window%d\n", result);      fflush( stdout );
         fprintf(log_fd, "SENT: open_window%d\n", result);      fflush( log_fd );

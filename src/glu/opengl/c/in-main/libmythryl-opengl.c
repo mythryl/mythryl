@@ -507,17 +507,16 @@ static Val   do__open_window2   (Task* task, Val arg)
 
 /* do__open_window
  *
- * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool
- * opengl-client-driver.api type:   (Session, Int, Int, Bool) -> Bool
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int } -> Bool
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Bool
  */
 static Val   do__open_window   (Task* task, Val arg)
 {
 
     int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
     int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               b2 =                            GET_TUPLE_SLOT_AS_VAL( arg, 3) == HEAP_TRUE;
 
-    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/b2 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
@@ -781,7 +780,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
 CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
-CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int,  fullscreen: Bool } -> Bool")
+CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int } -> Bool")
 CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")
 CFUNC("swap_buffers",                             "swap_buffers",                             do__swap_buffers,                                      "Session -> Void")
 CFUNC("get_window_param",                         "get_window_param",                         do__get_window_param,                                  "Session -> Bool")
