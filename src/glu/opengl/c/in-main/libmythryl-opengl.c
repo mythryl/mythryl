@@ -515,6 +515,26 @@ static Val   do__set_window_size_event_callback (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/opengl/etc/library-glue.plan.*/
 
 
+/* do__glew_init
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__glew_init   (Task* task, Val arg)
+{
+
+
+    GLenum result = glewInit();;
+    if (result != GLEW_OK) {
+        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+        exit(1);
+    }
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+
+
 /* do__open_window2
  *
  * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
@@ -814,6 +834,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 //
 /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
 CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
+CFUNC("glew_init",                                "glew_init",                                do__glew_init,                                         "Session -> Void")
 CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
 CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int } -> Bool")
 CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")

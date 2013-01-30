@@ -464,38 +464,49 @@ do__set_window_size_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_size_event_callback", 0, argc );
 
-    {   int id   =  find_free_callback_id ();
-        window_size_event_callback_number =  id;
+    int id   =  find_free_callback_id ();
+    window_size_event_callback_number =  id;
 
-        glfwSetWindowSizeCallback( run_window_size_event_callback );
+    glfwSetWindowSizeCallback( run_window_size_event_callback );
 
-         printf(              "set_window_size_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_window_size_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_window_size_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_window_size_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan.*/
+
+static void
+do__glew_init( int argc, unsigned char** argv )
+{
+    check_argc( "do__glew_init", 0, argc );
+
+
+    GLenum result = glewInit();;
+    if (result != GLEW_OK) {
+        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+        exit(1);
+    }
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
 static void
 do__open_window2( int argc, unsigned char** argv )
 {
     check_argc( "do__open_window2", 9, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
-        int               i6 =                         int_arg( argc, argv, 6 );
-        int               i7 =                         int_arg( argc, argv, 7 );
-        int               b8 =                        bool_arg( argc, argv, 8 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
+    int               i6 =                         int_arg( argc, argv, 6 );
+    int               i7 =                         int_arg( argc, argv, 7 );
+    int               b8 =                        bool_arg( argc, argv, 8 );
 
-        int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
 
-         printf(              "open_window2%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: open_window2%d\n", result);      fflush( log_fd );
-    }
+     printf(              "open_window2%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: open_window2%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -504,15 +515,13 @@ do__open_window( int argc, unsigned char** argv )
 {
     check_argc( "do__open_window", 2, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
 
-         printf(              "open_window%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: open_window%d\n", result);      fflush( log_fd );
-    }
+     printf(              "open_window%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: open_window%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -521,10 +530,8 @@ do__terminate( int argc, unsigned char** argv )
 {
     check_argc( "do__terminate", 0, argc );
 
-    {
 
-        glfwTerminate();
-    }
+    glfwTerminate();
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -533,10 +540,8 @@ do__swap_buffers( int argc, unsigned char** argv )
 {
     check_argc( "do__swap_buffers", 0, argc );
 
-    {
 
-        glfwSwapBuffers();
-    }
+    glfwSwapBuffers();
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -545,13 +550,11 @@ do__get_window_param( int argc, unsigned char** argv )
 {
     check_argc( "do__get_window_param", 0, argc );
 
-    {
 
-        int result = glfwGetWindowParam( GLFW_OPENED );
+    int result = glfwGetWindowParam( GLFW_OPENED );
 
-         printf(              "get_window_param%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_window_param%d\n", result);      fflush( log_fd );
-    }
+     printf(              "get_window_param%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_window_param%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -560,11 +563,9 @@ do__set_window_title( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_title", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        glfwSetWindowTitle( s0 );
-    }
+    glfwSetWindowTitle( s0 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -573,12 +574,10 @@ do__set_window_size( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_size", 2, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
-    }
+    glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -587,12 +586,10 @@ do__set_window_position( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_position", 2, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        glfwSetWindowPos( /*x*/i0, /*y*/i1 );
-    }
+    glfwSetWindowPos( /*x*/i0, /*y*/i1 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -601,12 +598,10 @@ do__clear( int argc, unsigned char** argv )
 {
     check_argc( "do__clear", 2, argc );
 
-    {
-        int               b0 =                        bool_arg( argc, argv, 0 );
-        int               b1 =                        bool_arg( argc, argv, 1 );
+    int               b0 =                        bool_arg( argc, argv, 0 );
+    int               b1 =                        bool_arg( argc, argv, 1 );
 
-        glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
-    }
+    glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -615,10 +610,8 @@ do__print_hello_world( int argc, unsigned char** argv )
 {
     check_argc( "do__print_hello_world", 0, argc );
 
-    {
 
-        fprintf(stderr,"Hello, world!\n");
-    }
+    fprintf(stderr,"Hello, world!\n");
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -627,14 +620,12 @@ do__negate_int( int argc, unsigned char** argv )
 {
     check_argc( "do__negate_int", 1, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
+    int               i0 =                         int_arg( argc, argv, 0 );
 
-        int result = -i0;
+    int result = -i0;
 
-         printf(              "negate_int%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: negate_int%d\n", result);      fflush( log_fd );
-    }
+     printf(              "negate_int%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: negate_int%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -643,14 +634,12 @@ do__negate_float( int argc, unsigned char** argv )
 {
     check_argc( "do__negate_float", 1, argc );
 
-    {
-        double            f0 =                      double_arg( argc, argv, 0 );
+    double            f0 =                      double_arg( argc, argv, 0 );
 
-        double result = -f0;
+    double result = -f0;
 
-         printf(              "negate_float%f\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: negate_float%f\n", result);      fflush( log_fd );
-    }
+     printf(              "negate_float%f\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: negate_float%f\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 
@@ -659,14 +648,12 @@ do__negate_boolean( int argc, unsigned char** argv )
 {
     check_argc( "do__negate_boolean", 1, argc );
 
-    {
-        int               b0 =                        bool_arg( argc, argv, 0 );
+    int               b0 =                        bool_arg( argc, argv, 0 );
 
-        int result = !b0;
+    int result = !b0;
 
-         printf(              "negate_boolean%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
-    }
+     printf(              "negate_boolean%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
@@ -866,6 +853,7 @@ init  (void)
     //
     /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
     set_trie( trie, "set_window_size_event_callback",             do__set_window_size_event_callback            );
+    set_trie( trie, "glew_init",                                  do__glew_init                                 );
     set_trie( trie, "open_window2",                               do__open_window2                              );
     set_trie( trie, "open_window",                                do__open_window                               );
     set_trie( trie, "terminate",                                  do__terminate                                 );

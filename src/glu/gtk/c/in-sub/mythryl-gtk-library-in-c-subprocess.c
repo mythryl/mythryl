@@ -805,15 +805,13 @@ do__make_window( int argc, unsigned char** argv )
 {
     check_argc( "do__make_window", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_window_new( GTK_WINDOW_TOPLEVEL );
+    widget[slot] = gtk_window_new( GTK_WINDOW_TOPLEVEL );
 
-         printf(             "make_window%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_window%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_window%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_window%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -822,16 +820,14 @@ do__make_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_label_new( /*label*/s0 );
+    widget[slot] = gtk_label_new( /*label*/s0 );
 
-         printf(             "make_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -840,15 +836,13 @@ do__make_status_bar_context_id( int argc, unsigned char** argv )
 {
     check_argc( "do__make_status_bar_context_id", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        int result = gtk_statusbar_get_context_id( GTK_STATUSBAR(/*status_bar*/w0), /*description*/s1);
+    int result = gtk_statusbar_get_context_id( GTK_STATUSBAR(/*status_bar*/w0), /*description*/s1);
 
-         printf(              "make_status_bar_context_id%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: make_status_bar_context_id%d\n", result);      fflush( log_fd );
-    }
+     printf(              "make_status_bar_context_id%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: make_status_bar_context_id%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -857,15 +851,13 @@ do__make_menu( int argc, unsigned char** argv )
 {
     check_argc( "do__make_menu", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_menu_new ();
+    widget[slot] = gtk_menu_new ();
 
-         printf(             "make_menu%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_menu%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_menu%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_menu%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -874,15 +866,13 @@ do__make_option_menu( int argc, unsigned char** argv )
 {
     check_argc( "do__make_option_menu", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_option_menu_new ();
+    widget[slot] = gtk_option_menu_new ();
 
-         printf(             "make_option_menu%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_option_menu%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_option_menu%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_option_menu%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -891,15 +881,13 @@ do__make_menu_bar( int argc, unsigned char** argv )
 {
     check_argc( "do__make_menu_bar", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_menu_bar_new ();
+    widget[slot] = gtk_menu_bar_new ();
 
-         printf(             "make_menu_bar%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_menu_bar%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_menu_bar%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_menu_bar%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -908,15 +896,13 @@ do__make_combo_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_combo_box", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_combo_box_new ();
+    widget[slot] = gtk_combo_box_new ();
 
-         printf(             "make_combo_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_combo_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_combo_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_combo_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -925,15 +911,13 @@ do__make_text_combo_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_text_combo_box", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_combo_box_new_text ();
+    widget[slot] = gtk_combo_box_new_text ();
 
-         printf(             "make_text_combo_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_text_combo_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_text_combo_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_text_combo_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -942,16 +926,14 @@ do__make_frame( int argc, unsigned char** argv )
 {
     check_argc( "do__make_frame", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_frame_new (*/*label*/s0 ? /*label*/s0 : NULL);
+    widget[slot] = gtk_frame_new (*/*label*/s0 ? /*label*/s0 : NULL);
 
-         printf(             "make_frame%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_frame%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_frame%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_frame%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -960,15 +942,13 @@ do__make_button( int argc, unsigned char** argv )
 {
     check_argc( "do__make_button", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_button_new ();
+    widget[slot] = gtk_button_new ();
 
-         printf(             "make_button%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_button%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_button%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_button%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -977,16 +957,14 @@ do__make_button_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_button_with_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_button_new_with_label( /*label*/s0 );
+    widget[slot] = gtk_button_new_with_label( /*label*/s0 );
 
-         printf(             "make_button_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_button_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_button_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_button_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -995,16 +973,14 @@ do__make_button_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_button_with_mnemonic", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_button_new_with_mnemonic( /*mnemonic_label*/s0 );
+    widget[slot] = gtk_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-         printf(             "make_button_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_button_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_button_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_button_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1013,15 +989,13 @@ do__make_toggle_button( int argc, unsigned char** argv )
 {
     check_argc( "do__make_toggle_button", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_toggle_button_new ();
+    widget[slot] = gtk_toggle_button_new ();
 
-         printf(             "make_toggle_button%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_toggle_button%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_toggle_button%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_toggle_button%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1030,16 +1004,14 @@ do__make_toggle_button_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_toggle_button_with_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_toggle_button_new_with_label( /*label*/s0 );
+    widget[slot] = gtk_toggle_button_new_with_label( /*label*/s0 );
 
-         printf(             "make_toggle_button_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_toggle_button_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_toggle_button_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_toggle_button_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1048,16 +1020,14 @@ do__make_toggle_button_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_toggle_button_with_mnemonic", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_toggle_button_new_with_mnemonic( /*mnemonic_label*/s0 );
+    widget[slot] = gtk_toggle_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-         printf(             "make_toggle_button_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_toggle_button_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_toggle_button_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_toggle_button_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1066,15 +1036,13 @@ do__make_check_button( int argc, unsigned char** argv )
 {
     check_argc( "do__make_check_button", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_check_button_new ();
+    widget[slot] = gtk_check_button_new ();
 
-         printf(             "make_check_button%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_check_button%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_check_button%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_check_button%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1083,16 +1051,14 @@ do__make_check_button_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_check_button_with_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_check_button_new_with_label ( /*label*/s0 );
+    widget[slot] = gtk_check_button_new_with_label ( /*label*/s0 );
 
-         printf(             "make_check_button_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_check_button_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_check_button_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_check_button_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1101,16 +1067,14 @@ do__make_check_button_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_check_button_with_mnemonic", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_check_button_new_with_mnemonic( /*mnemonic_label*/s0 );
+    widget[slot] = gtk_check_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-         printf(             "make_check_button_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_check_button_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_check_button_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_check_button_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1119,15 +1083,13 @@ do__make_menu_item( int argc, unsigned char** argv )
 {
     check_argc( "do__make_menu_item", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_menu_item_new ();
+    widget[slot] = gtk_menu_item_new ();
 
-         printf(             "make_menu_item%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_menu_item%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_menu_item%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_menu_item%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1136,16 +1098,14 @@ do__make_menu_item_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_menu_item_with_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_menu_item_new_with_label( /*label*/s0 );
+    widget[slot] = gtk_menu_item_new_with_label( /*label*/s0 );
 
-         printf(             "make_menu_item_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_menu_item_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_menu_item_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_menu_item_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1154,16 +1114,14 @@ do__make_menu_item_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_menu_item_with_mnemonic", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_menu_item_new_with_mnemonic( /*mnemonic_label*/s0 );
+    widget[slot] = gtk_menu_item_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-         printf(             "make_menu_item_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_menu_item_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_menu_item_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_menu_item_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1172,15 +1130,13 @@ do__make_first_radio_button( int argc, unsigned char** argv )
 {
     check_argc( "do__make_first_radio_button", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new (NULL);
+    widget[slot] = gtk_radio_button_new (NULL);
 
-         printf(             "make_first_radio_button%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_first_radio_button%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_first_radio_button%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_first_radio_button%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1189,16 +1145,14 @@ do__make_next_radio_button( int argc, unsigned char** argv )
 {
     check_argc( "do__make_next_radio_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new_from_widget (GTK_RADIO_BUTTON(/*sib*/w0));
+    widget[slot] = gtk_radio_button_new_from_widget (GTK_RADIO_BUTTON(/*sib*/w0));
 
-         printf(             "make_next_radio_button%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_next_radio_button%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_next_radio_button%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_next_radio_button%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1207,16 +1161,14 @@ do__make_first_radio_button_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_first_radio_button_with_label", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new_with_label(NULL,/*label*/s0);
+    widget[slot] = gtk_radio_button_new_with_label(NULL,/*label*/s0);
 
-         printf(             "make_first_radio_button_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_first_radio_button_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_first_radio_button_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_first_radio_button_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1225,17 +1177,15 @@ do__make_next_radio_button_with_label( int argc, unsigned char** argv )
 {
     check_argc( "do__make_next_radio_button_with_label", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new_with_label_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
+    widget[slot] = gtk_radio_button_new_with_label_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
 
-         printf(             "make_next_radio_button_with_label%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_next_radio_button_with_label%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_next_radio_button_with_label%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_next_radio_button_with_label%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1244,16 +1194,14 @@ do__make_first_radio_button_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_first_radio_button_with_mnemonic", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new_with_mnemonic(NULL,/*label*/s0);
+    widget[slot] = gtk_radio_button_new_with_mnemonic(NULL,/*label*/s0);
 
-         printf(             "make_first_radio_button_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_first_radio_button_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_first_radio_button_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_first_radio_button_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1262,17 +1210,15 @@ do__make_next_radio_button_with_mnemonic( int argc, unsigned char** argv )
 {
     check_argc( "do__make_next_radio_button_with_mnemonic", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_radio_button_new_with_mnemonic_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
+    widget[slot] = gtk_radio_button_new_with_mnemonic_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
 
-         printf(             "make_next_radio_button_with_mnemonic%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_next_radio_button_with_mnemonic%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_next_radio_button_with_mnemonic%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_next_radio_button_with_mnemonic%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1281,17 +1227,15 @@ do__make_arrow( int argc, unsigned char** argv )
 {
     check_argc( "do__make_arrow", 2, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_arrow_new( int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i0), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i1) );
+    widget[slot] = gtk_arrow_new( int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i0), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i1) );
 
-         printf(             "make_arrow%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_arrow%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_arrow%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_arrow%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1300,13 +1244,11 @@ do__set_arrow( int argc, unsigned char** argv )
 {
     check_argc( "do__set_arrow", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_arrow_set( GTK_ARROW(/*arrow*/w0), int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i1), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i2) );
-    }
+    gtk_arrow_set( GTK_ARROW(/*arrow*/w0), int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i1), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i2) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1315,17 +1257,15 @@ do__make_horizontal_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_box", 2, argc );
 
-    {
-        int               b0 =                        bool_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               b0 =                        bool_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
+    widget[slot] = gtk_hbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
 
-         printf(             "make_horizontal_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1334,17 +1274,15 @@ do__make_vertical_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_box", 2, argc );
 
-    {
-        int               b0 =                        bool_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               b0 =                        bool_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
+    widget[slot] = gtk_vbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
 
-         printf(             "make_vertical_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1353,15 +1291,13 @@ do__make_horizontal_button_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_button_box", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hbutton_box_new ();
+    widget[slot] = gtk_hbutton_box_new ();
 
-         printf(             "make_horizontal_button_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_button_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_button_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_button_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1370,15 +1306,13 @@ do__make_vertical_button_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_button_box", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vbutton_box_new ();
+    widget[slot] = gtk_vbutton_box_new ();
 
-         printf(             "make_vertical_button_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_button_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_button_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_button_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1387,18 +1321,16 @@ do__make_table( int argc, unsigned char** argv )
 {
     check_argc( "do__make_table", 3, argc );
 
-    {
-        int               i0 =                         int_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               b2 =                        bool_arg( argc, argv, 2 );
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               b2 =                        bool_arg( argc, argv, 2 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_table_new ( /*rows*/i0, /*cols*/i1, /*homogeneous*/b2 );
+    widget[slot] = gtk_table_new ( /*rows*/i0, /*cols*/i1, /*homogeneous*/b2 );
 
-         printf(             "make_table%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_table%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_table%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_table%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1407,15 +1339,13 @@ do__make_event_box( int argc, unsigned char** argv )
 {
     check_argc( "do__make_event_box", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_event_box_new ();
+    widget[slot] = gtk_event_box_new ();
 
-         printf(             "make_event_box%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_event_box%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_event_box%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_event_box%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1424,16 +1354,14 @@ do__make_image_from_file( int argc, unsigned char** argv )
 {
     check_argc( "do__make_image_from_file", 1, argc );
 
-    {
-        char*             s0 =                      string_arg( argc, argv, 0 );
+    char*             s0 =                      string_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_image_new_from_file( /*filename*/s0 );
+    widget[slot] = gtk_image_new_from_file( /*filename*/s0 );
 
-         printf(             "make_image_from_file%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_image_from_file%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_image_from_file%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_image_from_file%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1442,15 +1370,13 @@ do__make_horizontal_separator( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_separator", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hseparator_new ();
+    widget[slot] = gtk_hseparator_new ();
 
-         printf(             "make_horizontal_separator%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_separator%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_separator%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_separator%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1459,15 +1385,13 @@ do__make_vertical_separator( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_separator", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vseparator_new ();
+    widget[slot] = gtk_vseparator_new ();
 
-         printf(             "make_vertical_separator%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_separator%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_separator%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_separator%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1476,15 +1400,13 @@ do__make_layout_container( int argc, unsigned char** argv )
 {
     check_argc( "do__make_layout_container", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_layout_new (NULL, NULL);
+    widget[slot] = gtk_layout_new (NULL, NULL);
 
-         printf(             "make_layout_container%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_layout_container%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_layout_container%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_layout_container%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1493,14 +1415,12 @@ do__layout_put( int argc, unsigned char** argv )
 {
     check_argc( "do__layout_put", 4, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
 
-        gtk_layout_put( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
-    }
+    gtk_layout_put( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1509,14 +1429,12 @@ do__layout_move( int argc, unsigned char** argv )
 {
     check_argc( "do__layout_move", 4, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
 
-        gtk_layout_move( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
-    }
+    gtk_layout_move( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1525,15 +1443,13 @@ do__make_fixed_container( int argc, unsigned char** argv )
 {
     check_argc( "do__make_fixed_container", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_fixed_new ();
+    widget[slot] = gtk_fixed_new ();
 
-         printf(             "make_fixed_container%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_fixed_container%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_fixed_container%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_fixed_container%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1542,14 +1458,12 @@ do__fixed_put( int argc, unsigned char** argv )
 {
     check_argc( "do__fixed_put", 4, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
 
-        gtk_fixed_put(   GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
-    }
+    gtk_fixed_put(   GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1558,14 +1472,12 @@ do__fixed_move( int argc, unsigned char** argv )
 {
     check_argc( "do__fixed_move", 4, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
 
-        gtk_fixed_move(  GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
-    }
+    gtk_fixed_move(  GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1574,21 +1486,19 @@ do__make_adjustment( int argc, unsigned char** argv )
 {
     check_argc( "do__make_adjustment", 6, argc );
 
-    {
-        double            f0 =                      double_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
-        double            f2 =                      double_arg( argc, argv, 2 );
-        double            f3 =                      double_arg( argc, argv, 3 );
-        double            f4 =                      double_arg( argc, argv, 4 );
-        double            f5 =                      double_arg( argc, argv, 5 );
+    double            f0 =                      double_arg( argc, argv, 0 );
+    double            f1 =                      double_arg( argc, argv, 1 );
+    double            f2 =                      double_arg( argc, argv, 2 );
+    double            f3 =                      double_arg( argc, argv, 3 );
+    double            f4 =                      double_arg( argc, argv, 4 );
+    double            f5 =                      double_arg( argc, argv, 5 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = (GtkWidget*) gtk_adjustment_new ( /*value*/f0, /*lower*/f1, /*upper*/f2, /*step_increment*/f3, /*page_increment*/f4, /*page_size*/f5 );
+    widget[slot] = (GtkWidget*) gtk_adjustment_new ( /*value*/f0, /*lower*/f1, /*upper*/f2, /*step_increment*/f3, /*page_increment*/f4, /*page_size*/f5 );
 
-         printf(             "make_adjustment%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_adjustment%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_adjustment%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_adjustment%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1597,17 +1507,15 @@ do__make_viewport( int argc, unsigned char** argv )
 {
     check_argc( "do__make_viewport", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_viewport_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
+    widget[slot] = gtk_viewport_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
 
-         printf(             "make_viewport%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_viewport%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_viewport%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_viewport%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1616,17 +1524,15 @@ do__make_scrolled_window( int argc, unsigned char** argv )
 {
     check_argc( "do__make_scrolled_window", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_scrolled_window_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
+    widget[slot] = gtk_scrolled_window_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
 
-         printf(             "make_scrolled_window%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_scrolled_window%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_scrolled_window%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_scrolled_window%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1635,15 +1541,13 @@ do__make_horizontal_ruler( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_ruler", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hruler_new ();
+    widget[slot] = gtk_hruler_new ();
 
-         printf(             "make_horizontal_ruler%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_ruler%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_ruler%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_ruler%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1652,15 +1556,13 @@ do__make_vertical_ruler( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_ruler", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vruler_new ();
+    widget[slot] = gtk_vruler_new ();
 
-         printf(             "make_vertical_ruler%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_ruler%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_ruler%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_ruler%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1669,16 +1571,14 @@ do__make_vertical_scrollbar( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_scrollbar", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
+    widget[slot] = gtk_vscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-         printf(             "make_vertical_scrollbar%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_scrollbar%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_scrollbar%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_scrollbar%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1687,16 +1587,14 @@ do__make_horizontal_scrollbar( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_scrollbar", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
+    widget[slot] = gtk_hscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-         printf(             "make_horizontal_scrollbar%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_scrollbar%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_scrollbar%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_scrollbar%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1705,16 +1603,14 @@ do__make_vertical_scale( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_scale", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
+    widget[slot] = gtk_vscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-         printf(             "make_vertical_scale%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_scale%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_scale%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_scale%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1723,16 +1619,14 @@ do__make_horizontal_scale( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_scale", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
+    widget[slot] = gtk_hscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-         printf(             "make_horizontal_scale%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_scale%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_scale%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_scale%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1741,18 +1635,16 @@ do__make_vertical_scale_with_range( int argc, unsigned char** argv )
 {
     check_argc( "do__make_vertical_scale_with_range", 3, argc );
 
-    {
-        double            f0 =                      double_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
-        double            f2 =                      double_arg( argc, argv, 2 );
+    double            f0 =                      double_arg( argc, argv, 0 );
+    double            f1 =                      double_arg( argc, argv, 1 );
+    double            f2 =                      double_arg( argc, argv, 2 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_vscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
+    widget[slot] = gtk_vscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
 
-         printf(             "make_vertical_scale_with_range%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_vertical_scale_with_range%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_vertical_scale_with_range%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_vertical_scale_with_range%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1761,18 +1653,16 @@ do__make_horizontal_scale_with_range( int argc, unsigned char** argv )
 {
     check_argc( "do__make_horizontal_scale_with_range", 3, argc );
 
-    {
-        double            f0 =                      double_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
-        double            f2 =                      double_arg( argc, argv, 2 );
+    double            f0 =                      double_arg( argc, argv, 0 );
+    double            f1 =                      double_arg( argc, argv, 1 );
+    double            f2 =                      double_arg( argc, argv, 2 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_hscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
+    widget[slot] = gtk_hscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
 
-         printf(             "make_horizontal_scale_with_range%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_horizontal_scale_with_range%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_horizontal_scale_with_range%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_horizontal_scale_with_range%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1781,15 +1671,13 @@ do__make_drawing_area( int argc, unsigned char** argv )
 {
     check_argc( "do__make_drawing_area", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_drawing_area_new();
+    widget[slot] = gtk_drawing_area_new();
 
-         printf(             "make_drawing_area%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_drawing_area%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_drawing_area%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_drawing_area%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1798,18 +1686,16 @@ do__make_pixmap( int argc, unsigned char** argv )
 {
     check_argc( "do__make_pixmap", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = (GtkWidget*) gdk_pixmap_new( GDK_DRAWABLE(/*window*/w0), /*wide*/i1, /*high*/i2, -1);
+    widget[slot] = (GtkWidget*) gdk_pixmap_new( GDK_DRAWABLE(/*window*/w0), /*wide*/i1, /*high*/i2, -1);
 
-         printf(             "make_pixmap%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_pixmap%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_pixmap%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_pixmap%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1818,15 +1704,13 @@ do__make_status_bar( int argc, unsigned char** argv )
 {
     check_argc( "do__make_status_bar", 0, argc );
 
-    {
 
-        int slot = find_free_widget_slot ();
+    int slot = find_free_widget_slot ();
 
-        widget[slot] = gtk_statusbar_new();
+    widget[slot] = gtk_statusbar_new();
 
-         printf(             "make_status_bar%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT:make_status_bar%d\n", slot);      fflush( log_fd );
-    }
+     printf(             "make_status_bar%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT:make_status_bar%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1835,16 +1719,14 @@ do__push_text_on_status_bar( int argc, unsigned char** argv )
 {
     check_argc( "do__push_text_on_status_bar", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        char*             s2 =                      string_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    char*             s2 =                      string_arg( argc, argv, 2 );
 
-        int result = gtk_statusbar_push( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*text*/s2);
+    int result = gtk_statusbar_push( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*text*/s2);
 
-         printf(              "push_text_on_status_bar%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: push_text_on_status_bar%d\n", result);      fflush( log_fd );
-    }
+     printf(              "push_text_on_status_bar%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: push_text_on_status_bar%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1853,12 +1735,10 @@ do__pop_text_off_status_bar( int argc, unsigned char** argv )
 {
     check_argc( "do__pop_text_off_status_bar", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_statusbar_pop(GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1);
-    }
+    gtk_statusbar_pop(GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1867,13 +1747,11 @@ do__remove_text_from_status_bar( int argc, unsigned char** argv )
 {
     check_argc( "do__remove_text_from_status_bar", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_statusbar_remove( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*message*/i2);
-    }
+    gtk_statusbar_remove( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*message*/i2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1882,16 +1760,14 @@ do__pack_box( int argc, unsigned char** argv )
 {
     check_argc( "do__pack_box", 6, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               b3 =                        bool_arg( argc, argv, 3 );
-        int               b4 =                        bool_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               b3 =                        bool_arg( argc, argv, 3 );
+    int               b4 =                        bool_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
 
-        if (!/*pack_to_int pack*/i2)  gtk_box_pack_start(   GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 ); else gtk_box_pack_end( GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 );
-    }
+    if (!/*pack_to_int pack*/i2)  gtk_box_pack_start(   GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 ); else gtk_box_pack_end( GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1900,12 +1776,10 @@ do__menu_shell_append( int argc, unsigned char** argv )
 {
     check_argc( "do__menu_shell_append", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        gtk_menu_shell_append( GTK_MENU_SHELL(/*menu*/w0), GTK_WIDGET(/*kid*/w1));
-    }
+    gtk_menu_shell_append( GTK_MENU_SHELL(/*menu*/w0), GTK_WIDGET(/*kid*/w1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1914,12 +1788,10 @@ do__menu_bar_append( int argc, unsigned char** argv )
 {
     check_argc( "do__menu_bar_append", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        gtk_menu_bar_append( GTK_MENU_SHELL(/*menu*/w0), GTK_WIDGET(/*kid*/w1));
-    }
+    gtk_menu_bar_append( GTK_MENU_SHELL(/*menu*/w0), GTK_WIDGET(/*kid*/w1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1928,12 +1800,10 @@ do__append_text_to_combo_box( int argc, unsigned char** argv )
 {
     check_argc( "do__append_text_to_combo_box", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_combo_box_append_text( GTK_COMBO_BOX(/*combo_box*/w0), /*text*/s1);
-    }
+    gtk_combo_box_append_text( GTK_COMBO_BOX(/*combo_box*/w0), /*text*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1942,12 +1812,10 @@ do__set_option_menu_menu( int argc, unsigned char** argv )
 {
     check_argc( "do__set_option_menu_menu", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        gtk_option_menu_set_menu( GTK_OPTION_MENU(/*option_menu*/w0), GTK_WIDGET(/*menu*/w1) );
-    }
+    gtk_option_menu_set_menu( GTK_OPTION_MENU(/*option_menu*/w0), GTK_WIDGET(/*menu*/w1) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1956,12 +1824,10 @@ do__set_text_tooltip_on_widget( int argc, unsigned char** argv )
 {
     check_argc( "do__set_text_tooltip_on_widget", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_widget_set_tooltip_text( GTK_WIDGET(/*widget*/w0), /*text*/s1);
-    }
+    gtk_widget_set_tooltip_text( GTK_WIDGET(/*widget*/w0), /*text*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1970,12 +1836,10 @@ do__set_ruler_metric( int argc, unsigned char** argv )
 {
     check_argc( "do__set_ruler_metric", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_ruler_set_metric( GTK_RULER(/*ruler*/w0), int_to_metric(/*metric_to_int metric*/i1));
-    }
+    gtk_ruler_set_metric( GTK_RULER(/*ruler*/w0), int_to_metric(/*metric_to_int metric*/i1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -1984,15 +1848,13 @@ do__set_ruler_range( int argc, unsigned char** argv )
 {
     check_argc( "do__set_ruler_range", 5, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
-        double            f2 =                      double_arg( argc, argv, 2 );
-        double            f3 =                      double_arg( argc, argv, 3 );
-        double            f4 =                      double_arg( argc, argv, 4 );
+    double            f1 =                      double_arg( argc, argv, 1 );
+    double            f2 =                      double_arg( argc, argv, 2 );
+    double            f3 =                      double_arg( argc, argv, 3 );
+    double            f4 =                      double_arg( argc, argv, 4 );
 
-        gtk_ruler_set_range( GTK_RULER(/*ruler*/w0), /*lower*/f1, /*upper*/f2, /*position*/f3, /*max_size*/f4);
-    }
+    gtk_ruler_set_range( GTK_RULER(/*ruler*/w0), /*lower*/f1, /*upper*/f2, /*position*/f3, /*max_size*/f4);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2001,13 +1863,11 @@ do__set_scrollbar_policy( int argc, unsigned char** argv )
 {
     check_argc( "do__set_scrollbar_policy", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_scrolled_window_set_policy( GTK_SCROLLED_WINDOW(/*window*/w0), int_to_policy(/*scrollbar_policy_to_int horizontal_scrollbar*/i1), int_to_policy(/*scrollbar_policy_to_int vertical_scrollbar*/i2) );
-    }
+    gtk_scrolled_window_set_policy( GTK_SCROLLED_WINDOW(/*window*/w0), int_to_policy(/*scrollbar_policy_to_int horizontal_scrollbar*/i1), int_to_policy(/*scrollbar_policy_to_int vertical_scrollbar*/i2) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2016,17 +1876,15 @@ do__draw_rectangle( int argc, unsigned char** argv )
 {
     check_argc( "do__draw_rectangle", 7, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               b2 =                        bool_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
-        int               i6 =                         int_arg( argc, argv, 6 );
+    int               b2 =                        bool_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
+    int               i6 =                         int_arg( argc, argv, 6 );
 
-        gdk_draw_rectangle(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), /*filled*/b2, /*x*/i3, /*y*/i4, /*wide*/i5, /*high*/i6);
-    }
+    gdk_draw_rectangle(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), /*filled*/b2, /*x*/i3, /*y*/i4, /*wide*/i5, /*high*/i6);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2035,19 +1893,17 @@ do__draw_drawable( int argc, unsigned char** argv )
 {
     check_argc( "do__draw_drawable", 9, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
         GtkWidget*        w2 =    (GtkWidget*)      widget_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
-        int               i6 =                         int_arg( argc, argv, 6 );
-        int               i7 =                         int_arg( argc, argv, 7 );
-        int               i8 =                         int_arg( argc, argv, 8 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
+    int               i6 =                         int_arg( argc, argv, 6 );
+    int               i7 =                         int_arg( argc, argv, 7 );
+    int               i8 =                         int_arg( argc, argv, 8 );
 
-        gdk_draw_drawable(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), GDK_DRAWABLE(/*from*/w2), /*from_x*/i3, /*from_y*/i4, /*to_x*/i5, /*to_y*/i6, /*wide*/i7, /*high*/i8);
-    }
+    gdk_draw_drawable(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), GDK_DRAWABLE(/*from*/w2), /*from_x*/i3, /*from_y*/i4, /*to_x*/i5, /*to_y*/i6, /*wide*/i7, /*high*/i8);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2056,15 +1912,13 @@ do__queue_redraw( int argc, unsigned char** argv )
 {
     check_argc( "do__queue_redraw", 5, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
 
-        gtk_widget_queue_draw_area( GTK_WIDGET(/*widget*/w0), /*x*/i1, /*y*/i2, /*wide*/i3, /*high*/i4);
-    }
+    gtk_widget_queue_draw_area( GTK_WIDGET(/*widget*/w0), /*x*/i1, /*y*/i2, /*wide*/i3, /*high*/i4);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2073,11 +1927,9 @@ do__press_button( int argc, unsigned char** argv )
 {
     check_argc( "do__press_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_button_pressed(  GTK_BUTTON(/*widget*/w0) );
-    }
+    gtk_button_pressed(  GTK_BUTTON(/*widget*/w0) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2086,11 +1938,9 @@ do__release_button( int argc, unsigned char** argv )
 {
     check_argc( "do__release_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_button_released( GTK_BUTTON(/*widget*/w0) );
-    }
+    gtk_button_released( GTK_BUTTON(/*widget*/w0) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2099,11 +1949,9 @@ do__click_button( int argc, unsigned char** argv )
 {
     check_argc( "do__click_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_button_clicked(  GTK_BUTTON(/*widget*/w0) );
-    }
+    gtk_button_clicked(  GTK_BUTTON(/*widget*/w0) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2112,11 +1960,9 @@ do__enter_button( int argc, unsigned char** argv )
 {
     check_argc( "do__enter_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_button_enter(    GTK_BUTTON(/*widget*/w0) );
-    }
+    gtk_button_enter(    GTK_BUTTON(/*widget*/w0) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2125,11 +1971,9 @@ do__leave_button( int argc, unsigned char** argv )
 {
     check_argc( "do__leave_button", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_button_leave(    GTK_BUTTON(/*widget*/w0) );
-    }
+    gtk_button_leave(    GTK_BUTTON(/*widget*/w0) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2138,11 +1982,9 @@ do__show_widget( int argc, unsigned char** argv )
 {
     check_argc( "do__show_widget", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_widget_show( /*widget*/w0 );
-    }
+    gtk_widget_show( /*widget*/w0 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2151,11 +1993,9 @@ do__show_widget_tree( int argc, unsigned char** argv )
 {
     check_argc( "do__show_widget_tree", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_widget_show_all( /*widget*/w0 );
-    }
+    gtk_widget_show_all( /*widget*/w0 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2164,11 +2004,9 @@ do__destroy_widget( int argc, unsigned char** argv )
 {
     check_argc( "do__destroy_widget", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_widget_destroy( /*widget*/w0 );
-    }
+    gtk_widget_destroy( /*widget*/w0 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2177,11 +2015,9 @@ do__emit_changed_signal( int argc, unsigned char** argv )
 {
     check_argc( "do__emit_changed_signal", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        g_signal_emit_by_name( GTK_OBJECT(/*widget*/w0), "changed");
-    }
+    g_signal_emit_by_name( GTK_OBJECT(/*widget*/w0), "changed");
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2190,11 +2026,9 @@ do__pop_up_combo_box( int argc, unsigned char** argv )
 {
     check_argc( "do__pop_up_combo_box", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_combo_box_popup(   GTK_COMBO_BOX(/*widget*/w0));
-    }
+    gtk_combo_box_popup(   GTK_COMBO_BOX(/*widget*/w0));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2203,11 +2037,9 @@ do__pop_down_combo_box( int argc, unsigned char** argv )
 {
     check_argc( "do__pop_down_combo_box", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        gtk_combo_box_popdown( GTK_COMBO_BOX(/*widget*/w0));
-    }
+    gtk_combo_box_popdown( GTK_COMBO_BOX(/*widget*/w0));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2216,12 +2048,10 @@ do__set_combo_box_title( int argc, unsigned char** argv )
 {
     check_argc( "do__set_combo_box_title", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_combo_box_set_title( GTK_COMBO_BOX(/*widget*/w0), /*title*/s1);
-    }
+    gtk_combo_box_set_title( GTK_COMBO_BOX(/*widget*/w0), /*title*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2230,12 +2060,10 @@ do__set_window_title( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_title", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_window_set_title( GTK_WINDOW(/*window*/w0), /*title*/s1);
-    }
+    gtk_window_set_title( GTK_WINDOW(/*window*/w0), /*title*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2244,13 +2072,11 @@ do__set_window_default_size( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_default_size", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_window_set_default_size( GTK_WINDOW(/*widget*/w0), /*wide*/i1, /*high*/i2);
-    }
+    gtk_window_set_default_size( GTK_WINDOW(/*widget*/w0), /*wide*/i1, /*high*/i2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2259,13 +2085,11 @@ do__set_minimum_widget_size( int argc, unsigned char** argv )
 {
     check_argc( "do__set_minimum_widget_size", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_widget_set_size_request( GTK_WIDGET(/*widget*/w0), /*wide*/i1, /*high*/i2);
-    }
+    gtk_widget_set_size_request( GTK_WIDGET(/*widget*/w0), /*wide*/i1, /*high*/i2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2274,12 +2098,10 @@ do__set_border_width( int argc, unsigned char** argv )
 {
     check_argc( "do__set_border_width", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_container_set_border_width(GTK_CONTAINER(/*widget*/w0), /*width*/i1);
-    }
+    gtk_container_set_border_width(GTK_CONTAINER(/*widget*/w0), /*width*/i1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2288,12 +2110,10 @@ do__set_event_box_visibility( int argc, unsigned char** argv )
 {
     check_argc( "do__set_event_box_visibility", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               b1 =                        bool_arg( argc, argv, 1 );
+    int               b1 =                        bool_arg( argc, argv, 1 );
 
-        gtk_event_box_set_visible_window(GTK_EVENT_BOX(/*event_box*/w0),/*visibility*/b1);
-    }
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(/*event_box*/w0),/*visibility*/b1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2302,13 +2122,11 @@ do__set_widget_alignment( int argc, unsigned char** argv )
 {
     check_argc( "do__set_widget_alignment", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
-        double            f2 =                      double_arg( argc, argv, 2 );
+    double            f1 =                      double_arg( argc, argv, 1 );
+    double            f2 =                      double_arg( argc, argv, 2 );
 
-        gtk_misc_set_alignment(GTK_MISC(/*widget*/w0), /*x*/f1, /*y*/f2);
-    }
+    gtk_misc_set_alignment(GTK_MISC(/*widget*/w0), /*x*/f1, /*y*/f2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2317,12 +2135,10 @@ do__set_widget_events( int argc, unsigned char** argv )
 {
     check_argc( "do__set_widget_events", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_widget_set_events( GTK_WIDGET(/*widget*/w0), int_to_event_mask(/*events_to_int events*/i1));
-    }
+    gtk_widget_set_events( GTK_WIDGET(/*widget*/w0), int_to_event_mask(/*events_to_int events*/i1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2331,12 +2147,10 @@ do__set_widget_name( int argc, unsigned char** argv )
 {
     check_argc( "do__set_widget_name", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_widget_set_name( GTK_WIDGET(/*widget*/w0), /*name*/s1);
-    }
+    gtk_widget_set_name( GTK_WIDGET(/*widget*/w0), /*name*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2345,12 +2159,10 @@ do__set_label_justification( int argc, unsigned char** argv )
 {
     check_argc( "do__set_label_justification", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_label_set_justify( GTK_LABEL(/*label*/w0), int_to_justification(/*justification_to_int justification*/i1));
-    }
+    gtk_label_set_justify( GTK_LABEL(/*label*/w0), int_to_justification(/*justification_to_int justification*/i1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2359,12 +2171,10 @@ do__set_label_line_wrapping( int argc, unsigned char** argv )
 {
     check_argc( "do__set_label_line_wrapping", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               b1 =                        bool_arg( argc, argv, 1 );
+    int               b1 =                        bool_arg( argc, argv, 1 );
 
-        gtk_label_set_line_wrap( GTK_LABEL(/*label*/w0), /*wrap_lines*/b1);
-    }
+    gtk_label_set_line_wrap( GTK_LABEL(/*label*/w0), /*wrap_lines*/b1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2373,12 +2183,10 @@ do__set_label_underlines( int argc, unsigned char** argv )
 {
     check_argc( "do__set_label_underlines", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        char*             s1 =                      string_arg( argc, argv, 1 );
+    char*             s1 =                      string_arg( argc, argv, 1 );
 
-        gtk_label_set_pattern( GTK_LABEL(/*label*/w0), /*underlines*/s1);
-    }
+    gtk_label_set_pattern( GTK_LABEL(/*label*/w0), /*underlines*/s1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2387,12 +2195,10 @@ do__set_scale_value_position( int argc, unsigned char** argv )
 {
     check_argc( "do__set_scale_value_position", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_scale_set_value_pos( GTK_SCALE(/*scale*/w0), int_to_position(/*position_to_int position*/i1));
-    }
+    gtk_scale_set_value_pos( GTK_SCALE(/*scale*/w0), int_to_position(/*position_to_int position*/i1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2401,12 +2207,10 @@ do__set_draw_scale_value( int argc, unsigned char** argv )
 {
     check_argc( "do__set_draw_scale_value", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               b1 =                        bool_arg( argc, argv, 1 );
+    int               b1 =                        bool_arg( argc, argv, 1 );
 
-        gtk_scale_set_draw_value( GTK_SCALE(/*scale*/w0), /*draw_value*/b1);
-    }
+    gtk_scale_set_draw_value( GTK_SCALE(/*scale*/w0), /*draw_value*/b1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2415,14 +2219,12 @@ do__get_scale_value_digits_shown( int argc, unsigned char** argv )
 {
     check_argc( "do__get_scale_value_digits_shown", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int result = gtk_scale_get_digits( GTK_SCALE(/*scale*/w0) );
+    int result = gtk_scale_get_digits( GTK_SCALE(/*scale*/w0) );
 
-         printf(              "get_scale_value_digits_shown%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_scale_value_digits_shown%d\n", result);      fflush( log_fd );
-    }
+     printf(              "get_scale_value_digits_shown%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_scale_value_digits_shown%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2431,12 +2233,10 @@ do__set_scale_value_digits_shown( int argc, unsigned char** argv )
 {
     check_argc( "do__set_scale_value_digits_shown", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_scale_set_digits( GTK_SCALE(/*scale*/w0), /*digits*/i1);
-    }
+    gtk_scale_set_digits( GTK_SCALE(/*scale*/w0), /*digits*/i1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2445,12 +2245,10 @@ do__set_range_update_policy( int argc, unsigned char** argv )
 {
     check_argc( "do__set_range_update_policy", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_range_set_update_policy( GTK_RANGE(/*scale*/w0), /*policy*/int_to_range_update_policy(/*update_policy_to_int policy*/i1));
-    }
+    gtk_range_set_update_policy( GTK_RANGE(/*scale*/w0), /*policy*/int_to_range_update_policy(/*update_policy_to_int policy*/i1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2459,14 +2257,12 @@ do__get_toggle_button_state( int argc, unsigned char** argv )
 {
     check_argc( "do__get_toggle_button_state", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        int result = gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(/*toggle_button*/w0) );
+    int result = gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(/*toggle_button*/w0) );
 
-         printf(              "get_toggle_button_state%d\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_toggle_button_state%d\n", result);      fflush( log_fd );
-    }
+     printf(              "get_toggle_button_state%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_toggle_button_state%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2475,12 +2271,10 @@ do__set_toggle_button_state( int argc, unsigned char** argv )
 {
     check_argc( "do__set_toggle_button_state", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               b1 =                        bool_arg( argc, argv, 1 );
+    int               b1 =                        bool_arg( argc, argv, 1 );
 
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(/*toggle_button*/w0), /*state*/b1 != 0 );
-    }
+    gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(/*toggle_button*/w0), /*state*/b1 != 0 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2489,14 +2283,12 @@ do__get_adjustment_value( int argc, unsigned char** argv )
 {
     check_argc( "do__get_adjustment_value", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        double result = gtk_adjustment_get_value( GTK_ADJUSTMENT(/*adjustment*/w0) );
+    double result = gtk_adjustment_get_value( GTK_ADJUSTMENT(/*adjustment*/w0) );
 
-         printf(              "get_adjustment_value%f\n", result);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_adjustment_value%f\n", result);      fflush( log_fd );
-    }
+     printf(              "get_adjustment_value%f\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_adjustment_value%f\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2505,12 +2297,10 @@ do__set_adjustment_value( int argc, unsigned char** argv )
 {
     check_argc( "do__set_adjustment_value", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        double            f1 =                      double_arg( argc, argv, 1 );
+    double            f1 =                      double_arg( argc, argv, 1 );
 
-        gtk_adjustment_set_value( GTK_ADJUSTMENT(/*adjustment*/w0), /*value*/f1);
-    }
+    gtk_adjustment_set_value( GTK_ADJUSTMENT(/*adjustment*/w0), /*value*/f1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2519,16 +2309,14 @@ do__get_white_graphics_context( int argc, unsigned char** argv )
 {
     check_argc( "do__get_white_graphics_context", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) /*widget*/w0->style->white_gc;
+    GtkWidget* widget = (GtkWidget*) /*widget*/w0->style->white_gc;
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_white_graphics_context%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_white_graphics_context%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_white_graphics_context%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_white_graphics_context%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2537,16 +2325,14 @@ do__get_black_graphics_context( int argc, unsigned char** argv )
 {
     check_argc( "do__get_black_graphics_context", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) /*widget*/w0->style->black_gc;
+    GtkWidget* widget = (GtkWidget*) /*widget*/w0->style->black_gc;
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_black_graphics_context%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_black_graphics_context%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_black_graphics_context%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_black_graphics_context%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2555,16 +2341,14 @@ do__get_current_foreground_graphics_context( int argc, unsigned char** argv )
 {
     check_argc( "do__get_current_foreground_graphics_context", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) w0->style->fg_gc[ GTK_WIDGET_STATE(/*widget*/w0) ];
+    GtkWidget* widget = (GtkWidget*) w0->style->fg_gc[ GTK_WIDGET_STATE(/*widget*/w0) ];
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_current_foreground_graphics_context%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_current_foreground_graphics_context%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_current_foreground_graphics_context%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_current_foreground_graphics_context%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2573,16 +2357,14 @@ do__get_current_background_graphics_context( int argc, unsigned char** argv )
 {
     check_argc( "do__get_current_background_graphics_context", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) w0->style->bg_gc[ GTK_WIDGET_STATE(/*widget*/w0) ];
+    GtkWidget* widget = (GtkWidget*) w0->style->bg_gc[ GTK_WIDGET_STATE(/*widget*/w0) ];
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_current_background_graphics_context%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_current_background_graphics_context%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_current_background_graphics_context%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_current_background_graphics_context%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2591,16 +2373,14 @@ do__get_widget_window( int argc, unsigned char** argv )
 {
     check_argc( "do__get_widget_window", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) /*widget*/w0->window;
+    GtkWidget* widget = (GtkWidget*) /*widget*/w0->window;
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_widget_window%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_widget_window%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_widget_window%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_widget_window%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2609,12 +2389,10 @@ do__add_kid( int argc, unsigned char** argv )
 {
     check_argc( "do__add_kid", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        gtk_container_add( GTK_CONTAINER(/*mom*/w0), GTK_WIDGET(/*kid*/w1));
-    }
+    gtk_container_add( GTK_CONTAINER(/*mom*/w0), GTK_WIDGET(/*kid*/w1));
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2623,12 +2401,10 @@ do__add_scrolled_window_kid( int argc, unsigned char** argv )
 {
     check_argc( "do__add_scrolled_window_kid", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
 
-        gtk_scrolled_window_add_with_viewport( GTK_SCROLLED_WINDOW(/*window*/w0), GTK_WIDGET(/*kid*/w1) );
-    }
+    gtk_scrolled_window_add_with_viewport( GTK_SCROLLED_WINDOW(/*window*/w0), GTK_WIDGET(/*kid*/w1) );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2637,16 +2413,14 @@ do__add_table_kid( int argc, unsigned char** argv )
 {
     check_argc( "do__add_table_kid", 6, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
 
-        gtk_table_attach_defaults( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5 );
-    }
+    gtk_table_attach_defaults( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2655,20 +2429,18 @@ do__add_table_kid2( int argc, unsigned char** argv )
 {
     check_argc( "do__add_table_kid2", 10, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
         GtkWidget*        w1 =    (GtkWidget*)      widget_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
-        int               i3 =                         int_arg( argc, argv, 3 );
-        int               i4 =                         int_arg( argc, argv, 4 );
-        int               i5 =                         int_arg( argc, argv, 5 );
-        int               i6 =                         int_arg( argc, argv, 6 );
-        int               i7 =                         int_arg( argc, argv, 7 );
-        int               i8 =                         int_arg( argc, argv, 8 );
-        int               i9 =                         int_arg( argc, argv, 9 );
+    int               i2 =                         int_arg( argc, argv, 2 );
+    int               i3 =                         int_arg( argc, argv, 3 );
+    int               i4 =                         int_arg( argc, argv, 4 );
+    int               i5 =                         int_arg( argc, argv, 5 );
+    int               i6 =                         int_arg( argc, argv, 6 );
+    int               i7 =                         int_arg( argc, argv, 7 );
+    int               i8 =                         int_arg( argc, argv, 8 );
+    int               i9 =                         int_arg( argc, argv, 9 );
 
-        gtk_table_attach( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5, /*sum_table_attach_options xoptions*/i6, /*sum_table_attach_options yoptions*/i7, /*xpadding*/i8, /*ypadding*/i9 );
-    }
+    gtk_table_attach( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5, /*sum_table_attach_options xoptions*/i6, /*sum_table_attach_options yoptions*/i7, /*xpadding*/i8, /*ypadding*/i9 );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2677,16 +2449,14 @@ do__get_viewport_vertical_adjustment( int argc, unsigned char** argv )
 {
     check_argc( "do__get_viewport_vertical_adjustment", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) gtk_viewport_get_vadjustment( GTK_VIEWPORT(/*viewport*/w0) );
+    GtkWidget* widget = (GtkWidget*) gtk_viewport_get_vadjustment( GTK_VIEWPORT(/*viewport*/w0) );
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_viewport_vertical_adjustment%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_viewport_vertical_adjustment%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_viewport_vertical_adjustment%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_viewport_vertical_adjustment%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2695,16 +2465,14 @@ do__get_viewport_horizontal_adjustment( int argc, unsigned char** argv )
 {
     check_argc( "do__get_viewport_horizontal_adjustment", 1, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
 
-        GtkWidget* widget = (GtkWidget*) gtk_viewport_get_hadjustment( GTK_VIEWPORT(/*viewport*/w0) );
+    GtkWidget* widget = (GtkWidget*) gtk_viewport_get_hadjustment( GTK_VIEWPORT(/*viewport*/w0) );
 
-        int slot = get_widget_id( widget );
+    int slot = get_widget_id( widget );
 
-         printf(              "get_viewport_horizontal_adjustment%d\n", slot);      fflush( stdout );
-        fprintf(log_fd, "SENT: get_viewport_horizontal_adjustment%d\n", slot);      fflush( log_fd );
-    }
+     printf(              "get_viewport_horizontal_adjustment%d\n", slot);      fflush( stdout );
+    fprintf(log_fd, "SENT: get_viewport_horizontal_adjustment%d\n", slot);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2713,13 +2481,11 @@ do__set_table_row_spacing( int argc, unsigned char** argv )
 {
     check_argc( "do__set_table_row_spacing", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_table_set_row_spacing( GTK_TABLE(/*table*/w0), /*row*/i1, /*spacing*/i2);
-    }
+    gtk_table_set_row_spacing( GTK_TABLE(/*table*/w0), /*row*/i1, /*spacing*/i2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2728,13 +2494,11 @@ do__set_table_col_spacing( int argc, unsigned char** argv )
 {
     check_argc( "do__set_table_col_spacing", 3, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
-        int               i2 =                         int_arg( argc, argv, 2 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+    int               i2 =                         int_arg( argc, argv, 2 );
 
-        gtk_table_set_col_spacing( GTK_TABLE(/*table*/w0), /*col*/i1, /*spacing*/i2);
-    }
+    gtk_table_set_col_spacing( GTK_TABLE(/*table*/w0), /*col*/i1, /*spacing*/i2);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2743,12 +2507,10 @@ do__set_table_row_spacings( int argc, unsigned char** argv )
 {
     check_argc( "do__set_table_row_spacings", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_table_set_row_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
-    }
+    gtk_table_set_row_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2757,12 +2519,10 @@ do__set_table_col_spacings( int argc, unsigned char** argv )
 {
     check_argc( "do__set_table_col_spacings", 2, argc );
 
-    {
         GtkWidget*        w0 =    (GtkWidget*)      widget_arg( argc, argv, 0 );
-        int               i1 =                         int_arg( argc, argv, 1 );
+    int               i1 =                         int_arg( argc, argv, 1 );
 
-        gtk_table_set_col_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
-    }
+    gtk_table_set_col_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan. */
 
@@ -2771,15 +2531,14 @@ do__set_clicked_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_clicked_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "clicked", G_CALLBACK( run_clicked_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "clicked", G_CALLBACK( run_clicked_callback ), (void*)id );
 
-         printf(              "set_clicked_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_clicked_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_clicked_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_clicked_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2788,15 +2547,14 @@ do__set_pressed_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_pressed_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "pressed", G_CALLBACK( run_pressed_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "pressed", G_CALLBACK( run_pressed_callback ), (void*)id );
 
-         printf(              "set_pressed_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_pressed_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_pressed_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_pressed_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2805,15 +2563,14 @@ do__set_release_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_release_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "release", G_CALLBACK( run_release_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "release", G_CALLBACK( run_release_callback ), (void*)id );
 
-         printf(              "set_release_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_release_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_release_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_release_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2822,15 +2579,14 @@ do__set_enter_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_enter_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "enter", G_CALLBACK( run_enter_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "enter", G_CALLBACK( run_enter_callback ), (void*)id );
 
-         printf(              "set_enter_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_enter_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_enter_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_enter_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2839,15 +2595,14 @@ do__set_leave_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_leave_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "leave", G_CALLBACK( run_leave_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "leave", G_CALLBACK( run_leave_callback ), (void*)id );
 
-         printf(              "set_leave_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_leave_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_leave_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_leave_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2856,15 +2611,14 @@ do__set_activate_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_activate_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( GTK_MENU_ITEM(widget), "activate", G_CALLBACK( run_activate_callback ), (void*)id );
+    g_signal_connect( GTK_MENU_ITEM(widget), "activate", G_CALLBACK( run_activate_callback ), (void*)id );
 
-         printf(              "set_activate_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_activate_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_activate_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_activate_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2873,15 +2627,14 @@ do__set_destroy_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_destroy_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "destroy", G_CALLBACK( run_destroy_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "destroy", G_CALLBACK( run_destroy_callback ), (void*)id );
 
-         printf(              "set_destroy_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_destroy_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_destroy_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_destroy_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2890,15 +2643,14 @@ do__set_realize_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_realize_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "realize", G_CALLBACK( run_realize_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "realize", G_CALLBACK( run_realize_callback ), (void*)id );
 
-         printf(              "set_realize_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_realize_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_realize_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_realize_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2907,15 +2659,14 @@ do__set_button_press_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_button_press_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "button_press_event", G_CALLBACK( run_button_press_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "button_press_event", G_CALLBACK( run_button_press_event_callback ), (void*)id );
 
-         printf(              "set_button_press_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_button_press_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_button_press_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_button_press_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2924,15 +2675,14 @@ do__set_button_release_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_button_release_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "button_release_event", G_CALLBACK( run_button_release_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "button_release_event", G_CALLBACK( run_button_release_event_callback ), (void*)id );
 
-         printf(              "set_button_release_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_button_release_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_button_release_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_button_release_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2941,15 +2691,14 @@ do__set_scroll_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_scroll_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "scroll_event", G_CALLBACK( run_scroll_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "scroll_event", G_CALLBACK( run_scroll_event_callback ), (void*)id );
 
-         printf(              "set_scroll_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_scroll_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_scroll_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_scroll_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2958,15 +2707,14 @@ do__set_motion_notify_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_motion_notify_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "motion_notify_event", G_CALLBACK( run_motion_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "motion_notify_event", G_CALLBACK( run_motion_notify_event_callback ), (void*)id );
 
-         printf(              "set_motion_notify_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_motion_notify_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_motion_notify_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_motion_notify_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2975,15 +2723,14 @@ do__set_delete_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_delete_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "delete_event", G_CALLBACK( run_delete_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "delete_event", G_CALLBACK( run_delete_event_callback ), (void*)id );
 
-         printf(              "set_delete_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_delete_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_delete_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_delete_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -2992,15 +2739,14 @@ do__set_expose_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_expose_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "expose_event", G_CALLBACK( run_expose_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "expose_event", G_CALLBACK( run_expose_event_callback ), (void*)id );
 
-         printf(              "set_expose_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_expose_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_expose_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_expose_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3009,15 +2755,14 @@ do__set_key_press_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_key_press_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "key_press_event", G_CALLBACK( run_key_press_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "key_press_event", G_CALLBACK( run_key_press_event_callback ), (void*)id );
 
-         printf(              "set_key_press_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_key_press_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_key_press_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_key_press_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3026,15 +2771,14 @@ do__set_key_release_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_key_release_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "key_release_event", G_CALLBACK( run_key_release_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "key_release_event", G_CALLBACK( run_key_release_event_callback ), (void*)id );
 
-         printf(              "set_key_release_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_key_release_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_key_release_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_key_release_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3043,15 +2787,14 @@ do__set_enter_notify_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_enter_notify_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "enter_notify_event", G_CALLBACK( run_enter_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "enter_notify_event", G_CALLBACK( run_enter_notify_event_callback ), (void*)id );
 
-         printf(              "set_enter_notify_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_enter_notify_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_enter_notify_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_enter_notify_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3060,15 +2803,14 @@ do__set_leave_notify_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_leave_notify_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "leave_notify_event", G_CALLBACK( run_leave_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "leave_notify_event", G_CALLBACK( run_leave_notify_event_callback ), (void*)id );
 
-         printf(              "set_leave_notify_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_leave_notify_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_leave_notify_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_leave_notify_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3077,15 +2819,14 @@ do__set_configure_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_configure_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "configure_event", G_CALLBACK( run_configure_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "configure_event", G_CALLBACK( run_configure_event_callback ), (void*)id );
 
-         printf(              "set_configure_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_configure_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_configure_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_configure_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3094,15 +2835,14 @@ do__set_focus_in_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_focus_in_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "focus_in_event", G_CALLBACK( run_focus_in_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "focus_in_event", G_CALLBACK( run_focus_in_event_callback ), (void*)id );
 
-         printf(              "set_focus_in_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_focus_in_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_focus_in_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_focus_in_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3111,15 +2851,14 @@ do__set_focus_out_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_focus_out_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "focus_out_event", G_CALLBACK( run_focus_out_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "focus_out_event", G_CALLBACK( run_focus_out_event_callback ), (void*)id );
 
-         printf(              "set_focus_out_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_focus_out_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_focus_out_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_focus_out_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3128,15 +2867,14 @@ do__set_map_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_map_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "map_event", G_CALLBACK( run_map_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "map_event", G_CALLBACK( run_map_event_callback ), (void*)id );
 
-         printf(              "set_map_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_map_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_map_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_map_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3145,15 +2883,14 @@ do__set_unmap_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_unmap_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "unmap_event", G_CALLBACK( run_unmap_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "unmap_event", G_CALLBACK( run_unmap_event_callback ), (void*)id );
 
-         printf(              "set_unmap_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_unmap_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_unmap_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_unmap_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3162,15 +2899,14 @@ do__set_property_notify_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_property_notify_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "property_notify_event", G_CALLBACK( run_property_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "property_notify_event", G_CALLBACK( run_property_notify_event_callback ), (void*)id );
 
-         printf(              "set_property_notify_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_property_notify_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_property_notify_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_property_notify_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3179,15 +2915,14 @@ do__set_selection_clear_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_selection_clear_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "selection_clear_event", G_CALLBACK( run_selection_clear_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "selection_clear_event", G_CALLBACK( run_selection_clear_event_callback ), (void*)id );
 
-         printf(              "set_selection_clear_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_selection_clear_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_selection_clear_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_selection_clear_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3196,15 +2931,14 @@ do__set_selection_request_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_selection_request_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "selection_request_event", G_CALLBACK( run_selection_request_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "selection_request_event", G_CALLBACK( run_selection_request_event_callback ), (void*)id );
 
-         printf(              "set_selection_request_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_selection_request_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_selection_request_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_selection_request_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3213,15 +2947,14 @@ do__set_selection_notify_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_selection_notify_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "selection_notify_event", G_CALLBACK( run_selection_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "selection_notify_event", G_CALLBACK( run_selection_notify_event_callback ), (void*)id );
 
-         printf(              "set_selection_notify_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_selection_notify_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_selection_notify_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_selection_notify_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3230,15 +2963,14 @@ do__set_proximity_in_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_proximity_in_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "proximity_in_event", G_CALLBACK( run_proximity_in_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "proximity_in_event", G_CALLBACK( run_proximity_in_event_callback ), (void*)id );
 
-         printf(              "set_proximity_in_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_proximity_in_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_proximity_in_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_proximity_in_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3247,15 +2979,14 @@ do__set_proximity_out_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_proximity_out_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "proximity_out_event", G_CALLBACK( run_proximity_out_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "proximity_out_event", G_CALLBACK( run_proximity_out_event_callback ), (void*)id );
 
-         printf(              "set_proximity_out_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_proximity_out_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_proximity_out_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_proximity_out_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3264,15 +2995,14 @@ do__set_client_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_client_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "client_event", G_CALLBACK( run_client_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "client_event", G_CALLBACK( run_client_event_callback ), (void*)id );
 
-         printf(              "set_client_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_client_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_client_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_client_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3281,15 +3011,14 @@ do__set_no_expose_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_no_expose_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "no_expose_event", G_CALLBACK( run_no_expose_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "no_expose_event", G_CALLBACK( run_no_expose_event_callback ), (void*)id );
 
-         printf(              "set_no_expose_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_no_expose_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_no_expose_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_no_expose_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3298,15 +3027,14 @@ do__set_window_state_event_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_window_state_event_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "window_state_event", G_CALLBACK( run_window_state_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "window_state_event", G_CALLBACK( run_window_state_event_callback ), (void*)id );
 
-         printf(              "set_window_state_event_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_window_state_event_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_window_state_event_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_window_state_event_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3315,15 +3043,14 @@ do__set_toggled_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_toggled_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "toggled", G_CALLBACK( run_toggled_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "toggled", G_CALLBACK( run_toggled_callback ), (void*)id );
 
-         printf(              "set_toggled_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_toggled_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_toggled_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_toggled_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
@@ -3332,15 +3059,14 @@ do__set_value_changed_callback( int argc, unsigned char** argv )
 {
     check_argc( "do__set_value_changed_callback", 1, argc );
 
-    {   GtkWidget* widget    =  widget_arg( argc, argv, 0 );
+    GtkWidget* widget    =  widget_arg( argc, argv, 0 );
 
-        int id   =  find_free_callback_id ();
+    int id   =  find_free_callback_id ();
 
-        g_signal_connect( G_OBJECT(widget), "value_changed", G_CALLBACK( run_value_changed_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(widget), "value_changed", G_CALLBACK( run_value_changed_callback ), (void*)id );
 
-         printf(              "set_value_changed_callback%d\n", id );      fflush( stdout );
-        fprintf(log_fd, "SENT: set_value_changed_callback%d\n", id );      fflush( log_fd );
-    }
+     printf(              "set_value_changed_callback%d\n", id );      fflush( stdout );
+    fprintf(log_fd, "SENT: set_value_changed_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
