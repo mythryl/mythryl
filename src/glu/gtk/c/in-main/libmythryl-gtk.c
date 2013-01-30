@@ -1,6 +1,6 @@
 // libmythryl-gtk.c
-
-
+//
+//
 // This file handles the C side
 // of the Mythryl <-> C interface
 // layer for the Mythryl in-process
@@ -9,6 +9,10 @@
 //
 //     src/glu/gtk/src/gtk-client-driver-for-library-in-main-process.pkg
 //
+//
+// We get compiled by:
+//    src/glu/opengl/c/in-main/Makefile.in
+
 
 // ########### NOTE! #############
 // When resuming work on this project,

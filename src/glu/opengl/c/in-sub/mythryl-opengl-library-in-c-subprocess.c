@@ -95,7 +95,24 @@
 #include <unistd.h>	// For getpid(), STDIN_FILENO...
 #endif
 
+#include <GL/glew.h>
 #include <GL/glfw.h>
+
+typedef struct 
+{ 
+  float x; 
+  float y; 
+  float z; 
+} Vector3f; 
+ 
+Vector3f vector3f(float _x, float _y, float _z) {
+    Vector3f v;
+    v.x = _x; 
+    v.y = _y; 
+    v.z = _z; 
+    return v;
+}; 
+
 
 FILE* log_fd = 0;
 
@@ -387,6 +404,7 @@ do_quit_eventloop( int argc, unsigned char** argv )
 static void
 do_init( int argc, unsigned char** argv )
 {
+printf("do_init/top -- src/glu/opengl/c/in-sub/mythryl-opengl-library-in-c-subprocess.c\n");fflush(stdout);
     if (!glfwInit()) {
 	//
         sprintf( text_buf, "do_init: failed to initialize OpenGL support.");
@@ -394,6 +412,18 @@ do_init( int argc, unsigned char** argv )
 } else {
 puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n"); fflush(stdout);
     }
+
+// Apparently we should do this only AFTER creating our first window (more precisely, "valid OpenGL rendering context"):
+// printf("do_init/AAA: calling glewInit -- src/glu/opengl/c/in-sub/mythryl-opengl-library-in-c-subprocess.c\n");fflush(stdout);
+    // This paragraph is from:
+    //     http://ogldev.atspace.co.uk/www/tutorial02/tutorial02.htm
+    //
+//    GLenum result = glewInit();
+//    if (result != GLEW_OK)
+//      {
+//	fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+//	moan_and_die();
+//      }
 }
 
 

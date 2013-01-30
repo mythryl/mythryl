@@ -8,6 +8,8 @@
 //
 //     src/glu/opengl/src/opengl-client-driver-for-library-in-main-process.pkg
 //
+// We get compiled by:
+//    src/glu/opengl/c/in-main/Makefile.in
 
 
 #include "../../../../c/mythryl-config.h"
@@ -16,7 +18,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <GL/glew.h>
 #include <GL/glfw.h>
+
+typedef struct 
+{ 
+  float x; 
+  float y; 
+  float z; 
+} Vector3f; 
+ 
+Vector3f vector3f(float _x, float _y, float _z) {
+    Vector3f v;
+    v.x = _x; 
+    v.y = _y; 
+    v.z = _z; 
+    return v;
+}; 
+
  
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -50,6 +69,18 @@ Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
 	fprintf(stderr,"glfwInit() returned FALSE (?!) -- exiting.   -- do__init() in libmythryl-opengl.c\n");
         exit( EXIT_FAILURE );
     }
+
+// Apparently we should do this only AFTER creating our first window (more precisely, "valid OpenGL rendering context"):
+    // This paragraph is from:
+    //     http://ogldev.atspace.co.uk/www/tutorial02/tutorial02.htm
+    //
+// printf("calling glewInit()...    --libmythryl.opengl.c\n");fflush(stdout);
+//    GLenum result = glewInit();
+//    if (result != GLEW_OK)
+//      {
+//	fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+//        exit( EXIT_FAILURE );
+//      }
 
     return HEAP_VOID;
 }
@@ -184,6 +215,7 @@ static int   type_of_next_queued_callback   ()   {
 static Callback_Queue_Entry   get_next_queued_callback   ()   {
     //                        ========================
     int cat = callback_queue_cat;
+printf("get_next_queued_callback called...  --libmythryl-opengl.c\n");
     if (callback_queue_is_empty()) {
         strcpy( text_buf, "get_next_queued_callback(): Callback queue is empty.\n" );
         moan_and_die();
@@ -260,6 +292,7 @@ static void GLFWCALL run_window_size_event_callback   (int wide,  int high)   {
 
     e.entry.int_pair.x  = wide;
     e.entry.int_pair.y  = high;
+printf("run_window_size_event_callback(wide=%d high=%d)\n",wide,high);
 
     queue_up_callback(e);
 }
@@ -415,11 +448,13 @@ static Val   do__get_queued_int_pair_callback   (Task *task, Val arg)   {
     //       ================================
     Callback_Queue_Entry e = get_next_queued_callback ();
 
+printf("do__get_queued_int_pair_callback called\n");
     if (e.callback_type != QUEUED_INT_PAIR_CALLBACK) {
         strcpy( text_buf, "get_queued_int_pair_callback: Next callback not Int_Pair." );
         moan_and_die();
     }
 
+printf("do__get_queued_int_pair_callback called returning a record.\n");
     set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3)      );
     set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number    ));
     set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.int_pair.x	 ));
