@@ -470,7 +470,7 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/opengl/etc/library-glue.plan
+//     src/glu/opengl/etc/construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
@@ -512,7 +512,7 @@ static Val   do__set_window_size_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/opengl/etc/library-glue.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/opengl/etc/construction.plan.*/
 
 
 /* do__glew_init
@@ -532,7 +532,7 @@ static Val   do__glew_init   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__open_window2
@@ -557,7 +557,7 @@ static Val   do__open_window2   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__open_window
@@ -575,7 +575,7 @@ static Val   do__open_window   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__terminate
@@ -591,7 +591,7 @@ static Val   do__terminate   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__swap_buffers
@@ -607,7 +607,7 @@ static Val   do__swap_buffers   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__get_window_param
@@ -623,7 +623,7 @@ static Val   do__get_window_param   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__set_window_title
@@ -640,7 +640,7 @@ static Val   do__set_window_title   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__set_window_size
@@ -658,7 +658,7 @@ static Val   do__set_window_size   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__set_window_position
@@ -676,7 +676,7 @@ static Val   do__set_window_position   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__clear
@@ -694,7 +694,7 @@ static Val   do__clear   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__print_hello_world
@@ -710,7 +710,7 @@ static Val   do__print_hello_world   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__negate_int
@@ -727,7 +727,7 @@ static Val   do__negate_int   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(result);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__negate_float
@@ -744,7 +744,7 @@ static Val   do__negate_float   (Task* task, Val arg)
 
     return  make_float64(task, d );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* do__negate_boolean
@@ -761,7 +761,7 @@ static Val   do__negate_boolean   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
 
 
 /* Do not edit this or preceding lines -- they are autobuilt. */
@@ -807,7 +807,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/opengl/etc/library-glue.plan
+//     src/glu/opengl/etc/construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //

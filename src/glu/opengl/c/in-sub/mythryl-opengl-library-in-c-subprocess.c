@@ -429,7 +429,7 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/opengl/etc/library-glue.plan
+//     src/glu/opengl/etc/construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
@@ -472,7 +472,7 @@ do__set_window_size_event_callback( int argc, unsigned char** argv )
      printf(              "set_window_size_event_callback%d\n", id );      fflush( stdout );
     fprintf(log_fd, "SENT: set_window_size_event_callback%d\n", id );      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan.*/
 
 static void
 do__glew_init( int argc, unsigned char** argv )
@@ -486,7 +486,7 @@ do__glew_init( int argc, unsigned char** argv )
         exit(1);
     }
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__open_window2( int argc, unsigned char** argv )
@@ -508,7 +508,7 @@ do__open_window2( int argc, unsigned char** argv )
      printf(              "open_window2%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: open_window2%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__open_window( int argc, unsigned char** argv )
@@ -523,7 +523,7 @@ do__open_window( int argc, unsigned char** argv )
      printf(              "open_window%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: open_window%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__terminate( int argc, unsigned char** argv )
@@ -533,7 +533,7 @@ do__terminate( int argc, unsigned char** argv )
 
     glfwTerminate();
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__swap_buffers( int argc, unsigned char** argv )
@@ -543,7 +543,7 @@ do__swap_buffers( int argc, unsigned char** argv )
 
     glfwSwapBuffers();
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__get_window_param( int argc, unsigned char** argv )
@@ -556,7 +556,7 @@ do__get_window_param( int argc, unsigned char** argv )
      printf(              "get_window_param%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: get_window_param%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__set_window_title( int argc, unsigned char** argv )
@@ -567,7 +567,7 @@ do__set_window_title( int argc, unsigned char** argv )
 
     glfwSetWindowTitle( s0 );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__set_window_size( int argc, unsigned char** argv )
@@ -579,7 +579,7 @@ do__set_window_size( int argc, unsigned char** argv )
 
     glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__set_window_position( int argc, unsigned char** argv )
@@ -591,7 +591,7 @@ do__set_window_position( int argc, unsigned char** argv )
 
     glfwSetWindowPos( /*x*/i0, /*y*/i1 );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__clear( int argc, unsigned char** argv )
@@ -603,7 +603,7 @@ do__clear( int argc, unsigned char** argv )
 
     glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__print_hello_world( int argc, unsigned char** argv )
@@ -613,7 +613,7 @@ do__print_hello_world( int argc, unsigned char** argv )
 
     fprintf(stderr,"Hello, world!\n");
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__negate_int( int argc, unsigned char** argv )
@@ -627,7 +627,7 @@ do__negate_int( int argc, unsigned char** argv )
      printf(              "negate_int%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_int%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__negate_float( int argc, unsigned char** argv )
@@ -641,7 +641,7 @@ do__negate_float( int argc, unsigned char** argv )
      printf(              "negate_float%f\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_float%f\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 
 static void
 do__negate_boolean( int argc, unsigned char** argv )
@@ -655,7 +655,7 @@ do__negate_boolean( int argc, unsigned char** argv )
      printf(              "negate_boolean%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -827,7 +827,7 @@ init  (void)
 
     /////////////////////////////////////////////////////////////////////////////////////
     // The following stuff gets built from paragraphs in
-    //     src/glu/opengl/etc/library-glue.plan
+    //     src/glu/opengl/etc/construction.plan
     // via logic in
     //     src/lib/make-library-glue/make-library-glue.pkg
     //
