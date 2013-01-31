@@ -1,0 +1,219 @@
+## patchable-file.pkg
+#
+# Adding content to files in spots
+# marked by linepairs like
+#
+#    # Do not edit this or following lines -- they are autobuilt.
+#    ...
+#    # Do not edit this or preceding lines -- they are autobuilt.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+api  Patchable_File
+{
+    File_Segment = EXON   List(String)
+		 | INTRON List(String)
+		 ;
+
+    Patchable_File
+	=
+	PATCHABLE_FILE {
+	    filename:  String,
+	    contents:  List(File_Segment)
+	};
+
+    read_patchable_file:  String -> Patchable_File;
+
+    write_patchable_file:   Patchable_File -> List(File_Segment) -> Void;
+};
+
+stipulate
+    package fil =  file__premicrothread;							# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+    #
+    exit_x =  winix__premicrothread::process::exit_x;
+    =~     =  regex::(=~);
+herein
+
+    # This package is invoked in:
+    #
+    #     src/lib/make-library-glue/make-library-glue.pkg
+
+    package  patchable_file:
+	     Patchable_File
+    {
+	# We divide the files we patch into exons and introns
+	# according to the scheme
+	#
+	#        exon
+	#        # Do not edit this or following lines -- they are autobuilt.
+	#        intron
+	#        # Do not edit this or preceding lines -- they are autobuilt.
+	#        exon
+	#        
+	# where the exons are literal program text provided by the
+	# programmer whereas the introns are literal program text
+	# which we synthesize.  (The shown 'do not edit' lines are
+	# considered part of the exons.)
+	#
+	# We represent such a file in memory as a list of file
+	# segments (that is, exons and introns) where each segment
+	# is in turn a list of lines represented as strings:
+	#
+	File_Segment = EXON   List(String)
+		     | INTRON List(String)
+		     ;
+
+	Patchable_File
+	    =
+	    PATCHABLE_FILE {
+		filename:  String,
+		contents:  List(File_Segment)
+	    };
+
+
+	# Read and return a Patchable_File:
+	#
+	fun read_patchable_file  filename
+	    =
+	    {   fd = fil::open_for_read filename
+		     except
+			io_exceptions::IO _
+			    =
+			    {   fprintf fil::stderr "Fatal: Unable to open input file '%s'" filename;
+				exit_x(1);
+			    };
+		contents
+		    =
+		    read_exon ([], [])
+		    where
+			fun read_exon (segments, lines)
+			    =
+			    case (fil::read_line  fd)
+				#
+				NULL => reverse ((EXON (reverse lines)) ! segments);
+
+				THE line
+				    =>
+				    if (line =~ ./ Do not edit this or following lines -- they are autobuilt./)
+
+					read_intron ((EXON (reverse (line ! lines))) ! segments, []);
+				    else
+					read_exon (segments, line ! lines);
+				    fi;	
+			    esac
+
+			also
+			fun read_intron (segments, lines)
+			    =
+			    case (fil::read_line  fd)
+				#
+				NULL =>
+				    {   fprintf fil::stderr "Fatal: Missing 'Do not edit this or preceding lines' line in %s" filename;
+					exit_x(1);
+				    };
+
+				THE line
+				    =>
+				    if (line =~ ./ Do not edit this or preceding lines -- they are autobuilt./)
+					#
+					read_exon ((INTRON (reverse lines)) ! segments, [ line ]);
+				    else
+					read_intron (segments, line ! lines);
+				    fi;	
+			    esac;
+		    end;
+
+		fil::close_input  fd;
+
+		PATCHABLE_FILE { filename, contents };
+	    };
+
+	# Write a patchable file back into the filesystem.
+	#
+	fun write_patchable_file
+	    (PATCHABLE_FILE { filename, contents })
+	    introns
+	    =
+	    {   intron_lines_written =  REF 0;
+		#
+		tmp_filename = filename + "~";
+
+		fd = fil::open_for_write  tmp_filename
+		     except
+			io_exceptions::IO _
+			    =
+			    {   fprintf fil::stderr "Fatal: Unable to open output file '%s'" tmp_filename;
+				exit_x(1);
+			    };
+
+
+		fun write_exon_lines  (line ! rest)
+			=>
+			{   fil::write (fd, line);
+			    #
+			    write_exon_lines  rest;
+			};
+
+		    write_exon_lines [] =>  ();
+		end;
+
+
+		fun write_intron_lines  (line ! rest)					# Actually 'line' may be just a string (i.e., line fragment).
+			=>
+			{   fil::write (fd, line);
+			    intron_lines_written := *intron_lines_written + 1;		# This is the only difference between us and write_exon_lines.
+			    write_intron_lines rest;
+			};
+
+		    write_intron_lines  [] =>  ();
+		end;
+
+
+		write_exon (contents, introns)
+		where
+		    fun write_exon (((EXON lines) ! rest), introns)
+			    =>
+			    {
+				write_exon_lines lines;
+				write_intron (rest, introns);
+			    };
+
+			write_exon _
+			    =>
+			    raise exception FAIL (sprintf "Internal bug in write_exon in write_patchable_file while processing %s" filename);
+		    end
+
+		    also
+		    fun write_intron ((INTRON _) ! exons, (INTRON lines) ! introns)
+			    =>
+			    {
+				write_intron_lines lines;
+				write_exon (exons, introns);
+			    };
+
+			write_intron ([], [])
+			    =>
+			    ();
+
+			write_intron _
+			    =>
+			    raise exception FAIL (sprintf "Internal bug in write_intron in write_patchable_file while processing %s" filename);
+		    end;
+		end;	
+
+		fil::close_output fd;   
+
+		winix__premicrothread::file::remove_file  filename;
+
+		winix__premicrothread::file::rename_file { from => tmp_filename, to => filename };
+
+		printf "Successfully patched %4d lines in %s\n"  *intron_lines_written  filename;
+	    };
+
+    };
+end;
+
+
+## Code by Jeff Prothero: Copyright (c) 2010-2012,
+## released under Gnu Public Licence version 3.

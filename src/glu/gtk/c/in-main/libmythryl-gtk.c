@@ -1036,7 +1036,7 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 //       ->  build_set_callback_fn_for_'libmythryl_xxx_c'			# In src/glu/gtk/sh/make-gtk-glue
 //           ->  r.to_libmythryl_xxx_c_funs					# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or following lines -- they are autobuilt. */
 /* do__make_window
  *
  * gtk-client.api        type:    Session -> Widget
@@ -3903,7 +3903,7 @@ static Val   do__set_value_changed_callback (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/library-glue.plan.*/
 
 
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
 /////////////// old libmythryl-gtk.c contents follow //////////////////////////////////
@@ -3984,7 +3984,7 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Gtk_run_ev
 //   ->  build_callback_function							# In src/glu/gtk/sh/make-gtk-glue
 //       ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);		# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or following lines -- they are autobuilt. */
 CFUNC("make_window",                              "make_window",                              do__make_window,                                       "Session -> Widget")
 CFUNC("make_label",                               "make_label",                               do__make_label,                                       "(Session, String) -> Widget")
 CFUNC("make_status_bar_context_id",               "make_status_bar_context_id",               do__make_status_bar_context_id,                       "(Session, Widget, String) -> Int")
@@ -4139,7 +4139,7 @@ CFUNC("set_no_expose_event_callback",             "set_no_expose_event_callback"
 CFUNC("set_window_state_event_callback",          "set_window_state_event_callback",          do__set_window_state_event_callback,                   "Session -> Widget -> Void_Callback -> Void")
 CFUNC("set_toggled_callback",                     "set_toggled_callback",                     do__set_toggled_callback,                              "Session -> Widget -> Bool_Callback -> Void")
 CFUNC("set_value_changed_callback",               "set_value_changed_callback",               do__set_value_changed_callback,                        "Session -> Widget -> Float_Callback -> Void")
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
 	CFUNC_NULL_BIND

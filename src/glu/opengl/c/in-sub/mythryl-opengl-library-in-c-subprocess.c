@@ -457,7 +457,7 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 //       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/opengl/sh/make-opengl-glue
 //           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or following lines -- they are autobuilt. */
 
 static void
 do__set_window_size_event_callback( int argc, unsigned char** argv )
@@ -656,7 +656,7 @@ do__negate_boolean( int argc, unsigned char** argv )
     fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/library-glue.plan. */
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -851,7 +851,7 @@ init  (void)
     //   ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
     //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
     //
-    /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or following lines -- they are autobuilt. */
     set_trie( trie, "set_window_size_event_callback",             do__set_window_size_event_callback            );
     set_trie( trie, "glew_init",                                  do__glew_init                                 );
     set_trie( trie, "open_window2",                               do__open_window2                              );
@@ -867,7 +867,7 @@ init  (void)
     set_trie( trie, "negate_int",                                 do__negate_int                                );
     set_trie( trie, "negate_float",                               do__negate_float                              );
     set_trie( trie, "negate_boolean",                             do__negate_boolean                            );
-    /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or preceding lines -- they are autobuilt. */
     /////////////////////////////////////////////////////////////////////////////////////
 
     if (duplicate_trie_entries) {

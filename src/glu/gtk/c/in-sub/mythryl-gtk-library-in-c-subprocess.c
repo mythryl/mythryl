@@ -798,7 +798,7 @@ static int int_to_range_update_policy( int i1 ) {
 //       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/gtk/sh/make-gtk-glue
 //           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or following lines -- they are autobuilt. */
 
 static void
 do__make_window( int argc, unsigned char** argv )
@@ -3069,7 +3069,7 @@ do__set_value_changed_callback( int argc, unsigned char** argv )
     fprintf(log_fd, "SENT: set_value_changed_callback%d\n", id );      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/gtk/etc/library-glue.plan.*/
-/* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+/* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -3276,7 +3276,7 @@ init  (void)
     //   ->  build_callback_function							# In src/glu/gtk/sh/make-gtk-glue
     //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
     //
-    /* Do not edit this or following lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or following lines -- they are autobuilt. */
     set_trie( trie, "make_window",                                do__make_window                               );
     set_trie( trie, "make_label",                                 do__make_label                                );
     set_trie( trie, "make_status_bar_context_id",                 do__make_status_bar_context_id                );
@@ -3431,7 +3431,7 @@ init  (void)
     set_trie( trie, "set_window_state_event_callback",            do__set_window_state_event_callback           );
     set_trie( trie, "set_toggled_callback",                       do__set_toggled_callback                      );
     set_trie( trie, "set_value_changed_callback",                 do__set_value_changed_callback                );
-    /* Do not edit this or preceding lines -- they are autobuilt by make-library-glue. */
+    /* Do not edit this or preceding lines -- they are autobuilt. */
     /////////////////////////////////////////////////////////////////////////////////////
 
     if (duplicate_trie_entries) {
