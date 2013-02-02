@@ -43,13 +43,19 @@ herein
 	    except
 		_ = FALSE;
 
+	fun is_dot_initial  name
+	    =
+	    string::get (name, 0)   ==   '.';
+
 	fun canonicalize  directory_name
 	    =
 	    {   # Drop any leading "./":
 		#
 		directory_name
 		    =
-		    regex::replace_first  "^\\./"  ""  directory_name;
+		    regex::replace_first  "^\\./"  ""  directory_name
+		    except
+			NOT_FOUND = directory_name;
 
 		# Change "." to "":
 		#
@@ -80,7 +86,9 @@ herein
 		#
 		directory_name'
 		    =
-		    regex::replace_first  "[^/]+/\\.\\."  ""  directory_name;
+		    regex::replace_first  "[^/]+/\\.\\./"  ""  directory_name
+		    except
+			NOT_FOUND = directory_name;
 
 		if  (directory_name == directory_name')
 		     directory_name;
@@ -90,61 +98,60 @@ herein
 	    };
 
 	# For all directory entries in given directory tree do
-	#     results = result_fn( path, dir, file, results );
+	#     results = filter_fn( path, dir, file, results );
 	# (where  path == dir + "/" + file)
 	# and then return the resulting list.
 	#
 	fun filter_directory_subtree_contents
-	    (
-	      (directory_name:  String),
-	      (result_fn:      (String, String, String, List(X)) -> List(X)),
-	      (results:         List(X))
-	    )
+	      {
+		directory_name:			String,
+		filter_fn:			{ path: String, directory_name: String, name: String, results: List(X) } -> List(X),
+		results:			List(X)
+	      }
 	    =
-	    {
-		results
+	    filter_tree { directory_name, results }
+	    where	
+		fun filter_tree { directory_name, results }
 		    =
-		    safely::do
-			{
-			  open_it  =>  .{ psx::open_directory_stream  directory_name; },
-			  close_it =>     psx::close_directory_stream,
-			  cleanup  =>     fn _ =  ()
-			}
-		       .{   loop results
-			    where
-				fun loop results
-				    =
-				    case (psx::read_directory_entry  #directory_stream)
-					#
-					NULL =>   results;
-					#
-					THE entry_name
-					    =>
-					    {   path    =  directory_name + "/" + entry_name;
-						#
-						results =  result_fn( path, directory_name, entry_name, results );
-						#
-						results
+		    {
+			results =   safely::do
+					{
+					  open_it  =>  .{ psx::open_directory_stream  directory_name; },
+					  close_it =>     psx::close_directory_stream,
+					  cleanup  =>     fn _ =  ()
+					}
+				       .{   loop results
+					    where
+						fun loop results
 						    =
-						    if  (entry_name != "."
-						    and  entry_name != ".."
-						    and  is_directory  path
-						    and  not (is_symlink path))
+						    case (psx::read_directory_entry  #directory_stream)
 							#
-							filter_directory_subtree_contents
-							    (path, result_fn, results);
-						    else
-							results;
-						    fi;
+							NULL =>   results;
+							#
+							THE name
+							    =>
+							    {
+								path    =   directory_name + "/" + name;
+								#
+								results =   filter_fn { path, directory_name, name, results };
+								#
+								results =   if   (name == ".")			results;
+									    elif (name == "..")			results;
+									    elif (not (is_directory  path))	results;
+									    elif (is_symlink path)		results;
+									    else
+										filter_tree { directory_name => path, results };
+									    fi;
 
-						loop results;
-					    };
-				    esac;
-			    end;
-			};
+								loop results;
+							    };
+						    esac;
+					    end;
+					};
 
-		results;
-	    };
+			results;
+		    };
+	    end;
 
 	# Return alphabetically sorted list of paths
 	# for all entries in directory subtree whose
@@ -154,24 +161,22 @@ herein
 	#
 	fun entries (directory_name: String)
 	    =
-	    {   fun ignore_dot_initial_entries (path, dir, file, results)
+	    {   fun ignore_dot_initial_entries { path, directory_name, name, results }
 		    =
-		    if  (string::length file > 0
-		    and  string::get   (file, 0) == '.')
-
+		    if  (string::length name > 0
+		    and  string::get   (name, 0) == '.')
+			#
 			results;
 		    else
 			path ! results;
 		    fi;
 
-		results
-		    =
-		    filter_directory_subtree_contents
-			(
-			  canonicalize directory_name,
-			  ignore_dot_initial_entries,
-			  []
-			);
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize directory_name,
+				filter_fn	=>  ignore_dot_initial_entries,
+				results		=>  []
+			      };
 
 		lms::sort_list  string::(>)  results;
 	    };
@@ -184,24 +189,22 @@ herein
 	#
 	fun entries' (directory_name: String)
 	    =
-	    {   fun ignore_dot_and_dotdot (path, dir, file, results)
+	    {   fun ignore_dot_and_dotdot { path, directory_name, name, results }
 		    =
-		    if  (file == "."
-		    or   file == "..")
+		    if  (name == "."
+		    or   name == "..")
 			#
 			results;
 		    else
 			path ! results;
 		    fi;
 
-		results
-		    =
-		    filter_directory_subtree_contents
-			(
-			  canonicalize directory_name,
-			  ignore_dot_and_dotdot,
-			  []
-			);
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize directory_name,
+				filter_fn	=>  ignore_dot_and_dotdot,
+				results		=>  []
+			      };
 
 		lms::sort_list  string::(>)  results;
 	    };
@@ -213,18 +216,41 @@ herein
 	#
 	fun entries'' (directory_name: String)
 	    =
-	    {   fun accept_everything (path, dir, file, results)
+	    {   fun accept_everything { path, directory_name, name, results }
 		    =
 		    path ! results;
 
-		results
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize directory_name,
+				filter_fn	=>  accept_everything,
+				results		=>  []
+			      };
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+
+	# Return alphabetically sorted list of paths
+	# for all nondot files in directory subtree:
+	#
+	#     [ "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun files (directory_name: String)
+	    =
+	    {   fun accept_only_nondot_files { path, directory_name, name, results }
 		    =
-		    filter_directory_subtree_contents
-			(
-			  canonicalize directory_name,
-			  accept_everything,
-			  []
-			);
+		    if   (is_dot_initial name)		results;
+		    elif (is_file path)		 path ! results;
+		    else				results;
+		    fi;	
+
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize  directory_name,
+				filter_fn	=>  accept_only_nondot_files,
+				results		=>  []
+			      };
 
 		lms::sort_list  string::(>)  results;
 	    };
@@ -234,20 +260,71 @@ herein
 	#
 	#     [ "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
 	#
-	fun files (directory_name: String)
+	fun files' (directory_name: String)
 	    =
-	    {   fun accept_only_plain_files (path, dir, file, results)
+	    {   fun accept_only_plain_files { path, directory_name, name, results }
 		    =
-		    is_file path   ??   path ! results
-				   ::          results;
-		results
+		    if   (is_file path)		 path ! results;
+		    else				results;
+		    fi;	
+
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize  directory_name,
+				filter_fn	=>  accept_only_plain_files,
+				results		=>  []
+			      };
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+
+	# Return alphabetically sorted list of paths
+	# for all nondot directories in directory subtree:
+	#
+	#     [ "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun directories (directory_name: String)
+	    =
+	    {   fun accept_only_nondot_dirs { path, directory_name, name, results }
 		    =
-		    filter_directory_subtree_contents
-			(
-			  canonicalize directory_name,
-			  accept_only_plain_files,
-			  []
-			);
+		    if   (is_dot_initial name)		results;
+		    elif (is_directory path)	 path ! results;
+		    else				results;
+		    fi;	
+
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize  directory_name,
+				filter_fn	=>  accept_only_nondot_dirs,
+				results		=>  []
+			      };
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all directories in directory subtree,
+	# excepting . and .. :
+	#
+	#     [ "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun directories' (directory_name: String)
+	    =
+	    {   fun accept_only_dirs { path, directory_name, name, results }
+		    =
+		    if   (name == ".")			results;
+		    elif (name == "..")			results;
+		    elif (is_directory path)	 path ! results;
+		    else				results;
+		    fi;	
+
+		results =   filter_directory_subtree_contents
+			      {
+				directory_name	=>  canonicalize  directory_name,
+				filter_fn	=>  accept_only_dirs,
+				results		=>  []
+			      };
 
 		lms::sort_list  string::(>)  results;
 	    };
