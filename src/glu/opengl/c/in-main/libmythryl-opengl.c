@@ -497,7 +497,7 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 //  ->  build_set_callback_fn_for_'libmythryl_xxx_c'				# In src/glu/opengl/sh/make-opengl-glue
 //  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='body') */
 
 
 /*  do__set_window_size_event_callback : Session -> Window_Size_Event_Callback -> Void
@@ -832,7 +832,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 //       ->  build_set_callback_fn_for_'libmythryl_xxx_c'				# In src/glu/opengl/sh/make-opengl-glue
 //           ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='table') */
 CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
 CFUNC("glew_init",                                "glew_init",                                do__glew_init,                                         "Session -> Void")
 CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")

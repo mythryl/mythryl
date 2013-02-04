@@ -457,7 +457,7 @@ puts("NB: glfwInit() returned TRUE -- mythryl-opengl-library-in-c-subprocess.c\n
 //       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/opengl/sh/make-opengl-glue
 //           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='body') */
 
 static void
 do__set_window_size_event_callback( int argc, unsigned char** argv )
@@ -851,7 +851,7 @@ init  (void)
     //   ->  build_callback_function							# In src/glu/opengl/sh/make-opengl-glue
     //       ->  r.build_trie_entry_for_'mythryl_xxx_library_in_c_subprocess_c'		# In src/lib/make-library-glue/make-library-glue.pkg
     //
-    /* Do not edit this or following lines -- they are autobuilt.  (patchname='') */
+    /* Do not edit this or following lines -- they are autobuilt.  (patchname='table') */
     set_trie( trie, "set_window_size_event_callback",             do__set_window_size_event_callback            );
     set_trie( trie, "glew_init",                                  do__glew_init                                 );
     set_trie( trie, "open_window2",                               do__open_window2                              );
