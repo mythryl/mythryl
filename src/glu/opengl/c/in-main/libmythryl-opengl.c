@@ -497,7 +497,7 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 //  ->  build_set_callback_fn_for_'libmythryl_xxx_c'				# In src/glu/opengl/sh/make-opengl-glue
 //  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='body') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='functions') */
 
 
 /*  do__set_window_size_event_callback : Session -> Window_Size_Event_Callback -> Void

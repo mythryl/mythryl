@@ -10,43 +10,9 @@
 # Compiled by:
 #     src/lib/std/standard.lib
 
-api  Patchable_File
-{
-    Patch = { patchname: String,
-              contents:  List(String)
-	    };
-
-    File_Part = TEXT  List(String)
-	      | PATCH List(String)
-	      ;
-
-    Patchable_File
-	=
-	PATCHABLE_FILE {
-	    filename:  String,
-	    contents:  List(File_Part)
-	};
-
-    print_patchable_file: Patchable_File -> Void;
-
-    read_patchable_file:  String -> Patchable_File;
-
-    write_patchable_file:   Patchable_File -> Void;
-    write_patchable_file':  Patchable_File -> List(File_Part) -> Void;
-
-    patch_count:  Patchable_File -> Int;
-    text_count:   Patchable_File -> Int;
-
-    get_patch:    Patchable_File -> List(String);							# Patchable_File must contain exactly one patch.
-    get_patches:  Patchable_File -> List(List(String));							# 
-
-    set_patch:    Patchable_File -> List(String) -> Patchable_File;					# Patchable_File must contain exactly one patch.
-    set_patches:  Patchable_File -> List(List(String)) -> Patchable_File;				# Patchable_File must contain matching number of patches.
-    set_patches': Patchable_File -> List(File_Part) -> Patchable_File;					# Patchable_File must contain matching number of patches.
-};
-
 stipulate
     package fil =  file__premicrothread;								# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package sm  =  string_map;										# string_map			is from   src/lib/src/string-map.pkg
     #
     exit_x =  winix__premicrothread::process::exit_x;
     =~     =  regex::(=~);
@@ -57,7 +23,7 @@ herein
     #     src/lib/make-library-glue/make-library-glue.pkg
 
     package  patchable_file:
-	     Patchable_File
+	     Patchable_File										# Patchable_File		is from   src/lib/make-library-glue/patchable-file.api
     {
 	# We divide the files we patch into texts and patches
 	# according to the scheme
@@ -74,26 +40,32 @@ herein
 	# considered part of the texts.)
 	#
 	# We represent such a file in memory as a list of file
-	# segments (that is, texts and patches) where each segment
+	# parts (that is, texts and patches) where each part
 	# is in turn a list of lines represented as strings:
 	#
-	File_Part = TEXT   List(String)
-		     | PATCH List(String)
-		     ;
+
+	Patch = { patchname: String,
+		  lines:     List(String)
+		};
+
+	File_Part = TEXT  List(String)									# Static part contents as a list of lines.
+		  | PATCH String									# Name of patch.
+		  ;
 
 	Patchable_File
 	    =
 	    PATCHABLE_FILE {
 		filename:  String,
-		contents:  List(File_Part)
+		parts:  List(File_Part),
+		patches:   sm::Map(Patch)
 	    };
 
 
-	fun print_patchable_file (PATCHABLE_FILE { filename, contents })
+	fun print_patchable_file (PATCHABLE_FILE { filename, parts, patches })
 	    =
 	    {   printf "PATCHABLE_FILE filename = '%s'\n" filename;
-		printf "PATCHABLE_FILE contents follow:\n";
-		print_patchable_file_contents contents;
+		printf "PATCHABLE_FILE parts follow:\n";
+		print_patchable_file_parts parts;
 	    }
 	    where
 		fun print_strings [] => ();
@@ -104,117 +76,108 @@ herein
 			};	
 		end;
 
-		fun print_patchable_file_contents []
+		fun print_patchable_file_parts []
 			=>
 			();
 
-		    print_patchable_file_contents (TEXT strings ! rest)
+		    print_patchable_file_parts (TEXT strings ! rest)
 			=>
 			{   print "TEXT:\n";
 			    print_strings strings;
-			    print_patchable_file_contents  rest;
+			    print_patchable_file_parts  rest;
 			};
 
-		    print_patchable_file_contents (PATCH strings ! rest)
+		    print_patchable_file_parts (PATCH patchname ! rest)
 			=>
-			{   print "PATCH:\n";
-			    print_strings strings;
-			    print_patchable_file_contents  rest;
-			};
+			case (sm::get (patches, patchname))
+			    #
+			    THE { patchname, lines }
+				=>
+				{   printf "PATCH '%s':\n" patchname;
+ 				    print_strings lines;
+				    print_patchable_file_parts  rest;
+				};
+
+			    NULL => raise exception FAIL "impossible";
+			esac;
 		end;
 	    end;
 
-	fun patch_count (PATCHABLE_FILE { contents, ... })
+	fun patch_count (PATCHABLE_FILE { parts, ... })
 	    =
-	    patch_count' (contents, 0)
+	    patch_count' (parts, 0)
 	    where
-		fun patch_count' ([],              n) =>  n;
-		    patch_count' (  TEXT _ ! rest, n) =>  patch_count' (rest, n    );
+		fun patch_count' ([],             n) =>  n;
+		    patch_count' ( TEXT _ ! rest, n) =>  patch_count' (rest, n    );
 		    patch_count' (PATCH _ ! rest, n) =>  patch_count' (rest, n + 1);
 		end;
 	    end;
 
-	fun text_count (PATCHABLE_FILE { contents, ... })
+	fun text_count (PATCHABLE_FILE { parts, ... })
 	    =
-	    text_count' (contents, 0)
+	    text_count' (parts, 0)
 	    where
-		fun text_count' ([],              n) =>  n;
-		    text_count' (  TEXT _ ! rest, n) =>  text_count' (rest, n + 1);
+		fun text_count' ([],             n) =>  n;
+		    text_count' ( TEXT _ ! rest, n) =>  text_count' (rest, n + 1);
 		    text_count' (PATCH _ ! rest, n) =>  text_count' (rest, n    );
 		end;
 	    end;
 
-	fun get_patch (pf as PATCHABLE_FILE { contents, ... })
+	fun get_patch (pf as PATCHABLE_FILE { filename, parts, patches })
 	    =
 	    case (patch_count pf)
 		#
-		1 =>    get_patch' contents
+		1 =>    get_patch' parts
 			where
-			    fun get_patch' []			=>  raise exception FAIL "impossible";
-				get_patch' (  TEXT _      ! rest)	=>  get_patch'  rest;
-				get_patch' (PATCH patch ! _   )	=>  patch;
+			    fun get_patch' []			    =>  raise exception FAIL "impossible";
+				get_patch' ( TEXT _         ! rest) =>  get_patch'  rest;
+				get_patch' (PATCH patchname ! _   ) =>  case (sm::get (patches, patchname))
+									    #
+									    THE { patchname, lines } => lines;
+									    NULL => raise exception FAIL "impossible";
+									esac;
 			    end;
 			end;
 
-		n =>    raise exception FAIL (sprintf "get_patch: Patch has %d patches instead of 1" n);
+		n =>    raise exception FAIL (sprintf "get_patch: Patchable file %s has %d patches instead of 1" filename n);
 	    esac;
 
-	fun get_patches (PATCHABLE_FILE { contents, ... })
+	fun get_patches (PATCHABLE_FILE { patches, ... })
 	    =
-	    get_patches' (contents, [])
-	    where
-		fun get_patches' ([], 			result) =>	reverse result;
-		    get_patches' (  TEXT      _ ! rest,	result) =>	get_patches' (rest,          result);
-		    get_patches' (PATCH patch ! rest,	result) =>	get_patches' (rest, patch ! result);
-		end;
-	    end;
+	    patches;	
 
-	fun set_patch (pf as PATCHABLE_FILE { contents, filename })  patch
+	fun set_patch (pf as PATCHABLE_FILE { filename, parts, patches })  lines
 	    =
 	    case (patch_count pf)
 		#
-		1 =>    PATCHABLE_FILE { filename, contents => set_patch' contents }
+		1 =>    PATCHABLE_FILE { filename, parts, patches => set_patch' parts }
 			where
-			    fun set_patch' []				=>  raise exception FAIL "impossible";
+			    fun set_patch' []			  =>  raise exception FAIL "impossible";
 				#
-				set_patch' ((x as TEXT _) ! rest)	=>               x   !   set_patch' rest;
-				set_patch' (    PATCH _  ! rest)	=>  (PATCH patch)  !                   rest;
+				set_patch' (TEXT _  ! rest)	  =>  set_patch' rest;
+				set_patch' (PATCH patchname ! _)  =>  sm::set (patches, patchname, { patchname, lines } );
 			    end;
 			end;
 
-		n =>    raise exception FAIL (sprintf "set_patch: patch has %d patches instead of 1" n);
+		n =>    raise exception FAIL (sprintf "set_patch: patchable file %s has %d patches instead of 1" filename n);
 	    esac;
 
-	fun set_patches (pf as PATCHABLE_FILE { contents, filename })  replacement_patches
+	fun set_patches (pf as PATCHABLE_FILE { filename, parts, patches })  replacement_patches
 	    =
-	    PATCHABLE_FILE  { filename,  contents => set_it (contents, replacement_patches) }
+	    PATCHABLE_FILE  { filename,  parts, patches => set_it (replacement_patches, patches) }
 	    where
-		fun set_it ([], [])					=>  [];
+		fun set_it ([], patches)				=>  patches;
 		    #
-		    set_it ([], _)					=>  raise exception FAIL (sprintf "set_patches: Too many patches (%d) provided for %s." (list::length replacement_patches) filename);
-		    #
-		    set_it ((x as TEXT   _) ! rest,            patches)	=>                x   !   set_it (rest, patches);
-		    set_it ((     PATCH _) ! rest,   patch ! patches)	=>  (PATCH patch)   !   set_it (rest, patches);
-		    #
-		    set_it (_, [])					=>  raise exception FAIL (sprintf "set_patches: Too few patches (%d) provided for %s."  (list::length replacement_patches) filename);
+		    set_it ((patch as { patchname, lines }) ! rest,  patches)
+			=>
+			case (sm::get (patches, patchname))
+			    #
+			    THE _  =>  set_it (rest, sm::set (patches, patchname, patch));
+			    NULL   =>  raise exception FAIL "impossible";
+			esac;
 		end;
 	    end;
 
-	fun set_patches' (pf as PATCHABLE_FILE { contents, filename })  replacement_patches
-	    =
-	    PATCHABLE_FILE  { filename,  contents => set_it (contents, replacement_patches) }
-	    where
-		fun set_it ([], [])								=>  [];
-		    #
-		    set_it (_, TEXT _ ! _)							=>  raise exception FAIL  sprintf "set_patches': TEXT in provided PATCH list!";
-		    set_it ([], _)								=>  raise exception FAIL (sprintf "set_patches': Too many patches (%d) provided for %s." (list::length replacement_patches) filename);
-		    #
-		    set_it ((text as TEXT   _) ! rest,                          patches)	=>    text   !   set_it (rest, patches);
-		    set_it ((        PATCH _) ! rest,   (patch as PATCH _) ! patches)	=>  patch   !   set_it (rest, patches);
-		    #
-		    set_it (_, [])								=>  { print_patchable_file pf; raise exception FAIL (sprintf "set_patches': Too few patches (%d) provided for %s."  (list::length replacement_patches) filename); };
-		end;
-	    end;
 
 
 	# Read and return a Patchable_File:
@@ -228,55 +191,59 @@ herein
 			    {   fprintf fil::stderr "Fatal: Unable to open input file '%s'" filename;
 				exit_x(1);
 			    };
-		contents
+
+		my (parts, patches)
 		    =
-		    read_text ([], [])
+		    read_text ([], sm::empty, [])
 		    where
-			fun read_text (segments, lines)
+			fun read_text (parts, patches, lines)
 			    =
 			    case (fil::read_line  fd)
 				#
-				NULL => reverse ((TEXT (reverse lines)) ! segments);
+				NULL =>  (reverse ((TEXT (reverse lines)) ! parts),  patches);
 
 				THE line
 				    =>
-				    if (line =~ ./ Do not edit this or following lines -- they are autobuilt./)
+				    if (line =~ ./ Do not edit this or following lines -- they are autobuilt.  \(patchname='[A-Za-z0-9_\-]+'\)/)
 					#
-					read_patch ((TEXT (reverse (line ! lines))) ! segments, []);
+					patchname =  (regex::find_first_group 1 ./patchname='([A-Za-z0-9_\-]+)'/  line);	# Removing the \ from the pattern yields a useless 'unable to parse' error message.  XXX SUCKO FIXME.
+					#
+					read_patch ((TEXT (reverse (line ! lines))) ! parts, patches, patchname, []);
 				    else
-					read_text (segments, line ! lines);
+					read_text (parts, patches, line ! lines);
 				    fi;	
 			    esac
 
 			also
-			fun read_patch (segments, lines)
+			fun read_patch (parts, patches, patchname, lines)
 			    =
 			    case (fil::read_line  fd)
 				#
-				NULL =>
-				    {   fprintf fil::stderr "Fatal: Missing 'Do not edit this or preceding lines' line in %s" filename;
-					exit_x(1);
-				    };
-
 				THE line
 				    =>
 				    if (line =~ ./ Do not edit this or preceding lines -- they are autobuilt./)
 					#
-					read_text ((PATCH (reverse lines)) ! segments, [ line ]);
+					patches = sm::set (patches, patchname, { patchname, lines => reverse (line ! lines) } );
+
+					read_text  ((PATCH patchname) ! parts,  patches,  [ line ]);
 				    else
-					read_patch (segments, line ! lines);
+					read_patch (parts, patches, patchname, line ! lines);
 				    fi;	
+
+				NULL =>     {   fprintf fil::stderr "Fatal: Missing 'Do not edit this or preceding lines' line in %s" filename;
+						exit_x(1);
+					    };
 			    esac;
 		    end;
 
 		fil::close_input  fd;
 
-		PATCHABLE_FILE { filename, contents };
+		PATCHABLE_FILE { filename, parts, patches };
 	    };
 
 	# Write a patchable file back into the filesystem.
 	#
-	fun write_patchable_file  (PATCHABLE_FILE { filename, contents })
+	fun write_patchable_file  (PATCHABLE_FILE { filename, parts, patches })
 	    =
 	    {   patch_lines_written =  REF 0;
 		#
@@ -313,7 +280,7 @@ herein
 		end;
 
 
-		write_text  contents
+		write_text  parts
 		where
 		    fun write_text ((TEXT lines) ! rest)
 			    =>
@@ -332,10 +299,15 @@ herein
 		    end
 
 		    also
-		    fun write_patch ((PATCH lines) ! rest)
+		    fun write_patch ((PATCH patchname) ! rest)
 			    =>
 			    {
-				write_patch_lines lines;
+				case (sm::get (patches, patchname))
+				    #
+				    THE { patchname, lines } =>  write_patch_lines  lines;
+				    NULL		     =>  raise exception FAIL "impossible";
+				esac;
+				
 				write_text rest;
 			    };
 
@@ -363,13 +335,10 @@ herein
 	#
 	fun write_patchable_file'  patchable_file  patches
 	    =
-	    {   patchable_file =  set_patches'  patchable_file  patches;
+	    {   patchable_file =  set_patches  patchable_file  patches;
 		#
 		write_patchable_file  patchable_file;
 	    };
-
-
-
     };
 end;
 

@@ -1036,7 +1036,7 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 //       ->  build_set_callback_fn_for_'libmythryl_xxx_c'			# In src/glu/gtk/sh/make-gtk-glue
 //           ->  r.to_libmythryl_xxx_c_funs					# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='body') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='functions') */
 /* do__make_window
  *
  * gtk-client.api        type:    Session -> Widget

@@ -798,7 +798,7 @@ static int int_to_range_update_policy( int i1 ) {
 //       ->  build_set_callback_fn_for_'mythryl_xxx_library_in_c_subprocess_c'	# In src/glu/gtk/sh/make-gtk-glue
 //           ->  r.to_mythryl_xxx_library_in_c_subprocess_c_funs		# In src/lib/make-library-glue/make-library-glue.pkg
 //
-/* Do not edit this or following lines -- they are autobuilt.  (patchname='body') */
+/* Do not edit this or following lines -- they are autobuilt.  (patchname='functions') */
 
 static void
 do__make_window( int argc, unsigned char** argv )
