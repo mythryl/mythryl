@@ -1,11 +1,7 @@
 ## planfile.pkg
 #
-# Adding content to files in spots
-# marked by linepairs like
-#
-#    # Do not edit this or following lines -- they are autobuilt.
-#    ...
-#    # Do not edit this or preceding lines -- they are autobuilt.
+# Read one or more  .plan files like src/glu/gtk/etc/construction.plan,
+# parse and validate the contents, and return as a list of paragraphs.
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -17,6 +13,44 @@ stipulate
     #
     exit_x =  winix__premicrothread::process::exit_x;
     =~     =  regex::(=~);
+    chomp	=  string::chomp;
+
+    #
+    fun die_x message
+	=
+	{   print message;
+	    exit_x 1;
+	};
+
+    # Drop leading and trailing
+    # whitespace from a string.
+    #
+    fun trim string
+	=
+	{   if (string =~ ./^\s*$/)
+
+		"";
+
+	    else
+		# Drop trailing whitespace:
+		#
+		string
+		    =
+		    (regex::find_first_group 1 ./^(.*\S)\s*$/ string)
+		    except
+			NOT_FOUND = string;
+
+		# Drop leading whitespace:
+		#
+		string
+		    =
+		    (regex::find_first_group 1 ./^\s*(\S.*)$/ string)
+		    except
+			NOT_FOUND = string;
+
+		string;
+	    fi;
+	};
 herein
 
     # This package is invoked in:
@@ -26,400 +60,200 @@ herein
     package  planfile:
 	     Planfile											# Planfile			is from   src/lib/make-library-glue/planfile.api
     {
-	# We divide the files we plan into texts and plans
-	# according to the scheme
+	# Field is a contiguous sequence of lines
+	# all with the same linetype field:
 	#
-	#        text
-	#        # Do not edit this or following lines -- they are autobuilt.
-	#        plan
-	#        # Do not edit this or preceding lines -- they are autobuilt.
-	#        text
-	#        
-	# where the texts are literal program text provided by the
-	# programmer whereas the plans are literal program text
-	# which we synthesize.  (The shown 'do not edit' lines are
-	# considered part of the texts.)
+	#    foo:  this
+	#    foo:  that
 	#
-	# We represent such a file in memory as a list of file
-	# parts (that is, texts and plans) where each part
-	# is in turn a list of lines represented as strings:
+	# Most fields will be single-line, but this format
+	# supports conveniently including blocks of code,
+	# such as complete function definitions.
 	#
+	Field     =   { name:    String,				# Label appearing before the colon, trimmed of whitespace.
+			lines:   List(String),				# Line(s) for this field, stripped of initial label and colon.
+			file:    String,				# Name of file from which field was read.
+			line_1:  Int,					# First line number in file for field.
+			line_n:  Int					# Last  line number in file for field.
+		      };
 
-	Plan =   { planname: String,									# This is the externally visible representation of a plan,
-		    lines:     List(String)								# designed for client-code convenience, mostly used for
-		  };											# arguments to (and results from) exported functions.
 
-	Plan' =  { planname: String,									# This is the internal representation of a plan,
-		    deque:     deq::Queue(String)							# which allows for more efficient prepend/append operations.
-		  };
+	Paragraph =   { do_it:	sm::Map( Null_Or( Field )) -> Void,	# Does all required work to implement the paragraph type.
+			fields:	sm::Map( Null_Or( Field ))		# Stored indexed by field name. All mandatory fields will have THE values;
+		      };						# optional fields may have NULL values.
+	
+	Paragraph_Definition
+	  =
+	  { name:		String,					# The 'build-a' line value.
+	    do_it:		sm::Map( Null_Or( Field )) -> Void,	# Does all required work to implement the paragraph type.
+	    mandatory_fields:	List( String ),
+	    optional_fields:	List( String )
+	  };
 
-	File_Part = TEXT  List(String)									# Static part contents as a list of lines.
-		  | PLAN String									# Name of plan.
-		  ;
-
-	Planfile
+	Paragraph_Definitions
 	    =
-	    PLANFILE {
-		filename:   String,
-		parts:	    List(File_Part),								# This preserves the order of the file parts and the contents of the TEXT parts.
-		plans:    sm::Map(Plan')								# This preserves the contents of the plans, indexed by name.
-	    };
+	    sm::Map( Paragraph_Definition );				# Stored indexed by name.
 
 
-	fun print_planfile (PLANFILE { filename, parts, plans })
+
+
+	State = { line_number:  Ref(Int),							# Exported as an opaque type.
+
+		  fd:           fil::Input_Stream,
+
+		  fields:       Ref( string_map::Map( Field ))
+		};
+
+
+#		fun maybe_get_field (state: State, field_name)
+#		    =
+#		    case (string_map::get (*state.fields, field_name))
+#			#
+#			THE field => { field.used := TRUE;  THE *field.string; };
+#			NULL      => NULL;
+#		    esac;
+#
+#		#
+#		fun get_field (state: State, field_name)
+#		    =
+#		    case (string_map::get (*state.fields, field_name))
+#			#
+#			THE field => { *field.string;
+#				     };
+#
+#			NULL      => die_x (sprintf "Required field %s missing at line %d\n"  field_name  *state.line_number);
+#		    esac;
+
+	#
+	fun handle_fieldset (state: State)
 	    =
-	    {   printf "PLANFILE filename = '%s'\n" filename;
-		printf "PLANFILE parts follow:\n";
-		print_planfile_parts parts;
+	    {
+		if (not  (string_map::is_empty  *state.fields))
+		    #
+#		    case (trim (get_field (state, "build-a")))
+#			#
+#			"plain-fn"     =>  [];
+#			"fn-doc"       =>  [];
+#			"mythryl-type" =>  [];
+#			"mythryl-code" =>  [];
+#			#
+#			other_field_name => [];
+#		    esac;
+
+		    ();
+		fi;
+	    };    
+
+	# Scan src/glu/xxx/etc/construction.plan
+	# digesting the blank-line-delimited
+	# config info paragraphs, then
+	# build code accordingly:
+	# 
+	fun process_library_binding_specification_file  planfile_name
+	    =
+	    {	planfile_in =  fil::open_for_read  planfile_name;
+		#
+		loop { line_number =>  REF 0,
+		       fd          =>  planfile_in,
+		       fields      =>  REF (string_map::empty: string_map::Map( Field ))
+		     };
+
+		fil::close_input  planfile_in;
 	    }
 	    where
-		fun print_strings [] => ();
-		    print_strings (string ! rest)
-			=>
-			{   print string;
-			    print_strings rest;
-			};	
-		end;
-
-		fun print_planfile_parts []
-			=>
-			();
-
-		    print_planfile_parts (TEXT strings ! rest)
-			=>
-			{   print "TEXT:\n";
-			    print_strings strings;
-			    print_planfile_parts  rest;
-			};
-
-		    print_planfile_parts (PLAN planname ! rest)
-			=>
-			case (sm::get (plans, planname))
-			    #
-			    THE { planname, deque }
-				=>
-				{   printf "PLAN '%s':\n" planname;
- 				    print_strings (deq::to_list deque);
-				    print_planfile_parts  rest;
-				};
-
-			    NULL => raise exception FAIL "impossible";
-			esac;
-		end;
-	    end;
-
-	fun plan_count (PLANFILE { parts, ... })
-	    =
-	    plan_count' (parts, 0)
-	    where
-		fun plan_count' ([],             n) =>  n;
-		    plan_count' ( TEXT _ ! rest, n) =>  plan_count' (rest, n    );
-		    plan_count' (PLAN _ ! rest, n) =>  plan_count' (rest, n + 1);
-		end;
-	    end;
-
-	fun text_count (PLANFILE { parts, ... })
-	    =
-	    text_count' (parts, 0)
-	    where
-		fun text_count' ([],             n) =>  n;
-		    text_count' ( TEXT _ ! rest, n) =>  text_count' (rest, n + 1);
-		    text_count' (PLAN _ ! rest, n) =>  text_count' (rest, n    );
-		end;
-	    end;
-
-	fun get_plan_names (PLANFILE { plans, ... })
-	    =
-	    sm::keys_list plans;
-
-
-	stipulate
-	    fun get (PLANFILE { filename, plans, ... },  planname)
-		=
-		case (sm::get (plans, planname))
-		    #
-		    THE plan =>  plan;
-		    NULL      =>  raise exception FAIL (sprintf "No plan %s in file %s" planname filename);
-		esac;
-	herein
-
-	    fun get_plan  (pf as PLANFILE { filename, plans, ... },  planname)
-		=
-		{   (get (pf, planname)) ->  { planname, deque };
-		    #
-		    { planname, lines => deq::to_list deque };
-		};
-
-
-	    fun apply_plan  (pf as PLANFILE { filename, parts, plans })  { planname, lines }
-		=
-		{   get (pf, planname);	# Verify that plan exists.
-		    #
-		    PLANFILE  { filename,  parts,  plans => sm::set (plans, planname, { planname, deque => deq::from_list lines } ) };
-		};
-
-
-	    fun prepend_to_plan  (pf as PLANFILE { filename, parts, plans },  planname, lines)
-		=
-		{   (get (pf, planname)) ->  { planname, deque };
-		    #
-		    PLANFILE  { filename,  parts,  plans => sm::set (plans, planname, { planname, deque => deq::unpull' (deque, lines) } ) };
-		};
-
-
-	    fun append_to_plan  (pf as PLANFILE { filename, parts, plans },  planname, lines)
-		=
-		{   (get (pf, planname)) ->  { planname, deque };
-		    #
-		    PLANFILE  { filename,  parts,  plans => sm::set (plans, planname, { planname, deque => deq::push' (deque, lines) } ) };
-		};
-	end;
-
-	fun get_only_plan (pf as PLANFILE { filename, parts, plans })
-	    =
-	    case (plan_count pf)
 		#
-		1 =>    get_plan' parts
-			where
-			    fun get_plan' []			    =>  raise exception FAIL "impossible";
-				get_plan' ( TEXT _         ! rest) =>  get_plan'  rest;
-				get_plan' (PLAN planname ! _   ) =>  case (sm::get (plans, planname))
-									    #
-									    THE { planname, deque } => deq::to_list deque;
-									    NULL => raise exception FAIL "impossible";
-									esac;
-			    end;
-			end;
-
-		n =>    raise exception FAIL (sprintf "get_only_plan: Planable file %s has %d plans instead of 1" filename n);
-	    esac;
-
-	fun set_only_plan (pf as PLANFILE { filename, parts, plans })  lines
-	    =
-	    case (plan_count pf)
 		#
-		1 =>    PLANFILE { filename, parts, plans => set_plan' parts }
-			where
-			    fun set_plan' []			  =>  raise exception FAIL "impossible";
-				#
-				set_plan' (TEXT _  ! rest)	  =>  set_plan' rest;
-				set_plan' (PLAN planname ! _)  =>  sm::set (plans, planname, { planname, deque => deq::from_list lines } );
-			    end;
-			end;
+#
+#		fun update_field (state: State, field_name, field_line)
+#		    =
+#		    {
+#			case (string_map::get (*state.fields, field_name))
+#			    #
+#			    THE field
+#				=>
+#				{   field.string := *field.string + field_line;
+#				    field.line_n := *state.line_number;
+#
+#				    string_map::set (*state.fields, field_name, field);
+#
+#				    ();
+#				};
+#
+#			    NULL =>
+#				{   field = { string =>  REF field_line,
+#					      line_1 =>  REF *state.line_number,
+#					      line_n =>  REF *state.line_number,
+#					      used   =>  REF FALSE
+#					    };
+#
+#				    state.fields
+#					:=
+#					string_map::set (*state.fields, field_name, field);
+#
+#				    ();
+#				};
+#			esac;
 
-		n =>    raise exception FAIL (sprintf "set_only_plan: planable file %s has %d plans instead of 1" filename n);
-	    esac;
-
-	fun apply_plans (pf as PLANFILE { filename, parts, plans })  replacement_plans
-	    =
-	    PLANFILE  { filename,  parts, plans => set_it (replacement_plans, plans) }
-	    where
-		fun set_it ([], plans)				=>  plans;
-		    #
-		    set_it (({ planname, lines }) ! rest,  plans)
-			=>
-			case (sm::get (plans, planname))
-			    #
-			    THE _  =>  set_it (rest, sm::set (plans, planname, { planname, deque => deq::from_list lines } ));
-			    NULL   =>  raise exception FAIL "impossible";
-			esac;
-		end;
-	    end;
-
-
-
-	# Read and return a Planfile:
-	#
-	fun read_planfile  filename
-	    =
-	    {   fd = fil::open_for_read filename
-		     except
-			io_exceptions::IO _
-			    =
-			    {   fprintf fil::stderr "Fatal: Unable to open input file '%s'" filename;
-				exit_x(1);
-			    };
-
-		my (parts, plans)
+		fun loop  (state: State)
 		    =
-		    read_text ([], sm::empty, [])
-		    where
-			fun read_text (parts, plans, lines)
-			    =
-			    case (fil::read_line  fd)
+		    case (fil::read_line  state.fd)
+			#
+			NULL => handle_fieldset  state;			# Done.
+			#
+			THE input_line
+			    =>
+			    {   state.line_number :=  *state.line_number + 1;
 				#
-				NULL =>  (reverse ((TEXT (reverse lines)) ! parts),  plans);
+				if (input_line =~ ./^\s*#/)			# If it is a comment line,
+				    #
+				    loop  state;				# ignore it.
 
-				THE line
-				    =>
-				    if (line =~ ./ Do not edit this or following lines -- they are autobuilt.  \(planname="[A-Za-z0-9_\-]+"\)/)
+				elif (input_line =~ ./^\s*$/)			# If it is a blank line, it marks the end of a field cluster,
+				    #
+				    handle_fieldset  state;			# so process any fields we have in hand:
+
+				else
+
+				    # Line format should be  "line-type: rest".
+				    # Split it into two strings at the ':' and
+				    # dispatch on the line type:
+				    #
+				    case (regex::find_first_groups_all ./^([^:]+):(.*\n)$/ input_line)
 					#
-					planname =  (regex::find_first_group 1 ./planname="([A-Za-z0-9_\-]+)"/  line);	# Removing the \ from the pattern yields a useless 'unable to parse' error message.  XXX SUCKO FIXME.
-					#
-					read_plan ((TEXT (reverse (line ! lines))) ! parts, plans, planname, []);
-				    else
-					read_text (parts, plans, line ! lines);
-				    fi;	
-			    esac
+					[ line_type, line_contents ]
+					    =>
+					    {   # Drop leading and trailing whitespace:
+						#
+						line_type =  trim  line_type;
 
-			also
-			fun read_plan (parts, plans, planname, lines)
-			    =
-			    case (fil::read_line  fd)
-				#
-				THE line
-				    =>
-				    if (line =~ ./ Do not edit this or preceding lines -- they are autobuilt./)
-					#
-					plans = sm::set (plans, planname, { planname, deque => deq::from_list (reverse lines) } );
+						line_contents
+						    =
+						    case line_type
+							"cg-typs"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
+							"cg-funs"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
+							"libcal+"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
+							_           => trim  line_contents;	# Drop leading and trailing whitespace.
+						    esac;
 
-					read_text  ((PLAN planname) ! parts,  plans,  [ line ]);
-				    else
-					read_plan (parts, plans, planname, line ! lines);
-				    fi;	
-
-				NULL =>     {   fprintf fil::stderr "Fatal: Missing 'Do not edit this or preceding lines' line in %s" filename;
-						exit_x(1);
+#						update_field (state,  line_type,  line_contents);
 					    };
-			    esac;
-		    end;
 
-		fil::close_input  fd;
+					_   =>   die_x ("UNRecognized construction.plan line: '" + (chomp input_line) + "'  -- make-library-glue.pkg\n");
+				    esac
+				    except
+					NOT_FOUND =  die_x (sprintf "Unrecognized construction.plan line %d: '%s'    -- make-library-glue.pkg\n" *state.line_number (chomp input_line));
 
-		PLANFILE { filename, parts, plans };
-	    };
+				fi;
 
-	# Write a planable file back into the filesystem.
-	#
-	fun write_planfile  (PLANFILE { filename, parts, plans })
-	    =
-	    {   plan_lines_written =  REF 0;
-		#
-		tmp_filename = filename + "~";
-
-		fd = fil::open_for_write  tmp_filename
-		     except
-			io_exceptions::IO _
-			    =
-			    {   fprintf fil::stderr "Fatal: Unable to open output file '%s'" tmp_filename;
-				exit_x(1);
+				loop  state;				# Scan rest of file.
 			    };
+		    esac;
 
+	    end;
 
-		fun write_text_lines  (line ! rest)
-			=>
-			{   fil::write (fd, line);
-			    #
-			    write_text_lines  rest;
-			};
-
-		    write_text_lines [] =>  ();
-		end;
-
-
-		fun write_plan_lines  (line ! rest)					# Actually 'line' may be just a string (i.e., line fragment).
-			=>
-			{   fil::write (fd, line);
-			    plan_lines_written := *plan_lines_written + 1;		# This is the only difference between us and write_text_lines.
-			    write_plan_lines rest;
-			};
-
-		    write_plan_lines  [] =>  ();
-		end;
-
-
-		write_text  parts
-		where
-		    fun write_text ((TEXT lines) ! rest)
-			    =>
-			    {
-				write_text_lines lines;
-				write_plan rest;
-			    };
-
-			write_text []
-			    =>
-			    ();
-
-			write_text _
-			    =>
-			    raise exception FAIL (sprintf "Internal bug detected in write_text in write_planfile while processing %s" filename);
-		    end
-
-		    also
-		    fun write_plan ((PLAN planname) ! rest)
-			    =>
-			    {
-				case (sm::get (plans, planname))
-				    #
-				    THE { planname, deque } =>  write_plan_lines  (deq::to_list  deque);
-				    #
-				    NULL		     =>  raise exception FAIL "impossible";
-				esac;
-				
-				write_text rest;
-			    };
-
-			write_plan []
-			    =>
-			    ();
-
-			write_plan _
-			    =>
-			    raise exception FAIL (sprintf "Internal bug detected in write_plan in write_planfile while processing %s" filename);
-		    end;
-		end;	
-
-		fil::close_output fd;   
-
-		winix__premicrothread::file::remove_file  filename;
-
-		winix__premicrothread::file::rename_file { from => tmp_filename, to => filename };
-
-		printf "Successfully planed %4d lines in %s\n"  *plan_lines_written  filename;
-	    };
-
-
-	# Write a planable file back into the filesystem.
-	#
-	fun write_planfile'  planfile  plans
+	fun read_planfiles  paragraph_definitions  planfiles
 	    =
-	    {   planfile =  apply_plans  planfile  plans;
-		#
-		write_planfile  planfile;
-	    };
-
-
-
-	fun map_plans (pf as PLANFILE { filename, parts, plans })   user_fn				# Transform lines of all plans per user_fn.
-	    =
-	    {   plans =   sm::map  map_it  plans
-			    where
-				fun map_it { planname, deque }
-				    =
-				    {   list = user_fn { filename, planname, lines => deq::to_list deque };	# Transform from internal to external plan representation and apply user fn.
-					#
-					{ planname, deque => deq::from_list list };				# Transform back from external to internal plan representation.
-				    };
-			    end;	
-		
-		PLANFILE { filename, parts, plans };
-	    };
-
-
-	fun plan_apply (pf as PLANFILE { filename, parts, plans })   user_fn				# Call user_fn on all plans.
-	    =
-	    {   plans =   sm::apply  apply_fn  plans
-			    where
-				fun apply_fn { planname, deque }
-				    =
-				    user_fn { filename, planname, lines => deq::to_list deque };		# Transform from internal to external plan representation and apply user fn.
-			    end;	
-	    };
-
-	fun empty_all_plans pf
-	    =
-	    map_plans pf (fn _ = []); 
+	    [];
     };
 end;
 
