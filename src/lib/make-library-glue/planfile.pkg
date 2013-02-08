@@ -7,8 +7,9 @@
 #     src/lib/std/standard.lib
 
 stipulate
-    package fil =  file__premicrothread;								# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
     package deq =  queue;										# queue				is from   src/lib/src/queue.pkg
+    package fil =  file__premicrothread;								# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package lms =  list_mergesort;									# list_mergesort		is from   src/lib/src/list-mergesort.pkg
     package sm  =  string_map;										# string_map			is from   src/lib/src/string-map.pkg
     #
     exit_x =  winix__premicrothread::process::exit_x;
@@ -78,16 +79,36 @@ herein
 		      };
 
 
-	Paragraph =   { do_it:	sm::Map( Null_Or( Field )) -> Void,	# Does all required work to implement the paragraph type.
-			fields:	sm::Map( Null_Or( Field ))		# Stored indexed by field name. All mandatory fields will have THE values;
-		      };						# optional fields may have NULL values.
+	Fields =  sm::Map( Null_Or( Field ));				# Stored indexed by field name. All mandatory fields will have THE values;
+									# optional fields may have NULL values. All mandatory and all optional fields
+									# for the paragraph type will have entries in the map.
+
+	Field_Presence   = OPTIONAL | MANDATORY;
+	Field_Whitespace = TRIM     | KEEP;
+
+	Field_Summary    = (Field_Presence, Field_Whitespace);
+
+	Paragraph =   { do_it:	Fields -> Void,	# Does all required work to implement the paragraph type.
+			fields:	Fields		
+		      };
 	
 	Paragraph_Definition
 	  =
-	  { name:		String,					# The 'build-a' line value.
-	    do_it:		sm::Map( Null_Or( Field )) -> Void,	# Does all required work to implement the paragraph type.
-	    mandatory_fields:	List( String ),
-	    optional_fields:	List( String )
+	  { name:			String,				# The 'build-a' line value.
+	    do_it:			Fields -> Void,			# Does all required work to implement the paragraph type.
+	    #
+	    mandatory_plain_fields:	List( String ),
+	    mandatory_raw_fields:	List( String ),
+	    #
+	    optional_plain_fields:	List( String ),
+	    optional_raw_fields:	List( String )
+	  };
+
+	Digested_Paragraph_Definition
+	  =
+	  { name:			String,
+	    do_it:			Fields -> Void,
+	    fields:			sm::Map( Field_Summary )
 	  };
 
 	Paragraph_Definitions
@@ -95,6 +116,68 @@ herein
 	    sm::Map( Paragraph_Definition );				# Stored indexed by name.
 
 
+	fun digest_paragraph_definitions  filename  (defs: List(Paragraph_Definition))
+	    =
+	    list::fold_right  digest_def  sm::empty  defs
+	    where
+		fun digest_def  (def: Paragraph_Definition,  result)
+		    =
+		    case (sm::get (result, def.name))
+			#
+			THE _ =>    die_x (sprintf "Fatal error: Multiple definitions of paragraph type %s" def.name);
+			#
+			NULL  =>    {   validate_paragraph_definition def;
+
+					sm::set (result, def.name, { name   =>  def.name,
+								     do_it  =>  def.do_it,
+								     fields =>  sm::empty   # TBD
+# ...
+								   }
+						);
+				    };
+		    esac
+		    where
+			fun validate_paragraph_definition  (def: Paragraph_Definition)
+			    =
+			    # Check that fieldnames are unique and match [A-Za-z0-9_\-]+
+			    #
+			    {   all_fields =   list::cat  [ def.mandatory_plain_fields,
+							    def.mandatory_raw_fields,
+							    def.optional_plain_fields,
+							    def.optional_raw_fields
+							  ];
+
+				sorted_fields =  lms::sort_list                      string::(>)      all_fields;
+				uniqed_fields =  lms::sort_list_and_drop_duplicates  string::compare  all_fields;
+
+				if (length uniqed_fields  <  length sorted_fields)
+				    printf "Paragraph definition %s in planfile %s contains duplicate definitions of:\n"  def.name  filename;
+				    report_duplicate_fieldnames_and_die  sorted_fields;
+				fi;
+
+				apply  validate_fieldname  sorted_fields;
+			    }
+			    where
+				fun report_duplicate_fieldnames_and_die (string1 ! (rest as (string2 ! _)))
+					=>
+					{   if (string1 == string2)   printf "    %s\n"  string1;    fi;
+					    report_duplicate_fieldnames_and_die  rest;
+					};
+
+				    report_duplicate_fieldnames_and_die _
+					=>
+					die_x "Fatal error, exiting.";
+				end;
+
+				fun validate_fieldname  fieldname
+				    =
+				    if (not (fieldname =~ ./^[A-Za-z0-9_\-]+/))
+					#
+					die_x (sprintf "File %s paragraph definition %s: %s is not a valid fieldname\n"  filename  def.name  fieldname);
+				    fi;
+			    end;
+		    end;	
+	    end;
 
 
 	State = { line_number:  Ref(Int),							# Exported as an opaque type.
@@ -153,10 +236,12 @@ herein
 	    =
 	    {	planfile_in =  fil::open_for_read  planfile_name;
 		#
-		loop { line_number =>  REF 0,
-		       fd          =>  planfile_in,
-		       fields      =>  REF (string_map::empty: string_map::Map( Field ))
-		     };
+		loop (  { line_number =>  REF 0,
+			  fd          =>  planfile_in,
+			  fields      =>  REF (string_map::empty: string_map::Map( Field ))
+			},
+			[]
+		     );
 
 		fil::close_input  planfile_in;
 	    }
@@ -194,7 +279,7 @@ herein
 #				};
 #			esac;
 
-		fun loop  (state: State)
+		fun loop  (state: State, results)
 		    =
 		    case (fil::read_line  state.fd)
 			#
@@ -206,9 +291,9 @@ herein
 				#
 				if (input_line =~ ./^\s*#/)			# If it is a comment line,
 				    #
-				    loop  state;				# ignore it.
+				    loop  (state, results);			# ignore it.
 
-				elif (input_line =~ ./^\s*$/)			# If it is a blank line, it marks the end of a field cluster,
+				elif (input_line =~ ./^\s*$/)			# If it is a blank line, it marks the end of a paragraph (fieldset),
 				    #
 				    handle_fieldset  state;			# so process any fields we have in hand:
 
@@ -245,7 +330,7 @@ herein
 
 				fi;
 
-				loop  state;				# Scan rest of file.
+				loop  (state, results);				# Scan rest of file.
 			    };
 		    esac;
 
