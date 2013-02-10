@@ -17,12 +17,6 @@ stipulate
     chomp	=  string::chomp;
 
     #
-    fun die_x message
-	=
-	{   print message;
-	    exit_x 1;
-	};
-
     # Drop leading and trailing
     # whitespace from a string.
     #
@@ -71,43 +65,63 @@ herein
 	# supports conveniently including blocks of code,
 	# such as complete function definitions.
 	#
-	Field     =   { name:    String,				# Label appearing before the colon, trimmed of whitespace.
-			lines:   List(String),				# Line(s) for this field, stripped of initial label and colon.
-			file:    String,				# Name of file from which field was read.
-			line_1:  Int,					# First line number in file for field.
-			line_n:  Int					# Last  line number in file for field.
-		      };
+
+	Lines = LINE  String
+	      | LINES List(String)
+	      ;	
+
+	Field =   { fieldname:	String,					# Label appearing before the colon, trimmed of whitespace.
+		    lines:	Lines,					# Line(s) for this field, stripped of initial label and colon.
+		    filename:	String,					# Name of file from which field was read.
+		    line_1:	Int,					# First line number in file for field.
+		    line_n:	Int					# Last  line number in file for field.
+		  };
 
 
-	Fields =  sm::Map( Null_Or( Field ));				# Stored indexed by field name. All mandatory fields will have THE values;
-									# optional fields may have NULL values. All mandatory and all optional fields
-									# for the paragraph type will have entries in the map.
+	Fields =  sm::Map( Field );					# Stored indexed by field name.
 
-	Paragraph =   { do_it:	Fields -> Void,	# Does all required work to implement the paragraph type.
-			fields:	Fields		
+	Paragraph =   { do_it:	    Fields -> Void,			# Does all required work to implement the paragraph type.
+			fields:	    Fields				# Stored indexed by field name.
 		      };
 	
+	Field_Trait
+	  #
+	  = OPTIONAL
+	  | DO_NOT_TRIM_WHITESPACE
+	  | ALLOW_MULTIPLE_LINES
+	  ;
+
+	Field_Traits =    { optional:		    Bool,		# TRUE if this field may be omitted from paragraph.
+			    trim_whitespace:	    Bool,		# TRUE if leading and trailing whitespace should be trimmed from lines for this fieldtype.
+			    allow_multiple_lines:   Bool
+			  };
+
+	default_field_traits						# We presume most fields will be mandatory, single-line and
+	  = 								# should be trimmed of leading and trailing whitespace.
+	  {  optional             =>  FALSE,
+	     trim_whitespace      =>  TRUE,
+	     allow_multiple_lines =>  FALSE
+	  };
+
+	Field_Definition
+	  =
+	  { fieldname:			String,
+	    traits:			List( Field_Trait )
+	  };
+
 	Paragraph_Definition
 	  =
 	  { name:			String,				# The 'build-a' line value.
-	    do_it:			Fields -> Void,			# Does all required work to implement the paragraph type.
+	    do_it:			Fields -> Void,			# Does all required work to implement the paragraph type.	
 	    #
-	    mandatory_plain_fields:	List( String ),
-	    mandatory_raw_fields:	List( String ),
-	    #
-	    optional_plain_fields:	List( String ),
-	    optional_raw_fields:	List( String )
+	    fields:			List( Field_Definition )
 	  };
-
-	Field_Summary =   { optional:		Bool,
-			    trim_whitespace:	Bool
-			  };
 
 	Digested_Paragraph_Definition
 	  =
 	  { name:			String,
 	    do_it:			Fields -> Void,
-	    fields:			sm::Map( Field_Summary )
+	    fields:			sm::Map( Field_Traits )
 	  };
 
 	Digested_Paragraph_Definitions
@@ -115,59 +129,97 @@ herein
 	    sm::Map( Digested_Paragraph_Definition );				# Stored indexed by name.
 
 
+        fun digested_paragraph_definition_to_string  (def: Digested_Paragraph_Definition)
+	    =
+	    # Generate human-readable form for debugging and such:
+	    #
+	    {   header =    [ sprintf "{ name => \"%s\",\n" def.name,
+			      "  do_it => (fn ... )\n",
+			      "  fields => [\n"
+			    ];
+
+		rest  = sm::keyed_fold_right
+			    (fn (key, { optional, trim_whitespace, allow_multiple_lines }, results)
+				=
+				(sprintf
+				    "      %s => { optional => %b, trim_whitespace => %b, allow_multiple_lines => %b }\n"
+				    key  optional  trim_whitespace  allow_multiple_lines
+				)
+			        !  results
+			    )
+			    []
+			    def.fields;
+
+		(cat header)  +  (cat (reverse rest))  +  "}\n";
+	    };
+
 	fun digest_paragraph_definitions  previous_defs  filename  (defs: List(Paragraph_Definition))
 	    =
+	    # Digest caller-provided paragraph definitions into internal form.
+	    # This mainly involves sanity checking:
+	    #
+	    #  o  Each fieldname should be lexically sane. Currently this means matching [A-Za-z0-9_\-]+
+	    #  o  Each 'build-a:' paragraph type should be defined at most once.
+	    #  o  Within a paragraph definition, each field should be defined at most once.
+	    #
 	    list::fold_right  digest_def  previous_defs  defs
 	    where
 		fun digest_def  (def: Paragraph_Definition,  result)
 		    =
 		    case (sm::get (result, def.name))
 			#
-			THE _ =>    die_x (sprintf "Fatal error: Multiple definitions of paragraph type %s" def.name);
+			THE _ =>    raise exception FAIL (sprintf "Fatal error: Multiple definitions of paragraph type %s" def.name);
 			#
 			NULL  =>    {   validate_paragraph_definition  def;
 					#
-					fields =  fold_right  (fn (fieldname, result) = sm::set (result, fieldname, { optional => FALSE, trim_whitespace => TRUE  }))  sm::empty  def.mandatory_plain_fields;
-					fields =  fold_right  (fn (fieldname, result) = sm::set (result, fieldname, { optional => FALSE, trim_whitespace => FALSE }))  fields     def.mandatory_raw_fields;
-					fields =  fold_right  (fn (fieldname, result) = sm::set (result, fieldname, { optional => TRUE,  trim_whitespace => TRUE  }))  fields     def.optional_plain_fields;
-					fields =  fold_right  (fn (fieldname, result) = sm::set (result, fieldname, { optional => TRUE,  trim_whitespace => FALSE }))  fields     def.optional_raw_fields;
+					name   =    def.name;
+					do_it  =    def.do_it;
 
-					sm::set (result, def.name, { name   =>  def.name,
-								     do_it  =>  def.do_it,
-								     fields
-								   }
-						);
+					fields =    fold_right
+						        (fn ({ fieldname, traits }, fields) =  sm::set  (fields,  fieldname,  parse_traits (traits, default_field_traits)))
+							sm::empty
+							def.fields;
+
+
+					sm::set (result, name, { name, do_it, fields });
 				    };
 		    esac
 		    where
+			fun parse_traits ([], result)
+			        =>
+				result;
+
+			    parse_traits  (OPTIONAL               ! rest,  { optional, trim_whitespace, allow_multiple_lines }) =>   parse_traits (rest, { optional => TRUE, trim_whitespace,         allow_multiple_lines         });
+			    parse_traits  (DO_NOT_TRIM_WHITESPACE ! rest,  { optional, trim_whitespace, allow_multiple_lines }) =>   parse_traits (rest, { optional,         trim_whitespace => TRUE, allow_multiple_lines         });
+			    parse_traits  (ALLOW_MULTIPLE_LINES   ! rest,  { optional, trim_whitespace, allow_multiple_lines }) =>   parse_traits (rest, { optional => TRUE, trim_whitespace,         allow_multiple_lines => TRUE });
+			end;
+
 			fun validate_paragraph_definition  (def: Paragraph_Definition)
 			    =
 			    # Check that fieldnames are unique and match [A-Za-z0-9_\-]+
 			    #
-			    {   all_fields =   list::cat  [ def.mandatory_plain_fields,
-							    def.mandatory_raw_fields,
-							    def.optional_plain_fields,
-							    def.optional_raw_fields
-							  ];
-
-				case (lms::sort_list_and_find_duplicates  string::compare  all_fields)
+			    {   all_fieldnames =   map  (fn field = field.fieldname)  def.fields;
+				#
+				case (lms::sort_list_and_find_duplicates  string::compare  all_fieldnames)
+				    #
 				    [] 		=>  ();
-				    duplicates  =>  {   printf "Paragraph definition %s in planfile %s contains duplicate definitions of:\n"  def.name  filename;
-							apply (fn d = printf "    %s\n" d)  duplicates;
-							die_x "Fatal error, exiting.";
+
+				    duplicates  =>  {   header =  sprintf "Paragraph definition %s in planfile %s contains duplicate definitions of:\n"  def.name  filename;
+							body   =  map  (fn d = sprintf "    %s\n" d)  duplicates;
+							raise exception FAIL (header + cat body);
 						    };
 				esac;
 
-				sorted_fields =  lms::sort_list  string::(>)  all_fields;
+				sorted_fieldnames =  lms::sort_list  string::(>)  all_fieldnames;
 
-				apply  validate_fieldname  sorted_fields;
+				apply  validate_fieldname  sorted_fieldnames;
 			    }
 			    where
 				fun validate_fieldname  fieldname
 				    =
 				    if (not (fieldname =~ ./^[A-Za-z0-9_\-]+/))
 					#
-					die_x (sprintf "File %s paragraph definition %s: %s is not a valid fieldname\n"  filename  def.name  fieldname);
+					raise exception FAIL (sprintf "File %s paragraph definition %s: '%s' is not a valid fieldname\n"  filename  def.name  fieldname);
 				    fi;
 			    end;
 		    end;	
@@ -178,157 +230,246 @@ herein
 
 		  fd:           fil::Input_Stream,
 
-		  fields:       Ref( string_map::Map( Field ))
+		  fields:       Ref( sm::Map( Field ))
 		};
 
 
-#		fun maybe_get_field (state: State, field_name)
-#		    =
-#		    case (string_map::get (*state.fields, field_name))
-#			#
-#			THE field => { field.used := TRUE;  THE *field.string; };
-#			NULL      => NULL;
-#		    esac;
-#
-#		#
-#		fun get_field (state: State, field_name)
-#		    =
-#		    case (string_map::get (*state.fields, field_name))
-#			#
-#			THE field => { *field.string;
-#				     };
-#
-#			NULL      => die_x (sprintf "Required field %s missing at line %d\n"  field_name  *state.line_number);
-#		    esac;
 
-	#
-	fun handle_fieldset (state: State)
-	    =
-	    {
-		if (not  (string_map::is_empty  *state.fields))
-		    #
-#		    case (trim (get_field (state, "build-a")))
-#			#
-#			"plain-fn"     =>  [];
-#			"fn-doc"       =>  [];
-#			"mythryl-type" =>  [];
-#			"mythryl-code" =>  [];
-#			#
-#			other_field_name => [];
-#		    esac;
-
-		    ();
-		fi;
-	    };    
 
 	# Scan src/glu/xxx/etc/construction.plan
 	# digesting the blank-line-delimited
-	# config info paragraphs, then
-	# build code accordingly:
+	# paragraphs, then validate and return them:
 	# 
-	fun process_library_binding_specification_file  planfile_name
+	fun read_planfile  digested_paragraph_definitions  filename
 	    =
-	    {	planfile_in =  fil::open_for_read  planfile_name;
+	    {	fd =  fil::open_for_read  filename;
 		#
-		loop (  { line_number =>  REF 0,
-			  fd          =>  planfile_in,
-			  fields      =>  REF (string_map::empty: string_map::Map( Field ))
-			},
-			[]
-		     );
+		{   paragraphs = loop { line_number =>  0,
+					paragraph   =>  sm::empty:  sm::Map( Field ),		# Accumulates the fields of the paragraph being parsed.
+					paragraphs  =>  []					# Accumulates the fully-processed paragraphs in the file.
+				      };
 
-		fil::close_input  planfile_in;
-	    }
-	    where
-		#
-		#
-#
-#		fun update_field (state: State, field_name, field_line)
-#		    =
-#		    {
-#			case (string_map::get (*state.fields, field_name))
-#			    #
-#			    THE field
-#				=>
-#				{   field.string := *field.string + field_line;
-#				    field.line_n := *state.line_number;
-#
-#				    string_map::set (*state.fields, field_name, field);
-#
-#				    ();
-#				};
-#
-#			    NULL =>
-#				{   field = { string =>  REF field_line,
-#					      line_1 =>  REF *state.line_number,
-#					      line_n =>  REF *state.line_number,
-#					      used   =>  REF FALSE
-#					    };
-#
-#				    state.fields
-#					:=
-#					string_map::set (*state.fields, field_name, field);
-#
-#				    ();
-#				};
-#			esac;
+		    fil::close_input  fd;
 
-		fun loop  (state: State, results)
-		    =
-		    case (fil::read_line  state.fd)
-			#
-			NULL => handle_fieldset  state;			# Done.
-			#
-			THE input_line
-			    =>
-			    {   state.line_number :=  *state.line_number + 1;
+		    paragraphs;	
+		}
+		where
+
+		    fun loop  { line_number, paragraph, paragraphs }		# 'paragraphs' is our result;
+			=							# 'paragraph' accumulates the fields of the paragraph we're currently parsing.
+			{
+#			    fun maybe_get_field (state: State, field_name)
+#				=
+#				case (sm::get (*state.fields, field_name))
+#				    #
+#				    THE field => { field.used := TRUE;  THE *field.string; };
+#				    NULL      => NULL;
+#				esac;
+
+			    #
+			    fun get_field (fields, fieldname)
+				=
+				case (sm::get (fields, fieldname))
+				    #
+				    THE field => field;
+				    #
+				    NULL      => raise exception FAIL (sprintf "Above line %d in file '%s': required field %s missing\n"  line_number  filename  fieldname);
+				esac;
+
+			    fun add_line_to_paragraph { paragraph, fieldname, line }
+				=
+				case (sm::get (paragraph, fieldname))
+				    #
+				    THE { lines => LINES lines, fieldname, filename, line_1, line_n } =>  sm::set (paragraph, fieldname, { filename, fieldname, line_1,                line_n => line_number, lines => LINES ( line ! lines ) });
+				    THE { lines => LINE  line', fieldname, filename, line_1, line_n } =>  sm::set (paragraph, fieldname, { filename, fieldname, line_1,                line_n => line_number, lines => LINES [ line,  line' ] });
+				    NULL 							      =>  sm::set (paragraph, fieldname, { filename, fieldname, line_1 => line_number, line_n => line_number, lines => LINE    line           });
+				esac;
+
+			    #
+			    fun validate_paragraph { paragraph, paragraphs }
+				=
+				# A paragraph is valid if:
 				#
-				if (input_line =~ ./^\s*#/)			# If it is a comment line,
+				#  o  It contains a build-a specifying a defined paragraph type.
+				#  o  All mandatory fields present.
+				#  o  All fields present are permitted by the paragraph definition.
+				#  o  All multiline fields allowed to be multiline.
+				#
+				# After verifying paragraph validity, we trim all fields
+				# as specified in the paragraph definition.
+				#
+				if (sm::is_empty  paragraph)
 				    #
-				    loop  (state, results);			# ignore it.
-
-				elif (input_line =~ ./^\s*$/)			# If it is a blank line, it marks the end of a paragraph (fieldset),
-				    #
-				    handle_fieldset  state;			# so process any fields we have in hand:
-
+				    paragraphs;	
 				else
-
-				    # Line format should be  "line-type: rest".
-				    # Split it into two strings at the ':' and
-				    # dispatch on the line type:
 				    #
-				    case (regex::find_first_groups_all ./^([^:]+):(.*\n)$/ input_line)
+				    build_a =   case (sm::get (paragraph, "build-a"))  THE field =>  field;
+										       NULL      =>  raise exception FAIL (sprintf "file %s line %d: Paragraph lacks a 'build-a:' line\n"  filename  line_number);
+						esac;
+
+
+				    case  (sm::get  (digested_paragraph_definitions,  build_a.fieldname))
 					#
-					[ line_type, line_contents ]
-					    =>
-					    {   # Drop leading and trailing whitespace:
-						#
-						line_type =  trim  line_type;
-
-						line_contents
-						    =
-						    case line_type
-							"cg-typs"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
-							"cg-funs"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
-							"libcal+"   =>       line_contents;	# Contains raw indented code, so leave whitespace in place and restore dropped newline.
-							_           => trim  line_contents;	# Drop leading and trailing whitespace.
-						    esac;
-
-#						update_field (state,  line_type,  line_contents);
-					    };
-
-					_   =>   die_x ("UNRecognized construction.plan line: '" + (chomp input_line) + "'  -- make-library-glue.pkg\n");
+					THE def =>  (process_fields def paragraph) ! paragraphs; 
+					#
+					NULL    =>  raise exception FAIL (sprintf "File %s line %d: build-a: type '%s' is undefined.\n"  filename  line_number  build_a.fieldname);
 				    esac
-				    except
-					NOT_FOUND =  die_x (sprintf "Unrecognized construction.plan line %d: '%s'    -- make-library-glue.pkg\n" *state.line_number (chomp input_line));
+					where
+					    fun process_fields  (def: Digested_Paragraph_Definition)  (paragraph: sm::Map( Field ))
+						=
+						# Here we need to:
+						#
+						#  o  Verify that all mandatory fields are present.
+						#  o  Verify that every field present is permitted.
+						#  o  Verify that every multiline field is allowed.
+						#  o  Trim whitespace from fields as directed.
+						#
+						{
+						    verify_that_every_field_present_is_permitted ();
+						    verify_that_all_mandatory_fields_are_present ();
+						    verify_that_every_multiline_field_is_allowed ();
 
+						    do_it  =  def.do_it;
+
+						    fields =  sm::map  trim_whitespace_per_paragraph_definition  paragraph;
+
+						    { do_it, fields };
+						}
+						where
+						    fun verify_that_every_field_present_is_permitted ()
+							=
+							sm::apply  check_field  paragraph
+							where
+							    fun check_field  (field: Field)
+								=
+								if (field.fieldname != "build-a")				# build-a: line is always implicitly permitted -- in fact mandatory.
+								    #
+								    case (sm::get (def.fields, field.fieldname))
+									THE _ => ();
+									NULL  => raise exception FAIL (sprintf "Field %s at %d-%d in %s is not allowed by build-a definition '%s'"  field.fieldname  field.line_1  field.line_n  filename  build_a.fieldname);
+								    esac;
+								fi;
+							end;	
+
+						    fun verify_that_all_mandatory_fields_are_present ()
+							=
+							sm::keyed_apply  verify_presence_of_field_if_mandatory  def.fields
+							where
+							    fun verify_presence_of_field_if_mandatory  (fieldname,  traits: Field_Traits)
+								=
+								if (not (traits.optional))
+								    #	
+								    case (sm::get (paragraph, fieldname))
+									THE _ =>  ();
+									NULL  =>  raise exception FAIL (sprintf "build-a: %s paragraph ending at line %d in file %s lacks mandatory field '%s'"  build_a.fieldname  line_number  filename  fieldname);
+								    esac;
+								fi;
+							end;	
+
+						    fun get_traits  fieldname
+							=	
+							if (fieldname == "build-a")				# build-a: line traits are implicitly specified.
+							    #
+							    default_field_traits;
+							else
+							    case (sm::get (def.fields, fieldname))
+								THE traits => traits;
+								NULL       => raise exception FAIL "impossible";
+							    esac;
+							fi;
+
+						    fun verify_that_every_multiline_field_is_allowed ()
+							=
+							sm::apply  check_multiline_permission  paragraph
+							where
+							    fun check_multiline_permission  (field: Field)
+								=
+								case field.lines
+								    #
+								    LINE  _ =>  ();
+								    #
+								    LINES _ =>  {   traits =  get_traits  field.fieldname;
+										    #
+										    if (not traits.allow_multiple_lines)
+											#
+											raise exception FAIL (sprintf "build-a: %s paragraph ending at line %d in file %s field %s: Multiline value not allowed"  build_a.fieldname  line_number  filename  field.fieldname);
+										    fi;
+										};
+								esac;
+							end;
+
+						    fun trim_whitespace_per_paragraph_definition (field as { fieldname, lines, filename, line_1, line_n })
+							=
+							{   traits =  get_traits  fieldname;
+							    #
+							    if (not (traits.trim_whitespace))
+								#
+								field;
+							    else
+								case lines
+								    #
+								    LINE  line  => { fieldname, filename, line_1, line_n, lines => LINE (trim line)       };
+								    LINES lines => { fieldname, filename, line_1, line_n, lines => LINES (map trim lines) };
+								esac;
+							    fi;
+							};
+						end;
+					end;
 				fi;
 
-				loop  (state, results);				# Scan rest of file.
-			    };
-		    esac;
 
-	    end;
+			    case (fil::read_line  fd)
+				#
+				THE input_line
+				    =>
+				    {   line_number =  line_number + 1;
+					#
+					if (input_line =~ ./^\s*#/)							# If it is a comment line,
+					    #
+					    loop  { line_number, paragraph, paragraphs };				# ignore it.
+
+					elif (input_line =~ ./^\s*$/)							# If it is a blank line, it marks the end of a paragraph (fieldset),
+					    #
+					    loop  { line_number,							# so process any fields we have in hand:
+						    paragraph  =>  sm::empty,						#
+						    paragraphs =>  validate_paragraph { paragraph, paragraphs }
+						  };
+					else
+
+					    # Line format should be  "line-type: rest".
+					    # Split it into two strings at the ':' and
+					    # dispatch on the line type:
+					    #
+					    case (regex::find_first_groups_all ./^([^:]+):(.*\n)$/ input_line)
+						#
+						[ fieldname, line ]
+						    =>
+						    {   fieldname =  trim  fieldname;					# Drop leading and trailing whitespace.
+							#
+							line =  (fieldname == "build-a")  ??  trim line  ::  line;	# Trim build-a immediately to simplify processing; we'll trim other fields later, if so specified by the def.
+							#
+							loop  { line_number,
+								paragraph => add_line_to_paragraph { paragraph, fieldname, line },
+								paragraphs
+							      };
+						    };
+
+						_   =>       paragraphs;  # Dummy value falling through to below exception.  Keeps typechecker happy.
+					    esac
+					    except
+						NOT_FOUND =  paragraphs;  # Dummy value falling through to below exception.  Keeps typechecker happy.
+
+
+					    raise exception FAIL (sprintf "Unrecognizable .plan-file line at %d in file %s: '%s'    -- planfile.pkg\n"  line_number  filename  (chomp input_line));
+					fi;
+				    };
+				#
+				NULL => validate_paragraph { paragraph, paragraphs };				# Done. Validate final paragraph and return list of processed paragraphs.
+			    esac;
+			};
+		end;
+	    };
+
 
 	fun read_planfiles  digested_paragraph_definitions  planfiles
 	    =
