@@ -94,6 +94,7 @@ etags:
               */*.h */*/*.h */*/*/*.h */*/*/*/*.h */*/*/*/*/*.h */*/*/*/*/*/*.h  */*/*/*/*/*/*/*.h \
               */*.asm */*/*.asm */*/*/*.asm */*/*/*/*.asm */*/*/*/*/*.asm */*/*/*/*/*/*.asm  */*/*/*/*/*/*/*.asm \
              */*.masm */*/*.masm */*/*/*.masm */*/*/*/*.masm */*/*/*/*/*.masm */*/*/*/*/*/*.masm  */*/*/*/*/*/*/*.masm \
+              */*.txt */*/*.txt */*/*/*.txt */*/*/*/*.txt */*/*/*/*/*.txt */*/*/*/*/*/*.txt  */*/*/*/*/*/*/*.txt \
 	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
