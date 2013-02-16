@@ -117,7 +117,7 @@ fun my_synch (src, pos, parts)
 
 	fun convert digits
             =
-            fold_left
+            fold_forward
                 (fn (d, n) =  10*n + digit d)
                 0
                 (explode digits);

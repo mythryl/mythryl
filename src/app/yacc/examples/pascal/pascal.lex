@@ -20,7 +20,7 @@ package KeyWord : sig
 	HashFactor = 5
 
 	hash = fn s =>
-	   fold_left (fn (c,v)=>(v*HashFactor+(ord c)) mod TableSize) 0 (explode s)
+	   fold_forward (fn (c,v)=>(v*HashFactor+(ord c)) mod TableSize) 0 (explode s)
 
 
 	hashtable = rw_vector.array(TableSize,NIL) :

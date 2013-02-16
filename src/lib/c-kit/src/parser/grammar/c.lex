@@ -42,7 +42,7 @@ fun inc (i_ref : Ref Int) =   i_ref := *i_ref + 1;
 
 fun chr i = string::from_char(char::from_int i);
 fun ord s = char::to_int(string::get(s, 0));
-fun explode s = vector_of_chars::fold_right (fn (c, l) =  str c ! l) [] s;
+fun explode s = vector_of_chars::fold_backward (fn (c, l) =  str c ! l) [] s;
 fun implode str_list = string::cat str_list;
 
 fun hd [] => {   print "c.lex: hd of empty\n";
