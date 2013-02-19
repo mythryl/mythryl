@@ -90,7 +90,9 @@ herein
 	Paragraph(X)
 	  =
 	  { fields:	Fields,							# Stored indexed by field name.
-	    do:		Do_Fn(X)
+	    line_1:	Int,							# First line number in file for paragraph.
+	    line_n:	Int,							# Last  line number in file for paragraph.
+	    do:		Do_Fn(X)						# Code to implement this paragraph type.
 	  };
 
 	Plan(X)	  =   List( Paragraph(X) );					# Synonym for readability.
@@ -258,8 +260,10 @@ herein
 	    {	fd =  fil::open_for_read  filename;
 		#
 		{   paragraphs = loop { line_number =>  0,
-					paragraph   =>  sm::empty:  sm::Map( Field ),		# Accumulates the fields of the paragraph being parsed.
-					paragraphs  =>  []					# Accumulates the fully-processed paragraphs in the file.
+					paragraph   =>  { first_line => -1,
+							  fields     => sm::empty:  sm::Map( Field )		# Accumulates the fields of the paragraph being parsed.
+							},
+					paragraphs  =>  []							# Accumulates the fully-processed paragraphs in the file.
 				      };
 
 		    fil::close_input  fd;
@@ -268,9 +272,9 @@ herein
 		}
 		where
 
-		    fun loop  { line_number, paragraph, paragraphs }		# 'paragraphs' is our result;
-			=							# 'paragraph' accumulates the fields of the paragraph we're currently parsing.
-			{
+		    fun loop  { line_number, paragraph as { first_line, fields }, paragraphs }			# 'paragraphs' is our result;
+			=											# 'paragraph' accumulates the fields of the paragraph we're currently parsing.
+			{											# first_line is line number of start of 'paragraph'.
 #			    fun maybe_get_field (state: State, field_name)
 #				=
 #				case (sm::get (*state.fields, field_name))
@@ -289,16 +293,18 @@ herein
 #				    NULL      => raise exception FAIL (sprintf "Above line %d in file '%s': required field %s missing\n"  line_number  filename  fieldname);
 #				esac;
 
-			    fun add_line_to_paragraph { paragraph, fieldname, line }
+			    fun add_line_to_paragraph { paragraph as { first_line, fields }, fieldname, line }
 				=
-				case (sm::get (paragraph, fieldname))
+				{   first_line =  (first_line == -1) ?? line_number :: first_line;
 				    #
-				    THE { lines, fieldname, filename, line_1, line_n, used } =>  sm::set (paragraph, fieldname, { filename,  fieldname,  line_1,                 line_n => line_number,  lines => (line ! lines),  used             });
-				    NULL 						     =>  sm::set (paragraph, fieldname, { filename,  fieldname,  line_1 => line_number,  line_n => line_number,  lines => (line !   NIL),  used => REF TRUE });
-				esac;
-
+				    case (sm::get (fields, fieldname))
+					#
+					THE { lines, fieldname, filename, line_1, line_n, used } =>  { first_line,  fields => sm::set (fields, fieldname,  { filename,  fieldname,  line_1,                 line_n => line_number,  lines => (line ! lines),  used              }) };
+					NULL 						         =>  { first_line,  fields => sm::set (fields, fieldname,  { filename,  fieldname,  line_1 => line_number,  line_n => line_number,  lines => (line !   NIL),  used => REF FALSE }) };
+				    esac;
+				};
 			    #
-			    fun validate_paragraph { paragraph, paragraphs }
+			    fun validate_paragraph { paragraph as { first_line, fields }, paragraphs }
 				=
 				# A paragraph is valid if:
 				#
@@ -310,13 +316,13 @@ herein
 				# After verifying paragraph validity, we trim all fields
 				# as specified in the paragraph definition.
 				#
-				if (sm::is_empty  paragraph)
+				if (sm::is_empty  fields)
 				    #
 				    paragraphs;	
 				else
 				    #
-				    do =    case (sm::get (paragraph, "do")) THE field =>  field;
-									     NULL      =>  raise exception FAIL (sprintf "file %s line %d: Paragraph lacks a 'do:' line\n"  filename  line_number);
+				    do =    case (sm::get (fields, "do"))	THE field =>  field;
+										NULL      =>  raise exception FAIL (sprintf "file %s lines %d-%d: Paragraph lacks a 'do:' line\n"  filename  first_line  line_number);
 					    esac;
 
 
@@ -332,7 +338,7 @@ herein
 						    };
 				    esac
 					where
-					    fun process_fields  (def: Digested_Paragraph_Definition(X))  (paragraph: sm::Map( Field ))
+					    fun process_fields  (def: Digested_Paragraph_Definition(X))  (paragraph as { first_line, fields: sm::Map( Field ) })
 						=
 						# Here we need to:
 						#
@@ -348,14 +354,18 @@ herein
 
 						    do     =  def.do;
 
-						    fields =  sm::map  trim_whitespace_per_paragraph_definition  paragraph;
+						    fields =  sm::map  trim_whitespace_per_paragraph_definition  fields;
 
-						    { do, fields };
+						    { do,
+                                                      fields,
+                                                      line_1 => first_line,
+                                                      line_n => line_number
+                                                    };
 						}
 						where
 						    fun verify_that_every_field_present_is_permitted ()
 							=
-							sm::apply  check_field  paragraph
+							sm::apply  check_field  fields
 							where
 							    fun check_field  (field: Field)
 								=
@@ -383,9 +393,9 @@ herein
 								=
 								if (not (traits.optional))
 								    #	
-								    case (sm::get (paragraph, fieldname))
+								    case (sm::get (fields, fieldname))
 									THE _ =>  ();
-									NULL  =>  raise exception FAIL (sprintf "do: %s paragraph ending at line %d in file %s lacks mandatory field '%s'"  do.fieldname  line_number  filename  fieldname);
+									NULL  =>  raise exception FAIL (sprintf "do: %s paragraph ending at lines %d-%d in file %s lacks mandatory field '%s'"  do.fieldname  first_line  line_number  filename  fieldname);
 								    esac;
 								fi;
 							end;	
@@ -404,7 +414,7 @@ herein
 
 						    fun verify_that_every_multiline_field_is_allowed ()
 							=
-							sm::apply  check_multiline_permission  paragraph
+							sm::apply  check_multiline_permission  fields
 							where
 							    fun check_multiline_permission  (field: Field)
 								=
@@ -417,7 +427,7 @@ herein
 										    #
 										    if (not traits.allow_multiple_lines)
 											#
-											raise exception FAIL (sprintf "'do': %s paragraph ending at line %d in file %s field %s: Multiline value not allowed"  do.fieldname  line_number  filename  field.fieldname);
+											raise exception FAIL (sprintf "'do': %s paragraph at lines %d-%d in file %s field %s: Multiline value not allowed"  do.fieldname  first_line  line_number  filename  field.fieldname);
 										    fi;
 										};
 								esac;
@@ -454,7 +464,7 @@ herein
 					elif (input_line =~ ./^\s*$/)							# If it is a blank line, it marks the end of a paragraph (fieldset),
 					    #
 					    loop  { line_number,							# so process any fields we have in hand:
-						    paragraph  =>  sm::empty,						#
+						    paragraph  =>  { first_line => -1, fields => sm::empty },		#
 						    paragraphs =>  validate_paragraph { paragraph, paragraphs }
 						  };
 					else
@@ -506,7 +516,7 @@ herein
 		patchfiles
 		    =
 		    fold_forward
-			(fn (paragraph as { do, fields }, patchfiles) =   do { patchfiles, fields, x })
+			(fn (paragraph as { do, fields, line_1, line_n }, patchfiles) =   do { patchfiles, fields, x })
 			patchfiles
 			plan_paragraphs;
 		#
