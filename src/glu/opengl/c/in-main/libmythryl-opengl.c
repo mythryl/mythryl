@@ -498,6 +498,255 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 //  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
 //
 /* Do not edit this or following lines -- they are autobuilt.  (patchname="functions") */
+
+
+/*  do__set_window_size_event_callback : Session -> Window_Size_Event_Callback -> Void
+ */
+static Val   do__set_window_size_event_callback (Task* task, Val arg)
+{
+
+    int id   =  find_free_callback_id ();
+    window_size_event_callback_number =  id;
+
+    glfwSetWindowSizeCallback( run_window_size_event_callback );
+
+    return TAGGED_INT_FROM_C_INT(id);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/opengl/etc/construction.plan.*/
+
+
+/* do__glew_init
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__glew_init   (Task* task, Val arg)
+{
+
+
+    GLenum result = glewInit();;
+    if (result != GLEW_OK) {
+        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+        exit(1);
+    }
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__open_window2
+ *
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
+ * opengl-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Bool
+ */
+static Val   do__open_window2   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
+    int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
+    int               b8 =                            GET_TUPLE_SLOT_AS_VAL( arg, 9) == HEAP_TRUE;
+
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__open_window
+ *
+ * opengl-client.api        type:    {  session: Session,  wide: Int, high: Int } -> Bool
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Bool
+ */
+static Val   do__open_window   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__terminate
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__terminate   (Task* task, Val arg)
+{
+
+
+    glfwTerminate();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__swap_buffers
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__swap_buffers   (Task* task, Val arg)
+{
+
+
+    glfwSwapBuffers();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__get_window_param
+ *
+ * opengl-client.api        type:    Session -> Bool
+ * opengl-client-driver.api type:   (Session) -> Bool
+ */
+static Val   do__get_window_param   (Task* task, Val arg)
+{
+
+
+    int result = glfwGetWindowParam( GLFW_OPENED );
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__set_window_title
+ *
+ * opengl-client.api        type:   (Session, String) -> Void
+ * opengl-client-driver.api type:   (Session, String) -> Void
+ */
+static Val   do__set_window_title   (Task* task, Val arg)
+{
+
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
+
+    glfwSetWindowTitle( s0 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__set_window_size
+ *
+ * opengl-client.api        type:    { session: Session, wide: Int, high: Int } -> Void
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Void
+ */
+static Val   do__set_window_size   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__set_window_position
+ *
+ * opengl-client.api        type:    { session: Session, x: Int, y: Int } -> Void
+ * opengl-client-driver.api type:   (Session, Int, Int) -> Void
+ */
+static Val   do__set_window_position   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    glfwSetWindowPos( /*x*/i0, /*y*/i1 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__clear
+ *
+ * opengl-client.api        type:    {  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void
+ * opengl-client-driver.api type:   (Session, Bool, Bool) -> Void
+ */
+static Val   do__clear   (Task* task, Val arg)
+{
+
+    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
+
+    glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__print_hello_world
+ *
+ * opengl-client.api        type:    Session -> Void
+ * opengl-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__print_hello_world   (Task* task, Val arg)
+{
+
+
+    fprintf(stderr,"Hello, world!\n");
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__negate_int
+ *
+ * opengl-client.api        type:   (Session, Int) -> Int
+ * opengl-client-driver.api type:   (Session, Int) -> Int
+ */
+static Val   do__negate_int   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+
+    int result = -i0;
+
+    return TAGGED_INT_FROM_C_INT(result);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
+/* do__negate_float
+ *
+ * opengl-client.api        type:   (Session, Float) -> Float
+ * opengl-client-driver.api type:   (Session, Float) -> Float
+ */
+static Val   do__negate_float   (Task* task, Val arg)
+{
+
+    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 1)));
+
+    double d = -f0;
+
+    return  make_float64(task, d );
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/opengl/etc/construction.plan. */
+
+
 /* do__negate_boolean
  *
  * opengl-client.api        type:   (Session, Bool) -> Bool
@@ -584,6 +833,20 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 //           ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);
 //
 /* Do not edit this or following lines -- they are autobuilt.  (patchname="table") */
+CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
+CFUNC("glew_init",                                "glew_init",                                do__glew_init,                                         "Session -> Void")
+CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
+CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int } -> Bool")
+CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")
+CFUNC("swap_buffers",                             "swap_buffers",                             do__swap_buffers,                                      "Session -> Void")
+CFUNC("get_window_param",                         "get_window_param",                         do__get_window_param,                                  "Session -> Bool")
+CFUNC("set_window_title",                         "set_window_title",                         do__set_window_title,                                 "(Session, String) -> Void")
+CFUNC("set_window_size",                          "set_window_size",                          do__set_window_size,                                   "{ session: Session, wide: Int, high: Int } -> Void")
+CFUNC("set_window_position",                      "set_window_position",                      do__set_window_position,                               "{ session: Session, x: Int, y: Int } -> Void")
+CFUNC("clear",                                    "clear",                                    do__clear,                                             "{  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void")
+CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
+CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
+CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
 CFUNC("negate_boolean",                           "negate_boolean",                           do__negate_boolean,                                   "(Session, Bool) -> Bool")
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
