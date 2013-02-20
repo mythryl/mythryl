@@ -22,11 +22,6 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Date				)		// Libmythryl_Date			def in   
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Math				)		// Libmythryl_Math			def in    src/c/lib/math/libmythryl-math.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Socket				)		// Libmythryl_Socket			def in    src/c/lib/socket/libmythryl-socket.c
 
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Gtk				)		// Libmythryl_Gtk			def in    src/glu/gtk/c/in-main/libmythryl-gtk.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opengl				)		// Libmythryl_Opengl			def in    src/glu/opengl/c/in-main/libmythryl-opengl.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ncurses				)		// Libmythryl_Ncurses			def in    src/c/lib/ncurses/libmythryl-ncurses.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def in    src/c/lib/opencv/libmythryl-opencv.c
-
 #ifdef HAS_POSIX_LIBRARIES
 
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Error			)		// Libmythryl_Posix_Error		def in    src/c/lib/posix-error/libmythryl-posix-error.c
@@ -62,6 +57,15 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ccalls				)		// Libmythryl_Ccalls			def i
 #ifdef DLOPEN
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynamic_Loading		def in    src/c/lib/dynamic-loading/libmythryl-dynamic-loading.c
 #endif
+
+// Do not edit this or following lines -- they are autobuilt.  (patchname="libs")
+// Do not edit this or preceding lines -- they are autobuilt.
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Gtk				)		// Libmythryl_Gtk			def in    src/glu/gtk/c/in-main/libmythryl-gtk.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opengl				)		// Libmythryl_Opengl			def in    src/glu/opengl/c/in-main/libmythryl-opengl.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ncurses				)		// Libmythryl_Ncurses			def in    src/c/lib/ncurses/libmythryl-ncurses.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def in    src/c/lib/opencv/libmythryl-opencv.c
+
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.

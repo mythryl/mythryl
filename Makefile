@@ -16,6 +16,9 @@
 ##-
 ##-                                               -- Turkish saying
 
+# Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
+# Do not edit this or preceding lines -- they are autobuilt.
+
 nil:
 	@echo "Do \"make help\" for help"
 
@@ -304,6 +307,9 @@ summary:
 
 
 # Stuff related to src/glu/gtk/sh/make-gtk-glue:
+
+# Do not edit this or following lines -- they are autobuilt.  (patchname="rules")
+# Do not edit this or preceding lines -- they are autobuilt.
 
 gtk-glue:
 	src/glu/gtk/sh/make-gtk-glue
