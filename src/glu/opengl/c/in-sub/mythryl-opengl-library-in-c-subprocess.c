@@ -481,10 +481,10 @@ do__glew_init( int argc, unsigned char** argv )
 
 
     GLenum result = glewInit();;
-    if (result != GLEW_OK) {
-        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
-        exit(1);
-    }
+   if (result != GLEW_OK) {
+       fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+       exit(1);
+   }
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/opengl/etc/construction.plan. */
 

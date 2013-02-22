@@ -525,10 +525,10 @@ static Val   do__glew_init   (Task* task, Val arg)
 
 
     GLenum result = glewInit();;
-    if (result != GLEW_OK) {
-        fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
-        exit(1);
-    }
+   if (result != GLEW_OK) {
+       fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
+       exit(1);
+   }
 
     return HEAP_VOID;
 }
