@@ -647,7 +647,7 @@ somewhat-clean:	ppless
 	@# -find . -name '*.lex.pkg' -print | xargs rm
 
 clean: somewhat-clean
-	@-rm -f bin/*.old
+	@-rm -f bin/*.previous
 	@-rm -f bin/nowhere
 	@-rm -f bin/gtk-server
 	@-rm -f ID

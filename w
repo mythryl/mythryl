@@ -1,3 +1,9 @@
-#!/bin/bash
+#! /usr/bin/perl -w
+use strict;
 
-echo "Hello, ${1:-mythryld} world!"
+# Remove bin/mythryld and rename bin/mythryld-bare to bin/mythryld-bootstrap:
+#
+if (-f "bin/mythryld") {
+    system "rm -f bin/mythryld"                             and   die "Could not  rm -f bin/mythryld";
+}
+
