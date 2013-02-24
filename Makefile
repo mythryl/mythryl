@@ -16,8 +16,79 @@
 ##-
 ##-                                               -- Turkish saying
 
+
+
+STUFF_FOR_ETAGS_TO_INDEX := \
+	      */*.pkg */*/*.pkg */*/*/*.pkg */*/*/*/*.pkg */*/*/*/*/*.pkg */*/*/*/*/*/*.pkg  */*/*/*/*/*/*/*.pkg \
+              */*.api */*/*.api */*/*/*.api */*/*/*/*.api */*/*/*/*/*.api */*/*/*/*/*/*.api  */*/*/*/*/*/*/*.api \
+              */*.unused */*/*.unused */*/*/*.unused */*/*/*/*.unused */*/*/*/*/*.unused */*/*/*/*/*/*.unused  */*/*/*/*/*/*/*.unused \
+              */*.grammar */*/*.grammar */*/*/*.grammar */*/*/*/*.grammar */*/*/*/*/*.grammar */*/*/*/*/*/*.grammar  */*/*/*/*/*/*/*.grammar \
+              */*.lex */*/*.lex */*/*/*.lex */*/*/*/*.lex */*/*/*/*/*.lex */*/*/*/*/*/*.lex  */*/*/*/*/*/*/*.lex \
+              */*.tex */*/*.tex */*/*/*.tex */*/*/*/*.tex */*/*/*/*/*.tex */*/*/*/*/*/*.tex */*/*/*/*/*/*/*.tex \
+              */*.mldoc */*/*.mldoc */*/*/*.mldoc */*/*/*/*.mldoc */*/*/*/*/*.mldoc */*/*/*/*/*/*.mldoc  */*/*/*/*/*/*/*.mldoc \
+              */*.adl */*/*.adl */*/*/*.adl */*/*/*/*.adl */*/*/*/*/*.adl */*/*/*/*/*/*.adl */*/*/*/*/*/*/*.adl \
+              */*.OVERVIEW */*/*.OVERVIEW */*/*/*.OVERVIEW */*/*/*/*.OVERVIEW */*/*/*/*/*.OVERVIEW */*/*/*/*/*/*.OVERVIEW  */*/*/*/*/*/*/*.OVERVIEW \
+              */*.NOTES */*/*.NOTES */*/*/*.NOTES */*/*/*/*.NOTES */*/*/*/*/*.NOTES */*/*/*/*/*/*.NOTES  */*/*/*/*/*/*/*.NOTES \
+              */*.README */*/*.README */*/*/*.README */*/*/*/*.README */*/*/*/*/*.README */*/*/*/*/*/*.README  */*/*/*/*/*/*/*.README  */*/*/*/*/*/*/*/*.README \
+              */README* */*/README* */*/*/README* */*/*/*/README* */*/*/*/*/README* */*/*/*/*/*/README*  */*/*/*/*/*/*/README*  */*/*/*/*/*/*/*/README* \
+              */build* */*/build* */*/*/build* */*/*/*/build* */*/*/*/*/build* */*/*/*/*/*/build*  */*/*/*/*/*/*/build*   */*/*/*/*/*/*/*/build* \
+              */*.lib */*/*.lib */*/*/*.lib */*/*/*/*.lib */*/*/*/*/*.lib */*/*/*/*/*/*.lib  */*/*/*/*/*/*.lib   */*/*/*/*/*/*/*.lib \
+              */*.sublib */*/*.sublib */*/*/*.sublib */*/*/*/*.sublib */*/*/*/*/*.sublib */*/*/*/*/*/*.sublib  */*/*/*/*/*/*.sublib   */*/*/*/*/*/*/*.sublib \
+              Makefile */Makefile.in */*/Makefile.in */*/*/Makefile.in */*/*/*/Makefile.in */*/*/*/*/Makefile.in */*/*/*/*/*/Makefile.in  */*/*/*/*/*/*/Makefile.in   */*/*/*/*/*/*/*/Makefile.in \
+              */makefile.win32 */*/makefile.win32 */*/*/makefile.win32 */*/*/*/makefile.win32 */*/*/*/*/makefile.win32 */*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/makefile.win32 \
+              */*.c */*/*.c */*/*/*.c */*/*/*/*.c */*/*/*/*/*.c */*/*/*/*/*/*.c  */*/*/*/*/*/*/*.c \
+              */*.h */*/*.h */*/*/*.h */*/*/*/*.h */*/*/*/*/*.h */*/*/*/*/*/*.h  */*/*/*/*/*/*/*.h \
+              */*.asm */*/*.asm */*/*/*.asm */*/*/*/*.asm */*/*/*/*/*.asm */*/*/*/*/*/*.asm  */*/*/*/*/*/*/*.asm \
+             */*.masm */*/*.masm */*/*/*.masm */*/*/*/*.masm */*/*/*/*/*.masm */*/*/*/*/*/*.masm  */*/*/*/*/*/*/*.masm \
+              */*.txt */*/*.txt */*/*/*.txt */*/*/*/*.txt */*/*/*/*/*.txt */*/*/*/*/*/*.txt  */*/*/*/*/*/*/*.txt \
+	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
+             src/lib/compiler/back/low/intel32/intel32.architecture-description \
+             src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
+             $(HOME)/.mythryl/selected-glue-modules \
+             sh/* \
+	     src/glu/*/etc/*plan \
+	     src/glu/*/sh/* \
+	     src/glu/*/try/* \
+             try/* \
+             try/*/* \
+	     src/glu/gtk/sh/make-gtk-glue \
+             src/lib/core/internal/version.template \
+	     src/c/Configure.in \
+             src/lib/html/html-gram \
+             src/lib/core/init/init.cmi \
+             src/lib/core/init/mythryl-primordial-library.cmi
+
+STUFF_TO_REMOVE_WHEN_CLEANING := \
+	bin/*.previous \
+	bin/nowhere \
+	bin/gtk-server \
+	ID \
+	TAGS \
+	v-intel32-linux \
+	bin/mythryl-runtime-intel32 \
+	bin/build-an-executable-mythryl-heap-image \
+	bin/c-glue-maker \
+	bin/guess-host-architecture-and-os \
+	bin/heap2asm \
+	bin/heap2exec \
+	bin/mythryl-ld \
+	bin/lexgen \
+	bin/makedepend7 \
+	bin/mythryl-burg-fraser-hanson-proebsting-92-optimal-tree-rewriter \
+	bin/mythryl \
+	bin/passthrough \
+	bin/set-heapdump-shebang \
+	bin/mythryl-gtk-library-in-c-subprocess \
+	src/app/tut/factor/factor
+
+COMPILED_C_PROGRAMS := bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess
+
+CHEG_DEPENDENCIES := gtk-glue benchmarks check
+
+###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
 # Do not edit this or preceding lines -- they are autobuilt.
+###################################################################################
 
 nil:
 	@echo "Do \"make help\" for help"
@@ -76,45 +147,7 @@ id_only:
 	mkid-sml
 
 etags:
-	@-echo */*.pkg */*/*.pkg */*/*/*.pkg */*/*/*/*.pkg */*/*/*/*/*.pkg */*/*/*/*/*/*.pkg  */*/*/*/*/*/*/*.pkg \
-              */*.api */*/*.api */*/*/*.api */*/*/*/*.api */*/*/*/*/*.api */*/*/*/*/*/*.api  */*/*/*/*/*/*/*.api \
-              */*.unused */*/*.unused */*/*/*.unused */*/*/*/*.unused */*/*/*/*/*.unused */*/*/*/*/*/*.unused  */*/*/*/*/*/*/*.unused \
-              */*.grammar */*/*.grammar */*/*/*.grammar */*/*/*/*.grammar */*/*/*/*/*.grammar */*/*/*/*/*/*.grammar  */*/*/*/*/*/*/*.grammar \
-              */*.lex */*/*.lex */*/*/*.lex */*/*/*/*.lex */*/*/*/*/*.lex */*/*/*/*/*/*.lex  */*/*/*/*/*/*/*.lex \
-              */*.tex */*/*.tex */*/*/*.tex */*/*/*/*.tex */*/*/*/*/*.tex */*/*/*/*/*/*.tex */*/*/*/*/*/*/*.tex \
-              */*.mldoc */*/*.mldoc */*/*/*.mldoc */*/*/*/*.mldoc */*/*/*/*/*.mldoc */*/*/*/*/*/*.mldoc  */*/*/*/*/*/*/*.mldoc \
-              */*.adl */*/*.adl */*/*/*.adl */*/*/*/*.adl */*/*/*/*/*.adl */*/*/*/*/*/*.adl */*/*/*/*/*/*/*.adl \
-              */*.OVERVIEW */*/*.OVERVIEW */*/*/*.OVERVIEW */*/*/*/*.OVERVIEW */*/*/*/*/*.OVERVIEW */*/*/*/*/*/*.OVERVIEW  */*/*/*/*/*/*/*.OVERVIEW \
-              */*.NOTES */*/*.NOTES */*/*/*.NOTES */*/*/*/*.NOTES */*/*/*/*/*.NOTES */*/*/*/*/*/*.NOTES  */*/*/*/*/*/*/*.NOTES \
-              */*.README */*/*.README */*/*/*.README */*/*/*/*.README */*/*/*/*/*.README */*/*/*/*/*/*.README  */*/*/*/*/*/*/*.README  */*/*/*/*/*/*/*/*.README \
-              */README* */*/README* */*/*/README* */*/*/*/README* */*/*/*/*/README* */*/*/*/*/*/README*  */*/*/*/*/*/*/README*  */*/*/*/*/*/*/*/README* \
-              */build* */*/build* */*/*/build* */*/*/*/build* */*/*/*/*/build* */*/*/*/*/*/build*  */*/*/*/*/*/*/build*   */*/*/*/*/*/*/*/build* \
-              */*.lib */*/*.lib */*/*/*.lib */*/*/*/*.lib */*/*/*/*/*.lib */*/*/*/*/*/*.lib  */*/*/*/*/*/*.lib   */*/*/*/*/*/*/*.lib \
-              */*.sublib */*/*.sublib */*/*/*.sublib */*/*/*/*.sublib */*/*/*/*/*.sublib */*/*/*/*/*/*.sublib  */*/*/*/*/*/*.sublib   */*/*/*/*/*/*/*.sublib \
-              Makefile */Makefile.in */*/Makefile.in */*/*/Makefile.in */*/*/*/Makefile.in */*/*/*/*/Makefile.in */*/*/*/*/*/Makefile.in  */*/*/*/*/*/*/Makefile.in   */*/*/*/*/*/*/*/Makefile.in \
-              */makefile.win32 */*/makefile.win32 */*/*/makefile.win32 */*/*/*/makefile.win32 */*/*/*/*/makefile.win32 */*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/makefile.win32 \
-              */*.c */*/*.c */*/*/*.c */*/*/*/*.c */*/*/*/*/*.c */*/*/*/*/*/*.c  */*/*/*/*/*/*/*.c \
-              */*.h */*/*.h */*/*/*.h */*/*/*/*.h */*/*/*/*/*.h */*/*/*/*/*/*.h  */*/*/*/*/*/*/*.h \
-              */*.asm */*/*.asm */*/*/*.asm */*/*/*/*.asm */*/*/*/*/*.asm */*/*/*/*/*/*.asm  */*/*/*/*/*/*/*.asm \
-             */*.masm */*/*.masm */*/*/*.masm */*/*/*/*.masm */*/*/*/*/*.masm */*/*/*/*/*/*.masm  */*/*/*/*/*/*/*.masm \
-              */*.txt */*/*.txt */*/*/*.txt */*/*/*/*.txt */*/*/*/*/*.txt */*/*/*/*/*/*.txt  */*/*/*/*/*/*/*.txt \
-	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
-             src/lib/compiler/back/low/intel32/intel32.architecture-description \
-             src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
-             $(HOME)/.mythryl/selected-glue-modules \
-             sh/* \
-	     src/glu/*/etc/*plan \
-	     src/glu/*/sh/* \
-	     src/glu/*/try/* \
-             try/* \
-             try/*/* \
-	     src/glu/gtk/sh/make-gtk-glue \
-	     src/glu/opengl/sh/make-opengl-glue \
-             src/lib/core/internal/version.template \
-	     src/c/Configure.in \
-             src/lib/html/html-gram \
-             src/lib/core/init/init.cmi \
-             src/lib/core/init/mythryl-primordial-library.cmi \
+	@-echo $(STUFF_FOR_ETAGS_TO_INDEX) \
          | sed -e 's/ /\n/g' \
          | etags -               > /dev/null 2>&1
 
@@ -149,21 +182,24 @@ update:
 tk:
 	(cd src/lib/tk; make)
 
+rmglue-all:
+	sh/rmglue all
+
 tarball: 
 	sh/make-tarball
 
 # Make a compressed tar archive containing
 # the full source distribution.
 #
-tar:    clean tarball
+tar:    rmglue-all clean tarball
 
 # Same plus making tags files:
 # 
-tart:    clean tarball id			# "tart" == "tar + tags"
+tart:   rmglue-all clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 
-cheg:	gtk-glue opengl-glue benchmarks check		# I use this just to exercise benchmarks, gtk-glue and opengl-glue regularly, as insurance against creeping bitrot. -- CrT
+cheg:	$(CHEG_DEPENDENCIES)		# I use this just to exercise benchmarks, gtk-glue, opengl-glue etc regularly, as insurance against creeping bitrot. -- CrT
 
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
@@ -254,7 +290,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess bin/mythryl-opengl-library-in-c-subprocess
+	@ls -l $(COMPILED_C_PROGRAMS)
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -306,16 +342,18 @@ summary:
 
 
 
-# Stuff related to src/glu/gtk/sh/make-gtk-glue:
 
+###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="rules")
 # Do not edit this or preceding lines -- they are autobuilt.
+###################################################################################
+
+
+
+# Stuff related to src/glu/gtk/sh/make-gtk-glue:
 
 gtk-glue:
 	src/glu/gtk/sh/make-gtk-glue
-
-opengl-glue:
-	src/glu/opengl/sh/make-opengl-glue
 
 # The various individual apps and libraries
 # which get built by 'make rest':
@@ -337,9 +375,6 @@ bin/heap2asm:
 
 bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
 	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
-
-bin/mythryl-opengl-library-in-c-subprocess:
-	(cd src/c/o; make mythryl-opengl-library-in-c-subprocess)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
@@ -647,28 +682,7 @@ somewhat-clean:	ppless
 	@# -find . -name '*.lex.pkg' -print | xargs rm
 
 clean: somewhat-clean
-	@-rm -f bin/*.previous
-	@-rm -f bin/nowhere
-	@-rm -f bin/gtk-server
-	@-rm -f ID
-	@-rm -f TAGS
-	@-rm -f v-intel32-linux
-	@-rm -f bin/mythryl-runtime-intel32
-	@-rm -f bin/build-an-executable-mythryl-heap-image
-	@-rm -f bin/c-glue-maker
-	@-rm -f bin/guess-host-architecture-and-os
-	@-rm -f bin/heap2asm
-	@-rm -f bin/heap2exec
-	@-rm -f bin/mythryl-ld
-	@-rm -f bin/lexgen
-	@-rm -f bin/makedepend7
-	@-rm -f bin/mythryl-burg-fraser-hanson-proebsting-92-optimal-tree-rewriter
-	@-rm -f bin/mythryl
-	@-rm -f bin/passthrough
-	@-rm -f bin/set-heapdump-shebang
-	@-rm -f bin/mythryl-gtk-library-in-c-subprocess
-	@-rm -f bin/mythryl-opengl-library-in-c-subprocess
-	@-rm -f src/app/tut/factor/factor
+	@-rm -f $(STUFF_TO_REMOVE_WHEN_CLEANING)
 
 
 # As above, but also remove the stuff generated by doing
