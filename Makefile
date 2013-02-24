@@ -51,7 +51,6 @@ STUFF_FOR_ETAGS_TO_INDEX := \
 	     src/glu/*/try/* \
              try/* \
              try/*/* \
-	     src/glu/gtk/sh/make-gtk-glue \
              src/lib/core/internal/version.template \
 	     src/c/Configure.in \
              src/lib/html/html-gram \
@@ -61,7 +60,6 @@ STUFF_FOR_ETAGS_TO_INDEX := \
 STUFF_TO_REMOVE_WHEN_CLEANING := \
 	bin/*.previous \
 	bin/nowhere \
-	bin/gtk-server \
 	ID \
 	TAGS \
 	v-intel32-linux \
@@ -78,12 +76,11 @@ STUFF_TO_REMOVE_WHEN_CLEANING := \
 	bin/mythryl \
 	bin/passthrough \
 	bin/set-heapdump-shebang \
-	bin/mythryl-gtk-library-in-c-subprocess \
 	src/app/tut/factor/factor
 
-COMPILED_C_PROGRAMS := bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-library-in-c-subprocess
+COMPILED_C_PROGRAMS := bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang 
 
-CHEG_DEPENDENCIES := gtk-glue benchmarks check
+CHEG_DEPENDENCIES :=  benchmarks check
 
 ###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
@@ -350,11 +347,6 @@ summary:
 
 
 
-# Stuff related to src/glu/gtk/sh/make-gtk-glue:
-
-gtk-glue:
-	src/glu/gtk/sh/make-gtk-glue
-
 # The various individual apps and libraries
 # which get built by 'make rest':
 
@@ -372,9 +364,6 @@ bin/lexgen:
 
 bin/heap2asm:
 	(cd src/app/heap2asm; ./build-heap2asm-app)
-
-bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
-	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
 
 src/lib/posix/posix.lib.frozen:
 	@src/lib/posix/build-posix-lib
