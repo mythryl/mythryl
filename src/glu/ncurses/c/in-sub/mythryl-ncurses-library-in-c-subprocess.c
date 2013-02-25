@@ -91,70 +91,10 @@
 #include <unistd.h>	// For getpid(), STDIN_FILENO...
 #endif
 
-#include <GL/glew.h>
-#include <GL/glfw.h>
-
-typedef struct 
-{ 
-  float x; 
-  float y; 
-  float z; 
-} Vector3f; 
- 
-Vector3f vector3f(float _x, float _y, float _z) {
-    Vector3f v;
-    v.x = _x; 
-    v.y = _y; 
-    v.z = _z; 
-    return v;
-}; 
-
-
 FILE* log_fd = 0;
 
 static char text_buf[ 1024 ];
 
-void mythryl_ncurses_server_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. It is non-static only to keep gcc from muttering about unused code.
-    //
-    int running = GL_TRUE;
-
-    // Initialize GLFW
-    //
-    if (!glfwInit()) {
-	fprintf(stderr,"glfwInit() returned FALSE (?!) -- exiting.   -- do__init() in libmythryl-ncurses.c\n");
-        exit( EXIT_FAILURE );
-    }
-
-    // Open an Ncurses window
-    //
-    if( !glfwOpenWindow( 300,300, 0,0,0,0,0,0, GLFW_WINDOW ) )
-    {
-	glfwTerminate();
-
-	exit( EXIT_FAILURE );
-    }
-
-    // Main loop
-
-    while( running )
-    {
-	// Ncurses rendering goes here...
-
-	glClear( GL_COLOR_BUFFER_BIT );
-
-	glfwSwapBuffers();				// Swap front and back rendering buffers
-
-	running =  !glfwGetKey( GLFW_KEY_ESC )		// Check if ESC key was pressed or window was closed
-                &&  glfwGetWindowParam( GLFW_OPENED );
-
-    }
-
-
-    glfwTerminate();					// Close window and terminate GLFW
-
-    exit( EXIT_SUCCESS );				// Exit program
-
-}
 
 static void   moan_and_die   (void)   {
     //        ============
@@ -260,18 +200,6 @@ bool_arg( int iargc, unsigned char** argv, int ii)
     return 0;								// Cannot execute; keeps gcc quiet.
 }
 
-static int               window_size_event_callback_number;
-static void GLFWCALL run_window_size_event_callback	(int wide, int high){
-
-    char buf[ 4096 ];
-
-    sprintf( buf, "%d %d %d", window_size_event_callback_number, wide, high );
-
-    printf (             "WINDOW_SIZE_CALLBACK%s\n", buf); fflush( stdout );
-    fprintf(log_fd,"SENT: WINDOW_SIZE_CALLBACK%s\n", buf); fflush( log_fd );
-}
-										void dummy_call_to__run_window_size_event_callback() { run_window_size_event_callback (1,2); }	// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
-
 
 
 
@@ -372,54 +300,10 @@ set_trie( Trie_Node*trie, char* name, Trie_Fn trie_fn )
     set_trie_u( trie, (unsigned char*) name, trie_fn);
 }
 
-#ifdef SOON
-static void
-do_test( int argc, unsigned char** argv )
-{
-    printf ("TEST argc d=%d\n", argc);								fflush(stdout);
-
-    for (int i = 0; i < argc; ++i) {
-	//
-	printf ("ARG argv[%d] s='%s' (len d=%d)\n", i, argv[i], strlen( (char*) (argv[i])) );	fflush(stdout);
-    }
-}
-#endif
-
-#ifdef OLD
-static void
-do_quit_eventloop( int argc, unsigned char** argv )
-{
-    // This call will result in
-    // the (innermost call of)
-    // gtk_main() returning:
-    //
-    gtk_main_quit();
-}
-#endif
 
 static void
 do_init( int argc, unsigned char** argv )
 {
-printf("do_init/top -- src/glu/ncurses/c/in-sub/mythryl-ncurses-library-in-c-subprocess.c\n");fflush(stdout);
-    if (!glfwInit()) {
-	//
-        sprintf( text_buf, "do_init: failed to initialize Ncurses support.");
-	moan_and_die();
-} else {
-puts("NB: glfwInit() returned TRUE -- mythryl-ncurses-library-in-c-subprocess.c\n"); fflush(stdout);
-    }
-
-// Apparently we should do this only AFTER creating our first window (more precisely, "valid Ncurses rendering context"):
-// printf("do_init/AAA: calling glewInit -- src/glu/ncurses/c/in-sub/mythryl-ncurses-library-in-c-subprocess.c\n");fflush(stdout);
-    // This paragraph is from:
-    //     http://ogldev.atspace.co.uk/www/tutorial02/tutorial02.htm
-    //
-//    GLenum result = glewInit();
-//    if (result != GLEW_OK)
-//      {
-//	fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
-//	moan_and_die();
-//      }
 }
 
 
@@ -657,145 +541,7 @@ do__negate_boolean( int argc, unsigned char** argv )
 
 
 
-#ifdef OLD
-static void
-do_make_dialog( int argc, unsigned char** argv )
-{
-    check_argc( "do_make_dialog", 0, argc );
 
-    /* Anyone creating a dialog is almost certainly
-     * going to immediately need the dialog's vbox
-     * and action area, so we save round trips by
-     * returning them here in the initial make call:
-     */
-    {   int dialog;
-        int vbox;
-	int action_area;
-
-	dialog      = find_free_widget_slot ();   widget[dialog]      = gtk_dialog_new();
-	vbox        = find_free_widget_slot ();   widget[vbox]        = GTK_DIALOG( widget[dialog] )->vbox;
-	action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
-
-	 printf(              "make_dialogWIDGET%d WIDGET%d WIDGET%d\n", dialog, vbox, action_area);	fflush( stdout );
-	fprintf(log_fd, "SENT: make_dialogWIDGET%d WIDGET%d WIDGET%d\n", dialog, vbox, action_area);	fflush( log_fd );
-    }
-}
-#endif
-
-#ifdef OLD
-static void
-do_get_widget_allocation( int argc, unsigned char** argv )
-{
-    char buf[ 4096 ];
-
-    check_argc( "do_get_widget_allocation", 1, argc );
-
-    {   GtkWidget* w0  =  widget_arg( argc, argv, 0 );
-
-        w0 = GTK_WIDGET( w0 );		/* Verify user gave us something appropriate. */
-
-        int x    =  w0->allocation.x;
-        int y    =  w0->allocation.y;
-        int wide =  w0->allocation.width;
-        int high =  w0->allocation.height;
-
-        sprintf( buf, "%d %d %d %d", x, y, wide, high);
-
-	printf(               "get_widget_allocation%s\n", buf);	fflush( stdout );
-	fprintf(log_fd, "SENT: get_widget_allocation%s\n", buf);	fflush( log_fd );
-    }
-}
-#endif
-
-#ifdef OLD
-static void
-do_unref_object( int argc, unsigned char** argv )
-{
-    check_argc( "do_unref_object", 1, argc );
-
-    {   GtkWidget* w0    =  widget_arg( argc, argv, 0 );
-
-	g_object_unref( G_OBJECT( w0 ) );
-
-        widget[ get_widget_id( w0 ) ] = 0;
-    }
-}
-#endif
-
-#ifdef OLD
-/* Callback which GTK+ will call whenever there is
- * input available on stdin, so that we can continue
- * being responsive to commands from our superprocess
- * even after calling gtk_main(), which hogs control
- * of the program counter forever. :(
- *
- * We don't need or want any of the arguments to this
- * function, but they are forced on us by gtk_input_add(),
- * and they do no harm:
- */
-static void  read_eval_print_one_stdin_command  (void);	/* Forward declaration. */
-static void
-stdin_callback (
-    gpointer          data,		/* Always NULL,		  always ignored.	*/
-    gint              source,		/* Always STDIN_FILENO,   always ignored.	*/
-    GdkInputCondition condition		/* Always GDK_INPUT_READ, always ignored.	*/
-) {
-    
-    fprintf(log_fd, "stdin_callback/TOP...\n");    fflush( log_fd );
-
-    read_eval_print_one_stdin_command ();
-
-    fprintf(log_fd, "stdin_callback/DONE.\n");     fflush( log_fd );
-}
-#endif
-
-#ifdef OLD
-static void
-do_run_eventloop_once( int argc, unsigned char** argv )
-{
-    check_argc( "do_run_eventloop_once", 0, argc );
-
-    {   int block_until_event = bool_arg( argc, argv, 0 );
-
-        int quit_called = gtk_main_iteration_do( block_until_event );	/* http://www.gtk.org/api/2.6/gtk/gtk-General.html#gtk-main-iteration-do
-                                                                         */
-	printf(                "run_eventloop_once%d\n",quit_called);    fflush( stdout );
-	fprintf( log_fd, "SENT: run_eventloop_once%d\n",quit_called);    fflush( log_fd );
-    }
-}
-#endif
-
-#ifdef OLD
-static void
-do_run_eventloop_indefinitely( int argc, unsigned char** argv )
-{
-fprintf(log_fd, "do_run_eventloop_indefinitely/TOP...\n");    fflush( log_fd );
-    check_argc( "do_run_eventloop_indefinitely", 0, argc );
-
-    /* Before we call gtk_main() -- which won't return
-     * until gtk_main_quit() is called, if ever -- we
-     * have to set up logic so that we can continue
-     * to read and respond to commands from our
-     * super-process:
-     */
-fprintf(log_fd, "do_run_eventloop_indefinitely/II...\n");    fflush( log_fd );
-    gdk_input_add(			/* Ask GTK+ to watch ...					*/
-        STDIN_FILENO,			/* ... the stdin file descriptor, and... 			*/
-	GDK_INPUT_READ, 		/* ... whenever there is input available to be read on it...	*/
-	stdin_callback,			/* ... to call this function ...				*/
-	NULL				/* ... with this (ignored) argument.				*/
-    );
-
-fprintf(log_fd, "do_run_eventloop_indefinitely/III...\n");    fflush( log_fd );
-    gtk_main ();
-fprintf(log_fd, "do_run_eventloop_indefinitely/DONE.\n");    fflush( log_fd );
-
-    printf(                "EVENTLOOP_DONE\n");    fclose( stdout );
-    fprintf( log_fd, "SENT: EVENTLOOP_DONE\n");    fclose( log_fd );
-
-    exit(0);
-}
-#endif
 
 static void
 init  (void)
@@ -811,15 +557,6 @@ init  (void)
 
     set_trie( trie, "init",					do_init						);
 
-#ifdef OLD
-    set_trie( trie, "make_dialog",				do_make_dialog					);
-    set_trie( trie, "unref_object",				do_unref_object					);
-    set_trie( trie, "quit_eventloop",				do_quit_eventloop				);
-    set_trie( trie, "run_eventloop_indefinitely",		do_run_eventloop_indefinitely			);
-    set_trie( trie, "run_eventloop_once",			do_run_eventloop_once				);
-    set_trie( trie, "test",					do_test						);
-    set_trie( trie, "get_widget_allocation",			do_get_widget_allocation			);
-#endif
 
     /////////////////////////////////////////////////////////////////////////////////////
     // The following stuff gets built from paragraphs in

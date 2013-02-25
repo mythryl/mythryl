@@ -18,23 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <GL/glew.h>
-#include <GL/glfw.h>
-
-typedef struct 
-{ 
-  float x; 
-  float y; 
-  float z; 
-} Vector3f; 
- 
-Vector3f vector3f(float _x, float _y, float _z) {
-    Vector3f v;
-    v.x = _x; 
-    v.y = _y; 
-    v.z = _z; 
-    return v;
-}; 
 
  
 #include "runtime-base.h"
@@ -44,12 +27,6 @@ Vector3f vector3f(float _x, float _y, float _z) {
 
 #include "../../../../c/lib/raise-error.h"
 
-#define GtkWidget void
-
-#define MAX_WIDGETS 1024
-#ifdef SOON
-static GtkWidget* widget[ MAX_WIDGETS ];	// XXX BUGGO FIXME Should expand in size as needed.
-#endif
 
 static char text_buf[ 1024 ];
 
@@ -63,65 +40,8 @@ static void   moan_and_die   (void)   {
 Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
     //========
 
-    // Initialize GLFW
-    //
-    if (!glfwInit()) {
-	fprintf(stderr,"glfwInit() returned FALSE (?!) -- exiting.   -- do__init() in libmythryl-ncurses.c\n");
-        exit( EXIT_FAILURE );
-    }
-
-// Apparently we should do this only AFTER creating our first window (more precisely, "valid Ncurses rendering context"):
-    // This paragraph is from:
-    //     http://ogldev.atspace.co.uk/www/tutorial02/tutorial02.htm
-    //
-// printf("calling glewInit()...    --libmythryl.ncurses.c\n");fflush(stdout);
-//    GLenum result = glewInit();
-//    if (result != GLEW_OK)
-//      {
-//	fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
-//        exit( EXIT_FAILURE );
-//      }
 
     return HEAP_VOID;
-}
-
-void ncurses_driver_dummy( void ) {				// This just a test to see if the appropriate libraries are linking; I don't intend to actually call this fn. Public only to keep gcc from muttering about unused code.
-    //
-    int running = GL_TRUE;
-
-    // Initialize GLFW
-    //
-    if (!glfwInit())   exit( EXIT_FAILURE );
-
-    // Open an Ncurses window
-    //
-    if( !glfwOpenWindow( 300,300, 0,0,0,0,0,0, GLFW_WINDOW ) )
-    {
-	glfwTerminate();
-
-	exit( EXIT_FAILURE );
-    }
-
-    // Main loop
-
-    while( running )
-    {
-	// Ncurses rendering goes here...
-
-	glClear( GL_COLOR_BUFFER_BIT );
-
-	glfwSwapBuffers();				// Swap front and back rendering buffers
-
-	running =  !glfwGetKey( GLFW_KEY_ESC )		// Check if ESC key was pressed or window was closed
-                &&  glfwGetWindowParam( GLFW_OPENED );
-
-    }
-
-
-    glfwTerminate();					// Close window and terminate GLFW
-
-    exit( EXIT_SUCCESS );				// Exit program
-
 }
 
 
@@ -300,46 +220,6 @@ printf("run_window_size_event_callback(wide=%d high=%d)\n",wide,high);
 
 
 
-
-#ifdef OLD
-static int   find_free_widget_slot   (void)   {
-    //       =====================
-    //
-    for (int i = 1; i < MAX_WIDGETS; ++i) {		// We reserve 0 as an always-invalid analog to NULL.
-        if (!widget[i])  return i;
-    }
-    sprintf(text_buf, "find_free_widget_slot: All slots full.");
-    moan_and_die();
-    return 0;						// Can't happen, but keeps gcc quiet.
-}
-#endif
-
-#ifdef OLD
-static int   find_widget_id   (GtkWidget* query_widget)   {
-    //       ==============
-    for (int i = 1;   i < MAX_WIDGETS;   ++i) {
-	//
-        if (widget[i] == query_widget)   return i;
-    }
-    return 0;
-}
-#endif
-
-
-#ifdef OLD
-static int   get_widget_id   (GtkWidget* query_widget)   {
-    //       =============
-    int slot =  find_widget_id( query_widget );
-
-    if(!slot) {
-	slot = find_free_widget_slot ();
-	//
-	widget[slot] = (GtkWidget*) query_widget;
-    }
-
-    return slot;
-}
-#endif
 
 
 
