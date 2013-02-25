@@ -12,7 +12,7 @@
 
 
 #ifndef CLIB_NAME
-#define CLIB_NAME	"ncurses"
+#define CLIB_NAME	"ncursesxxx"
 #define CLIB_VERSION	"1.0"
 #define CLIB_DATE	"November 29, 2007"
 #endif

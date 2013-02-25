@@ -37,7 +37,7 @@ static void   moan_and_die   (void)   {
     exit(1);
 }
 
-Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
+static Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
     //========
 
 
@@ -167,7 +167,7 @@ static void   queue_up_void_callback   (int callback)   {
     //
     queue_up_callback(e);
 }
-void dummy_call_to__queue_up_void_callback() { queue_up_void_callback(1); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+void dummy_ncurses_call_to__queue_up_void_callback() { queue_up_void_callback(1); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static void   queue_up_bool_callback   (int callback, int bool_value)   {
     //        ======================  
@@ -179,7 +179,7 @@ static void   queue_up_bool_callback   (int callback, int bool_value)   {
     //
     queue_up_callback( e );
 }
-										void dummy_call_to__queue_up_bool_callback() { queue_up_bool_callback(1,TRUE); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_ncurses_call_to__queue_up_bool_callback() { queue_up_bool_callback(1,TRUE); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static void   queue_up_float_callback   (int callback,  double float_value)   {
     //        =======================
@@ -191,7 +191,7 @@ static void   queue_up_float_callback   (int callback,  double float_value)   {
     //
     queue_up_callback( e );
 }
-										void dummy_call_to__queue_up_float_callback() { queue_up_float_callback(1,1.0); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_ncurses_call_to__queue_up_float_callback() { queue_up_float_callback(1,1.0); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static int   find_free_callback_id   ()   {
     //       =====================
@@ -199,24 +199,8 @@ static int   find_free_callback_id   ()   {
 
     return next_callback_id++;
 }
-										void dummy_call_to__find_free_callback_id() { find_free_callback_id(); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_ncurses_call_to__find_free_callback_id() { find_free_callback_id(); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
-static int               window_size_event_callback_number;
-static void GLFWCALL run_window_size_event_callback   (int wide,  int high)   {
-    //               ==============================
-
-    Callback_Queue_Entry e;
-
-    e.callback_type    =  QUEUED_INT_PAIR_CALLBACK;
-    e.callback_number  =  window_size_event_callback_number;
-
-    e.entry.int_pair.x  = wide;
-    e.entry.int_pair.y  = high;
-printf("run_window_size_event_callback(wide=%d high=%d)\n",wide,high);
-
-    queue_up_callback(e);
-}
-										void dummy_call_to__run_window_size_event_callback() { run_window_size_event_callback(1,2); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 
 
@@ -378,205 +362,6 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 //  ->  r.to_libmythryl_xxx_c_funs						# In src/lib/make-library-glue/make-library-glue.pkg
 //
 /* Do not edit this or following lines -- they are autobuilt.  (patchname="functions") */
-
-
-/*  do__set_window_size_event_callback : Session -> Window_Size_Event_Callback -> Void
- */
-static Val   do__set_window_size_event_callback (Task* task, Val arg)
-{
-
-    int id   =  find_free_callback_id ();
-    window_size_event_callback_number =  id;
-
-    glfwSetWindowSizeCallback( run_window_size_event_callback );
-
-    return TAGGED_INT_FROM_C_INT(id);
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/ncurses/etc/construction.plan.*/
-
-
-/* do__glew_init
- *
- * ncurses-client.api        type:    Session -> Void
- * ncurses-client-driver.api type:   (Session) -> Void
- */
-static Val   do__glew_init   (Task* task, Val arg)
-{
-
-
-    GLenum result = glewInit();;
-   if (result != GLEW_OK) {
-       fprintf(stderr, "Error: '%s'\n", glewGetErrorString(result));
-       exit(1);
-   }
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__open_window2
- *
- * ncurses-client.api        type:    {  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool
- * ncurses-client-driver.api type:   (Session, Int, Int, Int, Int, Int, Int, Int, Int, Bool) -> Bool
- */
-static Val   do__open_window2   (Task* task, Val arg)
-{
-
-    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
-    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
-    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
-    int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
-    int               b8 =                            GET_TUPLE_SLOT_AS_VAL( arg, 9) == HEAP_TRUE;
-
-    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/i2, /*greenbits*/i3, /*bluebits*/i4,   /*alphabits*/i5, /*depthbits*/i6, /*stencilbits*/i7,   /*fullscreen*/b8 ? GLFW_FULLSCREEN : GLFW_WINDOW );
-
-    return  result ? HEAP_TRUE : HEAP_FALSE;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__open_window
- *
- * ncurses-client.api        type:    {  session: Session,  wide: Int, high: Int } -> Bool
- * ncurses-client-driver.api type:   (Session, Int, Int) -> Bool
- */
-static Val   do__open_window   (Task* task, Val arg)
-{
-
-    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
-
-    int result = glfwOpenWindow(   /*wide*/i0, /*high*/i1,   /*redbits*/0, /*greenbits*/0, /*bluebits*/0,   /*alphabits*/0, /*depthbits*/0, /*stencilbits*/0,   /*fullscreen*/GLFW_WINDOW );
-
-    return  result ? HEAP_TRUE : HEAP_FALSE;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__terminate
- *
- * ncurses-client.api        type:    Session -> Void
- * ncurses-client-driver.api type:   (Session) -> Void
- */
-static Val   do__terminate   (Task* task, Val arg)
-{
-
-
-    glfwTerminate();
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__swap_buffers
- *
- * ncurses-client.api        type:    Session -> Void
- * ncurses-client-driver.api type:   (Session) -> Void
- */
-static Val   do__swap_buffers   (Task* task, Val arg)
-{
-
-
-    glfwSwapBuffers();
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__get_window_param
- *
- * ncurses-client.api        type:    Session -> Bool
- * ncurses-client-driver.api type:   (Session) -> Bool
- */
-static Val   do__get_window_param   (Task* task, Val arg)
-{
-
-
-    int result = glfwGetWindowParam( GLFW_OPENED );
-
-    return  result ? HEAP_TRUE : HEAP_FALSE;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__set_window_title
- *
- * ncurses-client.api        type:   (Session, String) -> Void
- * ncurses-client-driver.api type:   (Session, String) -> Void
- */
-static Val   do__set_window_title   (Task* task, Val arg)
-{
-
-    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
-
-    glfwSetWindowTitle( s0 );
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__set_window_size
- *
- * ncurses-client.api        type:    { session: Session, wide: Int, high: Int } -> Void
- * ncurses-client-driver.api type:   (Session, Int, Int) -> Void
- */
-static Val   do__set_window_size   (Task* task, Val arg)
-{
-
-    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
-
-    glfwSetWindowSize( /*wide*/i0, /*high*/i1 );
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__set_window_position
- *
- * ncurses-client.api        type:    { session: Session, x: Int, y: Int } -> Void
- * ncurses-client-driver.api type:   (Session, Int, Int) -> Void
- */
-static Val   do__set_window_position   (Task* task, Val arg)
-{
-
-    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
-
-    glfwSetWindowPos( /*x*/i0, /*y*/i1 );
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
-/* do__clear
- *
- * ncurses-client.api        type:    {  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void
- * ncurses-client-driver.api type:   (Session, Bool, Bool) -> Void
- */
-static Val   do__clear   (Task* task, Val arg)
-{
-
-    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
-    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
-
-    glClear(   (/*color_buffer*/b0 ? GL_COLOR_BUFFER_BIT : 0)  |  (/*depth_buffer*/b1 ? GL_DEPTH_BUFFER_BIT : 0));
-
-    return HEAP_VOID;
-}
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
-
-
 /* do__print_hello_world
  *
  * ncurses-client.api        type:    Session -> Void
@@ -713,17 +498,6 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 //           ->  r.build_table_entry_for_'libmythryl_xxx_c' (c_fn_name, fn_type);
 //
 /* Do not edit this or following lines -- they are autobuilt.  (patchname="table") */
-CFUNC("set_window_size_event_callback",           "set_window_size_event_callback",           do__set_window_size_event_callback,                    "Session -> Window_Size_Event_Callback -> Void")
-CFUNC("glew_init",                                "glew_init",                                do__glew_init,                                         "Session -> Void")
-CFUNC("open_window2",                             "open_window2",                             do__open_window2,                                      "{  session: Session,  wide: Int, high: Int,  redbits: Int, greenbits: Int, bluebits: Int,  alphabits: Int, depthbits: Int, stencilbits: Int,  fullscreen: Bool } -> Bool")
-CFUNC("open_window",                              "open_window",                              do__open_window,                                       "{  session: Session,  wide: Int, high: Int } -> Bool")
-CFUNC("terminate",                                "terminate",                                do__terminate,                                         "Session -> Void")
-CFUNC("swap_buffers",                             "swap_buffers",                             do__swap_buffers,                                      "Session -> Void")
-CFUNC("get_window_param",                         "get_window_param",                         do__get_window_param,                                  "Session -> Bool")
-CFUNC("set_window_title",                         "set_window_title",                         do__set_window_title,                                 "(Session, String) -> Void")
-CFUNC("set_window_size",                          "set_window_size",                          do__set_window_size,                                   "{ session: Session, wide: Int, high: Int } -> Void")
-CFUNC("set_window_position",                      "set_window_position",                      do__set_window_position,                               "{ session: Session, x: Int, y: Int } -> Void")
-CFUNC("clear",                                    "clear",                                    do__clear,                                             "{  session: Session,  color_buffer: Bool, depth_buffer: Bool } -> Void")
 CFUNC("print_hello_world",                        "print_hello_world",                        do__print_hello_world,                                 "Session -> Void")
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")

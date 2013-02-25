@@ -67,8 +67,6 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynami
 
 
 
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ncurses				)		// Libmythryl_Ncurses			def in    src/c/lib/ncurses/libmythryl-ncurses.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def in    src/c/lib/opencv/libmythryl-opencv.c
 
 
 

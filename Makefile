@@ -612,6 +612,7 @@ somewhat-clean:	ppless
 	@find . -type f -name '*.SEEN' -print | xargs rm -f;
 	@find . -type f -name '*.skeleton' -print | xargs rm -f;
 	@find . -type f -name '*.log' -print | xargs rm -f;
+	@find . -type f -name '*.o' -print | xargs rm -f;
 #	@find . -type f -name '*.codemade.*' -print | xargs rm -f;
 	@find . -type f -name 'tmp-makelib-pid-*' -print | xargs rm -f;
 	@rm -rf sh/edit;
@@ -679,7 +680,9 @@ clean: somewhat-clean
 #     make config
 #
 dist-clean:	clean
-	@-find src -name 'Makefile' -print | xargs rm
+	@-find src/c   -name 'Makefile' -print | xargs rm
+	@-find src/lib -name 'Makefile' -print | xargs rm
+	@-find src/app -name 'Makefile' -print | xargs rm
 	@-rm -f src/c/config.log
 	@-rm -f src/c/config.status
 

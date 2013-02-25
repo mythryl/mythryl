@@ -9,7 +9,7 @@
 
 
 #ifndef CLIB_NAME
-#define CLIB_NAME	"opencv"
+#define CLIB_NAME	"opencvxxx"
 #define CLIB_VERSION	"1.0"
 #define CLIB_DATE	"February 13, 2008"
 #endif

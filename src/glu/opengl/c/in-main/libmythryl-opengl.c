@@ -60,7 +60,7 @@ static void   moan_and_die   (void)   {
     exit(1);
 }
 
-Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
+static Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
     //========
 
     // Initialize GLFW
@@ -247,7 +247,7 @@ static void   queue_up_void_callback   (int callback)   {
     //
     queue_up_callback(e);
 }
-void dummy_call_to__queue_up_void_callback() { queue_up_void_callback(1); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+void dummy_opengl_call_to__queue_up_void_callback() { queue_up_void_callback(1); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static void   queue_up_bool_callback   (int callback, int bool_value)   {
     //        ======================  
@@ -259,7 +259,7 @@ static void   queue_up_bool_callback   (int callback, int bool_value)   {
     //
     queue_up_callback( e );
 }
-										void dummy_call_to__queue_up_bool_callback() { queue_up_bool_callback(1,TRUE); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_opengl_call_to__queue_up_bool_callback() { queue_up_bool_callback(1,TRUE); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static void   queue_up_float_callback   (int callback,  double float_value)   {
     //        =======================
@@ -271,7 +271,7 @@ static void   queue_up_float_callback   (int callback,  double float_value)   {
     //
     queue_up_callback( e );
 }
-										void dummy_call_to__queue_up_float_callback() { queue_up_float_callback(1,1.0); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_opengl_call_to__queue_up_float_callback() { queue_up_float_callback(1,1.0); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static int   find_free_callback_id   ()   {
     //       =====================
@@ -279,7 +279,7 @@ static int   find_free_callback_id   ()   {
 
     return next_callback_id++;
 }
-										void dummy_call_to__find_free_callback_id() { find_free_callback_id(); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_opengl_call_to__find_free_callback_id() { find_free_callback_id(); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 static int               window_size_event_callback_number;
 static void GLFWCALL run_window_size_event_callback   (int wide,  int high)   {
@@ -296,7 +296,7 @@ printf("run_window_size_event_callback(wide=%d high=%d)\n",wide,high);
 
     queue_up_callback(e);
 }
-										void dummy_call_to__run_window_size_event_callback() { run_window_size_event_callback(1,2); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
+										void dummy_opengl_call_to__run_window_size_event_callback() { run_window_size_event_callback(1,2); }		// Can delete this as soon as we have some real calls -- this is just to quiet gcc.
 
 
 
