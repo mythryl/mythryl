@@ -310,7 +310,7 @@ do_init( int argc, unsigned char** argv )
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/qqq/etc/construction.plan
+//     src/glu/qqq/etc/qqq-construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
@@ -348,7 +348,7 @@ do__print_hello_world( int argc, unsigned char** argv )
 
     fprintf(stderr,"Hello, world!\n");
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/qqq-construction.plan. */
 
 static void
 do__negate_int( int argc, unsigned char** argv )
@@ -362,7 +362,7 @@ do__negate_int( int argc, unsigned char** argv )
      printf(              "negate_int%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_int%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/qqq-construction.plan. */
 
 static void
 do__negate_float( int argc, unsigned char** argv )
@@ -376,7 +376,7 @@ do__negate_float( int argc, unsigned char** argv )
      printf(              "negate_float%f\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_float%f\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/qqq-construction.plan. */
 
 static void
 do__negate_boolean( int argc, unsigned char** argv )
@@ -390,7 +390,7 @@ do__negate_boolean( int argc, unsigned char** argv )
      printf(              "negate_boolean%d\n", result);      fflush( stdout );
     fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/qqq/etc/qqq-construction.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -415,7 +415,7 @@ init  (void)
 
     /////////////////////////////////////////////////////////////////////////////////////
     // The following stuff gets built from paragraphs in
-    //     src/glu/qqq/etc/construction.plan
+    //     src/glu/qqq/etc/qqq-construction.plan
     // via logic in
     //     src/lib/make-library-glue/make-library-glue.pkg
     //

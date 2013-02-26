@@ -334,7 +334,7 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/ncurses/etc/construction.plan
+//     src/glu/ncurses/etc/ncurses-construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
@@ -375,7 +375,7 @@ static Val   do__print_hello_world   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
 /* do__negate_int
@@ -392,7 +392,7 @@ static Val   do__negate_int   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(result);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
 /* do__negate_float
@@ -409,7 +409,7 @@ static Val   do__negate_float   (Task* task, Val arg)
 
     return  make_float64(task, d );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
 /* do__negate_boolean
@@ -426,7 +426,7 @@ static Val   do__negate_boolean   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
 /* Do not edit this or preceding lines -- they are autobuilt. */
@@ -472,7 +472,7 @@ CFUNC("get_queued_int_pair_callback","get_queued_button_press_callback",  do__ge
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/ncurses/etc/construction.plan
+//     src/glu/ncurses/etc/ncurses-construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //

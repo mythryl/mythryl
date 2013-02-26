@@ -1006,7 +1006,7 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/gtk/etc/construction.plan
+//     src/glu/gtk/etc/gtk-construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
@@ -1052,7 +1052,7 @@ static Val   do__make_window   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_label
@@ -1071,7 +1071,7 @@ static Val   do__make_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_status_bar_context_id
@@ -1089,7 +1089,7 @@ static Val   do__make_status_bar_context_id   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(result);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_menu
@@ -1107,7 +1107,7 @@ static Val   do__make_menu   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_option_menu
@@ -1125,7 +1125,7 @@ static Val   do__make_option_menu   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_menu_bar
@@ -1143,7 +1143,7 @@ static Val   do__make_menu_bar   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_combo_box
@@ -1161,7 +1161,7 @@ static Val   do__make_combo_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_text_combo_box
@@ -1179,7 +1179,7 @@ static Val   do__make_text_combo_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_frame
@@ -1198,7 +1198,7 @@ static Val   do__make_frame   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_button
@@ -1216,7 +1216,7 @@ static Val   do__make_button   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_button_with_label
@@ -1235,7 +1235,7 @@ static Val   do__make_button_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_button_with_mnemonic
@@ -1254,7 +1254,7 @@ static Val   do__make_button_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_toggle_button
@@ -1272,7 +1272,7 @@ static Val   do__make_toggle_button   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_toggle_button_with_label
@@ -1291,7 +1291,7 @@ static Val   do__make_toggle_button_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_toggle_button_with_mnemonic
@@ -1310,7 +1310,7 @@ static Val   do__make_toggle_button_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_check_button
@@ -1328,7 +1328,7 @@ static Val   do__make_check_button   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_check_button_with_label
@@ -1347,7 +1347,7 @@ static Val   do__make_check_button_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_check_button_with_mnemonic
@@ -1366,7 +1366,7 @@ static Val   do__make_check_button_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_menu_item
@@ -1384,7 +1384,7 @@ static Val   do__make_menu_item   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_menu_item_with_label
@@ -1403,7 +1403,7 @@ static Val   do__make_menu_item_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_menu_item_with_mnemonic
@@ -1422,7 +1422,7 @@ static Val   do__make_menu_item_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_first_radio_button
@@ -1440,7 +1440,7 @@ static Val   do__make_first_radio_button   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_next_radio_button
@@ -1459,7 +1459,7 @@ static Val   do__make_next_radio_button   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_first_radio_button_with_label
@@ -1478,7 +1478,7 @@ static Val   do__make_first_radio_button_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_next_radio_button_with_label
@@ -1498,7 +1498,7 @@ static Val   do__make_next_radio_button_with_label   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_first_radio_button_with_mnemonic
@@ -1517,7 +1517,7 @@ static Val   do__make_first_radio_button_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_next_radio_button_with_mnemonic
@@ -1537,7 +1537,7 @@ static Val   do__make_next_radio_button_with_mnemonic   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_arrow
@@ -1557,7 +1557,7 @@ static Val   do__make_arrow   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_arrow
@@ -1576,7 +1576,7 @@ static Val   do__set_arrow   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_box
@@ -1596,7 +1596,7 @@ static Val   do__make_horizontal_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_box
@@ -1616,7 +1616,7 @@ static Val   do__make_vertical_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_button_box
@@ -1634,7 +1634,7 @@ static Val   do__make_horizontal_button_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_button_box
@@ -1652,7 +1652,7 @@ static Val   do__make_vertical_button_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_table
@@ -1673,7 +1673,7 @@ static Val   do__make_table   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_event_box
@@ -1691,7 +1691,7 @@ static Val   do__make_event_box   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_image_from_file
@@ -1710,7 +1710,7 @@ static Val   do__make_image_from_file   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_separator
@@ -1728,7 +1728,7 @@ static Val   do__make_horizontal_separator   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_separator
@@ -1746,7 +1746,7 @@ static Val   do__make_vertical_separator   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_layout_container
@@ -1764,7 +1764,7 @@ static Val   do__make_layout_container   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__layout_put
@@ -1784,7 +1784,7 @@ static Val   do__layout_put   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__layout_move
@@ -1804,7 +1804,7 @@ static Val   do__layout_move   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_fixed_container
@@ -1822,7 +1822,7 @@ static Val   do__make_fixed_container   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__fixed_put
@@ -1842,7 +1842,7 @@ static Val   do__fixed_put   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__fixed_move
@@ -1862,7 +1862,7 @@ static Val   do__fixed_move   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_adjustment
@@ -1886,7 +1886,7 @@ static Val   do__make_adjustment   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_viewport
@@ -1906,7 +1906,7 @@ static Val   do__make_viewport   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_scrolled_window
@@ -1926,7 +1926,7 @@ static Val   do__make_scrolled_window   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_ruler
@@ -1944,7 +1944,7 @@ static Val   do__make_horizontal_ruler   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_ruler
@@ -1962,7 +1962,7 @@ static Val   do__make_vertical_ruler   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_scrollbar
@@ -1981,7 +1981,7 @@ static Val   do__make_vertical_scrollbar   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_scrollbar
@@ -2000,7 +2000,7 @@ static Val   do__make_horizontal_scrollbar   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_scale
@@ -2019,7 +2019,7 @@ static Val   do__make_vertical_scale   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_scale
@@ -2038,7 +2038,7 @@ static Val   do__make_horizontal_scale   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_vertical_scale_with_range
@@ -2059,7 +2059,7 @@ static Val   do__make_vertical_scale_with_range   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_horizontal_scale_with_range
@@ -2080,7 +2080,7 @@ static Val   do__make_horizontal_scale_with_range   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_drawing_area
@@ -2098,7 +2098,7 @@ static Val   do__make_drawing_area   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_pixmap
@@ -2119,7 +2119,7 @@ static Val   do__make_pixmap   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__make_status_bar
@@ -2137,7 +2137,7 @@ static Val   do__make_status_bar   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__push_text_on_status_bar
@@ -2156,7 +2156,7 @@ static Val   do__push_text_on_status_bar   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(result);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__pop_text_off_status_bar
@@ -2174,7 +2174,7 @@ static Val   do__pop_text_off_status_bar   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__remove_text_from_status_bar
@@ -2193,7 +2193,7 @@ static Val   do__remove_text_from_status_bar   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__pack_box
@@ -2215,7 +2215,7 @@ static Val   do__pack_box   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__menu_shell_append
@@ -2233,7 +2233,7 @@ static Val   do__menu_shell_append   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__menu_bar_append
@@ -2251,7 +2251,7 @@ static Val   do__menu_bar_append   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__append_text_to_combo_box
@@ -2269,7 +2269,7 @@ static Val   do__append_text_to_combo_box   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_option_menu_menu
@@ -2287,7 +2287,7 @@ static Val   do__set_option_menu_menu   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_text_tooltip_on_widget
@@ -2305,7 +2305,7 @@ static Val   do__set_text_tooltip_on_widget   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_ruler_metric
@@ -2323,7 +2323,7 @@ static Val   do__set_ruler_metric   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_ruler_range
@@ -2344,7 +2344,7 @@ static Val   do__set_ruler_range   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_scrollbar_policy
@@ -2363,7 +2363,7 @@ static Val   do__set_scrollbar_policy   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__draw_rectangle
@@ -2386,7 +2386,7 @@ static Val   do__draw_rectangle   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__draw_drawable
@@ -2411,7 +2411,7 @@ static Val   do__draw_drawable   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__queue_redraw
@@ -2432,7 +2432,7 @@ static Val   do__queue_redraw   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__press_button
@@ -2449,7 +2449,7 @@ static Val   do__press_button   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__release_button
@@ -2466,7 +2466,7 @@ static Val   do__release_button   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__click_button
@@ -2483,7 +2483,7 @@ static Val   do__click_button   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__enter_button
@@ -2500,7 +2500,7 @@ static Val   do__enter_button   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__leave_button
@@ -2517,7 +2517,7 @@ static Val   do__leave_button   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__show_widget
@@ -2534,7 +2534,7 @@ static Val   do__show_widget   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__show_widget_tree
@@ -2551,7 +2551,7 @@ static Val   do__show_widget_tree   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__destroy_widget
@@ -2568,7 +2568,7 @@ static Val   do__destroy_widget   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__emit_changed_signal
@@ -2585,7 +2585,7 @@ static Val   do__emit_changed_signal   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__pop_up_combo_box
@@ -2602,7 +2602,7 @@ static Val   do__pop_up_combo_box   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__pop_down_combo_box
@@ -2619,7 +2619,7 @@ static Val   do__pop_down_combo_box   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_combo_box_title
@@ -2637,7 +2637,7 @@ static Val   do__set_combo_box_title   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_window_title
@@ -2655,7 +2655,7 @@ static Val   do__set_window_title   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_window_default_size
@@ -2674,7 +2674,7 @@ static Val   do__set_window_default_size   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_minimum_widget_size
@@ -2693,7 +2693,7 @@ static Val   do__set_minimum_widget_size   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_border_width
@@ -2711,7 +2711,7 @@ static Val   do__set_border_width   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_event_box_visibility
@@ -2729,7 +2729,7 @@ static Val   do__set_event_box_visibility   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_widget_alignment
@@ -2748,7 +2748,7 @@ static Val   do__set_widget_alignment   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_widget_events
@@ -2766,7 +2766,7 @@ static Val   do__set_widget_events   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_widget_name
@@ -2784,7 +2784,7 @@ static Val   do__set_widget_name   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_label_justification
@@ -2802,7 +2802,7 @@ static Val   do__set_label_justification   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_label_line_wrapping
@@ -2820,7 +2820,7 @@ static Val   do__set_label_line_wrapping   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_label_underlines
@@ -2838,7 +2838,7 @@ static Val   do__set_label_underlines   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_scale_value_position
@@ -2856,7 +2856,7 @@ static Val   do__set_scale_value_position   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_draw_scale_value
@@ -2874,7 +2874,7 @@ static Val   do__set_draw_scale_value   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_scale_value_digits_shown
@@ -2891,7 +2891,7 @@ static Val   do__get_scale_value_digits_shown   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(result);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_scale_value_digits_shown
@@ -2909,7 +2909,7 @@ static Val   do__set_scale_value_digits_shown   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_range_update_policy
@@ -2927,7 +2927,7 @@ static Val   do__set_range_update_policy   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_toggle_button_state
@@ -2944,7 +2944,7 @@ static Val   do__get_toggle_button_state   (Task* task, Val arg)
 
     return  result ? HEAP_TRUE : HEAP_FALSE;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_toggle_button_state
@@ -2962,7 +2962,7 @@ static Val   do__set_toggle_button_state   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_adjustment_value
@@ -2979,7 +2979,7 @@ static Val   do__get_adjustment_value   (Task* task, Val arg)
 
     return  make_float64(task, d );
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_adjustment_value
@@ -2997,7 +2997,7 @@ static Val   do__set_adjustment_value   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_white_graphics_context
@@ -3016,7 +3016,7 @@ static Val   do__get_white_graphics_context   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_black_graphics_context
@@ -3035,7 +3035,7 @@ static Val   do__get_black_graphics_context   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_current_foreground_graphics_context
@@ -3054,7 +3054,7 @@ static Val   do__get_current_foreground_graphics_context   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_current_background_graphics_context
@@ -3073,7 +3073,7 @@ static Val   do__get_current_background_graphics_context   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_widget_window
@@ -3092,7 +3092,7 @@ static Val   do__get_widget_window   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__add_kid
@@ -3110,7 +3110,7 @@ static Val   do__add_kid   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__add_scrolled_window_kid
@@ -3128,7 +3128,7 @@ static Val   do__add_scrolled_window_kid   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__add_table_kid
@@ -3150,7 +3150,7 @@ static Val   do__add_table_kid   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__add_table_kid2
@@ -3176,7 +3176,7 @@ static Val   do__add_table_kid2   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_viewport_vertical_adjustment
@@ -3195,7 +3195,7 @@ static Val   do__get_viewport_vertical_adjustment   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__get_viewport_horizontal_adjustment
@@ -3214,7 +3214,7 @@ static Val   do__get_viewport_horizontal_adjustment   (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(slot);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_table_row_spacing
@@ -3233,7 +3233,7 @@ static Val   do__set_table_row_spacing   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_table_col_spacing
@@ -3252,7 +3252,7 @@ static Val   do__set_table_col_spacing   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_table_row_spacings
@@ -3270,7 +3270,7 @@ static Val   do__set_table_row_spacings   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 /* do__set_table_col_spacings
@@ -3288,7 +3288,7 @@ static Val   do__set_table_col_spacings   (Task* task, Val arg)
 
     return HEAP_VOID;
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/construction.plan. */
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/gtk/etc/gtk-construction.plan. */
 
 
 
@@ -3306,7 +3306,7 @@ static Val   do__set_clicked_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3324,7 +3324,7 @@ static Val   do__set_pressed_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3342,7 +3342,7 @@ static Val   do__set_release_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3360,7 +3360,7 @@ static Val   do__set_enter_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3378,7 +3378,7 @@ static Val   do__set_leave_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3396,7 +3396,7 @@ static Val   do__set_activate_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3414,7 +3414,7 @@ static Val   do__set_destroy_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3432,7 +3432,7 @@ static Val   do__set_realize_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3450,7 +3450,7 @@ static Val   do__set_button_press_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3468,7 +3468,7 @@ static Val   do__set_button_release_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3486,7 +3486,7 @@ static Val   do__set_scroll_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3504,7 +3504,7 @@ static Val   do__set_motion_notify_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3522,7 +3522,7 @@ static Val   do__set_delete_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3540,7 +3540,7 @@ static Val   do__set_expose_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3558,7 +3558,7 @@ static Val   do__set_key_press_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3576,7 +3576,7 @@ static Val   do__set_key_release_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3594,7 +3594,7 @@ static Val   do__set_enter_notify_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3612,7 +3612,7 @@ static Val   do__set_leave_notify_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3630,7 +3630,7 @@ static Val   do__set_configure_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3648,7 +3648,7 @@ static Val   do__set_focus_in_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3666,7 +3666,7 @@ static Val   do__set_focus_out_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3684,7 +3684,7 @@ static Val   do__set_map_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3702,7 +3702,7 @@ static Val   do__set_unmap_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3720,7 +3720,7 @@ static Val   do__set_property_notify_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3738,7 +3738,7 @@ static Val   do__set_selection_clear_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3756,7 +3756,7 @@ static Val   do__set_selection_request_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3774,7 +3774,7 @@ static Val   do__set_selection_notify_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3792,7 +3792,7 @@ static Val   do__set_proximity_in_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3810,7 +3810,7 @@ static Val   do__set_proximity_out_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3828,7 +3828,7 @@ static Val   do__set_client_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3846,7 +3846,7 @@ static Val   do__set_no_expose_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3864,7 +3864,7 @@ static Val   do__set_window_state_event_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3882,7 +3882,7 @@ static Val   do__set_toggled_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 
@@ -3900,7 +3900,7 @@ static Val   do__set_value_changed_callback (Task* task, Val arg)
 
     return TAGGED_INT_FROM_C_INT(id);
 }
-/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/construction.plan.*/
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_set_callback_fn_for_'libmythryl_xxx_c'  per  src/glu/gtk/etc/gtk-construction.plan.*/
 
 
 /* Do not edit this or preceding lines -- they are autobuilt. */
@@ -3960,7 +3960,7 @@ CFUNC("run_eventloop_once","run_eventloop_once",                _lib7_Gtk_run_ev
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
-//     src/glu/gtk/etc/construction.plan
+//     src/glu/gtk/etc/gtk-construction.plan
 // via logic in
 //     src/lib/make-library-glue/make-library-glue.pkg
 //
