@@ -179,8 +179,8 @@ update:
 tk:
 	(cd src/lib/tk; make)
 
-rmglue-all:
-	sh/rmglue all
+glue-drop-all:
+	sh/glue drop all
 
 tarball: 
 	sh/make-tarball
@@ -188,11 +188,11 @@ tarball:
 # Make a compressed tar archive containing
 # the full source distribution.
 #
-tar:    rmglue-all clean tarball
+tar:    glue-drop-all clean tarball
 
 # Same plus making tags files:
 # 
-tart:   rmglue-all clean tarball id			# "tart" == "tar + tags"
+tart:   glue-drop-all clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 
