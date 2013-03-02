@@ -27,10 +27,11 @@
 
 CFUNC("osval","osval",	    _lib7_P_IO_osval,     "String -> Int")
 CFUNC("pipe","pipe",       _lib7_P_IO_pipe,      "Void -> (Int, Int)")
-CFUNC("dup","dup",        _lib7_P_IO_dup,       "Int -> Int")
-CFUNC("dup2","dup2",       _lib7_P_IO_dup2,      "(Int, Int) -> Void")
 CFUNC("close","close",      _lib7_P_IO_close,     "Int -> Void")
 CFUNC("copy","copy",      _lib7_P_IO_copy,     "(String, String) -> Int")
+CFUNC("dup","dup",        _lib7_P_IO_dup,       "Int -> Int")
+CFUNC("dup2","dup2",       _lib7_P_IO_dup2,      "(Int, Int) -> Void")
+CFUNC("equal","equal",      _lib7_P_IO_equal,     "(String, String) -> Bool")
 CFUNC("read","read",       _lib7_P_IO_read,      "(Int, Int) -> vector_of_one_byte_unts::Vector")
 CFUNC("readbuf","readbuf",    _lib7_P_IO_readbuf,   "(Int, rw_vector_of_one_byte_unts::Rw_Vector, Int) -> Int")
 CFUNC("write","write",      _lib7_P_IO_write,     "(Int, vector_of_one_byte_unts::Vector, Int) -> Int")

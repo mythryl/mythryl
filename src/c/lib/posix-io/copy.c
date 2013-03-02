@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -38,10 +39,10 @@ Val   _lib7_P_IO_copy   (Task* task,  Val arg)   {
     //
     // Copy a file  and return its length.
     //
-    // This fn gets bound as   copy'   in:
+    // This fn gets bound as   copy   in:
     //
     //     src/lib/std/src/psx/posix-io.pkg
-    //     src/lib/std/src/psx/posix-io-64.pkg
+    //     src/lib/std/src/psx/posix-io-64.pkg				# Actually, I haven't gotten around to this yet.
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
@@ -79,20 +80,34 @@ Val   _lib7_P_IO_copy   (Task* task,  Val arg)   {
 			char buffer[ 4096 ];
 			ssize_t bytes_read;
 			int ok = TRUE;
-			while (ok  &&  (bytes_read = read( fd_in, buffer, 4096 ))) {				// Read up to one buffer[]-load from fd_in.
+			while (ok) {										// Read up to one buffer[]-load from fd_in.
+			    do {	
+				bytes_read = read( fd_in, buffer, 4096 );
+			    } while (bytes_read <  0 && errno == EINTR);					// Retry if interrupted by SIGALRM or such.
+			    if      (bytes_read <  0) { ok = FALSE; break; }
+			    if      (bytes_read == 0) {             break; }
 			    ssize_t buffer_bytes_written  = 0;
 			    while (ok  &&  (buffer_bytes_written < bytes_read)) {				// Write buffer[] contents to fd_out. Usually one write() will do it, but this is not guaranteed.
 				ssize_t bytes_to_write = bytes_read - buffer_bytes_written;
-				ssize_t bytes_written  = write( fd_out, buffer+buffer_bytes_written, bytes_to_write );
+				ssize_t bytes_written;
+				do {
+				    bytes_written  = write( fd_out, buffer+buffer_bytes_written, bytes_to_write );
+				} while (bytes_written < 0 && errno == EINTR);					// Retry if interrupted by SIGALRM or such.
 				ok = ok && (bytes_written > 0);
 				buffer_bytes_written += bytes_written;
 				 total_bytes_written += bytes_written;
 			    }
 			}
 			close(fd_out);
+		    } else {
+			ok = FALSE; 
 		    }
 		    close(fd_in);
+		} else {
+		    ok = FALSE; 
 		}
+	    } else {
+		ok = FALSE; 
 	    }
 	    //
 	RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
