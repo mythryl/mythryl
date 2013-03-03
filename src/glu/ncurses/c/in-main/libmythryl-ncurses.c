@@ -523,6 +523,104 @@ static Val   do__initscr   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
+/* do__move
+ *
+ * ncurses-client.api        type:    { session: Session, x: Int, y: Int } -> Void
+ * ncurses-client-driver.api type:   (Session, Int, Int) -> Void
+ */
+static Val   do__move   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+
+    move( /*y*/i0, /*x*/i1 );
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__nl
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__nl   (Task* task, Val arg)
+{
+
+
+    nl();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__noecho
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__noecho   (Task* task, Val arg)
+{
+
+
+    noecho();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__nonl
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__nonl   (Task* task, Val arg)
+{
+
+
+    nonl();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__refresh
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__refresh   (Task* task, Val arg)
+{
+
+
+    refresh();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__start_color
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__start_color   (Task* task, Val arg)
+{
+
+
+    start_color();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -602,6 +700,12 @@ CFUNC("endwin",                                   "endwin",                     
 CFUNC("getch",                                    "getch",                                    do__getch,                                             "Session -> Int")
 CFUNC("has_colors",                               "has_colors",                               do__has_colors,                                        "Session -> Bool")
 CFUNC("initscr",                                  "initscr",                                  do__initscr,                                           "Session -> Void")
+CFUNC("move",                                     "move",                                     do__move,                                              "{ session: Session, x: Int, y: Int } -> Void")
+CFUNC("nl",                                       "nl",                                       do__nl,                                                "Session -> Void")
+CFUNC("noecho",                                   "noecho",                                   do__noecho,                                            "Session -> Void")
+CFUNC("nonl",                                     "nonl",                                     do__nonl,                                              "Session -> Void")
+CFUNC("refresh",                                  "refresh",                                  do__refresh,                                           "Session -> Void")
+CFUNC("start_color",                              "start_color",                              do__start_color,                                       "Session -> Void")
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 

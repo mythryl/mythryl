@@ -461,6 +461,68 @@ do__initscr( int argc, unsigned char** argv )
     initscr();
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__move( int argc, unsigned char** argv )
+{
+    check_argc( "do__move", 2, argc );
+
+    int               i0 =                         int_arg( argc, argv, 0 );
+    int               i1 =                         int_arg( argc, argv, 1 );
+
+    move( /*y*/i0, /*x*/i1 );
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__nl( int argc, unsigned char** argv )
+{
+    check_argc( "do__nl", 0, argc );
+
+
+    nl();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__noecho( int argc, unsigned char** argv )
+{
+    check_argc( "do__noecho", 0, argc );
+
+
+    noecho();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__nonl( int argc, unsigned char** argv )
+{
+    check_argc( "do__nonl", 0, argc );
+
+
+    nonl();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__refresh( int argc, unsigned char** argv )
+{
+    check_argc( "do__refresh", 0, argc );
+
+
+    refresh();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__start_color( int argc, unsigned char** argv )
+{
+    check_argc( "do__start_color", 0, argc );
+
+
+    start_color();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -520,6 +582,12 @@ init  (void)
     set_trie( trie, "getch",                                      do__getch                                     );
     set_trie( trie, "has_colors",                                 do__has_colors                                );
     set_trie( trie, "initscr",                                    do__initscr                                   );
+    set_trie( trie, "move",                                       do__move                                      );
+    set_trie( trie, "nl",                                         do__nl                                        );
+    set_trie( trie, "noecho",                                     do__noecho                                    );
+    set_trie( trie, "nonl",                                       do__nonl                                      );
+    set_trie( trie, "refresh",                                    do__refresh                                   );
+    set_trie( trie, "start_color",                                do__start_color                               );
     /* Do not edit this or preceding lines -- they are autobuilt. */
     /////////////////////////////////////////////////////////////////////////////////////
 
