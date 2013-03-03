@@ -310,25 +310,6 @@ do_init( int argc, unsigned char** argv )
 {
 }
 
-#ifdef HMMMM
-static void
-do__addch( int argc, unsigned char** argv )
-{
-    check_argc( "do__addch", 1, argc );
-
-    int               i0 =                         int_arg( argc, argv, 0 );
-
-    int iresult = addch( ch );
-
-//  if (iresult == ERR)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
-//  else		  result = HEAP_VOID;
-
-
-     printf(              "addch\n", result);      fflush( stdout );
-    fprintf(log_fd, "SENT: addch\n", result);      fflush( log_fd );
-}
-#endif
-
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
@@ -424,6 +405,62 @@ do__addch( int argc, unsigned char** argv )
     addch(i0);
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__cbreak( int argc, unsigned char** argv )
+{
+    check_argc( "do__cbreak", 0, argc );
+
+
+    cbreak();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__endwin( int argc, unsigned char** argv )
+{
+    check_argc( "do__endwin", 0, argc );
+
+
+    endwin();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__getch( int argc, unsigned char** argv )
+{
+    check_argc( "do__getch", 0, argc );
+
+
+    int result = getch();
+
+     printf(              "getch%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: getch%d\n", result);      fflush( log_fd );
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__has_colors( int argc, unsigned char** argv )
+{
+    check_argc( "do__has_colors", 0, argc );
+
+
+    int result = has_colors();
+
+     printf(              "has_colors%d\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: has_colors%d\n", result);      fflush( log_fd );
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__initscr( int argc, unsigned char** argv )
+{
+    check_argc( "do__initscr", 0, argc );
+
+
+    initscr();
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -478,6 +515,11 @@ init  (void)
     set_trie( trie, "negate_float",                               do__negate_float                              );
     set_trie( trie, "negate_boolean",                             do__negate_boolean                            );
     set_trie( trie, "addch",                                      do__addch                                     );
+    set_trie( trie, "cbreak",                                     do__cbreak                                    );
+    set_trie( trie, "endwin",                                     do__endwin                                    );
+    set_trie( trie, "getch",                                      do__getch                                     );
+    set_trie( trie, "has_colors",                                 do__has_colors                                );
+    set_trie( trie, "initscr",                                    do__initscr                                   );
     /* Do not edit this or preceding lines -- they are autobuilt. */
     /////////////////////////////////////////////////////////////////////////////////////
 

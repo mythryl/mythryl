@@ -329,28 +329,6 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 
 
 
-#ifdef HMMMM
-/* do__addch
- *
- * ncurses-client.api        type:    (Session, Int) -> Void
- * ncurses-client-driver.api type:   (Session, Int) -> Void
- */
-static Val   do__addch   (Task* task, Val arg)
-{
-    Val result;
-
-    int ch     = INT1_LIB7toC(arg);    
-    int iresult = addch( ch );
-
-    if (iresult == ERR)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
-    else		  result = HEAP_VOID;
-
-
-    return result;
-}
-#endif
-
-
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
 //     src/glu/ncurses/etc/ncurses-construction.plan
@@ -465,6 +443,86 @@ static Val   do__addch   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
+/* do__cbreak
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__cbreak   (Task* task, Val arg)
+{
+
+
+    cbreak();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__endwin
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__endwin   (Task* task, Val arg)
+{
+
+
+    endwin();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__getch
+ *
+ * ncurses-client.api        type:    Session -> Int
+ * ncurses-client-driver.api type:   (Session) -> Int
+ */
+static Val   do__getch   (Task* task, Val arg)
+{
+
+
+    int result = getch();
+
+    return TAGGED_INT_FROM_C_INT(result);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__has_colors
+ *
+ * ncurses-client.api        type:    Session -> Bool
+ * ncurses-client-driver.api type:   (Session) -> Bool
+ */
+static Val   do__has_colors   (Task* task, Val arg)
+{
+
+
+    int result = has_colors();
+
+    return  result ? HEAP_TRUE : HEAP_FALSE;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
+/* do__initscr
+ *
+ * ncurses-client.api        type:    Session -> Void
+ * ncurses-client-driver.api type:   (Session) -> Void
+ */
+static Val   do__initscr   (Task* task, Val arg)
+{
+
+
+    initscr();
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -539,6 +597,11 @@ CFUNC("negate_int",                               "negate_int",                 
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
 CFUNC("negate_boolean",                           "negate_boolean",                           do__negate_boolean,                                   "(Session, Bool) -> Bool")
 CFUNC("addch",                                    "addch",                                    do__addch,                                            "(Session, Int) -> Void")
+CFUNC("cbreak",                                   "cbreak",                                   do__cbreak,                                            "Session -> Void")
+CFUNC("endwin",                                   "endwin",                                   do__endwin,                                            "Session -> Void")
+CFUNC("getch",                                    "getch",                                    do__getch,                                             "Session -> Int")
+CFUNC("has_colors",                               "has_colors",                               do__has_colors,                                        "Session -> Bool")
+CFUNC("initscr",                                  "initscr",                                  do__initscr,                                           "Session -> Void")
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
