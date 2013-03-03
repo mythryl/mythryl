@@ -250,7 +250,7 @@
 #define HAVE_LIBGTK 0
 
 /* Define to 1 if you have the libncurses library. */
-#define HAVE_LIBNCURSES 1
+#define HAVE_LIBNCURSES 0
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1

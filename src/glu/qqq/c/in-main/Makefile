@@ -34,6 +34,10 @@ $(VERSION) :
 	$(CLIB_DIR)/raise-error.h cfun-proto-list.h cfun-list.h
 	$(CC) $(CFLAGS) $(DEFS) $(INCLUDE) -c $<
 
+# This gets invoked mainly via
+#     clean:
+# target in src/c/lib/Makefile
+#
 clean :
 	@rm -f v-* *.o $(LIBRARY)
 

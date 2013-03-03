@@ -38,6 +38,10 @@ $(VERSION) :
 .c.o:	$(INC_DIR)/system-dependent-unix-stuff.h $(INC_DIR)/runtime-base.h $(INC_DIR)/runtime-values.h $(CLIB_DIR)/raise-error.h cfun-proto-list.h cfun-list.h
 	$(CC) $(CFLAGS) $(DEFS) $(INCS) `pkg-config --cflags gtk+-2.0` -c $<
 
+# This gets invoked mainly via
+#     clean:
+# target in src/c/lib/Makefile
+#
 clean :
 	@rm -f v-* *.o $(LIBRARY)
 

@@ -679,7 +679,7 @@ clean: somewhat-clean
 #
 #     make config
 #
-dist-clean:	clean
+dist-clean:  glue-drop-all  clean
 	@-find src/c   -name 'Makefile' -print | xargs rm
 	@-find src/lib -name 'Makefile' -print | xargs rm
 	@-find src/app -name 'Makefile' -print | xargs rm
