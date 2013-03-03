@@ -91,6 +91,9 @@
 #include <unistd.h>	// For getpid(), STDIN_FILENO...
 #endif
 
+#include <curses.h>
+
+
 FILE* log_fd = 0;
 
 static char text_buf[ 1024 ];

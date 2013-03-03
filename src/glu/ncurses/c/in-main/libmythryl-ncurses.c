@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-
+#include <curses.h>
  
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -38,7 +38,7 @@ static void   moan_and_die   (void)   {
 }
 
 static Val   do__init   (Task* task,  Val arg)   {	// : Void -> Void
-    //========
+           //========
 
 
     return HEAP_VOID;
