@@ -310,6 +310,25 @@ do_init( int argc, unsigned char** argv )
 {
 }
 
+#ifdef HMMMM
+static void
+do__addch( int argc, unsigned char** argv )
+{
+    check_argc( "do__addch", 1, argc );
+
+    int               i0 =                         int_arg( argc, argv, 0 );
+
+    int iresult = addch( ch );
+
+//  if (iresult == ERR)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
+//  else		  result = HEAP_VOID;
+
+
+     printf(              "addch\n", result);      fflush( stdout );
+    fprintf(log_fd, "SENT: addch\n", result);      fflush( log_fd );
+}
+#endif
+
 
 /////////////////////////////////////////////////////////////////////////////////////
 // The following stuff gets built from paragraphs in
@@ -394,6 +413,17 @@ do__negate_boolean( int argc, unsigned char** argv )
     fprintf(log_fd, "SENT: negate_boolean%d\n", result);      fflush( log_fd );
 }
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+static void
+do__addch( int argc, unsigned char** argv )
+{
+    check_argc( "do__addch", 1, argc );
+
+    int               i0 =                         int_arg( argc, argv, 0 );
+
+    addch(i0);
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  build_plain_fun_for_'mythryl_xxx_library_in_c_subprocess_c'  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -447,6 +477,7 @@ init  (void)
     set_trie( trie, "negate_int",                                 do__negate_int                                );
     set_trie( trie, "negate_float",                               do__negate_float                              );
     set_trie( trie, "negate_boolean",                             do__negate_boolean                            );
+    set_trie( trie, "addch",                                      do__addch                                     );
     /* Do not edit this or preceding lines -- they are autobuilt. */
     /////////////////////////////////////////////////////////////////////////////////////
 

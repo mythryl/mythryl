@@ -329,7 +329,26 @@ printf("do__get_queued_int_pair_callback called returning a record.\n");
 
 
 
+#ifdef HMMMM
+/* do__addch
+ *
+ * ncurses-client.api        type:    (Session, Int) -> Void
+ * ncurses-client-driver.api type:   (Session, Int) -> Void
+ */
+static Val   do__addch   (Task* task, Val arg)
+{
+    Val result;
 
+    int ch     = INT1_LIB7toC(arg);    
+    int iresult = addch( ch );
+
+    if (iresult == ERR)   result = RAISE_ERROR__MAY_HEAPCLEAN(task, "addch", NULL);
+    else		  result = HEAP_VOID;
+
+
+    return result;
+}
+#endif
 
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -429,6 +448,23 @@ static Val   do__negate_boolean   (Task* task, Val arg)
 /* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
 
 
+/* do__addch
+ *
+ * ncurses-client.api        type:   (Session, Int) -> Void
+ * ncurses-client-driver.api type:   (Session, Int) -> Void
+ */
+static Val   do__addch   (Task* task, Val arg)
+{
+
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+
+    addch(i0);
+
+    return HEAP_VOID;
+}
+/* Above fn built by src/lib/make-library-glue/make-library-glue.pkg:  write_libmythryl_xxx_c_plain_fun  per  src/glu/ncurses/etc/ncurses-construction.plan. */
+
+
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
@@ -502,6 +538,7 @@ CFUNC("print_hello_world",                        "print_hello_world",          
 CFUNC("negate_int",                               "negate_int",                               do__negate_int,                                       "(Session, Int) -> Int")
 CFUNC("negate_float",                             "negate_float",                             do__negate_float,                                     "(Session, Float) -> Float")
 CFUNC("negate_boolean",                           "negate_boolean",                           do__negate_boolean,                                   "(Session, Bool) -> Bool")
+CFUNC("addch",                                    "addch",                                    do__addch,                                            "(Session, Int) -> Void")
 /* Do not edit this or preceding lines -- they are autobuilt. */
 /////////////////////////////////////////////////////////////////////////////////////
 
