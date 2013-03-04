@@ -222,36 +222,6 @@
 /* Define to 1 if you have the <vfork.h> header file. */
 #define HAVE_VFORK_H 0
 
-/* Define to 1 if you have the <curses.h> header file. */
-#define HAVE_CURSES_H 1
-
-/* Define to 1 if you have the <cv.h> header file. */
-#define HAVE_OPENCV_CV_H 1
-
-/* Define to 1 if you have the <highgui.h> header file. */
-#define HAVE_OPENCV_HIGHGUI_H 1
-
-/* Define to 1 if you have the <gtk-2.0/gtk/gtk.h> header file. */
-#define HAVE_GTK_2_0_GTK_GTK_H 1
-
-/* Define to 1 if you have the <gtk/gtk.h> header file. */
-#define HAVE_GTK_GTK_H 0
-
-/* Define to 1 if you have the libhighgui library (part of opencv). */
-#define HAVE_LIBHIGHGUI 1
-
-/* Define to 1 if you have the libcvaux library (part of opencv). */
-#define HAVE_LIBCVAUX 1
-
-/* Define to 1 if you have the libcv library (part of opencv). */
-#define HAVE_LIBCV 1
-
-/* Define to 1 if you have the libgtk library. */
-#define HAVE_LIBGTK 0
-
-/* Define to 1 if you have the libncurses library. */
-#define HAVE_LIBNCURSES 0
-
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1
 

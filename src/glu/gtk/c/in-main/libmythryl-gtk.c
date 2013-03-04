@@ -27,19 +27,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#if (defined(HAVE_GTK_2_0_GTK_GTK_H) || defined(HAVE_GTK_GTK_H))
-    
-  // Don't do this: #include <gtk-2.0/gtk/gtk.h> because the command `pkg-config --cflags gtk+-2.0`
-  // returns the path of the gtk-2.0 directory.  the only reason it worked before is because of a 
-  // coincidence that the directory containing the gtk-2.0 was also in the list of include paths
-  // which happens on some systems like Linux.  On OpenBSD, it doesn't, so we have to just trust that
-  // pkg-config returns the correct path for including gtk/gtk.h.
+// Don't do this: #include <gtk-2.0/gtk/gtk.h> because the command `pkg-config --cflags gtk+-2.0`
+// returns the path of the gtk-2.0 directory.  the only reason it worked before is because of a 
+// coincidence that the directory containing the gtk-2.0 was also in the list of include paths
+// which happens on some systems like Linux.  On OpenBSD, it doesn't, so we have to just trust that
+// pkg-config returns the correct path for including gtk/gtk.h.
 
-   #include <gtk/gtk.h>
-
-#else
-    #error "No GTK Library Installed"
-#endif
+#include <gtk/gtk.h>
 
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -474,29 +468,23 @@ static void   run_value_changed_callback   (GtkAdjustment* adjustment,  gpointer
 Val   _lib7_Gtk_gtk_init   (Task* task,  Val arg)   {	// : Void -> Void
     //==================
 
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	extern char	**commandline_args_without_argv0_or_runtime_args__global;
+    //
+    extern char	**commandline_args_without_argv0_or_runtime_args__global;
 
-	int argc = 0;
-	while (commandline_args_without_argv0_or_runtime_args__global[argc]) ++argc;    
+    int argc = 0;
+    while (commandline_args_without_argv0_or_runtime_args__global[argc]) ++argc;    
 
-	if (!gtk_init_check( &argc, &commandline_args_without_argv0_or_runtime_args__global )) {
-	    //
-	    return RAISE_ERROR__MAY_HEAPCLEAN(task, "gtk_init: failed to initialize GUI support", NULL);
-	}
+    if (!gtk_init_check( &argc, &commandline_args_without_argv0_or_runtime_args__global )) {
+	//
+	return RAISE_ERROR__MAY_HEAPCLEAN(task, "gtk_init: failed to initialize GUI support", NULL);
+    }
 
-	// XXX BUGGO FIXME: gtk_init_check installs gtk default signal handlers,
-	//		    which most likely screws up Mythryl's own signal
-	//		    handling no end.  At some point should put some work
-	//		    into keeping both happy.
-	//
-	return HEAP_VOID;
-    #else
-	extern char*  no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
+    // XXX BUGGO FIXME: gtk_init_check installs gtk default signal handlers,
+    //		    which most likely screws up Mythryl's own signal
+    //		    handling no end.  At some point should put some work
+    //		    into keeping both happy.
+    //
+    return HEAP_VOID;
 }
 
 static int   int_to_arrow_direction   (int arrow_direction)   {
@@ -880,58 +868,46 @@ Val   _lib7_Gtk_get_queued_configure_callback   (Task *task, Val arg)   {
 Val   _lib7_Gtk_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget -> (Int, Int, Int, Int)
     //===============================
     //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
-	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
+    w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
-	int x    =  w0->allocation.x;
-	int y    =  w0->allocation.y;
-	int wide =  w0->allocation.width;
-	int high =  w0->allocation.height;
+    int x    =  w0->allocation.x;
+    int y    =  w0->allocation.y;
+    int wide =  w0->allocation.width;
+    int high =  w0->allocation.height;
 
-	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
-	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
-	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
-	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
-	set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
-	return commit_nascent_heapchunk(task, 4);
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
+    set_slot_in_nascent_heapchunk(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
+    return commit_nascent_heapchunk(task, 4);
 }
 
 
 Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget -> (Int, Int, Int)       # (x, y, modifiers)
     //============================
     //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	GtkWidget*       w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
+    //
+    GtkWidget*       w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
-	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
+    w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
-	{
-	    int             x;
-	    int             y;
-	    GdkModifierType modifiers;
+    {
+	int             x;
+	int             y;
+	GdkModifierType modifiers;
 
-    /*      GdkWindow* result_window = */  gdk_window_get_pointer (GDK_WINDOW(w0), &x, &y, &modifiers); 
+/*      GdkWindow* result_window = */  gdk_window_get_pointer (GDK_WINDOW(w0), &x, &y, &modifiers); 
 
-	    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
-	    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
-	    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( modifiers  ));
-	    return commit_nascent_heapchunk(task, 3);
-	}
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime,NULL);
-    #endif
+	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
+	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( modifiers  ));
+	return commit_nascent_heapchunk(task, 3);
+    }
 }
 
 
@@ -939,26 +915,20 @@ Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget ->
 Val   _lib7_Gtk_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, Int)       # (dialog, vbox, action_area)
     //=====================
     //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	int dialog;
-	int vbox;
-	int action_area;
-	//
-	dialog      = find_free_widget_slot ();   widget[dialog]      = gtk_dialog_new();
-	vbox        = find_free_widget_slot ();   widget[vbox]        = GTK_DIALOG( widget[dialog] )->vbox;
-	action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
-	//
-	set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
-	set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
-	set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
-	return commit_nascent_heapchunk(task, 3);
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
+    //
+    int dialog;
+    int vbox;
+    int action_area;
+    //
+    dialog      = find_free_widget_slot ();   widget[dialog]      = gtk_dialog_new();
+    vbox        = find_free_widget_slot ();   widget[vbox]        = GTK_DIALOG( widget[dialog] )->vbox;
+    action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
+    //
+    set_slot_in_nascent_heapchunk(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
+    set_slot_in_nascent_heapchunk(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
+    set_slot_in_nascent_heapchunk(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
+    set_slot_in_nascent_heapchunk(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
+    return commit_nascent_heapchunk(task, 3);
 }
 
 
@@ -966,20 +936,14 @@ Val   _lib7_Gtk_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, 
 Val   _lib7_Gtk_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void       # Widget -> Void
     //======================
     //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
+    //
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
-	g_object_unref( G_OBJECT( w0 ) );
+    g_object_unref( G_OBJECT( w0 ) );
 
-	widget[ get_widget_id( w0 ) ] = 0;
+    widget[ get_widget_id( w0 ) ] = 0;
 
-	return HEAP_VOID;
-    #else
-	extern char*  no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
+    return HEAP_VOID;
 }
 
 
@@ -987,18 +951,12 @@ Val   _lib7_Gtk_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void    
 Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool       # Bool -> Bool
     //============================
     //
-    #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
-	//
-	int block_until_event = TAGGED_INT_TO_C_INT(arg);
+    //
+    int block_until_event = TAGGED_INT_TO_C_INT(arg);
 
-	int quit_called = gtk_main_iteration_do( block_until_event );
+    int quit_called = gtk_main_iteration_do( block_until_event );
 
-	return quit_called ? HEAP_TRUE : HEAP_FALSE;
-    #else
-	extern char* no_gtk_support_in_runtime;
-	//
-	return RAISE_ERROR__MAY_HEAPCLEAN(task, no_gtk_support_in_runtime, NULL);
-    #endif
+    return quit_called ? HEAP_TRUE : HEAP_FALSE;
 }
 
 

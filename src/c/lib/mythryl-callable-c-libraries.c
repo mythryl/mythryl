@@ -93,11 +93,9 @@
 //     src/c/lib/signal/cfun-list.h
 //     src/c/lib/posix-tty/cfun-list.h
 //     src/c/lib/posix-process-environment/cfun-list.h
-//     src/c/lib/opencv/cfun-list.h
 //     src/c/lib/posix-process/cfun-list.h
 //     src/c/lib/win32-process/cfun-list.h
 //     src/c/lib/posix-os/cfun-list.h
-//     src/c/lib/ncurses/cfun-list.h
 //     src/c/lib/heap/cfun-list.h
 //     src/c/lib/ccalls/cfun-list.h
 //

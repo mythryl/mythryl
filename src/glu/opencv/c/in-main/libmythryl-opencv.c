@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-
+#include <opencv/cv.h>
  
 #include "runtime-base.h"
 #include "runtime-values.h"
