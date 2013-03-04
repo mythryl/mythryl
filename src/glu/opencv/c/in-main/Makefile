@@ -32,7 +32,7 @@ $(VERSION) :
 
 .c.o:	$(INC_DIR)/system-dependent-unix-stuff.h $(INC_DIR)/runtime-base.h $(INC_DIR)/runtime-values.h \
 	$(CLIB_DIR)/raise-error.h cfun-proto-list.h cfun-list.h
-	$(CC) $(CFLAGS) $(DEFS) $(INCLUDE) -c $<
+	$(CC) $(CFLAGS) `pkg-config --cflags opencv` $(DEFS) $(INCLUDE) -c $<
 
 # This gets invoked mainly via
 #     clean:
