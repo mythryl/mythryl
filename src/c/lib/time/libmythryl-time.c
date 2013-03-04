@@ -45,5 +45,5 @@ Mythryl_Callable_C_Library	    Libmythryl_Time = {						// Mythryl_Callable_C_Li
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

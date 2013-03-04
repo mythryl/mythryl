@@ -198,6 +198,6 @@ void   dump_ramlog__guts   (FILE* fd)   {
 
 
 // Code by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 

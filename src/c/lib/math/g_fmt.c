@@ -107,5 +107,5 @@ g_fmt(register char *b, double x)
 // OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
 //
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 ///////////////////////////////////////////////////////////////////

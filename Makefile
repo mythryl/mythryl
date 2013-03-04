@@ -509,7 +509,6 @@ uninstall:
 #
 src/c/o/Makefile: src/c/Configure
 	(cd src/c; ./Configure)
-	src/c/check-for-gtk
 
 # A more user-friendly name for the above:
 #

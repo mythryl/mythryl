@@ -72,5 +72,5 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynami
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

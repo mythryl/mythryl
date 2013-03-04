@@ -196,6 +196,6 @@ static void   enter_debug_loop   (void) {
 
 // COPYRIGHT (c) 1992 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 

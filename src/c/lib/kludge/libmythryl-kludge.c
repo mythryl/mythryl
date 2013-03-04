@@ -126,7 +126,7 @@ Mythryl_Callable_C_Library	    Libmythryl_Kludge = {						// Mythryl_Callable_C_
 
 
 // Jeff Prothero Copyright (c) 2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 
 

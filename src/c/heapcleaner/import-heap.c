@@ -929,7 +929,7 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (
 
 // COPYRIGHT (c) 1992 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 
 

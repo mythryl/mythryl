@@ -134,5 +134,5 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {			// Handle record lock
 
 // Copyright (c) 2004 by The Fellowship of SML/NJ
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

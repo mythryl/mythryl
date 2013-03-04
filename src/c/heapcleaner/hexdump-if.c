@@ -223,5 +223,5 @@ void   hexdump_to_file  (FILE* fd, char* message, unsigned char* data, int data_
 }
 
 // COPYRIGHT (c) 2010 by Jeff Prothero,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

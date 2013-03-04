@@ -427,5 +427,5 @@ int main(int   argc,
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  * Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
- * released under Gnu Public Licence version 3.
+ * released per terms of SMLNJ-COPYRIGHT.
  */

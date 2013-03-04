@@ -21,6 +21,6 @@ CFUNC("dlerror","dlerror", _lib7_U_Dynload_dlerror, "Void -> Null_Or(String)")
 
 // COPYRIGHT (c) 1995 AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 

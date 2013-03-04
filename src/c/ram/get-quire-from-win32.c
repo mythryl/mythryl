@@ -119,6 +119,6 @@ void   set_up_quire_os_interface   (void)   {				// Part of the api defined by	s
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 
 

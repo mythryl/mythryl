@@ -73,5 +73,5 @@ Val   _lib7_netdb_get_protocol_by_number   (Task* task,  Val arg)   {
 
 // COPYRIGHT (c) 1995 AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

@@ -37,5 +37,5 @@ Mythryl_Callable_C_Library	    Libmythryl_Win32 = {							// Mythryl_Callable_C_
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
 

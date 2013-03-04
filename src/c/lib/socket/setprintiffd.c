@@ -41,4 +41,4 @@ Val   _lib7_Sock_setprintiffd   (Task* task,  Val arg)   {
 
 
 // COPYRIGHT (c) 2010 by Jeff Prothero,
-// released under Gnu Public Licence version 3.
+// released per terms of SMLNJ-COPYRIGHT.
