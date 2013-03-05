@@ -62,11 +62,11 @@ Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
 }  
     
 
-/* _lib7_win32_PS_system : String -> one_word_unt
+/* _lib7_win32_PS_bin_sh: String -> one_word_unt
  *                       command
  *
  */
-Val _lib7_win32_PS_system(Task *task, Val arg)
+Val _lib7_win32_PS_bin_sh(Task *task, Val arg)
 {
   int ret = system(HEAP_STRING_AS_C_STRING(arg));
   //
