@@ -181,7 +181,7 @@ fun asmtext (err,s,pos)
     = 
     asmtext_t (check (err, pos, s, string::from_string(trans_asm s)),pos,pos + size s);
 
-infix val @@ ;
+infix my @@ ;
 
 fun x @@ y =  y ! x ;
 
@@ -218,7 +218,7 @@ my _ = apply (hashtable::set keywords)
  ("end", end_t) @@
  ("fun", fun_t) @@
  ("fn", fn_t) @@
- ("val", my_t) @@
+ ("my", my_t) @@
  ("raise", raise_t) @@
  ("handle", except_t) @@
  ("let", let_t) @@
