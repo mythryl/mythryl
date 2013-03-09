@@ -77,6 +77,20 @@ LIB_MK_ARGS =		VERSION="$(VERSION)" \
 ###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
 
+LIB_DIRS                      +=  ../../glu/qqq/c/in-main
+
+
+LIB_DIRS                      +=  ../../glu/opengl/c/in-main
+
+
+LIB_DIRS                      +=  ../../glu/opencv/c/in-main
+
+
+LIB_DIRS                      +=  ../../glu/ncurses/c/in-main
+
+
+LIB_DIRS                      +=  ../../glu/gtk/c/in-main
+
 # Do not edit this or preceding lines -- they are autobuilt.
 ###################################################################################
 
