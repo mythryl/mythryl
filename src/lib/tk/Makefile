@@ -1,0 +1,107 @@
+##
+##   $Source: /repository/sml/tk/Makefile,v $
+## 
+##   Makefile for tk.
+##   
+##   $Date: 2001/03/30 13:37:57 $
+##   $Revision: 3.0 $
+##   Author: stefan/cxl (Last modification by $Author: 2cxl $)
+## 
+##   (C) 1997, Bremen Institute for Safe Systems, Universitaet Bremen
+##
+##
+### Configuration variables. 
+##
+##  The important configuration variables governing tk's behaviour
+##  at runtime, are the following:
+## 
+##  SMLTK_LIB      Path to the library (files needed at runtime) 
+##  SMLTK_LOGFILE  Path to the logfile
+##  SMLTK_TCL	   Path to the wish executable 
+##
+##  For the default of this variables if not set at compilation time,
+##  see sys_conf.pkg.
+##
+### 
+
+##
+## Configuration section:
+##
+
+SMLTK_LIB     = /mythryl7/mythryl7.110.58/mythryl7.110.58/src/lib/tk/lib
+SMLTK_TCL     = /usr/bin/wish
+SMLTK_LOGFILE = /mythryl7/mythryl7.110.58/mythryl7.110.58/tk.log
+
+# Produce the following heap image:
+SMLTK_BINARY   = /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/tk
+
+
+COMP      = njml
+COMP_BIN  = /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryld
+COMP_NAME = Mythryl7.110.58
+
+## SML/NJ
+#COMP      = njml
+#COMP_BIN  = sml-cm
+#COMP_NAME = SML/NJ 110
+## PolyML
+#COMP      = poly
+#COMP_BIN  = /usr/local/PolyML/bin/polyml /home/wolff/ML_dbase   
+# compiler PLUS base !
+#COMP_NAME = PolyML 4.0 
+## MoscowML (no binary produced-- better use "root_mosml.pkg" instead.)
+#COMP      = mosml
+#COMP_BIN  = mosml
+#COMP_NAME = Moscow ML [2.00]
+
+## COMP can also be a path to an image produced from SML/NJ 110. For example,
+## the following two load tk on top of the CSP encoding into Isabelle/HOL: 
+#COMP      = njml
+#COMP_BIN  = /home/uniform/bin/CSP
+#COMP_NAME = HOL-CSP \(CSP in Isabelle/HOL\)
+
+##
+## end of configuration section
+##
+
+# Invoke the make in src with the right parameters set. 
+
+smltk: 
+	cd src; \
+	$(MAKE) "SMLTK_BINARY=$(SMLTK_BINARY)" \
+	        "SMLTK_COMP=$(COMP_BIN)"  \
+		"SMLTK_ROOT=root_$(COMP).sml" \
+	        "SMLTK_BANNER=\"tk 3.0 for $(COMP_NAME)\"" \
+		"SMLTK_LIB=$(SMLTK_LIB)" \
+	 	"SMLTK_TCL=$(SMLTK_TCL)" \
+	        all
+
+smltkI: 
+	cd src; \
+	$(MAKE) "SMLTK_BINARY=$(SMLTK_BINARY)" \
+	        "SMLTK_COMP=$(COMP_BIN)"  \
+		"SMLTK_ROOT=root_$(COMP).sml" \
+	        "SMLTK_BANNER=\"tk 3.0I for $(COMP_NAME)\"" \
+		"SMLTK_LIB=$(SMLTK_LIB)" \
+	 	"SMLTK_TCL=$(SMLTK_TCL)" \
+	        allI
+
+
+# cleaning up:
+
+clean:
+	@-rm -f TAGS
+	@cd src; $(MAKE) clean
+
+realclean:
+	@cd src; $(MAKE) clean
+	@rm -f $(SMLTK_BINARY) $(SMLTK_BINARY)-heap 
+
+
+
+
+
+
+
+
+

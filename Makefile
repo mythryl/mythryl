@@ -49,6 +49,7 @@ STUFF_FOR_ETAGS_TO_INDEX := \
 	     src/glu/*/etc/*plan \
 	     src/glu/*/sh/* \
 	     src/glu/*/try/* \
+             doc/tex/sh/* \
              try/* \
              try/*/* \
              src/lib/core/internal/version.template \
@@ -195,6 +196,7 @@ tar:    glue-drop-all clean tarball
 tart:   glue-drop-all clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
+	doc/tex/sh/make-distribution
 
 cheg:	$(CHEG_DEPENDENCIES)		# I use this just to exercise benchmarks, gtk-glue, opengl-glue etc regularly, as insurance against creeping bitrot. -- CrT
 
@@ -548,6 +550,7 @@ gnu:		gnu-autotools-output
 comments: MAKELIB_FILE_HIERARCHY.INFO~
 
 MAKELIB_FILE_HIERARCHY.INFO~:
+	  doc/tex/sh/make-comments \
 	  src/etc/mythryl-compiler-root.lib \
 	  src/lib/core/mythryl-compiler-compiler/mythryl-compiler-compiler-for-this-platform.lib \
 	  src/lib/x-kit/xkit.lib \
@@ -585,6 +588,7 @@ ppless:
 	@-find . -type f -name '*.PRETTY_PRINT' -print | xargs rm -rf
 
 somewhat-clean:	ppless
+	@-(cd doc/tex;  make clean);  # --no-print-directory 
 	@-(cd src/c/o;  make clean); # --no-print-directory 
 	@-(cd src/lib/tk;  make clean) # --no-print-directory  
 	@-(cd src/lib/c-glue;  make  clean) # --no-print-directory 
@@ -737,17 +741,34 @@ rmgnu: rm-gnu-autotools-output
 check-glue-maker:
 	(cd src/app/c-glue-maker;  make check)
 
+testdoc: doc/tex/test.html
 
+doc/tex/test.html:
+	(cd doc/tex; make test.html)
 
 # Need to do both 'make compiler'
 # and 'make rest' before doing this:
 #
+book: doc/tex/book.html
 
 nobook:
+	@-(cd doc/tex;  make --no-print-directory clean);
 
+doc/tex/tmp-section-api-files.tex:
+	doc/tex/sh/synthesize-sourcecode-latex-docs
 
+doc/tex/book.html:  doc/tex/tmp-api-Bool.tex MAKELIB_FILE_HIERARCHY.INFO~ doc/tex/tmp-section-api-files.tex
+	doc/tex/sh/make-book
+	doc/tex/sh/proofread-texfiles
+	doc/tex/sh/check-book-for-undocumented-apis
+	doc/tex/sh/check-book-for-undocumented-pkgs
+	doc/tex/sh/tweak-book-html
+	doc/tex/sh/drop-footer doc/tex/index.html
+	doc/tex/sh/check-book-for-unannotated-toplevel-apis
+	doc/tex/sh/check-book-for-unannotated-toplevel-pkgs
 	@-echo "Document root URL is:"
 	@-echo ""
+	@-echo "    file://`pwd`/doc/tex/index.html"
 	@-echo ""
 	@-echo "You might want 'make html-tarball' or 'make bookpost' next"
 
@@ -756,8 +777,14 @@ nobook:
 # which produces API defininitions directly
 # from the internal compiler symbole tables:
 #
+doc/tex/tmp-api-Bool.tex: 
+	doc/tex/sh/make-api-latex
 
+doc/tex/mythryl.tbz:	doc/tex/book.html
+	doc/tex/sh/make-html-tarball
 
+bookpost: doc/tex/mythryl.tbz
+	doc/tex/sh/post-html-tarball
 
 # This is the original dump of the compiler
 # symbol tables via make-api-reference, which
@@ -766,6 +793,7 @@ nobook:
 # debugging or research use or whatever:
 #
 api-reference:
+	doc/tex/sh/make-api-reference
 
 # Declaring phony targets as .PHONY ensures that they
 # will function as expected even if someone creates a
