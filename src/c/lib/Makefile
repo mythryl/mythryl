@@ -76,6 +76,7 @@ LIB_MK_ARGS =		VERSION="$(VERSION)" \
 
 ###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
+
 # Do not edit this or preceding lines -- they are autobuilt.
 ###################################################################################
 
