@@ -83,6 +83,8 @@ COMPILED_C_PROGRAMS := bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough b
 
 CHEG_DEPENDENCIES :=  benchmarks check
 
+GLUE_DEPENDENCIES :=  
+
 ###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
 # Do not edit this or preceding lines -- they are autobuilt.
@@ -198,7 +200,7 @@ tart:   glue-drop-all clean tarball id			# "tart" == "tar + tags"
 dist:   dist-clean
 	doc/tex/sh/make-distribution
 
-cheg:	$(CHEG_DEPENDENCIES)		# I use this just to exercise benchmarks, gtk-glue, opengl-glue etc regularly, as insurance against creeping bitrot. -- CrT
+cheg:	$(CHEG_DEPENDENCIES) glue			# I use this just to exercise benchmarks, gtk-glue, opengl-glue etc regularly, as insurance against creeping bitrot. -- CrT
 
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
@@ -339,8 +341,12 @@ summary:
 	@find . -maxdepth 1 -type f -name 'dump*log' -ls
 
 
-
-
+# make foo-glue for all selected foo modules.
+# This is mainly to simplify exercising all
+# available code during development:
+#
+.PHONY: glue
+glue: $(GLUE_DEPENDENCIES)
 
 ###################################################################################
 # Do not edit this or following lines -- they are autobuilt.  (patchname="rules")
