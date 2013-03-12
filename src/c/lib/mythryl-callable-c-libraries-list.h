@@ -61,8 +61,23 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynami
 
 
 //////////////////////////////////////////////////////////////////////////////////
-// Do not edit this or following lines -- they are autobuilt.  (patchname="libs")
-// Do not edit this or preceding lines -- they are autobuilt.
+// Do not edit this or following lines --- they are autobuilt.  (patchname="libs")
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Qqq				)		// Libmythryl_Qqq			def in    src/opt/qqq/c/in-main/libmythryl-qqq.c
+
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opengl				)		// Libmythryl_Opengl			def in    src/opt/opengl/c/in-main/libmythryl-opengl.c
+
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def in    src/opt/opencv/c/in-main/libmythryl-opencv.c
+
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ncurses				)		// Libmythryl_Ncurses			def in    src/opt/ncurses/c/in-main/libmythryl-ncurses.c
+
+
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Gtk				)		// Libmythryl_Gtk			def in    src/opt/gtk/c/in-main/libmythryl-gtk.c
+
+// Do not edit this or preceding lines --- they are autobuilt.
 //////////////////////////////////////////////////////////////////////////////////
 
 

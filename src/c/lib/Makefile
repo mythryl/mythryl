@@ -75,8 +75,23 @@ LIB_MK_ARGS =		VERSION="$(VERSION)" \
 			INCLUDES="$(LIB_INCLUDES)"
 
 ###################################################################################
-# Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
-# Do not edit this or preceding lines -- they are autobuilt.
+# Do not edit this or following lines --- they are autobuilt.  (patchname="defs")
+
+LIB_DIRS                      +=  ../../opt/qqq/c/in-main
+
+
+LIB_DIRS                      +=  ../../opt/opengl/c/in-main
+
+
+LIB_DIRS                      +=  ../../opt/opencv/c/in-main
+
+
+LIB_DIRS                      +=  ../../opt/ncurses/c/in-main
+
+
+LIB_DIRS                      +=  ../../opt/gtk/c/in-main
+
+# Do not edit this or preceding lines --- they are autobuilt.
 ###################################################################################
 
 # This doesn't appear to get used,

@@ -34,6 +34,7 @@ STUFF_FOR_ETAGS_TO_INDEX := \
               */build* */*/build* */*/*/build* */*/*/*/build* */*/*/*/*/build* */*/*/*/*/*/build*  */*/*/*/*/*/*/build*   */*/*/*/*/*/*/*/build* \
               */*.lib */*/*.lib */*/*/*.lib */*/*/*/*.lib */*/*/*/*/*.lib */*/*/*/*/*/*.lib  */*/*/*/*/*/*.lib   */*/*/*/*/*/*/*.lib \
               */*.sublib */*/*.sublib */*/*/*.sublib */*/*/*/*.sublib */*/*/*/*/*.sublib */*/*/*/*/*/*.sublib  */*/*/*/*/*/*.sublib   */*/*/*/*/*/*/*.sublib \
+              */*.plan */*/*.plan */*/*/*.plan */*/*/*/*.plan */*/*/*/*/*.plan */*/*/*/*/*/*.plan  */*/*/*/*/*/*.plan   */*/*/*/*/*/*/*.plan \
               Makefile */Makefile.in */*/Makefile.in */*/*/Makefile.in */*/*/*/Makefile.in */*/*/*/*/Makefile.in */*/*/*/*/*/Makefile.in  */*/*/*/*/*/*/Makefile.in   */*/*/*/*/*/*/*/Makefile.in \
               */makefile.win32 */*/makefile.win32 */*/*/makefile.win32 */*/*/*/makefile.win32 */*/*/*/*/makefile.win32 */*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/makefile.win32 \
               */*.c */*/*.c */*/*/*.c */*/*/*/*.c */*/*/*/*/*.c */*/*/*/*/*/*.c  */*/*/*/*/*/*/*.c \
@@ -44,11 +45,10 @@ STUFF_FOR_ETAGS_TO_INDEX := \
 	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
-             $(HOME)/.mythryl/selected-glue-modules \
+             $(HOME)/.mythryl/selected-opt-modules \
              sh/* \
-	     src/glu/*/etc/*plan \
-	     src/glu/*/sh/* \
-	     src/glu/*/try/* \
+	     src/opt/*/sh/* \
+	     src/opt/*/try/* \
              doc/tex/sh/* \
              try/* \
              try/*/* \
@@ -86,8 +86,38 @@ CHEG_DEPENDENCIES :=  benchmarks check
 GLUE_DEPENDENCIES :=  
 
 ###################################################################################
-# Do not edit this or following lines -- they are autobuilt.  (patchname="defs")
-# Do not edit this or preceding lines -- they are autobuilt.
+# Do not edit this or following lines --- they are autobuilt.  (patchname="defs")
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/qqq/sh/make-qqq-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-qqq-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-qqq-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  qqq-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/opengl/sh/make-opengl-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-opengl-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-opengl-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  opengl-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/opencv/sh/make-opencv-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-opencv-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-opencv-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  opencv-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/ncurses/sh/make-ncurses-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-ncurses-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-ncurses-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  ncurses-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/gtk/sh/make-gtk-glue
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-gtk-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-gtk-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  gtk-glue	
+
+# Do not edit this or preceding lines --- they are autobuilt.
 ###################################################################################
 
 nil:
@@ -182,8 +212,8 @@ update:
 tk:
 	(cd src/lib/tk; make)
 
-glue-drop-all:
-	sh/glue drop all
+opt-drop-all:
+	sh/opt drop all
 
 tarball: 
 	sh/make-tarball
@@ -191,11 +221,11 @@ tarball:
 # Make a compressed tar archive containing
 # the full source distribution.
 #
-tar:    glue-drop-all clean tarball
+tar:    opt-drop-all clean tarball
 
 # Same plus making tags files:
 # 
-tart:   glue-drop-all clean tarball id			# "tart" == "tar + tags"
+tart:   opt-drop-all clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 	doc/tex/sh/make-distribution
@@ -349,8 +379,53 @@ summary:
 glue: $(GLUE_DEPENDENCIES)
 
 ###################################################################################
-# Do not edit this or following lines -- they are autobuilt.  (patchname="rules")
-# Do not edit this or preceding lines -- they are autobuilt.
+# Do not edit this or following lines --- they are autobuilt.  (patchname="rules")
+
+qqq-glue:				  
+	src/opt/qqq/sh/make-qqq-glue
+
+bin/mythryl-qqq-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-qqq-library-in-c-subprocess)
+
+
+
+
+opengl-glue:				  
+	src/opt/opengl/sh/make-opengl-glue
+
+bin/mythryl-opengl-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-opengl-library-in-c-subprocess)
+
+
+
+
+opencv-glue:				  
+	src/opt/opencv/sh/make-opencv-glue
+
+bin/mythryl-opencv-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-opencv-library-in-c-subprocess)
+
+
+
+
+ncurses-glue:				  
+	src/opt/ncurses/sh/make-ncurses-glue
+
+bin/mythryl-ncurses-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-ncurses-library-in-c-subprocess)
+
+
+
+
+# Stuff related to src/opt/gtk/sh/make-gtk-glue:
+						     
+gtk-glue:
+	src/opt/gtk/sh/make-gtk-glue
+
+bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
+	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
+
+# Do not edit this or preceding lines --- they are autobuilt.
 ###################################################################################
 
 
@@ -688,7 +763,7 @@ clean: somewhat-clean
 #
 #     make config
 #
-dist-clean:  glue-drop-all  clean
+dist-clean:  opt-drop-all  clean
 	@-find src/c   -name 'Makefile' -print | xargs rm
 	@-find src/lib -name 'Makefile' -print | xargs rm
 	@-find src/app -name 'Makefile' -print | xargs rm
