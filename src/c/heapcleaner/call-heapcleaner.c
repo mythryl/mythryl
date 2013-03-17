@@ -105,6 +105,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	    return;
 	}
+ramlog_printf("#%d call_heapcleaner/AAA\n", syscalls_seen );
 
 	// At this point we know that
 	// 

@@ -171,7 +171,7 @@ typedef struct {
 //
 //    KEEP THIS TABLE IN SYNC WITH Signal in src/lib/std/src/nj/interprocess-signals-guts.pkg
 //
-// The intention here is that we use the row
+// The intention here is that we use the row						// It would be nice to have readable symbolic names for these row numbers, say PORTABLE_SIGNAL_NAME_SIGHUP ; I don't think we do as yet.
 // number in the following table as the stable
 // Mythryl-side name for a signal, to make the
 // Mythryl-side world signal naming independent
@@ -438,6 +438,8 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
     if ((unsigned)sig >= SIGNAL_TABLE_SIZE_IN_SLOTS)    die ("interprocess-signals.c: c_signal_handler: sig d=%d >= SIGNAL_TABLE_SIZE_IN_SLOTS %d\n", sig, SIGNAL_TABLE_SIZE_IN_SLOTS ); 
 
 
+if (host_os_signal_id == SIGINT)  ramlog_printf("#%d c_signal_handler(%d==SIGINT)\n", syscalls_seen, host_os_signal_id );
+
 
     /////////////////////////////////// begin kludge ////////////////////////////////////
     // This is a little kludge because I'm getting unexpected compiler lockups
@@ -483,9 +485,7 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
 
     // Remember that we have seen signal number 'sig'.
     //
-    // This will eventually get noticed by  choose_signal()  in
-    //
-    //     src/c/machine-dependent/signal-stuff.c
+    // This will eventually get noticed by  choose_signal()  (below)
     //
     ++ hostthread->posix_signal_counts[ sig ].seen_count;
     ++ hostthread->all_posix_signals.seen_count;
@@ -796,7 +796,7 @@ void   choose_signal   (Hostthread* hostthread)   {				// We are called (only) f
 	// Wrap circularly around the signal vector:
 	//
 	if (portable_signal_id == SIGNAL_TABLE_SIZE_IN_SLOTS)			// SIGNAL_TABLE_SIZE_IN_SLOTS		is from   src/c/h/runtime-base.h
-	    portable_signal_id =  0;								// 
+	    portable_signal_id =  0;						// 
 
 	// Does this signal have pending work? (Nonzero == "yes"):
 	//
@@ -814,6 +814,8 @@ void   choose_signal   (Hostthread* hostthread)   {				// We are called (only) f
     //
     hostthread->next_posix_signal_id    = portable_signal_id;
     hostthread->next_posix_signal_count = delta;
+if (portable_signal_id) ramlog_printf("#%d choose_signal:  portable_signal_id == SIGINT\n", syscalls_seen );
+
 
 //    log_if(
 //        "signal-stuff.c/choose_signal: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d",

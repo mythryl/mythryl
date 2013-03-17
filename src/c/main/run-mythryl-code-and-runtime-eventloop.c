@@ -121,6 +121,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 											//      asm_run_mythryl_task		def in    src/c/machine-dependent/prim.sparc32.asm
 											// true_asm_run_mythryl_task		def in    true_asm_run_mythryl_task
 
+ramlog_printf("#%d runtime_eventloop back from asm_run_mythryl_task\n", syscalls_seen );
 	// 'request' is one of the request codes defined in
 	//
 	//     src/c/h/asm-to-c-request-codes.h
@@ -150,6 +151,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime.
 
 	if (request == REQUEST_HEAPCLEANING) {
+ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING\n", syscalls_seen );
 	    //
 	    if (hostthread->interprocess_signal_pending) {						// interprocess_signal_pending		gets set by   c_signal_handler()	from   src/c/machine-dependent/interprocess-signals.c
 		//
@@ -195,7 +197,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
                 // statement in
 		//     src/c/main/construct-runtime-package.c
 		//
-		choose_signal( hostthread );								// choose_signal	is from   src/c/machine-dependent/signal-stuff.c
+		choose_signal( hostthread );								// choose_signal	is from   src/c/machine-dependent/interprocess-signals.c
 		//
 		task->argument	      =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	      =  PTR_CAST( Val,  return_from_signal_handler_c );

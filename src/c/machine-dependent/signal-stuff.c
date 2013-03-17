@@ -91,6 +91,7 @@ Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interproc
         TAGGED_INT_FROM_C_INT( hostthread->next_posix_signal_count ),
 	run_fate
     );
+if (hostthread->next_posix_signal_id == 2 /*SIGINT*/) ramlog_printf("#%d make_mythryl_signal_handler_arg: hostthread->next_posix_signal_id==SIGINT\n", syscalls_seen );
 
     #ifdef SIGNAL_DEBUG
 	debug_say( "make_mythryl_signal_handler_arg: resumeC = %#x, arg = %#x\n", run_fate, arg );
