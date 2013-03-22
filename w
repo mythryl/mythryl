@@ -1,9 +1,17 @@
-#! /usr/bin/perl -w
-use strict;
-
-# Remove bin/mythryld and rename bin/mythryld-bare to bin/mythryld-bootstrap:
+#! /usr/bin/mythryl
 #
-if (-f "bin/mythryld") {
-    system "rm -f bin/mythryld"                             and   die "Could not  rm -f bin/mythryld";
-}
+# An attempt to replicate the compiler hang I'm seeing in a simpler setting.
+# 'osval' is about the simplest possible call down to the C level, so it
+# should be informative to loop doing that and see if that is sufficient
+# to reproduce the problem.
+
+fun loop (i, c)
+    =
+    {   posixlib::osval "F_GETLK";
+	if (i == 0) { printf "foo %d!\n" c;  loop (1000, c+1); };
+	else				     loop (i - 1,   c);
+	fi;
+    };
+
+loop (1, 1);
 

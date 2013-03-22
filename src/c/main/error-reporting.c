@@ -8,6 +8,10 @@
 
 #include "../mythryl-config.h"
 
+#if HAVE_UNISTD_H
+#include <unistd.h>	// For STDERR_FILENO...
+#endif
+
 #include <stdio.h>
 #include <stdarg.h>
 #include "runtime-base.h"
@@ -227,6 +231,107 @@ void   log_if   (const char * fmt, ...) {
 	    //
 	    write( log_if_fd, "\n", 1 );
 	}
+    }
+}
+
+// Like above, with stderr replacing log_if_fd:
+///
+void   log_if_to_stderr   (const char * fmt, ...) {
+    //
+    static int  lines_printed =  0;
+    //
+    int  len;
+    int  seconds;
+    int  microseconds;
+
+    extern int   _lib7_time_gettimeofday   (int* microseconds);	// From		src/c/lib/time/timeofday.c
+
+    char buf[ MAX_BUF ];
+
+    va_list va;
+
+    // Start by writing the timestamp into buf[].
+    //
+    // We match the timestamp formats in make_logstring in
+    // 
+    //     src/lib/src/lib/thread-kit/src/lib/logger.pkg
+    // and src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
+    //
+    // Making the gettimeofday() system call here
+    // is a little bit risky in that the system
+    // call might change the behavior being debugged,
+    // but I think the tracelog timestamps are valuable
+    // enough to justify the risk:
+    //
+    seconds = _lib7_time_gettimeofday (&microseconds);
+
+    // The intent here is
+    //
+    //   1) That doing unix 'sort' on a logfile will do the right thing:
+    //      sort first by time, then by process id, then by thread id.
+    //
+    //   2) To facilitate egrep/perl processing, e.g. doing stuff like
+    //            egrep 'pid=021456' logfile
+    //
+    // We fill in dummy tid= and (thread) name= values here to reduce
+    // the need for special-case code when processing logfiles:
+    //
+    if (!strncmp(fmt,"%s",3)) {
+	//
+	// If fmt == "%s" then we assume we're being called from
+	//     do_write_line_to_log()  in   src/c/lib/heap/libmythryl-heap.c
+	// and the message already has time= etc fields on it, so we don't
+	// need to add them here:
+	//
+	buf[0] = '\0';
+	//
+    } else {
+	//
+	// Normal path:
+	//
+	sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08lx task=00000000 tid=00000000 sev=0 name='none'%44s msg=", seconds, microseconds, getpid(), (unsigned long int)(pthread_self()), "");
+    }
+    // Now write the message proper into buf[],
+    // right after the timestamp:
+    //
+    len = strlen( buf );
+
+    // Drop leading blanks:
+    //
+    while (*fmt == ' ') ++fmt;
+
+    va_start(va, fmt);
+    vsnprintf(buf+len, MAX_BUF-len, fmt, va); 
+    va_end(va);
+
+    // Append a newline to buffer:
+    //
+    strcpy( buf + strlen(buf), "\n" );
+
+    // Finish up by writing buf[]
+    // contents to stderr.
+    //
+    // write() is a low-level unbuffered
+    // system call, so we do not need to
+    // do a flush( stderr ) -- there
+    // is no such call at this level.
+    //
+    // (We are using the low-level write() call
+    // to guarantee that each write() of a line
+    // is atomic.)
+    //
+    // Note that usually we need strlen(buf)+1
+    // when dealing with null-terminated strings
+    // but here we do not want to write the final
+    // null, so strlen(buf) is in fact correct:
+    //
+    write( STDERR_FILENO, buf, strlen(buf) );
+
+    // Leave every fourth line blank for readability:
+    //
+    if ((++lines_printed & 3) == 0) {
+	//
+	write( STDERR_FILENO, "\n", 1 );
     }
 }
 

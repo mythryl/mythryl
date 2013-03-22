@@ -99,6 +99,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
     Val	previous_profile_index =  IN_OTHER_CODE__CPU_USER_INDEX;				// IN_OTHER_CODE__CPU_USER_INDEX	is from   src/c/h/profiler-call-counts.h
 												// previous_profile_index is a tagged int, so it is safe from heapcleaning.
     for (;;) {
+// ramlog_printf("#%d runtime_eventloop/TOP\n", syscalls_seen );
 
         //     THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL
         // is #defined in
@@ -121,7 +122,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 											//      asm_run_mythryl_task		def in    src/c/machine-dependent/prim.sparc32.asm
 											// true_asm_run_mythryl_task		def in    true_asm_run_mythryl_task
 
-ramlog_printf("#%d runtime_eventloop back from asm_run_mythryl_task\n", syscalls_seen );
+// ramlog_printf("#%d runtime_eventloop back from asm_run_mythryl_task\n", syscalls_seen );
 	// 'request' is one of the request codes defined in
 	//
 	//     src/c/h/asm-to-c-request-codes.h
@@ -207,6 +208,7 @@ ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING\n", sysca
 		task->program_counter =
 		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
+ramlog_printf("#%d runtime_eventloop:  setting hostthread->mythryl_handler_for_interprocess_signal_is_running =  TRUE\n", syscalls_seen );
 		hostthread->mythryl_handler_for_interprocess_signal_is_running =  TRUE;
 		//
 		hostthread->interprocess_signal_pending= FALSE;
@@ -391,6 +393,7 @@ hostthread->all_posix_signals.done_count, hostthread->all_posix_signals.seen_cou
 
 	        // Note that we are exiting the handler:
 		//
+ramlog_printf("#%d runtime_eventloop/REQUEST_RETURN_FROM_SIGNAL_HANDLER:  setting hostthread->mythryl_handler_for_interprocess_signal_is_running =  FALSE\n", syscalls_seen );
 		hostthread->mythryl_handler_for_interprocess_signal_is_running =  FALSE;
 		break;
 

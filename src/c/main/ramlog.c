@@ -11,11 +11,12 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include "runtime-base.h"
 
 #define ONE_K 1024
-#define RAMLOG_BUFFER_SIZE_IN_BYTES  (64*ONE_K)
-#define RAMLOG_OVERRUN_SIZE_IN_BYTES  (4*ONE_K)
+#define RAMLOG_BUFFER_SIZE_IN_BYTES  (256*ONE_K)
+#define RAMLOG_OVERRUN_SIZE_IN_BYTES (  4*ONE_K)
 
 // The circular ramlog buffer.  It consists of the bytes from
 // ramlog_buf[0] to ramlog_buf[ RAMLOG_BUFFER_SIZE_IN_BYTES-1 ];
@@ -36,6 +37,12 @@ static char* ramlog_next = ramlog_buf;
 static char* ramlog_soft_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES;
 static char* ramlog_hard_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES  + RAMLOG_OVERRUN_SIZE_IN_BYTES;
 static int   ramlog_lines_printed = 0;
+
+void   clear_ramlog  (void)   {
+    // ============
+    //
+    memset( ramlog_buf, 0, RAMLOG_BUFFER_SIZE_IN_BYTES + RAMLOG_OVERRUN_SIZE_IN_BYTES );
+}
 
 // Append a one-line message to ramlog_buf.
 // If it runs past ramlog_soft_limit, null it out

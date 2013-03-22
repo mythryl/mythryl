@@ -115,6 +115,8 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
     //
     Heapcleaner_Args*	heapcleaner_args;
 
+    clear_ramlog();
+
     process_environment_options( &heapcleaner_args );
 
     if (verbosity__global > 0) {

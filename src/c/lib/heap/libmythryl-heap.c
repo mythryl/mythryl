@@ -264,8 +264,29 @@ static Val   do_write_line_to_log   (Task* task,  Val arg)   {
     // absolutely necessary:
 
     char* heap_string = HEAP_STRING_AS_C_STRING(arg);
-									// ramlog_printf	is from   src/c/main/ramlog.c
+
     log_if( "%s", heap_string );					// Note that if we pass heapstring as first arg, any '%'s in it become problematic.
+									// We could define a separate ramlog_putstring(), but at the moment a simpler API (one less call) seems more attractive.
+    return HEAP_VOID;
+}
+//
+static Val   do_write_line_to_stderr   (Task* task,  Val arg)   {
+    //       =======================
+    //
+    // Mythryl type:   String -> Void					// 'String' should end with a newline and contain no newlines or nuls.
+    //
+    // We skip all the ENTER_MYTHRYL_CALLABLE_C_FN
+    //               + buffer_mythryl_heap_value
+    //               + RELEASE_MYTHRYL_HEAP
+    // stuff here partly because this is a fast
+    // in-ram op with no syscall to kernel or such,
+    // but mostly because we don't want this debug
+    // call changing course of execution more than
+    // absolutely necessary:
+
+    char* heap_string = HEAP_STRING_AS_C_STRING(arg);
+
+    log_if_to_stderr( "%s", heap_string );				// Note that if we pass heapstring as first arg, any '%'s in it become problematic.
 									// We could define a separate ramlog_putstring(), but at the moment a simpler API (one less call) seems more attractive.
     return HEAP_VOID;
 }
@@ -1192,6 +1213,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"unpickle_datastructure",				"unpickle_datastructure",				do_unpickle_datastructure,					"vector_of_one_byte_unts::Vector -> X"},
     {"write_line_to_ramlog",				"write_line_to_ramlog",					do_write_line_to_ramlog,					"String -> Void"},				// 'String' should end with a newline and contain no newlines or nuls.
     {"write_line_to_log",				"write_line_to_log",					do_write_line_to_log,						"String -> Void"},				// 'String' should end with a newline and contain no newlines or nuls.
+    {"write_line_to_stderr",				"write_line_to_stderr",					do_write_line_to_stderr,					"String -> Void"},				// 'String' should end with a newline and contain no newlines or nuls.
     //
     CFUNC_NULL_BIND
 };

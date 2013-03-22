@@ -599,6 +599,7 @@ extern void   pth__validate_running_hostthreads_count (void);		// Explicitly ver
 
 extern void   log_if   (const char * fmt, ...);					// log_if fmt string should NOT contain newlines -- one will be appended automatically.
 extern int    log_if_fd;
+extern void   log_if_to_stderr (const char * fmt, ...);				// Just like log_if, but writes to stderr.
 
 
 
@@ -917,6 +918,7 @@ extern int		 syscall_log_and_ramlog_enabled;				// Starts TRUE, set FALSE in ent
     // which also implements debug_syscall_log() to display the contents.
 
 
+extern void   clear_ramlog  (void);							// clear_ramlog		is from   src/c/main/ramlog.c
 extern void   ramlog_printf (char* fmt, ...);						// ramlog_printf	is from   src/c/main/ramlog.c
 extern void   debug_ramlog  (int lines_to_print);					// debug_ramlog		is from   src/c/main/ramlog.c
 extern void   dump_ramlog__guts (FILE* fd );						// dump_ramlog__guts	is from   src/c/main/ramlog.c

@@ -438,7 +438,7 @@ static void   c_signal_handler   (int host_os_signal_id,  siginfo_t* si,  void* 
     if ((unsigned)sig >= SIGNAL_TABLE_SIZE_IN_SLOTS)    die ("interprocess-signals.c: c_signal_handler: sig d=%d >= SIGNAL_TABLE_SIZE_IN_SLOTS %d\n", sig, SIGNAL_TABLE_SIZE_IN_SLOTS ); 
 
 
-if (host_os_signal_id == SIGINT)  ramlog_printf("#%d c_signal_handler(%d==SIGINT)\n", syscalls_seen, host_os_signal_id );
+if (host_os_signal_id == SIGINT)  ramlog_printf("#%d c_signal_handler(%d==SIGINT)          <=========================================\n", syscalls_seen, host_os_signal_id );
 
 
     /////////////////////////////////// begin kludge ////////////////////////////////////
@@ -814,7 +814,9 @@ void   choose_signal   (Hostthread* hostthread)   {				// We are called (only) f
     //
     hostthread->next_posix_signal_id    = portable_signal_id;
     hostthread->next_posix_signal_count = delta;
-if (portable_signal_id) ramlog_printf("#%d choose_signal:  portable_signal_id == SIGINT\n", syscalls_seen );
+if (portable_signal_id == SIGINT)
+     ramlog_printf("#%d choose_signal:  portable_signal_id d=%d seen_count d=%d done_count d=%d delta d=%d        <=================\n", syscalls_seen, portable_signal_id, hostthread->posix_signal_counts[ portable_signal_id ].seen_count, hostthread->posix_signal_counts[ portable_signal_id ].done_count, delta );
+else ramlog_printf("#%d choose_signal:  portable_signal_id d=%d seen_count d=%d done_count d=%d delta d=%d\n",                           syscalls_seen, portable_signal_id, hostthread->posix_signal_counts[ portable_signal_id ].seen_count, hostthread->posix_signal_counts[ portable_signal_id ].done_count, delta );
 
 
 //    log_if(

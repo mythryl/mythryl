@@ -21,12 +21,12 @@
 #include "cfun-proto-list.h"
 #include "../posix-error/posix-name-val.h"
 
-static name_val_t values [] = {
-  {"WNOHANG",       WNOHANG},
-#ifdef WUNTRACED
-  {"WUNTRACED",     WUNTRACED},
-#endif
-};
+// static name_val_t values [] = {
+//   {"WNOHANG",       WNOHANG},
+// #ifdef WUNTRACED
+//   {"WUNTRACED",     WUNTRACED},
+// #endif
+// };
 
 #define NUMELMS ((sizeof values)/(sizeof (name_val_t)))
 
@@ -52,15 +52,18 @@ Val   _lib7_P_Process_osval   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    name_val_t* resultt =  _lib7_posix_nv_binary_search (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
+// Commented out 2013-03-19 CrT because it seems to always return "not defined" anyhow
+// and for the moment I just want a fn which returns a trivial value.
+//    name_val_t* resultt =  _lib7_posix_nv_binary_search (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 
-    Val result;
+//    Val result;
     //
-    if (resultt)   result =  TAGGED_INT_FROM_C_INT(resultt->val);
-    else           result =  RAISE_ERROR__MAY_HEAPCLEAN(task, "system constant not defined", NULL);
+//    if (resultt)   result =  TAGGED_INT_FROM_C_INT(resultt->val);
+//    else           result =  RAISE_ERROR__MAY_HEAPCLEAN(task, "system constant not defined", NULL);
 
 									    EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
-    return result;
+//    return result;
+return TAGGED_INT_FROM_C_INT(0);
 }
 
 
