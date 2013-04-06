@@ -248,7 +248,7 @@ static Signal_Descriptor   signal_table__local[ SIGNAL_TABLE_SIZE_IN_SLOTS ]   =
 
 
 #ifdef USE_ZERO_LIMIT_PTR_FN
-Punt		SavedPC;
+Vunt		SavedPC;
 extern		Zero_Heap_Allocation_Limit[];								// Actually a pointer, not an array.
 #endif
 

@@ -44,7 +44,7 @@ Hugechunk*   allocate_hugechunk_quire   (
     //       =========================
     // 
     Heap* heap,
-    Punt  bytesize
+    Vunt  bytesize
 ){
     // Allocate a hugechunk quire that is
     // large enough to hold an chunk of at
@@ -59,8 +59,8 @@ Hugechunk*   allocate_hugechunk_quire   (
     int npages;
     int old_npages;
 
-    Punt  record_bytesize;
-    Punt  quire_bytesize;
+    Vunt  record_bytesize;
+    Vunt  quire_bytesize;
 
     Quire*  quire;
 
@@ -105,7 +105,7 @@ Hugechunk*   allocate_hugechunk_quire   (
 
     // Initialize the hugechunk record:
     //
-    hq->first_ram_quantum	=  (Punt) hq + record_bytesize;
+    hq->first_ram_quantum	=  (Vunt) hq + record_bytesize;
     //
     hq->page_count	= npages;
     hq->free_pages	= npages;
@@ -149,7 +149,7 @@ Hugechunk*   allocate_hugechunk   (
     Heap*     heap,
     int       age,
     //
-    Punt    hugechunk_bytesize
+    Vunt    hugechunk_bytesize
 ) {
     // Allocate a hugechunk of the given size.
 
@@ -160,7 +160,7 @@ Hugechunk*   allocate_hugechunk   (
 
     int first_ram_quantum;
 
-    Punt total_bytesize
+    Vunt total_bytesize
 	=
 	ROUND_UP_TO_POWER_OF_TWO( hugechunk_bytesize, HUGECHUNK_RAM_QUANTUM_IN_BYTES );
 
@@ -201,7 +201,7 @@ Hugechunk*   allocate_hugechunk   (
 	    new_chunk->chunk		= dp->chunk;
 	    new_chunk->hugechunk_quire	= hq;
 
-	    dp->chunk      =  (Punt)(dp->chunk) + total_bytesize;
+	    dp->chunk      =  (Vunt)(dp->chunk) + total_bytesize;
 	    dp->bytesize  -=  total_bytesize;
 
 	    insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, dp );						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
@@ -232,7 +232,7 @@ Hugechunk*   allocate_hugechunk   (
 	new_chunk->chunk	    = dp->chunk;
 	new_chunk->hugechunk_quire  = hq;
 
-	dp->chunk     = (Punt)(dp->chunk) + total_bytesize;
+	dp->chunk     = (Vunt)(dp->chunk) + total_bytesize;
 	dp->bytesize -= total_bytesize;
 
 	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
@@ -282,7 +282,7 @@ void         free_hugechunk   (
 
     Hugechunk* dp;
 
-    Punt  total_bytesize
+    Vunt  total_bytesize
 	=
 	ROUND_UP_TO_POWER_OF_TWO( chunk->bytesize, HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 

@@ -57,7 +57,7 @@ extern void   get_names_of_all_cfuns_in_heapfile_cfun_table   (Heapfile_Cfun_Tab
 // For the heapfile header we need to precompute how
 // many bytes the heapfile cfun table will occupy on disk:
 //
-extern Punt   heapfile_cfun_table_bytesize   (Heapfile_Cfun_Table* table);
+extern Vunt   heapfile_cfun_table_bytesize   (Heapfile_Cfun_Table* table);
 
 #endif // MYTHRYL_CALLABLE_C_FNS_HASHTABLE_H
 

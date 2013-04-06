@@ -66,7 +66,7 @@ typedef struct {
     int hugechunk_quire_count;						// The number of hugechunk quires in the exporting address space.
     int oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;	// The oldest agegroup retaining fromspace buffer, instead of returning it to host OS after heapcleaning is complete.
     //
-    Punt agegroup0_buffer_bytesize;					// The size of the agegroup0 allocation buffers used by the runtime.
+    Vunt agegroup0_buffer_bytesize;					// The size of the agegroup0 allocation buffers used by the runtime.
     //
     Val	pervasive_package_pickle_list;					// Contents of PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL.
     Val	runtime_pseudopackage;						// The run-time system compilation unit root.
@@ -131,9 +131,9 @@ typedef struct {
     //
     union {						// Additional info.
 	struct {					// Info for regular sibs.
-	    Punt  base_address;				// Base address of this sib buffer in the exporting address space.
-	    Punt  bytesize;				// Size of the live data in this sib buffer.
-	    Punt  rounded_bytesize;			// Padded size of this sib buffer in the image file.
+	    Vunt  base_address;				// Base address of this sib buffer in the exporting address space.
+	    Vunt  bytesize;				// Size of the live data in this sib buffer.
+	    Vunt  rounded_bytesize;			// Padded size of this sib buffer in the image file.
 	}  o;
 	struct {					// Info for the hugechunk sib buffer.
 	    int   hugechunk_count;			// Number of hugechunks in this agegroup.
@@ -147,10 +147,10 @@ typedef struct {
 // hugechunk region in the exporting address space.
 //
 typedef struct {
-    Punt	base_address;				// Base address of this hugechunk region in the exporting address space.
+    Vunt	base_address;				// Base address of this hugechunk region in the exporting address space.
 							// Note that this is the address of the header, not of the first page.
-    Punt	first_ram_quantum;			// Address of the first ram quantum of the region in the exporting address space.
-    Punt	bytesize;				// Total size of this hugechunk region, including the header.
+    Vunt	first_ram_quantum;			// Address of the first ram quantum of the region in the exporting address space.
+    Vunt	bytesize;				// Total size of this hugechunk region, including the header.
     //
 } Hugechunk_Quire_Header;
 
@@ -161,8 +161,8 @@ typedef struct {
     int		age;					// The agegroup of this hugechunk.
     int		huge_ilk;				// Ilk of this hugechunk. Currently always CODE__HUGE_SIB		def in    src/c/h/sibid.h
     //
-    Punt	base_address;				// Base address of this hugechunk in the exporting address space.
-    Punt	bytesize;				// Size of this hugechunk.
+    Vunt	base_address;				// Base address of this hugechunk in the exporting address space.
+    Vunt	bytesize;				// Size of this hugechunk.
     //
 } Hugechunk_Header;
 
@@ -189,7 +189,7 @@ typedef struct {
 #define HIO_ADDR_BITS			(BITS_PER_WORD - HIO_ID_BITS)					// Used only in this header.
 #define HIO_ADDR_MASK			((1 << HIO_ADDR_BITS) - 1)					// Used only in this header.
 
-#define HIO_TAG_PTR(kind,offset)	PTR_CAST( Val, ((kind)<<HIO_ADDR_BITS)|(Punt)(offset))		// Used in      src/c/heapcleaner/datastructure-pickler.c   +   src/c/heapcleaner/datastructure-pickler-cleaner.c
+#define HIO_TAG_PTR(kind,offset)	PTR_CAST( Val, ((kind)<<HIO_ADDR_BITS)|(Vunt)(offset))		// Used in      src/c/heapcleaner/datastructure-pickler.c   +   src/c/heapcleaner/datastructure-pickler-cleaner.c
 #define HIO_GET_ID(p)			(HEAP_POINTER_AS_UNT(p) >> HIO_ADDR_BITS)			// Used only in src/c/heapcleaner/datastructure-unpickler.c
 #define HIO_GET_OFFSET(p)		(HEAP_POINTER_AS_UNT(p) &  HIO_ADDR_MASK)			// Used only in src/c/heapcleaner/datastructure-unpickler.c	
 

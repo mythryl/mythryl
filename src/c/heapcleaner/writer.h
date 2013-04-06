@@ -16,7 +16,7 @@ typedef struct writer {
     Bool	seen_error;
     void*	data;
     void	(*put_word)(struct writer*, Vunt);
-    void	(*write)(struct writer*, const void *, Punt);
+    void	(*write)(struct writer*, const void *, Vunt);
     void	(*flush)(struct writer*);
     long	(*tell)(struct writer*);
     void	(*seek)(struct writer*, long offset);
@@ -30,7 +30,7 @@ extern Writer* WR_OpenFile (FILE* file);
 
 // Make a writer from a region of memory:
 //
-extern Writer* WR_OpenMem  (Unt8* data,  Punt len);
+extern Writer* WR_OpenMem  (Unt8* data,  Vunt len);
 
 #define WR_ERROR(wr)			((wr)->seen_error)
 #define WR_PUT(wr, w)			((wr)->put_word((wr), (w)))

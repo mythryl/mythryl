@@ -63,6 +63,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     // is full after cleaning, we also clean one or more
     // additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
+static int callcount = 0;
+if (! (++callcount & 0xff)) log_if ("call_heapcleaner:  task %p  level %d  callcount %d",    task, level, callcount);
 														ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];			// Registers and globals.			// MAX_TOTAL_CLEANING_ROOTS				is from   src/c/h/runtime-configuration.h
@@ -468,12 +470,12 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
 
     #if NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	return (((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))	// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
+	return (((Vunt)(task->heap_allocation_pointer)+bytes_needed) >= (Vunt) HEAP_ALLOCATION_LIMIT( task ))	// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
 	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 														// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #else
 	//
-	return   ((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT(task);	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
+	return   ((Vunt)(task->heap_allocation_pointer)+bytes_needed) >= (Vunt) HEAP_ALLOCATION_LIMIT(task);	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
     #endif
     }
 }

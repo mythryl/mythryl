@@ -11,12 +11,19 @@
 */
 
 
-// 'quire' (pronounced like choir) designates a multipage ram region
-//         allocated directly from the host operating system.
+
+// NOMENCLATURE
 //
-//     quire: 2. A collection of leaves of parchment or paper,
-//               folded one within the other, in a manuscript or book.
-//                     -- http://www.thefreedictionary.com/quire
+//     'quire' (pronounced like choir) designates a multipage ram region
+//             allocated directly from the host operating system.
+//    
+//         quire: 2. A collection of leaves of parchment or paper,
+//                   folded one within the other, in a manuscript or book.
+//                         -- http://www.thefreedictionary.com/quire
+//
+//     'sibling':  Brother or sister; more generally a peer in a hierarchy.
+//
+//     'sib':      Set of siblings.
 
 #ifndef HEAP_H
 #define HEAP_H
@@ -41,7 +48,7 @@
 
 struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;"   in   src/c/h/runtime-base.h
     //
-    Punt agegroup0_buffer_bytesize;
+    Vunt agegroup0_buffer_bytesize;
     int	 active_agegroups;
     int  oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;		// Between garbage collections we keep (instead of freeing) idle fromspaces for this and all younger agegroups.
 											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
@@ -72,7 +79,7 @@ typedef   struct agegroup          Agegroup;						// Defined below.
 //
 struct heap {
     Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
-    Punt		agegroup0_master_buffer_bytesize;				// Size-in-bytes of the agegroup0_buffers master buffer.
+    Vunt		agegroup0_master_buffer_bytesize;				// Size-in-bytes of the agegroup0_buffers master buffer.
 
     Quire*		quire;								// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
 
@@ -111,37 +118,37 @@ struct heap {
 // although it is occasionally used by client code:
 //
 #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
-    (Val*)((Punt)(base) + (size) - (MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER + AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES))
+    (Val*)((Vunt)(base) + (size) - (MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER + AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES))
 
 
 // An age-group:
 //
 struct agegroup {
     //
-    Heap*   heap;						// A back pointer to the heap record.
-    int	    age;						// Which agegroup this is (1..active_agegroups).
-    int	    heapcleanings_count;				// Number of times this agegroup has been heapcleaned.
-    int	    target_heapcleaning_frequency_ratio;		// Desired number of collections of the previous agegroup for one collection of this agegroup.
+    Heap*   heap;									// A back pointer to the heap record.
+    int	    age;									// Which agegroup this is (1..active_agegroups).
+    int	    heapcleanings_count;							// Number of times this agegroup has been heapcleaned.
+    int	    target_heapcleaning_frequency_ratio;					// Desired number of collections of the previous agegroup for one collection of this agegroup.
 
-    int	    heapcleanings_count_of_younger_agegroup_during_last_heapcleaning;	// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
-										// (We use this to check how close we are coming to desired ratio of heapcleanings between agegroups.)
+    int	    heapcleanings_count_of_younger_agegroup_during_last_heapcleaning;		// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
+											// (We use this to check how close we are coming to desired ratio of heapcleanings between agegroups.)
 
-    Sib*    sib[ MAX_PLAIN_SIBS ];				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
+    Sib*    sib[ MAX_PLAIN_SIBS ];							// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 
-    Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
+    Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];						// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 
-    Quire*    tospace_quire;					// The host-OS multipage ram regions that this agegroup is
-    Quire*    fromspace_quire;					// using for the to-space and from-space.
-    Quire*    retained_fromspace_quire;				// For younger (== smaller) agegroups, we retain the from-space quire between heapcleanings, instead of giving it back to the host OS.
+    Quire*    tospace_quire;								// The host-OS multipage ram regions that this agegroup is
+    Quire*    fromspace_quire;								// using for the to-space and from-space.
+    Quire*    retained_fromspace_quire;							// For younger (== smaller) agegroups, we retain the from-space quire between heapcleanings, instead of giving it back to the host OS.
     //
-    Coarse_Inter_Agegroup_Pointers_Map*				// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
-    coarse_inter_agegroup_pointers_map;				// The dirty cards in the vector sib for this agegroup.
+    Coarse_Inter_Agegroup_Pointers_Map*							// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
+    coarse_inter_agegroup_pointers_map;							// The dirty cards in the vector sib for this agegroup.
 };
 
 
 // Each heap agegroup > 0 has four sib buffers, one each to hold
 //
-//     rw_conscells   (Blocks of immutable pointers of     length     two.)
+//     ro_conscells   (Blocks of immutable pointers of     length     two.)
 //     ro_pointers    (Blocks of immutable pointers of any length but two.)
 //     nonptr_data    (Strings, int32 vector etc. Mutable and immutable both.)
 //     rw_pointers    (Refcells and rw_vectors of pointers.)
@@ -160,10 +167,10 @@ struct sib {
     Sibid		id;					// The to-space version of this sib's identifier.
 
     struct tospace {
-	Val*		used_end;				// The next word to allocate in this sib's to-space.
+	Val*		first_free;				// The next word to allocate in this sib's to-space.
 	//
 	Val*	        start;					// Base address of to-space.
-	Punt		bytesize;				// Size of to-space.
+	Vunt		bytesize;				// Size of to-space.
 	Val*	        limit;					// The end of to-space (tospace.start+tospace.bytesize).
 	//
 	Val*		swept_end;				// State variable used (only) during heapcleaning.  During heapcleaning
@@ -178,10 +185,10 @@ struct sib {
 
     struct fromspace {
 	Val*		start;					// Base address of from-space.
-	Vunt	bytesize;				// Size of from-space.
-	Val*		used_end;				// The end of the used portion of from-space.
+	Vunt		bytesize;				// Size of from-space.
+	Val*		first_free;				// The end of the used portion of from-space.
 
-	Val*		seniorchunks_end;				// We require that a chunk survive two heapcleans in a
+	Val*		seniorchunks_end;			// We require that a chunk survive two heapcleans in a
 								// given agegroup before being promoted to the next agegroup.
 								// To this end we divide the chunks in a given agegroup sib into
 								// "junior" (have not yet survived a heapclean) and
@@ -191,18 +198,23 @@ struct sib {
 								// Special case: chunks in the oldest active agegroup are forever junior.
     } fromspace;
 
-    Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
+    Sib*	sib_for_promoted_chunks;			// Next older sib, except for oldest sib, which points to itself.
 
     // Heap sizing parameters:
     //
-    Vunt	requested_extra_free_bytes;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
+    Vunt	requested_extra_free_bytes;			// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
 								// Normally zero.  This is used to reserve sufficient extra space for vectors (etc) being created by fns in
 								//     src/c/heapcleaner/make-strings-and-vectors-etc.c
 								// This is essentially a hidden extra parameter to call_heapcleaner() from these fns.
 
-    Vunt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
+    Vunt	soft_max_bytesize;				// A soft maximum size for this sib buffer.
 
 
+
+    // ======================================================== //
+    								// 
+								// 
+    // ======================================================== //
 
     // ======================================================== //
     Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had external references that require repair.
@@ -223,7 +235,7 @@ inline void   make_sib_tospace_into_fromspace   (Sib* sib)   {
     //
     sib->fromspace.start	=  sib->tospace.start;
     sib->fromspace.bytesize	=  sib->tospace.bytesize;
-    sib->fromspace.used_end	=  sib->tospace.used_end;
+    sib->fromspace.first_free	=  sib->tospace.first_free;
 }
 
 //
@@ -246,41 +258,41 @@ inline Bool   sib_chunk_is_senior   (Sib* sib,  Val* pointer)   {
 }
 
 //
-inline Punt   sib_freespace_in_bytes   (Sib* sib)   {
+inline Vunt   sib_freespace_in_bytes   (Sib* sib)   {
     //        ======================
     //
     // Return the amount of free space
     // (in bytes) available in a sib buffer:
     //
-    return  (Punt)  sib->tospace.limit
-          - (Punt)  sib->tospace.used_end;
+    return  (Vunt)  sib->tospace.limit
+          - (Vunt)  sib->tospace.first_free;
 }
 
 //
-inline Punt   sib_space_used_in_bytes   (Sib* sib)   {
+inline Vunt   sib_space_used_in_bytes   (Sib* sib)   {
     //        =======================
     //
     // Return the amount of allocated space
     // (in bytes) in a sib buffer:
     //
-    return   (Punt)   sib->tospace.used_end
+    return   (Vunt)   sib->tospace.first_free
              -
-             (Punt)   sib->tospace.start;
+             (Vunt)   sib->tospace.start;
 }
 
 //
-inline Punt   agegroup0_freespace_in_bytes   (Task* task)   {
+inline Vunt   agegroup0_freespace_in_bytes   (Task* task)   {
     //        ============================
     //
     // Return the amount of free space (in bytes)
     // available in the agegroup0 buffer for this task:
     //
-    return  (Punt)  task->real_heap_allocation_limit
-          - (Punt)  task->heap_allocation_pointer;
+    return  (Vunt)  task->real_heap_allocation_limit
+          - (Vunt)  task->heap_allocation_pointer;
 }
 
 //
-inline Punt   agegroup0_freespace_in_words   (Task* task)   {
+inline Vunt   agegroup0_freespace_in_words   (Task* task)   {
     //        ============================
     //
     // Return the amount of free space (in words)
@@ -291,18 +303,18 @@ inline Punt   agegroup0_freespace_in_words   (Task* task)   {
 }
 
 //
-inline Punt   agegroup0_usedspace_in_bytes   (Task* task)   {
+inline Vunt   agegroup0_usedspace_in_bytes   (Task* task)   {
     //        ============================
     //
     // Return the amount of space used (in bytes)
     // in the agegroup0 buffer for this task:
     //
-    return  (Punt)  task->heap_allocation_pointer
-          - (Punt)  task->heap_allocation_buffer;
+    return  (Vunt)  task->heap_allocation_pointer
+          - (Vunt)  task->heap_allocation_buffer;
 }
 
 //
-inline Punt   agegroup0_usedspace_in_words   (Task* task)   {
+inline Vunt   agegroup0_usedspace_in_words   (Task* task)   {
     //        ============================
     //
     // Return the amount of space used (in words)
@@ -313,18 +325,18 @@ inline Punt   agegroup0_usedspace_in_words   (Task* task)   {
 }
 
 //
-inline Punt   agegroup0_buffer_size_in_bytes   (Task* task)   {
+inline Vunt   agegroup0_buffer_size_in_bytes   (Task* task)   {
     //        ==============================
     //
     // Return the size-in-bytes of the
     // agegroup0 buffer for this task:
     //
-    return  (Punt)  task->real_heap_allocation_limit
-          - (Punt)  task->heap_allocation_buffer;
+    return  (Vunt)  task->real_heap_allocation_limit
+          - (Vunt)  task->heap_allocation_buffer;
 }
 
 //
-inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
+inline Vunt   agegroup0_buffer_size_in_words   (Task* task)   {
     //        ==============================
     //
     // Return the size-in-words of the
@@ -353,7 +365,7 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 //
 struct hugechunk_quire {
     //
-    Punt first_ram_quantum;					// Address of the first ram quantum of the region.
+    Vunt first_ram_quantum;					// Address of the first ram quantum of the region.
     //
     int	 page_count;						// Number of hugechunk pages in this region.
     int	 free_pages;						// Number of free pages.
@@ -373,7 +385,7 @@ struct hugechunk_quire {
 
 // Map an address to a hugechunk page index:
 //
-#define GET_HUGECHUNK_FOR_POINTER_PAGE(hugechunk_quire, address)    (((Punt)(address) - (hugechunk_quire)->first_ram_quantum) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
+#define GET_HUGECHUNK_FOR_POINTER_PAGE(hugechunk_quire, address)    (((Vunt)(address) - (hugechunk_quire)->first_ram_quantum) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
 
 
 inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* hq,  Val pointer)   {
@@ -403,9 +415,9 @@ inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* hq,  Val p
 //
 struct hugechunk {				// The best name for this might be "hugechunk_chit" since it is not the hugechunk itself but rather a chit/ticket/token for it.
     //
-    Punt	    chunk;			// The actual chunk.
+    Vunt	    chunk;			// The actual chunk.
 
-    Punt	    bytesize;			// Size of the chunk in bytes.  When the chunk
+    Vunt	    bytesize;			// Size of the chunk in bytes.  When the chunk
 						// is in the free list, this will be a multiple of
 						// HUGECHUNK_RAM_QUANTUM_IN_BYTES, otherwise it is the exact size.
 
@@ -420,7 +432,7 @@ struct hugechunk {				// The best name for this might be "hugechunk_chit" since 
 };
 
 
-inline Punt    uprounded_hugechunk_bytesize   (Hugechunk* hugechunk)   {
+inline Vunt    uprounded_hugechunk_bytesize   (Hugechunk* hugechunk)   {
     //         ============================
     //
     // The size of a hugechunk, rounded up to a
@@ -431,7 +443,7 @@ inline Punt    uprounded_hugechunk_bytesize   (Hugechunk* hugechunk)   {
 
 
 
-inline Punt   hugechunk_size_in_hugechunk_ram_quanta   (Hugechunk* hugechunk)   {
+inline Vunt   hugechunk_size_in_hugechunk_ram_quanta   (Hugechunk* hugechunk)   {
     //                     ======================================
     //
     // Number of hugechunk pages occupied by a hugechunk:
@@ -483,12 +495,12 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 // Follow a pair-space forward pointer.
 // This is tagged as a descriptor:
 //
-#define FOLLOW_PAIRSPACE_FORWARDING_POINTER(DESC, chunkheader)	((Val*) (((Punt)(DESC)) & ~ATAG_MASK))		// Clear the 0x2 bit that distinguishes a forwarding pointer and return it.
+#define FOLLOW_PAIRSPACE_FORWARDING_POINTER(DESC, chunkheader)	((Val*) (((Vunt)(DESC)) & ~ATAG_MASK))		// Clear the 0x2 bit that distinguishes a forwarding pointer and return it.
 
 // Make a pair-space forward pointer.
 // This is tagged as a descriptor:
 //
-#define MAKE_PAIRSPACE_FORWARDING_POINTER(NEW_ADDR)	((Val)((Punt)(NEW_ADDR) | TAGWORD_ATAG))		// TAGWORD_ATAG							def in   src/c/h/heap-tags.h
+#define MAKE_PAIRSPACE_FORWARDING_POINTER(NEW_ADDR)	((Val)((Vunt)(NEW_ADDR) | TAGWORD_ATAG))		// TAGWORD_ATAG							def in   src/c/h/heap-tags.h
 
 
 // Public heapcleaning functions:
@@ -526,8 +538,8 @@ extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						d
 extern void    set_book2sibid_entries_for_range (Sibid* book2sibid,  Val* base,  Vunt bytesize,  Sibid id);	// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    null_out_newly_dead_weakrefs	(Heap* heap);							// null_out_newly_dead_weakrefs					def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
-extern Hugechunk*   allocate_hugechunk_quire (Heap* heap,  Punt bytesize);					// allocate_hugechunk_quire					def in   src/c/heapcleaner/hugechunk.c
-extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Punt chunk_bytesize);			// allocate_hugechunk						def in   src/c/heapcleaner/hugechunk.c
+extern Hugechunk*   allocate_hugechunk_quire (Heap* heap,  Vunt bytesize);					// allocate_hugechunk_quire					def in   src/c/heapcleaner/hugechunk.c
+extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Vunt chunk_bytesize);			// allocate_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 extern void	    free_hugechunk            (Heap* heap,  Hugechunk* chunk);					// free_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 //

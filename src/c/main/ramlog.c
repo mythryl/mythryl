@@ -15,8 +15,8 @@
 #include "runtime-base.h"
 
 #define ONE_K 1024
-#define RAMLOG_BUFFER_SIZE_IN_BYTES  (256*ONE_K)
-#define RAMLOG_OVERRUN_SIZE_IN_BYTES (  4*ONE_K)
+#define RAMLOG_BUFFER_SIZE_IN_BYTES  (1024*ONE_K)
+#define RAMLOG_OVERRUN_SIZE_IN_BYTES (   4*ONE_K)
 
 // The circular ramlog buffer.  It consists of the bytes from
 // ramlog_buf[0] to ramlog_buf[ RAMLOG_BUFFER_SIZE_IN_BYTES-1 ];
@@ -38,10 +38,15 @@ static char* ramlog_soft_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES;
 static char* ramlog_hard_limit = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES  + RAMLOG_OVERRUN_SIZE_IN_BYTES;
 static int   ramlog_lines_printed = 0;
 
-void   clear_ramlog  (void)   {
+void   clear_ramlog  (void)   {						// Called only from   src/c/main/runtime-main.c
     // ============
     //
     memset( ramlog_buf, 0, RAMLOG_BUFFER_SIZE_IN_BYTES + RAMLOG_OVERRUN_SIZE_IN_BYTES );
+
+    ramlog_next          = ramlog_buf;
+    ramlog_soft_limit    = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES;
+    ramlog_hard_limit    = ramlog_buf + RAMLOG_BUFFER_SIZE_IN_BYTES  + RAMLOG_OVERRUN_SIZE_IN_BYTES;
+    ramlog_lines_printed = 0;
 }
 
 // Append a one-line message to ramlog_buf.
@@ -51,9 +56,11 @@ void   clear_ramlog  (void)   {
 void   ramlog_printf   (char *format, ...)   {
     // =============
     //
-    if (!syscall_log_and_ramlog_enabled)   return;
+    if (!syscall_log_and_ramlog_enabled)   return;			// Set FALSE only by  enter_debug_loop()   in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 
     Hostthread* hostthread = pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
+
+//  pthread_mutex_lock(    &pth__ramlog_mutex  );;
 
     va_list   ap;
 
@@ -87,11 +94,18 @@ void   ramlog_printf   (char *format, ...)   {
         ramlog_next += vsprintf (ramlog_next, format, ap);
         va_end(ap);
 
+ 	if (ramlog_next[-1] != '\n') {
+ 	    *ramlog_next++ = '\n';
+ 	    *ramlog_next   = '\0';
+ 	}
+
 	if (ramlog_next >= ramlog_soft_limit) {				// Line length > buffer length ?! =8-o
 	    //
 	    die("ramlog_printf: Overran buffer by %d, increase RAMLOG_OVERRUN_SIZE_IN_BYTES", ramlog_next - ramlog_soft_limit);
 	}
     }
+
+//  pthread_mutex_unlock(  &pth__ramlog_mutex  );
 }
 
 static int   count_lines_in_ramlog   (void) {

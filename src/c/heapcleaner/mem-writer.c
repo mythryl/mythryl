@@ -29,7 +29,7 @@ typedef struct buffer {
 } wr_buffer_t;
 
 static void Put   (Writer *wr, Vunt w);
-static void Write (Writer *wr, const void *data, Punt nbytes);
+static void Write (Writer *wr, const void *data, Vunt nbytes);
 static void Flush (Writer *wr);
 static long Tell  (Writer *wr);
 static void Seek  (Writer *wr, long offset);
@@ -37,7 +37,7 @@ static void Free  (Writer *wr);
 
 #define BufOf(wr)	((wr_buffer_t *)((wr)->data))
 
-Writer*   WR_OpenMem   (Unt8* data,  Punt len)   {
+Writer*   WR_OpenMem   (Unt8* data,  Vunt len)   {
     //    ==========
     // 
     // Open a ram segment for writing, and make a writer for it.
@@ -48,7 +48,7 @@ Writer*   WR_OpenMem   (Unt8* data,  Punt len)   {
     bp = MALLOC_CHUNK(wr_buffer_t);
     bp->base	= data;
     bp->next	= data;
-    bp->top	= (Unt8 *)(((Punt)data) + len);
+    bp->top	= (Unt8 *)(((Vunt)data) + len);
 
     wr = MALLOC_CHUNK(Writer);
     wr->seen_error	= FALSE;
@@ -78,7 +78,7 @@ static void   Put   (Writer* wr,  Vunt w)   {
 
 
 
-static void   Write   (Writer* wr,  const void* data,  Punt nbytes)   {
+static void   Write   (Writer* wr,  const void* data,  Vunt nbytes)   {
     //        =====
     //
     wr_buffer_t*  bp =   BufOf( wr );

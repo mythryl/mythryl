@@ -58,7 +58,7 @@ static  Val   forward_agegroup0_chunk_to_agegroup1	(Agegroup* agegroup1,  Val v,
 static  Val   forward_special_chunk			(Agegroup* agegroup1,  Val* chunk,  Val tagword);
 
 
-#ifdef VERBOSE
+#ifndef VERBOSE
     extern char* sib_name__global [];			// sib_name__global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
@@ -100,7 +100,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     Heap*      heap =  task->heap;
     Agegroup*  age1 =  heap->agegroup[0];
 
-													    Punt  age1_tospace_top   [ MAX_PLAIN_SIBS ];
+													    Vunt  age1_tospace_top   [ MAX_PLAIN_SIBS ];
 														//
 														// Heapcleaner statistics support: We use this to note the
 														// current start-of-freespace in each generation-one sib buffer.
@@ -119,24 +119,28 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														//
 														age1_tospace_top[i]
 														    =
-														    (Punt)   age1->sib[ i ]->tospace.used_end;
+														    (Vunt)   age1->sib[ i ]->tospace.first_free;
 													    }
 
-
+													    static int callcount = 0;
+													    ++callcount;
 													    #ifdef VERBOSE
-														debug_say ("Agegroup 1 before cleaning agegroup0:\n");
+													    if (! (callcount & 0xf)) {
+														//
+														log_if ("Agegroup 1 before cleaning agegroup0:   (call %d) -- heapclean-agegroup0.c", callcount);
 														//
 														for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 														    //
-														    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, tospace.used_end = %#x\n",
+														    log_if("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, tospace.first_free = %#x",
 															//
 															sib_name__global[ i+1 ],
 															//
 															age1->sib[ i ]->tospace,
 															age1->sib[ i ]->fromspace.seniorchunks_end,
-															age1->sib[ i ]->tospace.used_end
+															age1->sib[ i ]->tospace.first_free
 														    );
 														}
+													    }
 													    #endif
 
     // Scan the standard roots.  These are pointers
@@ -181,12 +185,14 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     //////////////////////////////////////////////////////////// 
 
 								    #ifdef VERBOSE
-									debug_say ("Agegroup 1 after MinorGC:\n");
+								    if (! (callcount & 0xf)) {
+									log_if ("Agegroup 1 after minorgc:    (call %d) -- heapclean-agegroup0.c", callcount);
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-									  debug_say ("  %s: base = %#x, oldTop = %#x, tospace.used_end = %#x\n",
+									  log_if ("  %s: base = %#x, oldTop = %%#x, tospace.first_free = %#x",
 									    sib_name__global[i+1], age1->sib[i]->tospace,
-									    age1->sib[i]->oldTop, age1->sib[i]->tospace.used_end);
+										  /* age1->sib[i]->oldTop, */ age1->sib[i]->tospace.first_free);
 									}
+								    }
 								    #endif
 
 								    // Cleaner statistics stuff:
@@ -195,7 +201,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 									    //
-									    int bytes = (Vunt) age1->sib[ i ]->tospace.used_end - age1_tospace_top[ i ];
+									    int bytes = (Vunt) age1->sib[ i ]->tospace.first_free - age1_tospace_top[ i ];
 
 									    bytes_copied += bytes;
 
@@ -205,11 +211,14 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 									total_bytes_allocated__global  +=  bytes_allocated;				// Never used otherwise.
 									total_bytes_copied__global     +=  bytes_copied;				// Never used otherwise.
 
-									#ifdef XXX
-									    debug_say ("Minor GC: %d/%d (%5.2f%%) bytes copied; %d updates\n",
+									#ifndef VERBOSE
+									if (! (callcount & 0xff)) {
+									    log_if ("DONE minorgc #%d: %d/%d (%5.2f%%) bytes copied; %%d updates    (callcount %d) -- heapclean-agegroup0.c",
+									    callcount,
 									    bytes_copied, bytes_allocated,
-									    (bytes_allocated ? (double)(100*bytes_copied)/(double)bytes_allocated : 0.0),
-									    update_count__global - nUpdates);
+									    (bytes_allocated ? (double)(100*bytes_copied)/(double)bytes_allocated : 0.0)
+									    /* update_count__global - nUpdates */);
+									}
 									#endif
 								    }
 
@@ -340,17 +349,17 @@ static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task
     Bool   progress =  FALSE;
 
     Val* p = sib->tospace.swept_end;								// Pick up scanning this sib where we last left off.
-    if  (p < sib->tospace.used_end) {
+    if  (p < sib->tospace.first_free) {
 	//
 	progress = TRUE;
 
         Val*q;
 	do {
-	    for (q = sib->tospace.used_end;  p < q;  p++) {					// Check all words in buffer.
+	    for (q = sib->tospace.first_free;  p < q;  p++) {					// Check all words in buffer.
 		//
 	      forward_to_agegroup1_if_in_agegroup0(b2s, ag1, p, task);				// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
-	} while (q != sib->tospace.used_end);							// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
+	} while (q != sib->tospace.first_free);							// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
 	sib->tospace.swept_end = q;								// Remember where we left off. (Current end of buffer.)
     }
@@ -440,15 +449,15 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	    } else {
 		//								// This v is a pair, so we'll use special-case code.
 		sib = ag1->sib[ RO_CONSCELL_SIB ];					// We'll copy it into the dedicated pairs-only sib in agegroup1.
-		new_chunk = sib->tospace.used_end;			// Where to copy it in that sib.
-		sib->tospace.used_end += 2;			// Allocate the space for it.
+		new_chunk = sib->tospace.first_free;			// Where to copy it in that sib.
+		sib->tospace.first_free += 2;			// Allocate the space for it.
 		new_chunk[0] = chunk[0];					// Copy first  word of pair.
 		new_chunk[1] = chunk[1];					// Copy second word of pair.
 										// Notice that we don't need to copy the tagword -- it is implicit in the fact that we're in the pairsib.
 		// Set up the forward pointer in the old pair:
 		//
 		chunk[-1] = FORWARDED_CHUNK_TAGWORD;
-		chunk[0] = (Val)(Punt)new_chunk;
+		chunk[0] = (Val)(Vunt)new_chunk;
 		return PTR_CAST( Val, new_chunk );				// Done!
 	    }
         #endif
@@ -488,12 +497,12 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	#ifdef ALIGN_FLOAT64S
 	#  ifdef CHECK_HEAP
-		if (((Punt)sib->tospace.used_end & WORD_BYTESIZE) == 0) {
+		if (((Vunt)sib->tospace.first_free & WORD_BYTESIZE) == 0) {
 		    //
-		    *sib->tospace.used_end++ = (Val) 0;
+		    *sib->tospace.first_free++ = (Val) 0;
 		}
 	#  else
-		sib->tospace.used_end = (Val*) (((Punt)sib->tospace.used_end) | WORD_BYTESIZE);
+		sib->tospace.first_free = (Val*) (((Vunt)sib->tospace.first_free) | WORD_BYTESIZE);
 	#  endif
 	#endif
 	break;									// Fall through to generic-case code.
@@ -517,10 +526,10 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     // Make an agegroup1 copy of the chunk
     // in the appropriate agegroup1 sib (buffer):
     //
-    new_chunk = sib->tospace.used_end;				// Figure out where copy will be located.
-    sib->tospace.used_end += (len_in_words + 1);			// Allocate space needed by the copy.
+    new_chunk = sib->tospace.first_free;				// Figure out where copy will be located.
+    sib->tospace.first_free += (len_in_words + 1);			// Allocate space needed by the copy.
     *new_chunk++ = tagword;							// Install tagword at start of copy.  (Note that 'sib' cannot be RO_CONSCELL_SIB, we handled that case above.)
-    ASSERT( sib->tospace.used_end <= sib->tospace.limit );
+    ASSERT( sib->tospace.first_free <= sib->tospace.limit );
 
     COPYLOOP(chunk, new_chunk, len_in_words);					// Copy over the rest of the chunk.
 										// COPYLOOP	def in   src/c/heapcleaner/copy-loop.h
@@ -528,7 +537,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     // to the copy and return the new chunk:
     //
     chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
-    chunk[ 0] =  (Val) (Punt) new_chunk;
+    chunk[ 0] =  (Val) (Vunt) new_chunk;
 
     return PTR_CAST( Val, new_chunk );
 }										// fun forward_agegroup0_chunk_to_agegroup1
@@ -541,9 +550,9 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
     Sib*  sib =  ag1->sib[ RW_POINTERS_SIB ];						// Special chunks can be updated (modified)
 											// so they have to go in RW_POINTERS_SIB.
-    Val*  new_chunk = sib->tospace.used_end;
+    Val*  new_chunk = sib->tospace.first_free;
 
-    sib->tospace.used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
+    sib->tospace.first_free += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword )) {
         //
@@ -668,7 +677,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
     }								// switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword))
 
     chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
-    chunk[ 0] =  (Val) (Punt) new_chunk;
+    chunk[ 0] =  (Val) (Vunt) new_chunk;
 
     return   PTR_CAST( Val, new_chunk );
 }								// fun forward_special_chunk

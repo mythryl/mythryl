@@ -37,7 +37,7 @@
     // initialization, hence the PTR_CAST macro.
     //
     #ifdef SIZES_C_64_MYTHRYL_32
-	#define PTR_CAST(ty, p)		((ty)(Punt)(p))
+	#define PTR_CAST(ty, p)		((ty)(Vunt)(p))
     #else
 	#define PTR_CAST(ty, p)		((ty)(p))
     #endif
@@ -55,9 +55,9 @@
 #ifndef _ASM_
 
 // Convert a Mythryl pointer to
-// an Punt value:
+// an Vunt value:
 //
-#define HEAP_POINTER_AS_UNT(p)		((Punt)PTR_CAST(void*, p))
+#define HEAP_POINTER_AS_UNT(p)		((Vunt)PTR_CAST(void*, p))
 
 // Fetching tuple fields:
 //

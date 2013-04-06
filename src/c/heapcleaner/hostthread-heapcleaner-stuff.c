@@ -146,7 +146,7 @@ hostthread, task->real_heap_allocation_limit,
 	//
 	start_of_agegroup0_buffer_for_next_hostthread
 	    =
-	    (Val*) ( ((Punt) start_of_agegroup0_buffer_for_next_hostthread)
+	    (Val*) ( ((Vunt) start_of_agegroup0_buffer_for_next_hostthread)
                      +
                      per_hostthread_agegroup0_buffer_bytesize
                    );

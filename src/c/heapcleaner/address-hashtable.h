@@ -22,14 +22,14 @@ extern Addresstable*   make_address_hashtable   (int ignore_bits, int size);				
 
 // Insert an chunk into a address hashtable.
 //
-extern void   addresstable_insert   (Addresstable* table,   Punt addr,   void* chunk);
+extern void   addresstable_insert   (Addresstable* table,   Vunt addr,   void* chunk);
     //        ===================
 
 
 // Return the chunk associated with the given address.
 // Return NULL if not found.
 //
-extern void*   addresstable_look_up   (Addresstable* table,   Punt addr);
+extern void*   addresstable_look_up   (Addresstable* table,   Vunt addr);
     //         ====================
 
 
@@ -37,7 +37,7 @@ extern void*   addresstable_look_up   (Addresstable* table,   Punt addr);
 // The second argument to the function is the function's "closure," (state) and
 // the third is the associated info.
 //
-extern void   addresstable_apply   (Addresstable* table,   void* clos,   void (*f) (Punt, void *, void *));
+extern void   addresstable_apply   (Addresstable* table,   void* clos,   void (*f) (Vunt, void *, void *));
     //        ==================  
 
 

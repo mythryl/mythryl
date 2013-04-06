@@ -55,7 +55,7 @@ void  set_up_quire_os_interface  () {				// Part of the api defined by	src/c/h/g
 }
 
 
-static Status   map_quire   (Quire* chunk,  Punt bytesize) {
+static Status   map_quire   (Quire* chunk,  Vunt bytesize) {
     // 
     // Map a   BOOK_BYTESIZE
     // aligned chunk of bytesize bytes of virtual memory.
@@ -63,7 +63,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     // Return the address of the mapped memory
     // or NULL on failure.
 
-    Punt		addr, offset;
+    Vunt		addr, offset;
     kern_return_t	status;
 
     status = vm_allocate(task_self(), &addr, bytesize+BOOK_BYTESIZE, TRUE);
@@ -109,7 +109,7 @@ static void   unmap_quire   (Quire* chunk) {
 
     if (status != KERN_SUCCESS) {
         die ("error unmapping [%#x, %#x), errno = %d\n",
-	    chunk->mapBase, (Punt)(chunk->mapBase) + chunk->mapSizeB, errno);
+	    chunk->mapBase, (Vunt)(chunk->mapBase) + chunk->mapSizeB, errno);
     }
 }
 

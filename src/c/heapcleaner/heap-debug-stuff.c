@@ -147,7 +147,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller, int verbose
     fprintf(fd,"                       &heapvoid p=%p\n", &task->heapvoid);
     fprintf(fd," Following stuff is in task->heap:\n");
     fprintf(fd,"         agegroup0_master_buffer p=%p\n",  task->heap->agegroup0_master_buffer);
-    fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int) task->heap->agegroup0_master_buffer_bytesize);	// Punt
+    fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int) task->heap->agegroup0_master_buffer_bytesize);	// Vunt
     fprintf(fd,"                sum of above two p=%p\n",  (char*)(task->heap->agegroup0_master_buffer) + task->heap->agegroup0_master_buffer_bytesize);
     fprintf(fd,"                           quire p=%p\n",  task->heap->quire);
     fprintf(fd,"                active_agegroups d=%d\n",  task->heap->active_agegroups);
@@ -178,14 +178,14 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller, int verbose
 		fprintf(fd,"          a->sib[%d].id d=%d\n",  s, a->sib[s]->id);
 		fprintf(fd,"\n");
 		fprintf(fd,"          a->sib[%d].tospace.start      p=%p\n",  s, a->sib[s]->tospace.start);
-		fprintf(fd,"          a->sib[%d].tospace.bytesize   p=%p\n",  s, (void*)a->sib[s]->tospace.bytesize);		// Punt
+		fprintf(fd,"          a->sib[%d].tospace.bytesize   p=%p\n",  s, (void*)a->sib[s]->tospace.bytesize);		// Vunt
 		fprintf(fd,"          a->sib[%d].tospace.limit      p=%p\n",  s, a->sib[s]->tospace.limit);
 		fprintf(fd,"\n");
 		fprintf(fd,"          a->sib[%d].fromspace.start    p=%p\n",  s, a->sib[s]->fromspace.start);
 		fprintf(fd,"          a->sib[%d].fromspace.bytesize x=%x\n",  s, (unsigned int) a->sib[s]->fromspace.bytesize);	// Vunt
-		fprintf(fd,"          a->sib[%d].fromspace.used_end p=%p\n",  s, a->sib[s]->fromspace.used_end);
+		fprintf(fd,"          a->sib[%d].fromspace.first_free p=%p\n",  s, a->sib[s]->fromspace.first_free);
 		fprintf(fd,"\n");
-		fprintf(fd,"          a->sib[%d].tospace.used_end p=%p\n",  s, a->sib[s]->tospace.used_end);
+		fprintf(fd,"          a->sib[%d].tospace.first_free p=%p\n",  s, a->sib[s]->tospace.first_free);
 		fprintf(fd,"          a->sib[%d].tospace.swept_end p=%p\n",  s, a->sib[s]->tospace.swept_end);
 		fprintf(fd,"          a->sib[%d].repairlist p=%p\n",  s, a->sib[s]->repairlist);
 		fprintf(fd,"          a->sib[%d].end_of_fromespace_oldstuff p=%p\n",  s, a->sib[s]->fromspace.seniorchunks_end);
@@ -436,7 +436,7 @@ static void   dump_gen0__guts   (FILE* fd, Task* task, char* caller) {
     fprintf(fd,"\n"											);
     fprintf(fd," generation-0 heapbuffer dump for hostthread->ptid x=%lx, called by %s\n",  (unsigned long int) task->hostthread->ptid, caller);
     fprintf(fd,"         agegroup0_master_buffer p=%p\n",  task->heap->agegroup0_master_buffer);
-    fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int)task->heap->agegroup0_master_buffer_bytesize);				// Punt
+    fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int)task->heap->agegroup0_master_buffer_bytesize);				// Vunt
     fprintf(fd,"                sum of above two p=%p\n",  (char*)(task->heap->agegroup0_master_buffer) + task->heap->agegroup0_master_buffer_bytesize);
     fprintf(fd,"         heap_allocation_pointer p=%p\n",  task->heap_allocation_pointer);
     fprintf(fd,"           heap_allocation_limit p=%p\n",  task->heap_allocation_limit);
@@ -471,7 +471,7 @@ static void   dump_gen0s__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"\n"											);
 	fprintf(fd,"generation-0 heapbuffer dump for hostthread->ptid x=%lx, called by %s\n",  (unsigned long int) task->hostthread->ptid, caller);
 	fprintf(fd,"         agegroup0_master_buffer p=%p\n",  task->heap->agegroup0_master_buffer);
-	fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int)task->heap->agegroup0_master_buffer_bytesize);				// Punt
+	fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int)task->heap->agegroup0_master_buffer_bytesize);				// Vunt
 	fprintf(fd,"                sum of above two p=%p\n",  (char*)(task->heap->agegroup0_master_buffer) + task->heap->agegroup0_master_buffer_bytesize);
 	fprintf(fd,"         heap_allocation_pointer p=%p\n",  task->heap_allocation_pointer);
 	fprintf(fd,"           heap_allocation_limit p=%p\n",  task->heap_allocation_limit);
@@ -501,7 +501,7 @@ void   dump_gen0s   (Task* task, char* caller) {
 static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ========
     fprintf(fd,"                     sib->id x= %04x  = id%01x/kind%02x/age%01x\n",	sib->id, GET_ID_FROM_SIBID(sib->id), GET_KIND_FROM_SIBID(sib->id), GET_AGE_FROM_SIBID(sib->id)	);
-    fprintf(fd,"                     sib->tospace.used_end p= %p\n",	sib->tospace.used_end			);
+    fprintf(fd,"                     sib->tospace.first_free p= %p\n",	sib->tospace.first_free			);
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->tospace.start    p= %p\n",				sib->tospace.start				);
     fprintf(fd,"                     sib->tospace.bytesize x= 0x%08x\n",	(unsigned int)  sib->tospace.bytesize				);
@@ -512,7 +512,7 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->fromspace.start    p= %p\n",				sib->fromspace.start				);
     fprintf(fd,"                     sib->fromspace.bytesize x= 0x%08x\n",(unsigned int)	sib->fromspace.bytesize				);
-    fprintf(fd,"                     sib->fromspace.used_end p= %p\n",				sib->fromspace.used_end				);
+    fprintf(fd,"                     sib->fromspace.first_free p= %p\n",				sib->fromspace.first_free				);
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->fromspace.seniorchunks_end p= %p\n",		sib->fromspace.seniorchunks_end				);
     fprintf(fd,"                     sib->sib_for_promoted_chunks   p= %p\n",		sib->sib_for_promoted_chunks				);
@@ -528,13 +528,13 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
 static void   dump_ro_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===================
     //
-    dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
+    dump_records   (fd, sib->tospace.start, sib->tospace.first_free);
 }
 //
 static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
     //        ===================
     for (Val* p = sib->tospace.start;
-	      p < sib->tospace.used_end;
+	      p < sib->tospace.first_free;
 	      p += 2
     ){
 	fprintf(fd,"\n");
@@ -547,7 +547,7 @@ static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===================
     //
     for (Val* p = sib->tospace.start;
-	      p < sib->tospace.used_end;
+	      p < sib->tospace.first_free;
 	      p++
     ){
 	char buf[ 132 ];
@@ -559,10 +559,10 @@ static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
 static void   dump_rw_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===================
     //
-    dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
+    dump_records   (fd, sib->tospace.start, sib->tospace.first_free);
 
 //    for (Val* p = sib->tospace;
-//	      p < sib->tospace.used_end;
+//	      p < sib->tospace.first_free;
 //	      p++
 //    ){
 //	fprintf(fd," %8p: %08x\n",  p, v2u(*p));
@@ -667,7 +667,7 @@ static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
     fprintf(fd,"    next            p= %p\n", p->next);
     fprintf(fd,"    prev            p= %p\n", p->prev);
     fprintf(fd,"    chunk           p= %p   (This is the actual free chunk itself)\n", (void*)p->chunk);
-    fprintf(fd,"    bytesize        x= %x\n", (unsigned int)p->bytesize);							// Punt
+    fprintf(fd,"    bytesize        x= %x\n", (unsigned int)p->bytesize);							// Vunt
     fprintf(fd,"    huge_ilk        d= %d  (Currently always CODE__HUGE_SIB=%d) \n", p->huge_ilk, CODE__HUGE_SIB);		// unsigned char
     fprintf(fd,"    state            = %s  (One of FREE_HUGECHUNK/JUNIOR_HUGECHUNK/JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED/SENIOR_HUGECHUNK/SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
     fprintf(fd,"    age             d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char

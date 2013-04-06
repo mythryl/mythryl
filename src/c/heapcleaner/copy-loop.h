@@ -1,6 +1,6 @@
 // copy-loop.h
 //
-// A dirty, but quick, copy loop for the cleaner.
+// A dirty, but quick, copy loop for the heapcleaner.
 // This is used in:
 //
 //     src/c/heapcleaner/datastructure-pickler-cleaner.c
@@ -12,8 +12,8 @@
 #define COPY_LOOP_H
 
 #define COPYLOOP(SRC,DST,LEN)	{				\
-	Vunt	*__src = (Vunt *)(SRC);	\
-	Vunt	*__dst = (Vunt *)(DST);	\
+	Vunt	*__src = (Vunt *)(SRC);				\
+	Vunt	*__dst = (Vunt *)(DST);				\
 	int	__len = (LEN);					\
 	int	__m;						\
 	switch (__len & 0x3) {					\

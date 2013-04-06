@@ -78,12 +78,12 @@ static void   check_ro_pointer_sib   (Sib* ap) {
 	//
         gen,
         ap->tospace,
-	ap->tospace.used_end,
+	ap->tospace.first_free,
 	ap->tospace.limit
     );
 
     p = ap->tospace;
-    stop = ap->tospace.used_end;
+    stop = ap->tospace.first_free;
 
     while (p < stop) {
 	//
@@ -174,10 +174,10 @@ static void   check_ro_ptrpair_sib   (Sib* ap) {
     if (*sib_is_active(ap))   return;							// sib_is_active	def in    src/c/h/heap.h
 
     debug_say ("  pairs [%d]: [%#x..%#x:%#x)\n",
-	gen, ap->tospace, ap->tospace.used_end, ap->tospace.limit);
+	gen, ap->tospace, ap->tospace.first_free, ap->tospace.limit);
 
     p = ap->tospace + 2;
-    stop = ap->tospace.used_end;
+    stop = ap->tospace.first_free;
     while (p < stop) {
 	w = *p++;
 	if (IS_TAGWORD(w)) {
@@ -213,12 +213,12 @@ static void   check_nonpointer_sib   (Sib* ap)   {
 	//
 	gen,
 	ap->tospace,
-	ap->tospace.used_end,
+	ap->tospace.first_free,
 	ap->tospace.limit
     );
 
     p = ap->tospace;
-    stop = ap->tospace.used_end;
+    stop = ap->tospace.first_free;
     prevTagword = NULL;
     while (p < stop) {
 	tagword = *p++;
@@ -243,7 +243,7 @@ static void   check_nonpointer_sib   (Sib* ap)   {
 	    p += len;
 	}
 #ifdef ALIGN_FLOAT64S
-	else if ((tagword == 0) && (((Punt)p & WORD_BYTESIZE) != 0))
+	else if ((tagword == 0) && (((Vunt)p & WORD_BYTESIZE) != 0))
 	    continue;	    // Assume this is alignment padding.
 #endif
 	else {
@@ -279,12 +279,12 @@ static void   check_rw_pointer_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_M
 	//
 	gen,
 	ap->tospace,
-	ap->tospace.used_end,
+	ap->tospace.first_free,
 	ap->tospace.limit
     );
 
     p = ap->tospace;
-    stop = ap->tospace.used_end;
+    stop = ap->tospace.first_free;
 
     while (p < stop) {
 	tagword = *p++;

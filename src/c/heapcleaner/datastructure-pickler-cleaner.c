@@ -51,7 +51,7 @@ struct repair {
 	Sib* __sib = (sib);				\
 	if (repair_heap__local) {				\
 	    Repair	*__rp = __sib->repairlist - 1;	\
-	    if ((Val *)__rp > __sib->tospace.used_end) {		\
+	    if ((Val *)__rp > __sib->tospace.first_free) {		\
 		__rp->loc = (location);			\
 		__rp->val = (value);			\
 		__sib->repairlist = __rp;		\
@@ -70,9 +70,9 @@ struct repair {
  static Val                    forward_chunk				(Task* task,  Val chunk, Sibid id);
  static Hugechunk*             forward_hugechunk			(Task* task,  Val* p,  Val chunk,  Sibid aid);
 
- static Embedded_Chunk_Info*   find_embedded_chunk			(Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
- static void                   record_addresses_of_extracted_literals	(Punt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
- static void                   extract_literals_from_codechunks		(Punt addr, void *_closure, void *_info);
+ static Embedded_Chunk_Info*   find_embedded_chunk			(Addresstable* table,  Vunt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
+ static void                   record_addresses_of_extracted_literals	(Vunt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
+ static void                   extract_literals_from_codechunks		(Vunt addr, void *_closure, void *_info);
 
 // The closure for record_addresses_of_extracted_literals:
 //
@@ -198,12 +198,12 @@ Pickler_Result   pickler__clean_heap   (
 // NOTE: This code will break if the size of the string space
 // plus embedded literals exceeds 16Mb.			XXX BUGGO FIXME
 ///
-Punt   pickler__relocate_embedded_literals   (
+Vunt   pickler__relocate_embedded_literals   (
     // =========================================================
     //
     Pickler_Result*     result,
     int               id,
-    Punt offset
+    Vunt offset
 ){
     struct assignlits_clos closure;
     //
@@ -290,17 +290,17 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		// needs the from-space information.
 
 		Val*	tmpBase  =  sib->tospace.start;
-		Punt	tmpSizeB =  sib->tospace.bytesize;
+		Vunt	tmpSizeB =  sib->tospace.bytesize;
 		Val*	tmpTop   =  sib->tospace.limit;
 
-		sib->tospace.used_end	=
-		sib->tospace.swept_end	=  sib->fromspace.used_end;
+		sib->tospace.first_free	=
+		sib->tospace.swept_end	=  sib->fromspace.first_free;
 		sib->tospace.start	=  sib->fromspace.start;
 		sib->fromspace.start	=  tmpBase;
 		sib->tospace.bytesize	=  sib->fromspace.bytesize;
 		sib->fromspace.bytesize	=  tmpSizeB;
 		sib->tospace.limit	=  saved_top__local[i][j];
-		sib->fromspace.used_end	=  tmpTop;
+		sib->fromspace.first_free	=  tmpTop;
 	    }
 	}
 
@@ -462,14 +462,14 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    Val* p =  sib->tospace.start;
 
-	    while (p < sib->tospace.used_end) {
+	    while (p < sib->tospace.first_free) {
 
 		int	mark = i+1;
 
-		stop = (Val*) (( (Punt)p + CARD_BYTESIZE) & ~(CARD_BYTESIZE - 1));
+		stop = (Val*) (( (Vunt)p + CARD_BYTESIZE) & ~(CARD_BYTESIZE - 1));
 
-		if (stop > sib->tospace.used_end) {
-		    stop = sib->tospace.used_end;
+		if (stop > sib->tospace.first_free) {
+		    stop = sib->tospace.first_free;
                 }
 
 		while (p < stop) {
@@ -541,7 +541,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.seniorchunks_end =  g->sib[ j ]->tospace.used_end;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.seniorchunks_end =  g->sib[ j ]->tospace.first_free;
 		else			           g->sib[ j ]->fromspace.seniorchunks_end =  NULL;
 	    }
 	}
@@ -560,7 +560,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ g ][ a ],
-		    sib->tospace.used_end - sib->tospace.start
+		    sib->tospace.first_free - sib->tospace.start
 		);
 	    }
 	}
@@ -578,7 +578,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
     // same size as the existing from-space.
 
     Heap* heap = task->heap;
-    Punt  new_size;
+    Vunt  new_size;
 
     for (int age = oldest_agegroup_being_cleaned__local;  age < gen;  age++) {
         //
@@ -593,15 +593,15 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 		ASSERT(
                     s == NONPTR_DATA_SIB
                     ||
-                    sib->tospace.used_end == sib->tospace.swept_end
+                    sib->tospace.first_free == sib->tospace.swept_end
                 );
 
 	        saved_top__local[age][s] = sib->tospace.limit;
 
 		make_sib_tospace_into_fromspace( sib );										// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
-		new_size = (Punt) sib->fromspace.used_end
-                         - (Punt) sib->fromspace.start;
+		new_size = (Vunt) sib->fromspace.first_free
+                         - (Vunt) sib->fromspace.start;
 
 		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
 		if (s == RO_CONSCELL_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
@@ -648,13 +648,13 @@ static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
 	    if (sib_is_active(__sib)) {							\
 		Val    *__p, *__q;							\
 		__p = __sib->tospace.swept_end;						\
-		if (__p < __sib->tospace.used_end) {						\
+		if (__p < __sib->tospace.first_free) {						\
 		    swept = TRUE;							\
 		    do {								\
-			for (__q = __sib->tospace.used_end;  __p < __q;  __p++) {			\
+			for (__q = __sib->tospace.first_free;  __p < __q;  __p++) {			\
 			    CHECK_WORD_FOR_EXTERNAL_REFERENCE(task, b2s, __p, maxAid, seen_error);	\
 			}								\
-		    } while (__q != __sib->tospace.used_end);					\
+		    } while (__q != __sib->tospace.first_free);					\
 		    __sib->tospace.swept_end = __q;						\
 		}									\
 	    }										\
@@ -731,9 +731,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    //
 	    sib =  heap->agegroup[ gen-1 ]->sib[ RO_CONSCELL_SIB ];
 
-	    new_chunk =  sib->tospace.used_end;
+	    new_chunk =  sib->tospace.first_free;
 
-	    sib->tospace.used_end += 2;
+	    sib->tospace.first_free += 2;
 
 	    new_chunk[0] = w;
 	    new_chunk[1] = chunk[1];
@@ -766,13 +766,13 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) sib->tospace.used_end & WORD_BYTESIZE) == 0) {
+			    if (((Vunt) sib->tospace.first_free & WORD_BYTESIZE) == 0) {
 				//
-				*sib->tospace.used_end = (Val)0;
-				sib->tospace.used_end++;
+				*sib->tospace.first_free = (Val)0;
+				sib->tospace.first_free++;
 			    }
 		#  else
-			    sib->tospace.used_end = (Val *)(((Punt) sib->tospace.used_end) | WORD_BYTESIZE);
+			    sib->tospace.first_free = (Val *)(((Vunt) sib->tospace.first_free) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -827,9 +827,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
     // Allocate and initialize a to-space copy of the chunk:
     //
-    new_chunk =  sib->tospace.used_end;
+    new_chunk =  sib->tospace.first_free;
 
-    sib->tospace.used_end
+    sib->tospace.first_free
 	+=
 	len + 1;
 
@@ -844,7 +844,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
     chunk[-1] = FORWARDED_CHUNK_TAGWORD;
 
-    chunk[0] =  (Val)(Punt)  new_chunk;
+    chunk[0] =  (Val)(Vunt)  new_chunk;
 
     return PTR_CAST( Val, new_chunk);
 }									// fun forward_chunk
@@ -897,7 +897,7 @@ static Embedded_Chunk_Info*   find_embedded_chunk   (
     //                        ===================
     //
     Addresstable*         table,
-    Punt                  addr,
+    Vunt                  addr,
     Embedded_Chunk_Kind   kind
 ) {
     Embedded_Chunk_Info* p  =  FIND_EMBEDDED_CHUNK( table, addr );	// FIND_EMBEDDED_CHUNK		def in    src/c/heapcleaner/datastructure-pickler.h
@@ -917,7 +917,7 @@ static Embedded_Chunk_Info*   find_embedded_chunk   (
 static void   record_addresses_of_extracted_literals   (
     //        ======================================
     //
-    Punt addr,
+    Vunt addr,
     void* _closure,
     void* _info
 ){
@@ -992,7 +992,7 @@ static void   record_addresses_of_extracted_literals   (
 static void   extract_literals_from_codechunks   (
     //        ================================
     //
-    Punt  addr,
+    Vunt  addr,
     void*              _closure,						// Matthias calls this a closure; it's just our state.
     void*              _info
 ) {

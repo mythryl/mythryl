@@ -154,7 +154,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     // Check the heap to see if there is
     // enough free space in agegroup 1:
     //
-    {   Punt	agegroup0_buffer_bytesize =   agegroup0_buffer_size_in_bytes( task );
+    {   Vunt	agegroup0_buffer_bytesize =   agegroup0_buffer_size_in_bytes( task );
         //
 	Bool needs_cleaning  =   FALSE;
 
@@ -207,7 +207,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 
     // Read the pickled datastructure elements:
     //
-    {   Punt  sib_base[ MAX_PLAIN_SIBS ];
+    {   Vunt  sib_base[ MAX_PLAIN_SIBS ];
 	//
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
@@ -215,12 +215,12 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		//
 	        Sib* sib = age1->sib[ ilk ];
 
-	        sib_base[ilk] =  (Punt) sib->tospace.used_end;
+	        sib_base[ilk] =  (Vunt) sib->tospace.first_free;
 
-	        heapio__read_block( bp, (sib->tospace.used_end), sib_headers[ilk]->info.o.bytesize );
+	        heapio__read_block( bp, (sib->tospace.first_free), sib_headers[ilk]->info.o.bytesize );
 
-		// debug_say ("[%2d] Read [%#x..%#x)\n", ilk+1, sib->tospace.used_end,
-		// (Punt)(sib->tospace.used_end)+sib_headers[ilk]->info.o.bytesize);
+		// debug_say ("[%2d] Read [%#x..%#x)\n", ilk+1, sib->tospace.first_free,
+		// (Vunt)(sib->tospace.first_free)+sib_headers[ilk]->info.o.bytesize);
 	    }
 	}
 
@@ -234,13 +234,13 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		//
 		if (ilk == NONPTR_DATA_SIB) {
 		    //
-		    sib->tospace.used_end = (Val*) ((Punt)(sib->tospace.used_end)
+		    sib->tospace.first_free = (Val*) ((Vunt)(sib->tospace.first_free)
 			      + sib_headers[ilk]->info.o.bytesize);
 		} else {
 
-		    Val* p = sib->tospace.used_end;
+		    Val* p = sib->tospace.first_free;
 
-		    Val* stop = (Val*) ((Punt)p + sib_headers[ilk]->info.o.bytesize);
+		    Val* stop = (Val*) ((Vunt)p + sib_headers[ilk]->info.o.bytesize);
 
 		    while (p < stop) {
 			//
@@ -264,7 +264,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		        }
 		        p++;
 		    }
-		    sib->tospace.used_end	=
+		    sib->tospace.first_free	=
 		    sib->tospace.swept_end	= stop;
 	        }
 	    }

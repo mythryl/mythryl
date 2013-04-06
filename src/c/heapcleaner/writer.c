@@ -14,7 +14,7 @@
 #endif
 
 static void Put (Writer* wr, Vunt w);
-static void Write (Writer* wr, const void *data, Punt nbytes);
+static void Write (Writer* wr, const void *data, Vunt nbytes);
 static void Flush (Writer* wr);
 static long Tell (Writer* wr);
 static void Seek (Writer* wr, long offset);
@@ -57,7 +57,7 @@ static void   Put   (Writer* wr,  Vunt w)   {
 
 
 
-static void   Write   (Writer* wr,  const void* data,  Punt nbytes)   {
+static void   Write   (Writer* wr,  const void* data,  Vunt nbytes)   {
     //
     FILE* f =  FileOf( wr );
 

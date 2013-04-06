@@ -8,7 +8,7 @@
 // Item
 //
 typedef struct item {	    		// hashtable items.
-    Punt	    addr;		// The address on which the chunk is keyed.
+    Vunt	    addr;		// The address on which the chunk is keyed.
     void*	    chunk;		// The chunk.
     struct item*    next;   		// The next item in the bucket.
 } Item;
@@ -16,7 +16,7 @@ typedef struct item {	    		// hashtable items.
 struct addr_table {
     int		    ignore_bits;
     int		    bucket_count;	// Always a power of two.
-    Punt	    mask;
+    Vunt	    mask;
     int		    vals_count;
     Item**	    buckets;
 };
@@ -65,7 +65,7 @@ void   addresstable_insert   (
     // ===================
     //
     Addresstable*  table,
-    Punt           addr,
+    Vunt           addr,
     void*          chunk
 ){
     // Insert a chunk into a address hashtable.
@@ -102,7 +102,7 @@ void*   addresstable_look_up   (
     //  ====================
     //
     Addresstable*  table,
-    Punt           addr
+    Vunt           addr
 ){
     // Return the chunk associated with the given address.
     // Return NULL if not found.
@@ -127,7 +127,7 @@ void   addresstable_apply   (
     //
     Addresstable* table,
     void*         clos,
-    void (*       f       ) (Punt, void*, void*)
+    void (*       f       ) (Vunt, void*, void*)
 ){
     // Apply the given function
     // to the elements of the table.

@@ -32,8 +32,8 @@
 #include "runtime-base.h"
 #include "header-file-autogeneration-stuff.h"
 
-#define    TASK_FIELD_BYTE_OFFSET(fld)	(((Punt)&(   task_union.s.fld)) - (Punt)&(   task_union.b[0]))
-#define HOSTTHREAD_FIELD_BYTE_OFFSET(fld)	(((Punt)&(hostthread_union.s.fld)) - (Punt)&(hostthread_union.b[0]))
+#define    TASK_FIELD_BYTE_OFFSET(fld)	(((Vunt)&(   task_union.s.fld)) - (Vunt)&(   task_union.b[0]))
+#define HOSTTHREAD_FIELD_BYTE_OFFSET(fld)	(((Vunt)&(hostthread_union.s.fld)) - (Vunt)&(hostthread_union.b[0]))
 
 #define PRINT_HOSTTHREAD_FIELD_BYTE_OFFSET(fieldname, field)   fprintf(fd, "#define %s_byte_offset_in_hostthread_struct %ld\n", (fieldname), (long int) HOSTTHREAD_FIELD_BYTE_OFFSET(field))
 #define    PRINT_TASK_FIELD_BYTE_OFFSET(fieldname, field)   fprintf(fd, "#define %s_byte_offset_in_task_struct %ld\n",    (fieldname), (long int)    TASK_FIELD_BYTE_OFFSET(field))

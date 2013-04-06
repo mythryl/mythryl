@@ -35,11 +35,11 @@
 		=
 		&heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ];		// heapcleaner_statistics_buffer__global		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-	    Punt  bytes
+	    Vunt  bytes
 		=
-                (Punt) task->heap_allocation_pointer
+                (Vunt) task->heap_allocation_pointer
 		-
-		(Punt) heap->agegroup0_buffer;
+		(Vunt) heap->agegroup0_buffer;
 
 	    INCREASE_BIGCOUNTER( &total_bytes_allocated, bytes );
 

@@ -35,7 +35,7 @@ typedef struct embchunk_info {				// Info about an embedded chunk.
 // Find an embedded chunk:
 //
 #define FIND_EMBEDDED_CHUNK( table, addr )	\
-	((Embedded_Chunk_Info*) addresstable_look_up((table), (Punt)(addr)))
+	((Embedded_Chunk_Info*) addresstable_look_up((table), (Vunt)(addr)))
 
 
 // Pickler_Result:   The result of pickling a datastructure.
@@ -52,7 +52,7 @@ typedef struct {
 } Pickler_Result;
 
 extern Pickler_Result  pickler__clean_heap			(Task* task,  Val* root,  int gen);
-Punt                   pickler__relocate_embedded_literals	(Pickler_Result* result,  int id,  Punt offset);
+Vunt                   pickler__relocate_embedded_literals	(Pickler_Result* result,  int id,  Vunt offset);
 void                   pickler__pickle_embedded_literals	(Writer* wr);
 extern void            pickler__wrap_up				(Task* task,  Pickler_Result* result);
 

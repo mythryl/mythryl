@@ -31,7 +31,7 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 
     // Compute the total size:
     //
-    Punt  total_bytes =  0;
+    Vunt  total_bytes =  0;
     //
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	//
@@ -60,8 +60,8 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
     //
     ag->tospace_quire = quire;
     //
-    #ifdef VERBOSE
-        debug_say ("set_up_tospace_sib_buffers_for_agegroup[%d]: total_bytes = %d, [%#x, %#x)\n",
+    #ifndef VERBOSE
+        log_if ("set_up_tospace_sib_buffers_for_agegroup[%d]: total_bytes = %d, [%#x, %#x)",
             ag->age,
             total_bytes,
             BASE_ADDRESS_OF_QUIRE( quire ),						// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
@@ -78,22 +78,22 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 	if (!sib_is_active(sib)) {							// sib_is_active	def in    src/c/h/heap.h
             //
 	    sib->tospace.start		= NULL;
-	    sib->tospace.used_end	= NULL;
+	    sib->tospace.first_free	= NULL;
 	    sib->tospace.swept_end	= NULL;
 	    sib->tospace.limit		= NULL;
             //
 	} else {
             //
 	    sib->tospace.start		= p;
-	    sib->tospace.used_end	= p;
+	    sib->tospace.first_free	= p;
 	    sib->tospace.swept_end	= p;
             //
-	    p = (Val*)((Punt)p + sib->tospace.bytesize);
+	    p = (Val*)((Vunt)p + sib->tospace.bytesize);
 	    sib->tospace.limit	= p;
 	    set_book2sibid_entries_for_range( book_to_sibid__global, sib->tospace.start, sib->tospace.bytesize, sib->id );
 
-	    #ifdef VERBOSE
-	        debug_say ("  %#x:  [%#x, %#x)\n", sib->id, sib->tospace.used_end, p);
+	    #ifndef VERBOSE
+	        log_if ("  %#x:  [%#x, %#x)", sib->id, sib->tospace.first_free, p);
 	    #endif
 	}
     }
@@ -105,12 +105,12 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
         // The first slot of pair-space must not be used,
         // else poly-equal might fault:
         //
-	*(sib->tospace.used_end++) = HEAP_VOID;
-	*(sib->tospace.used_end++) = HEAP_VOID;
+	*(sib->tospace.first_free++) = HEAP_VOID;
+	*(sib->tospace.first_free++) = HEAP_VOID;
         //
-	sib->tospace.start	 = sib->tospace.used_end;
+	sib->tospace.start	 = sib->tospace.first_free;
 	sib->tospace.bytesize	-= (2*WORD_BYTESIZE);
-	sib->tospace.swept_end	 = sib->tospace.used_end;
+	sib->tospace.swept_end	 = sib->tospace.first_free;
     }   
 
     return TRUE;
@@ -125,8 +125,8 @@ void   free_agegroup   (Heap* heap,  int g) {
 
     if (ag->fromspace_quire == NULL)   return;
 
-    #ifdef VERBOSE
-	debug_say ("free_agegroup [%d]: [%#x, %#x)\n",
+    #ifndef VERBOSE
+	log_if ("free_agegroup [%d]: [%#x, %#x)",
             g+1,
             BASE_ADDRESS_OF_QUIRE( ag->fromspace_quire ),
             BASE_ADDRESS_OF_QUIRE( ag->fromspace_quire ) + BYTESIZE_OF_QUIRE( ag->fromspace_quire )
@@ -171,7 +171,7 @@ void   free_agegroup   (Heap* heap,  int g) {
 	    //
 	    ap->fromspace.start	    = NULL;
 	    ap->fromspace.bytesize  = 0;
-	    ap->fromspace.used_end  = NULL;
+	    ap->fromspace.first_free  = NULL;
 	}
     }
 }								// fun free_agegroup
@@ -216,17 +216,17 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address,  Vunt bytesize,  Sibid sibid) {
     // =================================
     //
-    // Mark the book_to_sibid__global entries corresponding to the range [ base_address, base_address+bytesize )
-    // with sibid.
+    // Mark with sibid the book_to_sibid__global entries corresponding
+    // to the range [ base_address, base_address+bytesize )
 
     #ifdef TWO_LEVEL_MAP
         #error two level map not supported
     #else
 	int start =  GET_BOOK_CONTAINING_POINTEE( base_address );
-	int end   =  GET_BOOK_CONTAINING_POINTEE( ((Punt)base_address) + bytesize );
+	int end   =  GET_BOOK_CONTAINING_POINTEE( ((Vunt)base_address) + bytesize );
 
 	#ifdef VERBOSE
-	    // debug_say("set_book2sibid_entries_for_range [%#x..%#x) as %#x\n", base_address, ((Punt)base_address)+bytesize, sibid);
+	    log_if("set_book2sibid_entries_for_range [%#x..%#x) as %#x", base_address, ((Vunt)base_address)+bytesize, sibid);
 	#endif
 
 	while (start < end) {
@@ -272,7 +272,7 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
          p = next
     ){
 	next       = PTR_CAST( Val*, UNMARK_POINTER( p[0] ));
-	Val* chunk = (Val*) (Punt)   UNMARK_POINTER( p[1] );
+	Val* chunk = (Val*) (Vunt)   UNMARK_POINTER( p[1] );
 
 												// debug_say ("  %#x --> %#x ", p+1, chunk);
 

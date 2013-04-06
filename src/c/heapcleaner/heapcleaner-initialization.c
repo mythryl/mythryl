@@ -227,7 +227,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_QUIRE( quire );
 
-	agegroup0_master_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
+	agegroup0_master_buffer = (Val*) (((Vunt)book_to_sibid__global) + book2sibid_bytesize);
     }
 
     // Initialize the book_to_sibid__global:
@@ -318,7 +318,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     heap->hugechunk_quires			= NULL;
     //
     heap->hugechunk_freelist			= MALLOC_CHUNK( Hugechunk );
-    heap->hugechunk_freelist->chunk		= (Punt)0;
+    heap->hugechunk_freelist->chunk		= (Vunt)0;
     //
     heap->hugechunk_freelist->bytesize		= 0;
     heap->hugechunk_freelist->hugechunk_state	= FREE_HUGECHUNK;

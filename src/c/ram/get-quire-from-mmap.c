@@ -60,14 +60,14 @@
 struct quire {
     //
     Vunt*	base;					// The base address of the region.	SEE ABOVE WARNING!
-    Punt	bytesize;					// The region's size.			SEE ABOVE WARNING!
+    Vunt	bytesize;					// The region's size.			SEE ABOVE WARNING!
 
     #ifdef HAS_PARTIAL_MUNMAP
         #define	mapBase		base
         #define	mapSizeB	bytesize
     #else
 	Vunt*		mapBase;			// Base address of the mapped region containing the chunk.
-	Punt	mapSizeB;					// The size of the mapped region containing     the chunk.
+	Vunt	mapSizeB;					// The size of the mapped region containing     the chunk.
     #endif
 };
 
@@ -90,7 +90,7 @@ void   set_up_quire_os_interface  () {					// Part of the api defined by	src/c/h
 }
 
 
-static Status   map_quire   (Quire* chunk,  Punt bytesize) {
+static Status   map_quire   (Quire* chunk,  Vunt bytesize) {
     // 
     // Map a BOOK_BYTESIZE
     // aligned chunk of bytesize bytes of virtual memory.
@@ -103,8 +103,8 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 
     int fd;
 
-    Punt	addr;
-    Punt	offset;
+    Vunt	addr;
+    Vunt	offset;
 
     #ifdef HAS_ANON_MMAP
 	fd = -1;
@@ -125,7 +125,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     // We grab an extra BOOK_BYTESIZE bytes
     // to give us some room for alignment:
     //
-    addr = (Punt)
+    addr = (Vunt)
                mmap(
                    NULL,					// Requested address at which to map new memory. NULL lets the kernel choose freely -- the most portable choice.
                    bytesize + BOOK_BYTESIZE,	// Number of bytes of ram desired from OS.
@@ -185,7 +185,7 @@ static void   unmap_quire   (Quire* chunk) {
 
     if (munmap((caddr_t)(chunk->mapBase), chunk->mapSizeB) == -1) {
 	//
-	die ("error unmapping [%#x, %#x), errno = %d\n", chunk->mapBase, (Punt)(chunk->mapBase) + chunk->mapSizeB, errno);
+	die ("error unmapping [%#x, %#x), errno = %d\n", chunk->mapBase, (Vunt)(chunk->mapBase) + chunk->mapSizeB, errno);
     }
 }
 

@@ -20,7 +20,7 @@
 // Those files make available to us several definitions,
 // each of which varies between those three files:
 //     static void   unmap_quire   (Quire* chunk);
-//     static Status   map_quire   (Quire* chunk,  Punt bytesize);
+//     static Status   map_quire   (Quire* chunk,  Vunt bytesize);
 //     struct quire { ... }
 //     #define ALLOC_HEAPCHUNK()	...
 //     #define RETURN_QUIRE_TO_OS(p)	...
@@ -29,11 +29,11 @@
 #ifndef SHARED_MEMORY_MANAGEMENT_CODE_C
 #define SHARED_MEMORY_MANAGEMENT_CODE_C
 
-static Punt	PageSize;	// The system page size.
-static Punt	PageShift;	// PageSize == (1 << PageShift)
-static Punt	VMSizeB;	// The amount of virtual memory allocated.
+static Vunt	PageSize;	// The system page size.
+static Vunt	PageShift;	// PageSize == (1 << PageShift)
+static Vunt	VMSizeB;	// The amount of virtual memory allocated.
 
-static Status   map_quire   (Quire* chunk,  Punt bytesize);
+static Status   map_quire   (Quire* chunk,  Vunt bytesize);
 static void   unmap_quire   (Quire* chunk);
 
 

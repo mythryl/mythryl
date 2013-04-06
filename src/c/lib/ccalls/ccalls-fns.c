@@ -23,8 +23,8 @@ typedef struct {
     int		nargs;
 } Code_Header;
 
-extern Punt  grabPC ();
-extern Punt  grabPCend ();
+extern Vunt  grabPC ();
+extern Vunt  grabPCend ();
 
 Vunt*	last_entry;		// Points to the beginning of the last c-entry
 					// executed set by grabPC in c-entry.asm 

@@ -170,7 +170,7 @@ static Val   double_CtoLib7   (Task* task, double g)   {
 
     // Force FLOAT64_BYTESIZE alignment:
     //
-    task->heap_allocation_pointer = (Val *)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
+    task->heap_allocation_pointer = (Val *)((Vunt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
     set_slot_in_nascent_heapchunk(task,0,FLOAT64_TAGWORD);
     result = commit_nascent_heapchunk(task,(sizeof(double)>>2));
     memcpy (result, &g, sizeof(double));

@@ -118,12 +118,12 @@
 
 static void         read_heap			(Inbuf* bp,  Heap_Header* header,  Task* task,  Val* externs );
 static Hugechunk*   allocate_a_hugechunk	(Hugechunk*, Hugechunk_Header*, Hugechunk_Quire_Relocation_Info* );
-static void         repair_heap			(Heap*, Sibid*, Punt [MAX_AGEGROUPS][MAX_PLAIN_SIBS], Addresstable*, Val*);
-static Val          repair_word			(Val w,   Sibid* oldBOOK2SIBID,   Punt addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS],   Addresstable* boRegionTable,   Val* externs);
+static void         repair_heap			(Heap*, Sibid*, Vunt [MAX_AGEGROUPS][MAX_PLAIN_SIBS], Addresstable*, Val*);
+static Val          repair_word			(Val w,   Sibid* oldBOOK2SIBID,   Vunt addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS],   Addresstable* boRegionTable,   Val* externs);
 
 // static int   RepairBORef   (Sibid* book2sibid,  Sibid id,  Val* ref,  Val oldChunk);
 
-static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addresstable*,  Sibid,  Punt);
+static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addresstable*,  Sibid,  Vunt);
 
 #define READ(bp,chunk)	heapio__read_block(bp, &(chunk), sizeof(chunk))
 
@@ -328,7 +328,7 @@ static void   read_heap   (
 
     long		prevSzB[MAX_PLAIN_SIBS], size;
     Sibid*		oldBOOK2SIBID;
-    Punt		addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS];
+    Vunt		addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS];
 
     Hugechunk_Quire_Relocation_Info*	boRelocInfo;
 
@@ -458,13 +458,13 @@ static void   read_heap   (
 
 	    if (p->info.o.bytesize > 0) {
 
-		addrOffset[i][j] = (Punt)(ap->tospace.start) - (Punt)(p->info.o.base_address);
+		addrOffset[i][j] = (Vunt)(ap->tospace.start) - (Vunt)(p->info.o.base_address);
 
 		heapio__seek( bp, (long) p->offset );
 
 		heapio__read_block( bp, (ap->tospace.start), p->info.o.bytesize );
 
-		ap->tospace.used_end  = (Val *)((Punt)(ap->tospace.start) + p->info.o.bytesize);
+		ap->tospace.first_free  = (Val *)((Vunt)(ap->tospace.start) + p->info.o.bytesize);
 
 		ap->fromspace.seniorchunks_end =  ap->tospace.start;
 
@@ -482,7 +482,7 @@ static void   read_heap   (
         //
 	for (int ilk = 0;  ilk < MAX_HUGE_SIBS;  ilk++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //	
-	    Punt	 totSizeB;
+	    Vunt	 totSizeB;
 
 	    Hugechunk* free_chunk;
 	    Hugechunk* bdp = NULL;		// Without this initialization, gcc -Wall gives a 'possible uninitialized use' warning.
@@ -703,7 +703,7 @@ static void   read_heap   (
 		//
 		ap->tospace.swept_end
 		    =
-		    ap->tospace.used_end;
+		    ap->tospace.first_free;
 	    }
 	}
     }
@@ -751,7 +751,7 @@ static Hugechunk*   allocate_a_hugechunk   (
 	new_chunk->chunk	    =  free->chunk;
 	new_chunk->hugechunk_quire  =  hq;
 	//
-	free->chunk	     = (Punt)(free->chunk) + total_bytesize;
+	free->chunk	     = (Vunt)(free->chunk) + total_bytesize;
 	free->bytesize -= total_bytesize;
         //
 	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE( hq, new_chunk->chunk );
@@ -798,7 +798,7 @@ static void   repair_heap   (
     Heap*             heap,
     Sibid*         oldBOOK2SIBID,
     //
-    Punt addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
+    Vunt addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
     //
     Addresstable*     hugechunk_region_table,
     Val*              externs
@@ -816,12 +816,12 @@ static void   repair_heap   (
 	    Sib*  __ap = ag->sib[ index ];						\
 	    Val	*__p, *__q;								\
 	    __p = __ap->tospace.start;							\
-	    __q = __ap->tospace.used_end;						\
+	    __q = __ap->tospace.first_free;						\
 	    while (__p < __q) {								\
 		Val	__w = *__p;							\
 		int		__gg, __chunkc;						\
 		if (IS_POINTER(__w)) {							\
-		    Punt	__chunk = HEAP_POINTER_AS_UNT(__w);			\
+		    Vunt	__chunk = HEAP_POINTER_AS_UNT(__w);			\
 		    Sibid __aid = SIBID_FOR_POINTER(oldBOOK2SIBID, __chunk);		\
 		    if (SIBID_KIND_IS_CODE(__aid)) {					\
 			Hugechunk_Relocation_Info*	__dp;				\
@@ -863,7 +863,7 @@ static Val   repair_word   (
     Val                w,
     Sibid*          oldBOOK2SIBID,
     //
-    Punt  addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
+    Vunt  addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
     //
     Addresstable*      hugechunk_region_table,
     Val*               externs
@@ -871,7 +871,7 @@ static Val   repair_word   (
     //
     if (IS_POINTER(w)) {
 	//
-	Punt	chunk = HEAP_POINTER_AS_UNT(w);
+	Vunt	chunk = HEAP_POINTER_AS_UNT(w);
 	Sibid	aid = SIBID_FOR_POINTER(oldBOOK2SIBID, chunk);
 
 	if (SIBID_KIND_IS_CODE(aid)) {
@@ -905,7 +905,7 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (
     Sibid*            oldBOOK2SIBID, 
     Addresstable*     hugechunk_region_table, 
     Sibid             id, 
-    Punt oldchunk
+    Vunt oldchunk
 ) {
     int  index;
     for (index = GET_BOOK_CONTAINING_POINTEE( oldchunk );

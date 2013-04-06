@@ -98,7 +98,7 @@
 #define SYSTEM_DEPENDENT_SIGNAL_GET_SET_ETC_H
 
 #include "system-dependent-stuff.h"
-#include "runtime-base.h"		// For Punt.
+#include "runtime-base.h"		// For Vunt.
 
 #if defined(OPSYS_UNIX)
     #include <signal.h>

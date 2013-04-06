@@ -205,7 +205,7 @@ inline Val   make_vector_header   (Task* task,  Val tagword, Val vectordata, int
 	//
 	Val* p =  task->heap_allocation_pointer;
 	//
-	p      =  (Val*)((Punt)p | WORD_BYTESIZE);					// After this we are guaranteed that p is NOT  8-byte-aligned.
+	p      =  (Val*)((Vunt)p | WORD_BYTESIZE);					// After this we are guaranteed that p is NOT  8-byte-aligned.
 	//
 	*p++   =  FLOAT64_TAGWORD;		      Val result = (Val) p;		// After this we are guaranteed that p IS     8-byte-aligned.
 

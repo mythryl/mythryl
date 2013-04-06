@@ -136,7 +136,7 @@ int   main   (void)   {
     fprintf(fd, "typedef %s Int1;\n", i32);
     fprintf(fd, "typedef unsigned %s Unt1;\n", i32);
 
-    #if (defined(SIZES_C_64_MYTHRYL_32) || defined(SIZES_C_64_MYTHRYL_64))
+    #if defined(SIZES_C_64_MYTHRYL_64)
 	//
 	fprintf(fd, "typedef %s Int2;\n", i64);
 	fprintf(fd, "typedef unsigned %s Unt2;\n", i64);
@@ -145,23 +145,17 @@ int   main   (void)   {
     fprintf (fd, "\n");
     fprintf (fd, "typedef unsigned char Unt8;\n");
 
-    #if defined(SIZES_C_64_MYTHRYL_32)								// Are we ever going to actually use this?  (No existing file #defines this symbol.)  If not, Punt and Vunt can be combined. XXX BUGGO FIXME.
-	//
-	fprintf(fd, "typedef Unt1 Vunt;\n");
-	fprintf(fd, "typedef Int1      Vint;\n");
-	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
-	//
-    #elif defined(SIZES_C_64_MYTHRYL_64)
+    #if defined(SIZES_C_64_MYTHRYL_64)
 	//
 	fprintf(fd, "typedef Unt2 Vunt;\n");
-	fprintf(fd, "typedef Int2      Vint;\n");
-	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
+	fprintf(fd, "typedef Int2 Vint;\n");
 	//
-    #else	// SIZES_C_32_MYTHRYL_32
+    #elif defined (SIZES_INT_32_POINTER_32)
 	//
 	fprintf(fd, "typedef Unt1 Vunt;\n");
-	fprintf(fd, "typedef Int1      Vint;\n");
-	fprintf(fd, "typedef Unt1 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
+	fprintf(fd, "typedef Int1 Vint;\n");
+    #else
+    #error Unsupported architecture type, neither SIZES_C_64_MYTHRYL_64 nor SIZES_INT_32_POINTER_32.
     #endif
 
     {   struct stat stat;

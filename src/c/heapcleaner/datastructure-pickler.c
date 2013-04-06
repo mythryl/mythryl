@@ -35,7 +35,7 @@
 
  static Val   pickle_unboxed_value		(Task* task,  Val chunk);
  static Val   pickle_heap_datastructure		(Task* task,  Val chunk,  Pickler_Result* info);
- static Val   allocate_heap_ram_for_pickle	(Task* task,  Punt bytesize);
+ static Val   allocate_heap_ram_for_pickle	(Task* task,  Vunt bytesize);
 
 
 Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
@@ -127,12 +127,12 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     Heap* heap    =  task->heap;
     int	  max_age =  result->oldest_agegroup_included_in_pickle;
 
-    Punt  total_sib_buffer_bytesize[ MAX_PLAIN_SIBS ];
-    Punt  total_bytesize;
+    Vunt  total_sib_buffer_bytesize[ MAX_PLAIN_SIBS ];
+    Vunt  total_bytesize;
 
     struct {
-	Punt		    base;	// Base address of the sib buffer in the heap.
-	Punt		    offset;	// Relative position in the merged sib buffer.
+	Vunt		    base;	// Base address of the sib buffer in the heap.
+	Vunt		    offset;	// Relative position in the merged sib buffer.
 	//
     } adjust[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];
 
@@ -178,11 +178,11 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		//
 		total_sib_buffer_bytesize[ ilk ]
 		   +=
-		    (Punt)  sib->tospace.used_end
+		    (Vunt)  sib->tospace.first_free
 		    -
-		    (Punt)  sib->tospace.start;
+		    (Vunt)  sib->tospace.start;
 
-		adjust[ age ][ ilk ].base =  (Punt) sib->tospace.start;
+		adjust[ age ][ ilk ].base =  (Vunt) sib->tospace.start;
 	    }
 	}
     }
@@ -287,7 +287,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		// This is the normal case  --
 		// we're saving a vanilla heap value.
 
-		Punt  addr =  HEAP_POINTER_AS_UNT( root_chunk );
+		Vunt  addr =  HEAP_POINTER_AS_UNT( root_chunk );
 
 		int age  =  GET_AGE_FROM_SIBID( sibid) - 1;
 		int kind =  GET_KIND_FROM_SIBID(sibid) - 1;									// GET_KIND_FROM_SIBID			def in    src/c/h/sibid.h
@@ -372,8 +372,8 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		    WR_WRITE(
                         wr,
                         sib->tospace.start,
-			(Punt) sib->tospace.used_end
-                       -(Punt) sib->tospace.start
+			(Vunt) sib->tospace.first_free
+                       -(Vunt) sib->tospace.start
                     );
 		}
 	    }
@@ -386,7 +386,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 		if (sib_is_active( sib )) {
 		    //
-		    Val*  top =  sib->tospace.used_end;
+		    Val*  top =  sib->tospace.first_free;
 		    //
 		    for (Val*
 			p =  sib->tospace.start;
@@ -426,7 +426,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 				int  age  =  GET_AGE_FROM_SIBID( sibid)-1;
 				int  kind =  GET_KIND_FROM_SIBID(sibid)-1;
 
-				Punt addr =  HEAP_POINTER_AS_UNT(w);
+				Vunt addr =  HEAP_POINTER_AS_UNT(w);
 
 				addr -=  adjust[ age ][ kind ].base;
 				addr +=  adjust[ age ][ kind ].offset;
@@ -449,7 +449,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 }											// fun pickle_heap_datastructure
 
 
-static Val   allocate_heap_ram_for_pickle   (Task*  task,  Punt  bytesize) {
+static Val   allocate_heap_ram_for_pickle   (Task*  task,  Vunt  bytesize) {
     //       ============================
     //
     // Allocate a bytevector to hold the pickled datastructure.

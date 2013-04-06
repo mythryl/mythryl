@@ -39,14 +39,14 @@ typedef struct {
 //
 typedef struct {
     //
-    Punt	old_address;
+    Vunt	old_address;
     Hugechunk*  new_chunk;
     //
 } Hugechunk_Relocation_Info;
 
 typedef struct {
     //
-    Punt  first_ram_quantum;		// Address of the first page of the region.
+    Vunt  first_ram_quantum;		// Address of the first page of the region.
     int   page_count;			// Number of pages in the region.
     //
     Hugechunk_Relocation_Info**  hugechunk_page_to_hugechunk;	// The map from pages to hugechunk relocation info.

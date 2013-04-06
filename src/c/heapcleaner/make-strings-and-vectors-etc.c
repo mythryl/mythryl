@@ -234,9 +234,9 @@ Val   allocate_nonempty_wordslots_vector__may_heapclean   (Task* task,  int nwor
 	    // hostthread might steal the freespace out from under us.
 	    /////////////////////////////////////////////////////////	
 	
-	    *(sib->tospace.used_end++) = tagword;							// Lay down the vector tagword.
-	    result = PTR_CAST( Val, sib->tospace.used_end);						// Save pointer to start of vector proper -- our return value.
-	    sib->tospace.used_end += nwords;								// Allocate sibspace for tagword plus vector.	
+	    *(sib->tospace.first_free++) = tagword;							// Lay down the vector tagword.
+	    result = PTR_CAST( Val, sib->tospace.first_free);						// Save pointer to start of vector proper -- our return value.
+	    sib->tospace.first_free += nwords;								// Allocate sibspace for tagword plus vector.	
 	    //
 	pthread_mutex_unlock( &pth__mutex );								// NOW we can safely release the heap lock.
 
@@ -267,9 +267,9 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
         //
 	Sib*  sib = task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
-	ASSERT(sib->tospace.used_end - old_length_in_words == PTR_CAST(Val*, v)); 
+	ASSERT(sib->tospace.first_free - old_length_in_words == PTR_CAST(Val*, v)); 
 
-	sib->tospace.used_end -= (old_length_in_words - new_length_in_words);
+	sib->tospace.first_free -= (old_length_in_words - new_length_in_words);
 
     } else {
 
@@ -301,7 +301,7 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Ro
 	#ifdef ALIGN_FLOAT64S
 	    // Force FLOAT64_BYTESIZE alignment:
 	    //
-	    task->heap_allocation_pointer = (Val *)((Punt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
+	    task->heap_allocation_pointer = (Val *)((Vunt)(task->heap_allocation_pointer) | WORD_BYTESIZE);
 	#endif
 
 	set_slot_in_nascent_heapchunk (task, 0, tagword);
@@ -335,22 +335,22 @@ Val   allocate_biwordslots_vector__may_heapclean   (Task* task,  int nelems,  Ro
 		// Force FLOAT64_BYTESIZE alignment (tagword is off by one word)
 
 	        #ifdef CHECK_HEAP
-		    if (((Punt)ap->tospace.used_end & WORD_BYTESIZE) == 0) {
-			*(ap->tospace.used_end) = (Val)0;
-			++ap->tospace.used_end;
+		    if (((Vunt)ap->tospace.first_free & WORD_BYTESIZE) == 0) {
+			*(ap->tospace.first_free) = (Val)0;
+			++ap->tospace.first_free;
 		    }
 	        #else
-		    ap->tospace.used_end = (Val *)(((Punt)ap->tospace.used_end) | WORD_BYTESIZE);
+		    ap->tospace.first_free = (Val *)(((Vunt)ap->tospace.first_free) | WORD_BYTESIZE);
 	        #endif
 	    #endif
 
-	    *ap->tospace.used_end ++
+	    *ap->tospace.first_free ++
 		=
 		tagword;
 
-	    result = PTR_CAST( Val, ap->tospace.used_end );
+	    result = PTR_CAST( Val, ap->tospace.first_free );
 
-	    ap->tospace.used_end += nwords;
+	    ap->tospace.first_free += nwords;
 
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -520,13 +520,13 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 		goto clean_check;
 	    }
 
-	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
-	    *(ap->tospace.used_end++) = tagword;
+	    ASSERT(ap->tospace.first_free == ap->tospace.swept_end);
+	    *(ap->tospace.first_free++) = tagword;
 
-	    result = PTR_CAST( Val, ap->tospace.used_end);
+	    result = PTR_CAST( Val, ap->tospace.first_free);
 
-	    ap->tospace.used_end += len;
-	    ap->tospace.swept_end = ap->tospace.used_end;
+	    ap->tospace.first_free += len;
+	    ap->tospace.swept_end = ap->tospace.first_free;
 	    //
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -625,13 +625,13 @@ Val   allocate_headerless_ro_pointers_chunk__may_heapclean   (Task* task,  int l
 		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap_allocation_buffer_bytesize)   goto clean_check;
 	    }
 
-	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
-	    *(ap->tospace.used_end++) = tagword;
+	    ASSERT(ap->tospace.first_free == ap->tospace.swept_end);
+	    *(ap->tospace.first_free++) = tagword;
 
-	    result = PTR_CAST( Val,  ap->tospace.used_end );
+	    result = PTR_CAST( Val,  ap->tospace.first_free );
 
-	    ap->tospace.used_end += len;
-	    ap->tospace.swept_end = ap->tospace.used_end;
+	    ap->tospace.first_free += len;
+	    ap->tospace.swept_end = ap->tospace.first_free;
 	    //
 	pthread_mutex_unlock( &pth__mutex );
 

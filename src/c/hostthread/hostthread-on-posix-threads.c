@@ -81,6 +81,10 @@
 		    // pth__running_hostthreads_count__global must always equal the number
 		    // of hostthreads with hostthread->mode == HOSTTHREAD_IS_RUNNING.
 
+        Mutex	 pth__ramlog_mutex	= PTHREAD_MUTEX_INITIALIZER;
+                    //
+		    // Used in   src/c/main/ramlog.c
+
         Mutex	 pth__mutex		= PTHREAD_MUTEX_INITIALIZER;						// No padding here because it might as well share a cache line with next.
                     //
 		    // Grab this mutex before changing any of:

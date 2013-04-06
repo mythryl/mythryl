@@ -167,4 +167,14 @@
     // needless contention between cores.
 
 
+#define SIZES_INT_32_POINTER_32 TRUE
+    //
+    // For a 64-bit machine define SIZES_INT_64_POINTER_64
+    //
+    // We make no pretense of supporting architectures with
+    // pointers of different sizes or pointers longer or
+    // shorter than int.
+    //
+    // This value is used (only) in   src/c/config/generate-sizes-of-some-c-types-h.c
+
 #endif // MYTHRYL_CONFIG_H

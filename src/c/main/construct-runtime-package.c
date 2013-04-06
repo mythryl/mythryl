@@ -102,7 +102,7 @@ typedef struct {
 
 #else // SIZES_C_64_MYTHRYL_32
 
-// When the size of Punt is bigger
+// When the size of Vunt is bigger
 // than the size of an Vunt, we need
 // to dynamically patch the static Mythryl chunks.
 
@@ -542,7 +542,7 @@ void   publish_runtime_package_contents   ()   {
 
     void   patch_static_heapchunk_32_bit_addresses   () {
 	//
-	// On machines where the size of  Punt
+	// On machines where the size of  Vunt
 	// is bigger than the size of a       Vunt
 	// we need to dynamically patch
 	// the static heap chunks:

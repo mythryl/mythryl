@@ -40,7 +40,7 @@ typedef struct {
 //     (pointer - region_base_address) / cardsize
 //
 #define POINTER_TO_CARD_INDEX(cardmap, addr)						\
-    (((Punt)(addr) - (Punt)(cardmap->base_address)) >> LOG2_CARD_BYTESIZE)
+    (((Vunt)(addr) - (Vunt)(cardmap->base_address)) >> LOG2_CARD_BYTESIZE)
 
 
 // Given a pointer into the ram-region

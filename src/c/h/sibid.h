@@ -23,12 +23,12 @@
 //
 // These go in a four-bit field, so we can
 // have up to 16 regular sibs (and additionally
-// up to 16 hugechunkd sibs):
+// up to 16 hugechunk sibs):
 //
-#define RO_POINTERS_SIB		0					// Exported.
-#define RO_CONSCELL_SIB		1					// Exported.
-#define NONPTR_DATA_SIB		2					// Exported.
-#define RW_POINTERS_SIB		3					// Exported.
+#define RO_POINTERS_SIB		0					// Exported.  Blocks of one or more immutable pointers. (But two-pointer blocks go in next.)
+#define RO_CONSCELL_SIB		1					// Exported.  Blocks of exactly two immutable pointers.
+#define NONPTR_DATA_SIB		2					// Exported.  Blocks of mutable or  immutable nonpointer values.
+#define RW_POINTERS_SIB		3					// Exported.  Blocks of one or more   mutable pointers.
 #define MAX_PLAIN_SIBS		4					// Exported.
 
 // Codechunks are currently the only hugechunks:
@@ -148,7 +148,7 @@
 //
 // An address space book is marked 'unmapped'
 // iff it does not contain ram allocated via
-//     obtain_quire_from_os											// obtain_quire_from_os	def in    src/c/ram/get-quire-from-os-stuff.c
+//     obtain_quire_from_os													// obtain_quire_from_os	def in    src/c/ram/get-quire-from-os-stuff.c
 // This includes both empty address space 
 // (no ram) and address space containing
 // vanilla C code and data.
@@ -187,17 +187,17 @@
 
 #else
 
-    #define LOG2_BOOK_BYTESIZE			16									// 
+    #define LOG2_BOOK_BYTESIZE				16									// 
     #define BOOK_BYTESIZE				(1 << LOG2_BOOK_BYTESIZE)						// 
 
-    #define BOOKROUNDED_BYTESIZE( bytesize )	ROUND_UP_TO_POWER_OF_TWO( bytesize, BOOK_BYTESIZE )		// 
+    #define BOOKROUNDED_BYTESIZE( bytesize )		ROUND_UP_TO_POWER_OF_TWO( bytesize, BOOK_BYTESIZE )			// 
 
-    #define LOG2_BOOK2SIBID_TABLE_SIZE_IN_SLOTS		(BITS_PER_WORD - LOG2_BOOK_BYTESIZE)				// 
+    #define LOG2_BOOK2SIBID_TABLE_SIZE_IN_SLOTS		(BITS_PER_WORD - LOG2_BOOK_BYTESIZE)					// 
     #define BOOK2SIBID_TABLE_SIZE_IN_SLOTS		(1 << LOG2_BOOK2SIBID_TABLE_SIZE_IN_SLOTS)				// 
 
 
-    #define GET_BOOK_CONTAINING_POINTEE(a)		(((Punt)(a))   >> LOG2_BOOK_BYTESIZE)			// 
-    #define ADDRESS_OF_BOOK(i)				((Punt)  ((i) << LOG2_BOOK_BYTESIZE))			// 
+    #define GET_BOOK_CONTAINING_POINTEE(a)		(((Vunt)(a))   >> LOG2_BOOK_BYTESIZE)					// 
+    #define ADDRESS_OF_BOOK(i)				((Vunt)  ((i) << LOG2_BOOK_BYTESIZE))					// 
 
 
 

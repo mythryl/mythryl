@@ -38,7 +38,7 @@ struct quire {
     Vunt*	base;			// Base address of the chunk.	SEE ABOVE WARNING!
     Vunt	bytesize;		// Chunk's size (in bytes).	SEE ABOVE WARNING!
     Vunt*	mapBase;		// Base address of the mapped region containing the chunk.
-    Punt	mapSizeB;		// size of the mapped region containing the chunk.
+    Vunt	mapSizeB;		// size of the mapped region containing the chunk.
 };
 
 static void* alloc_vmem();
@@ -74,17 +74,17 @@ static void   free_vmem   (void *p)   {
     }
 }
 
-static Status   map_quire   (Quire* chunk,  Punt szb) {
+static Status   map_quire   (Quire* chunk,  Vunt szb) {
     //          ========================
     //
-    Punt offset;
-    Punt addr;
+    Vunt offset;
+    Vunt addr;
 
-    if ((addr = (Punt) alloc_vmem(szb+BOOK_BYTESIZE)) == NULL) {
+    if ((addr = (Vunt) alloc_vmem(szb+BOOK_BYTESIZE)) == NULL) {
         return FALSE;
     }
 
-    chunk->mapBase  =  (Punt *) addr;
+    chunk->mapBase  =  (Vunt *) addr;
     chunk->mapSizeB =  szb+BOOK_BYTESIZE;
 
     chunk->bytesize = szb;
@@ -93,7 +93,7 @@ static Status   map_quire   (Quire* chunk,  Punt szb) {
 
     addr += offset;
 
-    chunk->base = (Punt *) addr;
+    chunk->base = (Vunt *) addr;
 
     return TRUE;
 }

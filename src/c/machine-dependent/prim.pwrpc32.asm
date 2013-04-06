@@ -930,8 +930,8 @@ CENTRY(RestoreFPRegs)
 
 // FlushICache:
 //
-//   void FlushICache ( Punt  addr,
-//	                Punt  nbytes
+//   void FlushICache ( Vunt  addr,
+//	                Vunt  nbytes
 //	              )
 ///
 CENTRY(FlushICache)

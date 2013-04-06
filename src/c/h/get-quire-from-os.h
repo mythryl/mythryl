@@ -26,8 +26,8 @@
 //
 typedef struct {
     //
-    Punt	base;											// Base address of the region.
-    Punt	bytesize;										// Region size in bytes
+    Vunt	base;											// Base address of the region.
+    Vunt	bytesize;										// Region size in bytes
     //
 } Quire_Prefix;												// This type is referenced only in the following two macros.
 //

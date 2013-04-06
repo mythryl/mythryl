@@ -458,7 +458,7 @@ Val   add_cfun_to_heapfile_cfun_table   (Heapfile_Cfun_Table* table,   Val addr)
     //     src/c/heapcleaner/export-heap.c
     //     src/c/heapcleaner/datastructure-pickler-cleaner.c
 
-    Punt a =   HEAP_POINTER_AS_UNT( addr );
+    Vunt a =   HEAP_POINTER_AS_UNT( addr );
 
 
     // debug_say("add_cfun_to_heapfile_cfun_table: addr = %#x, ", addr);
@@ -620,13 +620,13 @@ void   free_heapfile_cfun_table   (Heapfile_Cfun_Table* table)   {
 }
 
 
-Punt   heapfile_cfun_table_bytesize   (Heapfile_Cfun_Table* table)   {
+Vunt   heapfile_cfun_table_bytesize   (Heapfile_Cfun_Table* table)   {
     // =================================
     //
     // Return the number of bytes needed to represent
     // the strings in an exported symbols table.
 
-    Punt bytesize =  0;
+    Vunt bytesize =  0;
 
     for (int i = 0;   i < table->entries_count;   i++) {
 	//

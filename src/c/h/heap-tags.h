@@ -57,8 +57,8 @@
 // (This appears to be used only  in support
 // of weak pointers.)
 //
-#define MARK_POINTER(p)	((Val)((Punt)(p) OROP HEXLIT(1)))
-#define UNMARK_POINTER(p)	((Val)((Punt)(p) ANDOP ~HEXLIT(1)))
+#define MARK_POINTER(p)	((Val)((Vunt)(p) OROP HEXLIT(1)))
+#define UNMARK_POINTER(p)	((Val)((Vunt)(p) ANDOP ~HEXLIT(1)))
 
 
 
