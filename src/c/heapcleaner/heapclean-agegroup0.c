@@ -155,10 +155,12 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    forward_to_agegroup1_if_in_agegroup0( b2s, age1, rp, task );
 	}
     }
-
-    // Scan the changelog -- if there are any new
-    // pointers into agegroup0 from other agegroups
-    // we need to know about them now:	
+															// The changelog records all writes to refcells or rw_vectors containing pointer data,
+															// because such writes might introduce cross-generation pointers that we need to know
+    // Scan the changelog -- if there are any new									// about when doing partial heapcleanings.  This makes each such write cost one CONS cell.
+    // pointers into agegroup0 from other agegroups									//
+    // we need to know about them now:											// Updates to tagged-integer values refcells or rw_vectors cannot introduce such pointers,
+    //															// so we do not track them in the changelog and they suffer no slowdown.
     //
     {    for (int i = 0;  i < MAX_HOSTTHREADS;  i++) {									// Potentially need to process one heap storelog per hostthread.
 	    //
@@ -259,9 +261,9 @@ static int   get_age_of_codechunk   (Val codechunk) {
 static void   process_task_heap_changelog   (Task* task, Heap* heap) {
     //        ===========================
     // 
-    // As tasks run, they note all stores into refcells
-    // and vectors in the 'heap_changelog', a lisp-style list
-    // of "CONS cells" -- (val,next) pointer-pairs.
+    // As tasks run, they note all stores into pointer-valued					// Tagged-Int-valued refcells cannot contain cross-generation pointers so we don't track them in changelog.
+    // refcells and rw_vectors in the 'heap_changelog',
+    // a lisp-style list of "CONS cells" -- (val,next) pointer-pairs.
     // 
     // We need this done because such stores into the heap
     // can introduce pointers from one agegroup into a
@@ -292,7 +294,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	Sibid src_sibid =  SIBID_FOR_POINTER(b2s, pointer );					// Get the Sibid tag for the ram-book containing the refcell/vectorslot.	Sibid  def in    src/c/h/sibid.h
 
 	if (src_sibid == AGEGROUP0_SIBID)    continue;						// Ignore updates to agegroup0      refcells and vectorslots.
-	if (BOOK_IS_UNMAPPED( src_sibid ))  continue;						// Ignore updates to runtime-global refcells and vectorslots, which are handled elsewhere.
+	if (BOOK_IS_UNMAPPED( src_sibid ))   continue;						// Ignore updates to runtime-global refcells and vectorslots, which are handled elsewhere.
 
 	Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, pointee );					// Get the Sibid tag for the ram-book containing the value referenced by the refcell/vectorslot.
 	//

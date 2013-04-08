@@ -211,8 +211,9 @@ struct sib {
 
 
 
-    // ======================================================== //
-    								// 
+    // ======================================================== // These are used only for display/debugging; they could be eliminated without affecting heapcleaning functionality.
+    Vunt	current_bytes_in_use;				// Bytes in use after last     heapcleaning.
+    Vunt	previous_bytes_in_use;				// Bytes in use after previous heapcleaning.
 								// 
     // ======================================================== //
 
@@ -523,6 +524,7 @@ extern void  dump_syscall_log(			Task* task, char* caller );					// dump_syscall
 extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
+extern void  records_apply(Val* start, Val* stop, void(*fn)(void*, Val*rec, int len, char*), void* fnarg);	// records_apply						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_help(			void  );							// debug_help							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_syscall_log(			int i );							// debug_syscall_log						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  debug_tripwires(			void  );							// debug_tripwires						def in   src/c/heapcleaner/heap-debug-stuff.c

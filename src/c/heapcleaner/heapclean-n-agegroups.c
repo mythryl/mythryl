@@ -93,22 +93,22 @@ Cleaner statistics stuff:
 
 // Forward references:
 
- static int	   establish_all_required_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request										);
+ static int	   establish_all_required_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request							);
 //
 #ifdef  BO_DEBUG
- static void       scan_memory_for_bogus_pointers			(Vunt* start,  Vunt* stop,                  int    age,                 int chunk_ilk								);
+ static void       scan_memory_for_bogus_pointers			(Vunt*		start,  Vunt*		stop,                 int    age,                 int		chunk_ilk			);
 #endif
 //
- static void       forward_all_root_chunks				(Task*          task,   Heap*          heap,                  Val**  roots,               int                                   max_cleaned_agegroup		);
- static void       forward_all_chunks_referenced_by_uncleaned_agegroups	(Task*          task,   Heap*          heap,                                              int                                   max_cleaned_agegroup		);
- static void       forward_all_remaining_live_chunks			(Heap*          heap,   int            max_cleaned_agegroup,  int    max_swept_agegroup										);
+ static void       forward_all_root_chunks				(Task*          task,   Heap*          heap,                  Val**  roots,               int		max_cleaned_agegroup		);
+ static void       forward_all_chunks_referenced_by_uncleaned_agegroups	(Task*          task,   Heap*          heap,                                              int		max_cleaned_agegroup		);
+ static void       forward_all_remaining_live_chunks			(Heap*          heap,   int            max_cleaned_agegroup,  int    max_swept_agegroup							);
 
- static void       trim_heap		    				(Task*          task,   int            max_cleaned_agegroup													);
+ static void       trim_heap		    				(Task*          task,   int            max_cleaned_agegroup										);
 //
- static Val        forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id				);
- static Val        forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                 Val tagword	);
+ static Val        forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid		id				);
+ static Val        forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid		id,                 Val tagword	);
 //
- static Hugechunk* mark_hugechunk_as_live				(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
+ static Hugechunk* mark_hugechunk_as_live				(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid		id				);
 
 //
 
@@ -150,7 +150,7 @@ static inline void  forward_pointee_if_in_fromspace   (Heap* heap,  Sibid* b2s, 
 
     Val pointee =  *pointer;
 
-    if (IS_POINTER( pointee )) {								// Ignore Tagged_Int values.
+    if (IS_POINTER( pointee )) {								// Ignore tagwords and Tagged_Int values.
 	//
 	Sibid  sibid =  SIBID_FOR_POINTER(b2s, pointee );					COUNT_CODECHUNKS( sibid );
 	//
@@ -404,11 +404,100 @@ static void         update_fromspace_seniorchunks_end_pointers   (Heap* heap, in
 }
 
 //
+static void   do_start_of_heapcleaning_statistics_stuff   (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int oldest_agegroup_to_clean)   {
+    //        =========================================
+
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS								// Don't do timing when collecting pause data.
+	//
+	start_heapcleaning_timer( task->hostthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
+    #endif
+
+    #ifndef NEED_HUGECHUNK_REFERENCE_STATISTICS
+	//
+        hugechunks_seen_count__local      =
+        hugechunk_lookups_count__local    =
+        hugechunks_forwarded_count__local = 0;
+    #endif
+
+    // Save  current_bytes_in_use  so that
+    // we can compute percentage growth etc:
+    //
+    for (int a = 0;  a < heap->active_agegroups;  ++a) {
+        //
+	Agegroup* ag =  heap->agegroup[ a ];
+
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
+	    //
+	    ag->sib[s]->previous_bytes_in_use
+		= 
+		ag->sib[s]->current_bytes_in_use;
+	}
+    }
+
+    // Remember the top of to-space for max_swept_agegroup:
+    //
+    if (oldest_agegroup_to_clean < heap->active_agegroups) {
+        //
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
+	    //
+	    tospace_limit[ s ]
+		=
+		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ s ]->tospace.first_free;
+	}
+    }
+
+    note_active_agegroups_count_for_this_timesample( oldest_agegroup_to_clean );				// note_active_agegroups_count_for_this_timesample		def in    src/c/heapcleaner/heapcleaner-statistics.h
+
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
+	//
+	if (heapcleaner_messages_are_enabled__global) {
+	    //	
+	    debug_say ("GC #");
+	    //	
+	    for (int age = heap->active_agegroups-1;  age >= 0;   age--) {
+		//
+		debug_say ("%d.", heap->agegroup[age]->heapcleanings_count);
+	    }
+	    debug_say ("%d:  ", heap->agegroup0_heapcleanings_count);
+	}
+    #endif
+}
+
+// We use this below to generate size statistics for
+// records in RO_POINTERS_SIB sibs.
+struct ro_pointers_sib_record {
+    int records;
+    int size[ 12 ];
+};
+static void note_ro_pointers_sib_record( void* fnarg, Val* record, int len, char* tag) {
+    struct ro_pointers_sib_record* s = (struct ro_pointers_sib_record*) fnarg;
+    ++s->records;
+    switch (len) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+        ++s->size[len];
+	break;
+    default:
+        ++s->size[0];
+    }
+}
+
+
+//
 static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap* heap,  int max_swept_agegroup,  int oldest_agegroup_to_clean,  Val** tospace_limit)   {
     //              =======================================
     //
     // Cleaner statistics:
-log_if("DONE majorgc #%d",heapclean_n_agegroups__callcount);
+ log_if("DONE majorgc #%d",heapclean_n_agegroups__callcount);
 
     // Count the number of forwarded bytes:
     //
@@ -423,7 +512,7 @@ log_if("DONE majorgc #%d",heapclean_n_agegroups__callcount);
 		&heap->total_bytes_copied_to_sib[ max_swept_agegroup-1 ][ s ],
 		(unsigned int)ag->sib[ s ]->tospace.first_free - (unsigned int)tospace_limit[ s ]
 	    );
-log_if("majorgc #%d summary: 1. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d  total_copyin=%d%06d",
+ log_if("majorgc #%d summary: 1. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d  total_copyin=%d%06d",
   heapclean_n_agegroups__callcount,
   max_swept_agegroup-1,
   s,
@@ -444,7 +533,7 @@ log_if("majorgc #%d summary: 1. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d  total_c
 		    &heap->total_bytes_copied_to_sib[ a ][ s ],
 		    (unsigned int)ap->tospace.first_free - (unsigned int)tospace_limit[ s ]
 		);
-log_if("majorgc #%d summary: 2. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d   total_copyin=%d%06d",
+ log_if("majorgc #%d summary: 2. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d   total_copyin=%d%06d",
   heapclean_n_agegroups__callcount,
   a,
   s,
@@ -455,13 +544,83 @@ log_if("majorgc #%d summary: 2. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d   total_
 	}
     }
 
+    // Count bytes-in-use:
+    //
+    unsigned int current_total_bytes_in_use = 0;
+    unsigned int previous_total_bytes_in_use = 0;
+    for (int a = 0;  a < heap->active_agegroups;  ++a) {
+        //
+	Agegroup* ag =  heap->agegroup[ a ];
+	//
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
+	    //
+	    Sib* sib = ag->sib[ s ];
+
+	    sib->current_bytes_in_use = sib_is_active(sib)
+					  ?  ((Vunt)sib->tospace.first_free - (Vunt)sib->tospace.start)
+					  :  0;
+
+	    if (1) {
+		int delta =  sib->current_bytes_in_use - sib->previous_bytes_in_use;
+	        //
+		double fraction =  (sib->current_bytes_in_use == 0)				// Avoid divide-by-zero. 
+				  ?  0.0
+				  :  (double) delta  /  (double) sib->current_bytes_in_use;
+
+	        log_if("majorgc(%d) #%d sib[ %d, %s ] has%10u (had%10u) bytes in use.  Change = %9d, ratio = %15.8f", oldest_agegroup_to_clean, heapclean_n_agegroups__callcount, a, sib_name__global[s], sib->current_bytes_in_use, sib->previous_bytes_in_use, delta, fraction);
+	    }
+
+	    previous_total_bytes_in_use +=  sib->previous_bytes_in_use;
+	     current_total_bytes_in_use +=  sib->current_bytes_in_use;
+
+	}
+
+	if (1) {										// "if (0)" beats "#ifdef FOO" because it catches bitrot early.
+	    // Call note_ro_pointers_sib_record once for every record in
+	    //     ag->sib[ RO_POINTERS_SIB ]
+	    // and then log the resulting record count
+	    // plus record-size statistics:
+	    //
+	    Sib* sib = ag->sib[ RO_POINTERS_SIB ];
+	    Val* start =  sib->tospace.start;
+	    Val* stop  =  sib->tospace.first_free;
+	    struct ro_pointers_sib_record s;
+	    s.records=
+	    s.size[0]=
+	    s.size[1]=
+	    s.size[2]=
+	    s.size[3]=
+	    s.size[4]=
+	    s.size[5]=
+	    s.size[6]=
+	    s.size[7]=
+	    s.size[8]=
+	    s.size[9]=
+	    s.size[10]=
+	    s.size[11]= 0;
+	    records_apply( start, stop, note_ro_pointers_sib_record, &s  );	// records_apply	is from   src/c/heapcleaner/heap-debug-stuff.c
+	    log_if("majorgc(%d) #%d sib[ %d, RO_POINTERS ] records=%d. By size: 1=%d 2=%d 3=%d 4=%d 5=%d 6=%d 7=%d 8=%d 9=%d 10=%d 11=%d other=%d  byTes in use", oldest_agegroup_to_clean, heapclean_n_agegroups__callcount, a, s.records, s.size[1], s.size[2], s.size[3], s.size[4], s.size[5], s.size[6], s.size[7], s.size[8], s.size[9], s.size[10], s.size[11], s.size[0]);
+	}
+    }
+    if (1) {
+	int delta =  current_total_bytes_in_use - previous_total_bytes_in_use;
+        //
+	double fraction =  (current_total_bytes_in_use == 0)					// Avoid divide-by-zero. 
+                          ?  0.0
+                          :  (double) delta  /  (double) current_total_bytes_in_use;
+
+	log_if("majorgc(%d) #%d sib[ *, *           ] has%10u (had%10u) Bytes in use.  Change = %9d,           ratio = %15.8f", oldest_agegroup_to_clean, heapclean_n_agegroups__callcount, current_total_bytes_in_use, previous_total_bytes_in_use, delta, fraction );
+
+	log_if("majorgc(%d) #%d                                                     bytes in use", oldest_agegroup_to_clean, heapclean_n_agegroups__callcount);	// Blank line for readability when grepping the logfile for 'bytes in use'.
+    }
+
 
     #ifndef NEED_HUGECHUNK_REFERENCE_STATISTICS
         //
         log_if ("hugechunk stats: %d seen, %d lookups, %d forwarded\n",    hugechunks_seen_count__local, hugechunk_lookups_count__local, hugechunks_forwarded_count__local);
     #endif
 
-    #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
 	if (heapcleaner_messages_are_enabled__global) {
 	    long	                         cleaning_time;
 	    stop_heapcleaning_timer (task->hostthread, &cleaning_time);				// stop_heapcleaning_timer	is from   src/c/main/timers.c
@@ -475,19 +634,8 @@ log_if("majorgc #%d summary: 2. sib[ age=%d ][ sib=%d(%-6s) ]: size=%8d   total_
 //
 static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
     //              ========================
-    //
-    //
-    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS								// Don't do timing when collecting pause data.
-	//
-	start_heapcleaning_timer( task->hostthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
-    #endif
 
-    #ifndef NEED_HUGECHUNK_REFERENCE_STATISTICS
-	//
-        hugechunks_seen_count__local      =
-        hugechunk_lookups_count__local    =
-        hugechunks_forwarded_count__local = 0;
-    #endif
+    ++ heapclean_n_agegroups__callcount;
 
     // Decide how many agegroups to clean
     // (always at least as many as requested)
@@ -503,43 +651,14 @@ static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val**
     // We sweep one more agegroup than we clean,
     // except when we're cleaning all agegroups:
     //
-    if (oldest_agegroup_to_clean >= heap->active_agegroups) {
-	//
-	*max_swept_agegroup = oldest_agegroup_to_clean;
-
-    } else {
-
-	*max_swept_agegroup = oldest_agegroup_to_clean+1;
-
-	// Heapcleaner statistics:
-	//
-	// Remember the top of to-space for max_swept_agegroup:
-	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
-	    //
-	    tospace_limit[ ilk ]
-		=
-		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ ilk ]->tospace.first_free;
-	}
-    }
-
-    // A little statistics gathering:
+    *max_swept_agegroup =  oldest_agegroup_to_clean;
     //
-    note_active_agegroups_count_for_this_timesample( oldest_agegroup_to_clean );				// note_active_agegroups_count_for_this_timesample		def in    src/c/heapcleaner/heapcleaner-statistics.h
-    //
-    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
+    if (oldest_agegroup_to_clean < heap->active_agegroups) {
 	//
-	if (heapcleaner_messages_are_enabled__global) {
-	    //	
-	    debug_say ("GC #");
-	    //	
-	    for (int age = heap->active_agegroups-1;  age >= 0;   age--) {
-		//
-		debug_say ("%d.", heap->agegroup[age]->heapcleanings_count);
-	    }
-	    debug_say ("%d:  ", heap->agegroup0_heapcleanings_count);
-	}
-    #endif
+	++ *max_swept_agegroup;
+    }	
+
+    do_start_of_heapcleaning_statistics_stuff (max_swept_agegroup,  tospace_limit, task,  heap,  oldest_agegroup_to_clean);
 
     return oldest_agegroup_to_clean;
 }
@@ -554,7 +673,6 @@ void                heapclean_n_agegroups   (Task* task,  Val** roots,  int leve
     //
     // This function is called (only) from
     //     src/c/heapcleaner/call-heapcleaner.c
-++heapclean_n_agegroups__callcount;
 
     Heap*  heap  =  task->heap;
 
@@ -572,7 +690,7 @@ void                heapclean_n_agegroups   (Task* task,  Val** roots,  int leve
 	    heap,
             level
         );
-log_if ("START majorgc #%d: heapclean_n_agegroups/TOP task %p  level %d -> %d",    heapclean_n_agegroups__callcount, task, level, oldest_agegroup_to_clean);
+ log_if ("START majorgc #%d: heapclean_n_agegroups/TOP task %p  level %d -> %d",    heapclean_n_agegroups__callcount, task, level, oldest_agegroup_to_clean);
 
     // Start the cleaning by forwarding (copying from from-space
     // to to-space) all heap values (in the agegroups we are cleaning)
@@ -1080,7 +1198,7 @@ static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
 
 		COUNT_CODECHUNKS( sibid );									// Statistics.   COUNT_CODECHUNKS def at top of file.
 
-		if (SIBID_IS_IN_FROMSPACE(sibid, max_sibid)) {							// If this is a from-space chunk.  SIBID_IS_IN_FROMSPACE  def in   src/c/h/sibid.h
+		if (SIBID_IS_IN_FROMSPACE( sibid, max_sibid)) {							// If this is a from-space chunk.  SIBID_IS_IN_FROMSPACE  def in   src/c/h/sibid.h
 		    //
 		    COUNT_CARD2( age );										// Statistics.   COUNT_CARD1 def at top of file.
 
@@ -1141,20 +1259,20 @@ static Bool         forward_rest_of_ro_pointers_sib   (								// Called only fr
     //
     // Return TRUE iff we did anything.
     //
-    Sibid* b2s =  book_to_sibid__global;										// Cache global for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;									// Cache global for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     //
     Bool made_progress = FALSE;
 
     Sib* sib = (ag)->sib[ s ];
 
-    if (!sib_is_active( sib ))                      return FALSE;							// sib_is_active	def in    src/c/h/heap.h
+    if (!sib_is_active( sib ))                      return FALSE;						// sib_is_active	def in    src/c/h/heap.h
 
     Val* p =  sib->tospace.swept_end;
     if  (p == sib->tospace.first_free)   return FALSE;
 
     Val* q;
 
-    made_progress = TRUE;												// Do we really need this?  Won't it work to return TRUE only if we actually forwarded something? XXX BUGGO FIXME
+    made_progress = TRUE;											// Do we really need this?  Won't it work to return TRUE only if we actually forwarded something? XXX BUGGO FIXME
     do {
 	q = sib->tospace.first_free;
 
@@ -1162,13 +1280,13 @@ static Bool         forward_rest_of_ro_pointers_sib   (								// Called only fr
 
     } while (q != sib->tospace.first_free);
 
-    sib->tospace.swept_end = q;										// Remember where to pick up next time we're called.
+    sib->tospace.swept_end = q;											// Remember where to pick up next time we're called.
 
     return   made_progress;
 }
 //
-static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_all_remaining_live_chunks (below).
-    //              ===============================
+static Bool   forward_rest_of_rw_pointers_sib   (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_all_remaining_live_chunks (below).
+    //        ===============================
     // 
     // Forward (copy) to to-space all live values referenced
     // by the unscanned part of our RW_POINTERS_SIB.
@@ -1178,13 +1296,13 @@ static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag, 
 
     Sib* sib =   ag->sib[ RW_POINTERS_SIB ];
 
-    if (!sib_is_active( sib ))   return FALSE;										// sib_is_active	def in    src/c/h/heap.h
+    if (!sib_is_active( sib ))   return FALSE;									// sib_is_active	def in    src/c/h/heap.h
 
     Coarse_Inter_Agegroup_Pointers_Map* map
 	= 
         ag->coarse_inter_agegroup_pointers_map;
 
-    Sibid*	   b2s    =  book_to_sibid__global;									// Cache locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid__global;								// Cache locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid	   max_sibid   =  MAKE_MAX_SIBID(oldest_agegroup_to_clean);
 
@@ -1306,7 +1424,7 @@ static void         forward_all_remaining_live_chunks                      (Heap
     //        RO_CONSCELL_KIND
     //        NONPTR_DATA_KIND
     //        RW_POINTERS_KIND
-    //              CODE_KIND
+    //               CODE_KIND
     //
     //     Each of these subbuffers requires special handling --
     //     we divide data between them precisely to take
@@ -1320,11 +1438,11 @@ static void         forward_all_remaining_live_chunks                      (Heap
     //           tagword on each one, but cannot use our usual trick of
     //           changing the tagword to remember which ones we've forwarded.
     //
-    //         * Codechunks we never actually copy at all, because it would
-    //           take too long -- they are big and static and boring.
-    //
     //         * Rw_Vectors and Refcells can be updated, so these are the only
     //           ones which can contain pointers into younger agegroups.
+    //
+    //         * Codechunks we never actually copy at all, because it would
+    //           take too long -- they are big and static and boring.
     //
     //   o As we run, we are appending additional
     //     values to the ends of these buffers.
@@ -1346,9 +1464,9 @@ static void         forward_all_remaining_live_chunks                      (Heap
 	//
 	making_progress = FALSE;
 
-	for (int age = 0;   age < max_swept_agegroup;   ++age) {
+	for (int a = 0;   a < max_swept_agegroup;   ++a) {
 	    //
-	    Agegroup*  ag =  heap->agegroup[ age ];
+	    Agegroup*  ag =  heap->agegroup[ a ];
 
             // Forward all live values referenced by unscanned parts
             // of to-space buffers for records, pairs and vectors:
@@ -1887,7 +2005,7 @@ static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 	    //
 	    Sib* sib = age->sib[ s ];
 
-	    if (sib_is_active(sib)												// sib_is_active		def in    src/c/h/heap.h
+	    if (sib_is_active(sib)								// sib_is_active		def in    src/c/h/heap.h
             &&  sib->tospace.bytesize > sib->soft_max_bytesize
             ){
 
@@ -1897,7 +2015,7 @@ static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 		    ? task->heap_allocation_buffer_bytesize
 		    : heap->agegroup[ a-1 ]->sib[ s ]->tospace.bytesize;
 
-		min_bytesize +=  sib_space_used_in_bytes( sib )									// sib_space_used_in_bytes	def in    src/c/h/heap.h
+		min_bytesize +=  sib_space_used_in_bytes( sib )					// sib_space_used_in_bytes	def in    src/c/h/heap.h
                                  +
 			         sib->requested_extra_free_bytes;
 
@@ -1908,8 +2026,7 @@ static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 
 		    new_bytesize = BOOKROUNDED_BYTESIZE( min_bytesize );
 
-		    // The calculation of minSz here may
-                    // return something bigger than
+		    // This calculation may return something bigger than
 		    // what establish_all_required_empty_tospace_sib_buffers computed!
 		    //
 		    if (new_bytesize > sib->tospace.bytesize) {

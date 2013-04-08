@@ -44,7 +44,7 @@ void   partition_agegroup0_buffer_between_hostthreads   (Hostthread *hostthread_
     //
     // will at this point have been set to
     //
-    //	   DEFAULT_AGEGROUP0_BUFFER_BYTESIZE  							// DEFAULT_AGEGROUP0_BUFFER_BYTESIZE is defined at 256K in   src/c/h/runtime-configuration.h
+    //	   DEFAULT_AGEGROUP0_BUFFER_BYTESIZE  								// DEFAULT_AGEGROUP0_BUFFER_BYTESIZE is defined at 256K in   src/c/h/runtime-configuration.h
     //     *
     //     MAX_HOSTTHREADS										// MAX_HOSTTHREADS is defined as something like 8 or 16    in   src/c/mythryl-config.h
     //
@@ -75,17 +75,25 @@ void   partition_agegroup0_buffer_between_hostthreads   (Hostthread *hostthread_
 	=
 	task0->heap->agegroup0_master_buffer;
 
-static int first_call = TRUE;
-								if (first_call)	log_if( "partition_agegroup0_buffer_between_hostthreads: task0->heap->agegroup0_master_buffer_bytesize x=%x", task0->heap->agegroup0_master_buffer_bytesize );
-								if (first_call)	log_if( "partition_agegroup0_buffer_between_hostthreads: per_hostthread_agegroup0_buffer_bytesize   x=%x", per_hostthread_agegroup0_buffer_bytesize);
-								if (first_call)	log_if( "partition_agegroup0_buffer_between_hostthreads: task0->heap->agegroup0_master_buffer   x=%x", task0->heap->agegroup0_master_buffer);
+ static int first_call = TRUE;
+ if (first_call)
+ log_if( "partition_agegroup0_buffer_between_hostthreads: task0->heap->agegroup0_master_buffer_bytesize x=%x",
+ task0->heap->agegroup0_master_buffer_bytesize );
+ if (first_call)
+ log_if( "partition_agegroup0_buffer_between_hostthreads: per_hostthread_agegroup0_buffer_bytesize   x=%x",
+ per_hostthread_agegroup0_buffer_bytesize);
+ if (first_call)
+ log_if( "partition_agegroup0_buffer_between_hostthreads: task0->heap->agegroup0_master_buffer   x=%x",
+ task0->heap->agegroup0_master_buffer);
 
     for (int hostthread = 0;   hostthread < MAX_HOSTTHREADS;   hostthread++) {
         //
 	task =  hostthread_table[ hostthread ]->task;
-									if (first_call)	log_if ( "partition_agegroup0_buffer_between_hostthreads: hostthread_table[%d]->task: initial  heap_allocation_pointer x=%x, heap_allocation_limit x=%x",
-													 hostthread, task->heap_allocation_pointer, task->heap_allocation_limit
-											       );
+
+ if (first_call)
+ log_if ( "partition_agegroup0_buffer_between_hostthreads: hostthread_table[%d]->task: initial  heap_allocation_pointer x=%x, heap_allocation_limit x=%x",
+ hostthread, task->heap_allocation_pointer, task->heap_allocation_limit
+ );
 													// HOSTTHREAD_LOG_IF		def in   src/c/mythryl-config.h
 													// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
 													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
@@ -94,12 +102,20 @@ static int first_call = TRUE;
 	task->heap_allocation_buffer_bytesize =  per_hostthread_agegroup0_buffer_bytesize;
 	task->heap_allocation_buffer          =  start_of_agegroup0_buffer_for_next_hostthread;
 	task->heap_allocation_pointer         =  start_of_agegroup0_buffer_for_next_hostthread;
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->hap now x=%x",hostthread, task->heap_allocation_pointer);
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: per_hostthread_agegroup0_buffer_bytesize x=%x",per_hostthread_agegroup0_buffer_bytesize );
-	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );				// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->rhal now x=%x",hostthread, task->real_heap_allocation_limit);
 
-        initialize_agegroup0_overrun_tripwire_buffer( task );							// initialize_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
+													if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->hap now x=%x",
+													hostthread, task->heap_allocation_pointer);
+													if (first_call)
+													log_if("partition_agegroup0_buffer_between_hostthreads: per_hostthread_agegroup0_buffer_bytesize x=%x",
+													per_hostthread_agegroup0_buffer_bytesize );
+
+	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );				// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
+
+													if (first_call)
+													log_if("partition_agegroup0_buffer_between_hostthreads: task%d->rhal now x=%x",
+													hostthread, task->real_heap_allocation_limit);
+
+        initialize_agegroup0_overrun_tripwire_buffer( task );						// initialize_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
 	
 
 	#if !NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -108,7 +124,7 @@ if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d
 	#else
 	    if (poll_interval <= 0) {
 		//
-		task->heap_allocation_limit = task->real_heap_allocation_limit;			// Same as above.
+		task->heap_allocation_limit = task->real_heap_allocation_limit;				// Same as above.
 		//
 	    } else {
 		//
@@ -117,7 +133,7 @@ if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
-												if (first_call)	log_if ("partition_agegroup0_buffer_between_hostthreads: poll_interval d=%d", poll_interval);
+													if (first_call)	log_if ("partition_agegroup0_buffer_between_hostthreads: poll_interval d=%d", poll_interval);
 		task->heap_allocation_limit
 		    =
 		    start_of_agegroup0_buffer_for_next_hostthread
@@ -133,13 +149,13 @@ if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d
 	    }
 	#endif
 
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->hap x=%x, task%d->hal x=%x, task%d->rhal x=%x, hal-hap x=%x  rhal-hap x=%x",
-hostthread, task->heap_allocation_pointer,
-hostthread, task->heap_allocation_limit,
-hostthread, task->real_heap_allocation_limit,
-(char*)(task->     heap_allocation_limit) - (char*)(task->heap_allocation_pointer),
-(char*)(task->real_heap_allocation_limit) - (char*)(task->heap_allocation_pointer)
-);
+													if (first_call)	log_if  ("partition_agegroup0_buffer_between_hostthreads: task%d->hap x=%x, task%d->hal x=%x, task%d->rhal x=%x, hal-hap x=%x  rhal-hap x=%x",
+													hostthread, task->heap_allocation_pointer,
+													hostthread, task->heap_allocation_limit,
+													hostthread, task->real_heap_allocation_limit,
+													(char*)(task->     heap_allocation_limit) - (char*)(task->heap_allocation_pointer),
+													(char*)(task->real_heap_allocation_limit) - (char*)(task->heap_allocation_pointer)
+													);
 
 	// Step over this hostthread's buffer to
 	// get start of next hostthread's buffer:
@@ -150,14 +166,14 @@ hostthread, task->real_heap_allocation_limit,
                      +
                      per_hostthread_agegroup0_buffer_bytesize
                    );
-    }												// for (int hostthread = 0;   hostthread < MAX_HOSTTHREADS;   hostthread++)
-first_call = FALSE;
-}												// fun partition_agegroup0_buffer_between_hostthreads
+    }													// for (int hostthread = 0;   hostthread < MAX_HOSTTHREADS;   hostthread++)
+													first_call = FALSE;
+}													// fun partition_agegroup0_buffer_between_hostthreads
 
 
- static volatile int	hostthreads_ready_to_clean__local = 0;					// Number of processors that are ready to clean.
+ static volatile int	hostthreads_ready_to_clean__local = 0;						// Number of processors that are ready to clean.
  static volatile Ptid	heapcleaner_hostthread_tid__local;						// The tid (p-thread id) of the hostthread that will do the actual heapcleaning work. (The rest sit and watch.)
- static volatile int	barrier_needs_to_be_initialized__local;					// Not sure if these last two need to be 'volatile', but better safe than sorry.
+ static volatile int	barrier_needs_to_be_initialized__local;						// Not sure if these last two need to be 'volatile', but better safe than sorry.
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
@@ -253,13 +269,13 @@ int   pth__start_heapcleaning   (Task *task) {
 	    // We're a secondary heapcleaner -- we'll just wait() while
 	    // the primary heapcleaner hostthread does all the actual work:
 	    ////////////////////////////////////////////////////////////
-	    hostthread->mode = HOSTTHREAD_IS_SECONDARY_HEAPCLEANER;					// Remove ourself from set of RUNNING hostthreads.
-	    --pth__running_hostthreads_count__global;							// Decrement count of HOSTTHREAD_IS_RUNNING mode hostthreads.
+	    hostthread->mode = HOSTTHREAD_IS_SECONDARY_HEAPCLEANER;				// Remove ourself from set of RUNNING hostthreads.
+	    --pth__running_hostthreads_count__global;						// Decrement count of HOSTTHREAD_IS_RUNNING mode hostthreads.
 	    pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
-	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {			// Wait for heapcleaning to complete.
 		pthread_cond_wait(&pth__condvar,&pth__mutex);					// (pth__mutex is released while waiting and returned to us before waking.)
 	    }
-	    hostthread->mode = HOSTTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+	    hostthread->mode = HOSTTHREAD_IS_RUNNING;						// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 	    ++pth__running_hostthreads_count__global;
 	    pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
 	    pthread_mutex_unlock(  &pth__mutex  );
@@ -271,9 +287,9 @@ int   pth__start_heapcleaning   (Task *task) {
 	/////////////////////////////////////////////////////////////
 												pth__validate_running_hostthreads_count();
 
-	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;					// Signal all HOSTTHREAD_IS_RUNNING hostthreads to block in HOSTTHREAD_IS_SECONDARY_HEAPCLEANER
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;				// Signal all HOSTTHREAD_IS_RUNNING hostthreads to block in HOSTTHREAD_IS_SECONDARY_HEAPCLEANER
 												// mode until we set pth__heapcleaner_state__global back to HEAPCLEANER_IS_OFF.
-	hostthread->mode = HOSTTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of RUNNING hostthreads.
+	hostthread->mode = HOSTTHREAD_IS_PRIMARY_HEAPCLEANER;					// Remove ourself from the set of RUNNING hostthreads.
 	--pth__running_hostthreads_count__global;
 	pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
 
@@ -284,10 +300,10 @@ int   pth__start_heapcleaning   (Task *task) {
         pth__extra_heapcleaner_roots__global[0] =  NULL;					// Buffer must always be terminated by a NULL entry.
         extra_heapcleaner_roots__local =  pth__extra_heapcleaner_roots__global;
 
-	while (pth__running_hostthreads_count__global > 0) {						// Wait until all HOSTTHREAD_IS_RUNNING hostthreads have entered HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	while (pth__running_hostthreads_count__global > 0) {					// Wait until all HOSTTHREAD_IS_RUNNING hostthreads have entered HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    pthread_cond_wait( &pth__condvar, &pth__mutex);
 	}
-	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has commenced. This is pure documentation -- nothing tests for this state.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;				// Note that actual heapcleaning has commenced. This is pure documentation -- nothing tests for this state.
 	pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
     pthread_mutex_unlock(  &pth__mutex  );							// Not logically required, but holding a mutex for a long time is a bad habit.
@@ -329,16 +345,16 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 												    die("src/c/heapcleaner/hostthread-heapcleaner-stuff.c: pth__extra_heapcleaner_roots__global[] overflow.");
 												} 
 
-	    hostthread->mode = HOSTTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
-	    --pth__running_hostthreads_count__global;							// Increment count of HOSTTHREAD_IS_RUNNING mode hostthreads.
+	    hostthread->mode = HOSTTHREAD_IS_SECONDARY_HEAPCLEANER;				// Change from RUNNING to HEAPCLEANING mode.
+	    --pth__running_hostthreads_count__global;						// Increment count of HOSTTHREAD_IS_RUNNING mode hostthreads.
 
 	    pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
 
-	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+	    while (pth__heapcleaner_state__global != HEAPCLEANER_IS_OFF) {			// Wait for heapcleaning to complete.
 		//
 		pthread_cond_wait(&pth__condvar,&pth__mutex);
 	    }
-	    hostthread->mode = HOSTTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+	    hostthread->mode = HOSTTHREAD_IS_RUNNING;						// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 
 	    ++pth__running_hostthreads_count__global;
 
@@ -354,9 +370,9 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 	/////////////////////////////////////////////////////////////
 												pth__validate_running_hostthreads_count();
 
-	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;					// Signal all HOSTTHREAD_IS_RUNNING hostthreads to block in HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_STARTING;				// Signal all HOSTTHREAD_IS_RUNNING hostthreads to block in HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode
 												// until we set pth__heapcleaner_state__global back to HEAPCLEANER_IS_OFF.
-	hostthread->mode = HOSTTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of HOSTTHREAD_IS_RUNNING hostthreads.
+	hostthread->mode = HOSTTHREAD_IS_PRIMARY_HEAPCLEANER;					// Remove ourself from the set of HOSTTHREAD_IS_RUNNING hostthreads.
 	--pth__running_hostthreads_count__global;
 	pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
 
@@ -372,12 +388,12 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task,  Roots* extra_root
 												    die("src/c/heapcleaner/hostthread-heapcleaner-stuff.c: pth__extra_heapcleaner_roots__global[] overflow.");
 												} 
 
-	while (pth__running_hostthreads_count__global > 0) {						// Wait until all HOSTTHREAD_IS_RUNNING hostthreads have entered HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	while (pth__running_hostthreads_count__global > 0) {					// Wait until all HOSTTHREAD_IS_RUNNING hostthreads have entered HOSTTHREAD_IS_SECONDARY_HEAPCLEANER mode.
 	    //
 	    pthread_cond_wait( &pth__condvar, &pth__mutex);
 	}
 
-	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_RUNNING;				// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
 	pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
     pthread_mutex_unlock(  &pth__mutex  );
@@ -403,9 +419,9 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     partition_agegroup0_buffer_between_hostthreads( hostthread_table__global );
 
     pthread_mutex_lock(   &pth__mutex  );							// 
-	pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
-	hostthread->mode = HOSTTHREAD_IS_RUNNING;							// Return to RUNNING mode from PRIMARY_HEAPCLEANER mode.
-	++pth__running_hostthreads_count__global;								//
+	pth__heapcleaner_state__global = HEAPCLEANER_IS_OFF;					// Clear the enter-heapcleaning-mode signal.
+	hostthread->mode = HOSTTHREAD_IS_RUNNING;						// Return to RUNNING mode from PRIMARY_HEAPCLEANER mode.
+	++pth__running_hostthreads_count__global;						//
 	pthread_cond_broadcast( &pth__condvar );						// Let other hostthreads know state has changed.
     pthread_mutex_unlock(  &pth__mutex  );
 												HOSTTHREAD_LOG_IF ("%lx finished heapcleaning\n", (unsigned long int) task->hostthread->ptid);

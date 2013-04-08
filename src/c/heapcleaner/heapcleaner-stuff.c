@@ -169,9 +169,9 @@ void   free_agegroup   (Heap* heap,  int g) {
 	    //
 	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace.start, ap->fromspace.bytesize, UNMAPPED_BOOK_SIBID);
 	    //
-	    ap->fromspace.start	    = NULL;
-	    ap->fromspace.bytesize  = 0;
-	    ap->fromspace.first_free  = NULL;
+	    ap->fromspace.start	     = NULL;
+	    ap->fromspace.bytesize   = 0;
+	    ap->fromspace.first_free = NULL;
 	}
     }
 }								// fun free_agegroup

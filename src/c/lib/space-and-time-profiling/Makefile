@@ -1,0 +1,46 @@
+#
+# Makefile for the space- and time-profiling support library.
+# The user-level manifestation of this library is:
+#
+#     src/lib/compiler/debugging-and-profiling/profiling/profiling-control.api
+#
+
+SHELL =		/bin/sh
+
+INC_DIR =	../../h
+CLIB_DIR =	../
+
+INCLUDES =	-I$(INC_DIR) -I$(CLIB_DIR) -I../../o
+GC_INCLUDES =	$(INCLUDES) -I../../heapcleaner
+
+MAKE =		make
+AR =		ar
+ARFLAGS =	rcv
+RANLIB =	ranlib
+
+LIBRARY =	libmythryl-space-and-time-profiling.a
+
+VERSION =	v-dummy
+
+OBJS =		libmythryl-space-and-time-profiling.o
+
+$(LIBRARY)	: $(VERSION) $(OBJS)
+	rm -rf $(LIBRARY)
+	$(AR) $(ARFLAGS) $(LIBRARY) $(OBJS)
+	$(RANLIB) $(LIBRARY)
+
+$(VERSION) :
+	echo "$(VERSION)" > $(VERSION)
+
+.c.o:		$(INC_DIR)/system-dependent-unix-stuff.h \
+		$(INC_DIR)/runtime-base.h \
+		$(INC_DIR)/runtime-values.h \
+		$(INC_DIR)/make-strings-and-vectors-etc.h \
+		$(INC_DIR)/profiler-call-counts.h \
+		$(CLIB_DIR)/raise-error.h \
+		cfun-proto-list.h
+	$(CC) $(CFLAGS) $(DEFS) $(GC_INCLUDES) -c $<
+
+clean :
+	@rm -f v-* *.o $(LIBRARY)
+

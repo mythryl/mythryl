@@ -16,10 +16,10 @@
 // 
 typedef struct {
     //
-    Val*	   base_address;			// The base address of the ram-region covered by the cardmap.
-    Vunt  card_count;				// The number of cards covered by the cardmap.
-    int	           map_bytesize;			// The number of bytes allocated for this cardmap.
-    Unt8	   min_age[ WORD_BYTESIZE ];	// The card map proper -- one min-age value per card.
+    Val*    base_address;				// The base address of the ram-region covered by the cardmap.
+    Vunt    card_count;					// The number of cards covered by the cardmap.
+    int	    map_bytesize;				// The number of bytes allocated for this cardmap.
+    Unt8    min_age[ WORD_BYTESIZE ];			// The card map proper -- one min-age value per card.
     //
 } Coarse_Inter_Agegroup_Pointers_Map;
 
@@ -59,7 +59,7 @@ typedef struct {
 //
 #define MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER( cardmap, pointer, age )	{		\
 	    /**/									\
-	    Coarse_Inter_Agegroup_Pointers_Map* __cardmap = (cardmap);		\
+	    Coarse_Inter_Agegroup_Pointers_Map* __cardmap = (cardmap);			\
 	    int	    __i = POINTER_TO_CARD_INDEX(__cardmap, (pointer));			\
 	    int	    __g = (age);							\
 	    if (__g < __cardmap->min_age[__i])						\

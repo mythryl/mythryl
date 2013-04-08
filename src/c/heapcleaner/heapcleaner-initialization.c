@@ -287,23 +287,26 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    ag->sib[ s ]->id =   MAKE_SIBID( age+1, s+1, 0);
 	}
-	for (int s = 0;  s < MAX_HUGE_SIBS;  s++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
+	for (int s = 0;  s < MAX_HUGE_SIBS;  s++) {				// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //
-	    ag->hugechunks[ s ] = NULL;					// s = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
+	    ag->hugechunks[ s ] = NULL;						// s = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 	}
     }
 
-    for (int age = 0;   age < params->active_agegroups;   age++) {
+    for (int a = 0;   a < params->active_agegroups;   a++) {
 	//
-	int k = (age == params->active_agegroups -1)
-                     ?  age
-                     :  age+1;
+	int k = (a == params->active_agegroups -1)
+                     ?  a
+                     :  a+1;
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //
-	    heap->agegroup[ age ]->sib[ ilk ]->sib_for_promoted_chunks
+	    heap->agegroup[ a ]->sib[ s ]->sib_for_promoted_chunks
                 =
-                heap->agegroup[ k ]->sib[ ilk ];
+                heap->agegroup[ k ]->sib[ s ];
+
+	    heap->agegroup[ a ]->sib[ s ]->current_bytes_in_use  = 0;		// This field is only for display/debugging; it plays no algorithmic role.
+	    heap->agegroup[ a ]->sib[ s ]->previous_bytes_in_use = 0;		// This field is only for display/debugging; it plays no algorithmic role.
 	}
     }
 
@@ -393,11 +396,11 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	if (set_up_tospace_sib_buffers_for_agegroup( heap->agegroup[0] ) == FALSE)	    die ("unable to allocate initial agegroup 1 buffer\n");
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //
-	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace.seniorchunks_end
+	    heap->agegroup[ 0 ]->sib[ s ]->fromspace.seniorchunks_end
 		=
-		heap->agegroup[ 0 ]->sib[ ilk ]->tospace.start;
+		heap->agegroup[ 0 ]->sib[ s ]->tospace.start;
 	}
     }
 
