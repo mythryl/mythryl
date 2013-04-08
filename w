@@ -13,7 +13,7 @@ stipulate
     #
 
 herein
-    Result(Z) =  RESULT Z  |  EXCEPTION Exception;
+    Result(Z) =  RESULT Z;
 
     fun io_do (task: Void -> Void) = {								hth::acquire_mutex  io::mutex; 		 	hth::increment_microthread_switch_lock ();
 	io::external_request_queue :=  (io::DO_TASK task)  !  *io::external_request_queue; 
@@ -30,16 +30,22 @@ herein
 	};           
 
 
+    maildrop =   make_empty_maildrop (): Maildrop(Int);
+
     fun loop (i, c)
 	=
-	{ maildrop =   make_maildrop ();
-			io_do  .{   mps_do .{ set_maildrop   (maildrop,   RESULT 12);   };
-				};
-			case (get_from_maildrop  maildrop)   RESULT    z =>  z;		    EXCEPTION x =>  raise exception  x;		esac;
-		
+	{ 
+	    io_do  .{
+		mps_do .{
+		    put_in_maildrop   (maildrop,   12);
+		};
+	    }; 
+
+	    take_from_maildrop  maildrop;
 
 	    #
-	    if (i == 0) { printf "foo %d!\n" c;  loop (10000, c+1); };
+	    if (i == 0) { printf "foo %d!\n" c;  if (c==50) heap_debug::dump_all "dump_all"; fi;
+						 loop (10000, c+1); };
 	    else				 loop (i - 1, c  );
 	    fi;
 	};
