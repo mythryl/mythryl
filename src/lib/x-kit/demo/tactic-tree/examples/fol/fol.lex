@@ -1,6 +1,6 @@
 # fol.lex
 #
-# COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+# COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details.
 
 
 

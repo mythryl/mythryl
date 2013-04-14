@@ -237,6 +237,6 @@ Mythryl_Callable_C_Library	    Libmythryl_Time_And_Space_Profiling = {						// M
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 

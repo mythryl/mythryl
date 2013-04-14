@@ -426,6 +426,6 @@ int main(int   argc,
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+ * Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
  * released per terms of SMLNJ-COPYRIGHT.
  */

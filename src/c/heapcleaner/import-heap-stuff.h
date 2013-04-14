@@ -85,7 +85,7 @@ extern Status   heapio__read_block          (Inbuf* bp,  void* blk,  long len);	
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

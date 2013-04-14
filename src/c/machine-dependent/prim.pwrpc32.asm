@@ -953,6 +953,6 @@ L_FlushICache_2:
 
 
 // COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 

@@ -82,7 +82,7 @@ Val   get_signal_mask__may_heapclean   (Task* task, Val arg, Roots* extra_roots)
 
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

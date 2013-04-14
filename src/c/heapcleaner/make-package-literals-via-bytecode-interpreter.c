@@ -506,7 +506,7 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 
 
 // COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

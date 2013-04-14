@@ -1101,7 +1101,7 @@ extern void  c_fake_signal_handler( int hostthread_id, int portable_signal_id);	
 
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

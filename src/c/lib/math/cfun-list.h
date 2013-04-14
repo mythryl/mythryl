@@ -41,6 +41,6 @@ CFUNC("atan64","atan64", 		_lib7_Math_atan64,      "Float -> Float")
 
 
 // COPYRIGHT (c) 1996 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 

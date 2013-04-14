@@ -25,7 +25,7 @@ Val _lib7_win32_get_last_error(Task *task, Val arg)
 
 
 /* COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+ * Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
  * released per terms of SMLNJ-COPYRIGHT.
  */
 

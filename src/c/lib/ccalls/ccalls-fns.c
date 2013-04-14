@@ -437,7 +437,7 @@ Vunt   make_c_function   (
 
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2012,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
 // released per terms of SMLNJ-COPYRIGHT.
 
 
