@@ -14,8 +14,6 @@
 #    __eu	# ("eu" == "enter uninterruptible scope")	This function begins uninterruptible scope -- i.e., increments *uninterruptible_scope_mutex.
 #    __iu	# ("iu" == "in    uninterruptible scope")	Fn must be called in uninterruptible scope -- i.e., when       *uninterruptible_scope_mutex is nonzero.
 #    __xu	# ("xu" == "exit  uninterruptible scope")	This function exits  uninterruptible scope -- i.e., decrements *uninterruptible_scope_mutex.
-#
-# (__usend needs to be phased out) xxx sucko fixme
 
 # Compiled by:
 #     src/lib/std/standard.lib
@@ -59,6 +57,9 @@ herein
     {
 uninterruptible_scope_mutex = log::uninterruptible_scope_mutex;					# Putting the mutex in log allows its value to be printed from virtually anywhere -- handy during debugging.
 
+	alarm_handler_calls                                        = REF 0;
+	alarm_handler_calls_with__uninterruptible_scope_mutex__set = REF 0;
+	alarm_handler_calls_with__microthread_switch_lock__set     = REF 0;
 
 	trace_backpatchfn =   REF (fn _ = ()) :   Ref( (Void -> String) -> Void );		# Exported.
 	    #
@@ -96,7 +97,7 @@ uninterruptible_scope_mutex = log::uninterruptible_scope_mutex;					# Putting th
 	fun bogus _
 	    =
 	    {
-printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
+log::note_on_stderr .{ "bogus() called, raising exception FAIL    -- thread-scheduler\n"; };
 		raise exception  FAIL  "should never see this ";
 	    };
 
@@ -110,8 +111,8 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 	# The scheduler defines three fate "hooks":
 	#
 	thread_scheduler_shutdown_hook        =  REF bogus_shutdown_fate;					# Exported.
+	run_next_runnable_thread__xu__hook =  REF bogus_void_fate;						# Exported.
 	no_runnable_threads_left__hook        =  REF bogus_void_fate;						# Exported.
-	run_next_runnable_thread__usend__hook =  REF bogus_void_fate;						# Exported.
 	    #
 	    #
 	    # thread_scheduler_shutdown_hook
@@ -130,7 +131,7 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 	    #		This hook gets set mainly in	start_up_thread_scheduler''	in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
 	    #		but also in			wrap_for_export			in   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 	    #
-	    # run_next_runnable_thread__usend__hook
+	    # run_next_runnable_thread__xu__hook
 	    #		points to a fate that gets dispatched
 	    #		when a thread attempts to exit a critical
 	    #		section and there is a signal pending.
@@ -139,11 +140,11 @@ printf "bogus() called, raising exception FAIL    -- thread-scheduler\n";
 	    #		which is to say, after leaving the critical section.
 	    #
 	    #		reset_thread_scheduler sets this to default_scheduler_fate (== dispatch_next_thread__noreturn).
-	    #	        This is set to wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate (see below)
+	    #	        This is set to wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate (see below)
 	    #		by start_up_thread_scheduler'' in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
 	    #	        and wrap_for_export            in   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
 	    #		Later this will get set to
-	    #		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__usend__fate	from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
+	    #		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate	from   src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 	    #		which mostly wraps
 	    #		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses		from   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
 	    #
@@ -694,12 +695,12 @@ crash_if_thread_is_already_in_run_queues p;
 	#
 	fun run_next_runnable_thread__xu ()								# XXX OLD COMMENNT: We do not need to clear uninterruptible mode here because			Derived from Reppy's dispatchSchedulerHook.
 	    =												# the hook will immediately do a enter_uninterruptible_scope.
-	    switch_to_fate  *run_next_runnable_thread__usend__hook ();						# 
+	    switch_to_fate  *run_next_runnable_thread__xu__hook ();						# 
 
 
 
 	#
-	fun assert_not_in_uninterruptible_scope ()								# Exported.  Enter a critical section.		Derived from Reppy's atomicBegin.
+	fun assert_not_in_uninterruptible_scope ()							# Exported.  Enter a critical section.		Derived from Reppy's atomicBegin.
 	    =
 {
 # if (*uninterruptible_scope_mutex == 0)   log::note_in_ramlog .{ sprintf "assert_not_in_uninterruptible_scope/TOP *uninterruptible_scope_mutex d=0 (0 is expected)"; };
@@ -747,7 +748,7 @@ fi;
 
 
 	#
-	fun dispatch_next_thread__usend__noreturn ()							# Exported.  NEVER RETURNS TO CALLER.		# Derived from Reppy's atomicDispatch.
+	fun dispatch_next_thread__xu__noreturn ()							# Exported.  NEVER RETURNS TO CALLER.		# Derived from Reppy's atomicDispatch.
 	    =
 	    # This is the standard exit-to-thread-scheduler call used by packages like
 	    # maildrop or mailqueue when they are in an uninterruptible scope and must	
@@ -756,15 +757,15 @@ fi;
 	    # then find a new thread to run.
 	    {
 # Floods ram.log:
-# log::note           .{ "dispatch_next_thread__usend__noreturn/AAA"; };
-# log::note_in_ramlog .{ sprintf "dispatch_next_thread__usend__noreturn/AAA calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue  *uninterruptible_scope_mutex d=%d"  *uninterruptible_scope_mutex; };
-# fil::print "dispatch_next_thread__usend__noreturn/AAA:   "; print_thread_scheduler_state(); fil::print "\n";
+# log::note           .{ "dispatch_next_thread__xu__noreturn/AAA"; };
+# log::note_in_ramlog .{ sprintf "dispatch_next_thread__xu__noreturn/AAA calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue  *uninterruptible_scope_mutex d=%d"  *uninterruptible_scope_mutex; };
+# fil::print "dispatch_next_thread__xu__noreturn/AAA:   "; print_thread_scheduler_state(); fil::print "\n";
 
 		if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
 
 # Floods ram.log:
-# log::note           .{ "dispatch_next_thread__usend__noreturn/BBB"; };
-# log::note_in_ramlog .{ sprintf "dispatch_next_thread__usend__noreturn/BBB *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
+# log::note           .{ "dispatch_next_thread__xu__noreturn/BBB"; };
+# log::note_in_ramlog .{ sprintf "dispatch_next_thread__xu__noreturn/BBB *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
 
 		if (*uninterruptible_scope_mutex != 1)
 		    bar = "===============================================================================================================================================\n";
@@ -774,7 +775,7 @@ fi;
 		    print bar;
 		    print bar;
 
-		    printf "dispatch_next_thread__usend__noreturn: THREADKIT INTERNAL BUG: *uninterruptible_scope_mutex has bogus value d=%d (should be 1) so shutting down.\n"
+		    printf "dispatch_next_thread__xu__noreturn: THREADKIT INTERNAL BUG: *uninterruptible_scope_mutex has bogus value d=%d (should be 1) so shutting down.\n"
                            *uninterruptible_scope_mutex;
 
 		    print bar;
@@ -790,7 +791,7 @@ fi;
 		    need_to_switch_threads_when_exiting_uninterruptible_scope := FALSE;
 
 # Floods ram.log:
-# log::note_in_ramlog .{ sprintf "dispatch_next_thread__usend__noreturn/BBB -- need to switch threads so calling run_next_runnable_thread__xu()  *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
+# log::note_in_ramlog .{ sprintf "dispatch_next_thread__xu__noreturn/BBB -- need to switch threads so calling run_next_runnable_thread__xu()  *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
 		    run_next_runnable_thread__xu ();
 		fi;
 
@@ -802,7 +803,7 @@ fi;
 										#     src/lib/src/lib/thread-kit/src/glue/threadkit-base-for-os-g.pkg
 										#
 										# does   ts::block_until_inter_hostthread_request_queue_is_nonempty ();
-										#	 ts::dispatch_next_thread__usend__noreturn  ();
+										#	 ts::dispatch_next_thread__xu__noreturn  ();
 										#
 										# that here we want to process any inter-hostthread requests before
 										# running dequeue_thread_preferably_an_io_bound_one, since the inter-hostthread requests
@@ -819,7 +820,7 @@ fi;
 		    (thread, fate);
 { thread -> itt::MICROTHREAD { thread_id, name, task, ... };
   task -> itt::APPTASK   { task_id, ... };
-# log::note .{ sprintf "%s\tdispatch_next_thread__usend__noreturn/DDD dequeued thread == %d:%d(%s) calling set_current_thread and then switch_to_fate" (thread_scheduler_statestring()) thread_id task_id name; };
+# log::note .{ sprintf "%s\tdispatch_next_thread__xu__noreturn/DDD dequeued thread == %d:%d(%s) calling set_current_thread and then switch_to_fate" (thread_scheduler_statestring()) thread_id task_id name; };
 };
 		set_current_thread  thread;
 
@@ -833,9 +834,10 @@ fi;
 	fun dispatch_next_thread__noreturn ()								# Exported.  NEVER RETURNS TO CALLER.					Derived from Reppy's dispatch().
 	    =												# Called when NOT in a critical section.
 	    {
+assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
-		dispatch_next_thread__usend__noreturn ();
+		dispatch_next_thread__xu__noreturn ();
 	    };
 	#
 fun lognote (msg, thread)
@@ -852,7 +854,7 @@ fun lognote (msg, thread)
 	fun switch_to_thread__xu (requested_thread, requested_fate, requested_arg)			# Exported.  Switch to requested_thread/requested_fate/requested_arg while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
 	    =														# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
 {
-# log::note_in_ramlog .{ sprintf "switch_to_thread__xu calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
+ log::note_in_ramlog .{ sprintf "switch_to_thread__xu calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
 	    if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
 #															lognote("switch_to_thread__xu/AAA calling nested call_with_current_fate()s",requested_thread);
 	    call_with_current_fate (
@@ -931,7 +933,7 @@ fun lognote (msg, thread)
 };
 		set_didmail_flag_and_push_thread_into_foreground_run_queue  (get_current_thread (),  fate);
 		#
-		dispatch_next_thread__usend__noreturn ();
+		dispatch_next_thread__xu__noreturn ();
 	    };
 
 
@@ -973,6 +975,7 @@ fun lognote (msg, thread)
 		    ->
 		    rwq::RW_QUEUE q;
 
+assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;								# Reppy didn't guard this q op, curiously.
 		    #
 		    q.back :=    (itt::run_thunk_thread, fate_to_run)  !  *q.back;				# Enter thread at back of background run queue.
@@ -1024,6 +1027,7 @@ fun lognote (msg, thread)
 		    ->
 		    rwq::RW_QUEUE q;
 
+assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;								# Reppy didn't guard this q op, curiously.
 		    #
 		    q.back :=    (itt::run_thunk_soon_thread, fate_to_run)  !  *q.back;				# Enter thread at back of foreground run queue.
@@ -1133,7 +1137,7 @@ fun lognote (msg, thread)
 
 	default_scheduler_fate
 	    =
-	    fat::make_isolated_fate   dispatch_next_thread__usend__noreturn
+	    fat::make_isolated_fate   dispatch_next_thread__xu__noreturn
 	    :
 	    Fate( Void );
 
@@ -1192,6 +1196,7 @@ fun lognote (msg, thread)
 	fun preempt__eu  current_fate							# Preempt the current thread (i.e. 'with fate k). 
 	    =
 	    {
+assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;					# Reppy didn't have this, but that looks like a bug, or at least undocumented fragility.
 		    #
 		    current_thread =  get_current_thread ();
@@ -1247,7 +1252,18 @@ fun lognote (msg, thread)
              current_fate								# Fate ("continuation") which was interrupted to run us.
             )
 	    =
-	    {
+	    {   # Instrumentation:
+		#
+		alarm_handler_calls     :=  *alarm_handler_calls + 1;
+		#
+		if (*uninterruptible_scope_mutex != 0)
+		    alarm_handler_calls_with__uninterruptible_scope_mutex__set := *alarm_handler_calls_with__uninterruptible_scope_mutex__set + 1;
+		fi;
+		#
+		if (*hth::microthread_switch_lock != 0)
+		    alarm_handler_calls_with__microthread_switch_lock__set := *alarm_handler_calls_with__microthread_switch_lock__set + 1;
+		fi;
+
 		cached_approximate_time :=   NULL;
 		    #	
 		    # We keep cached_approximate_time
@@ -1259,7 +1275,7 @@ fun lognote (msg, thread)
 		    # know what time it is.
 
 # Floods ram.log:
-# log::note_in_ramlog .{ sprintf "alarm handler *uninterruptible_scope_mutex d=%d  *hth::microthread_switch_lock d=%d"   *uninterruptible_scope_mutex  *hth::microthread_switch_lock; };
+log::note_in_ramlog .{ sprintf "alarm handler *uninterruptible_scope_mutex d=%d  *hth::microthread_switch_lock d=%d"   *uninterruptible_scope_mutex  *hth::microthread_switch_lock; };
 		if (*uninterruptible_scope_mutex == 0  and  *hth::microthread_switch_lock == 0)
 		    #
 # Floods ram.log:
@@ -1268,7 +1284,7 @@ fun lognote (msg, thread)
 		    #
 		    preempt__eu  current_fate;						# Put current thread to sleep so we can give someone else a chance to run.
 
-		    *run_next_runnable_thread__usend__hook;				# Invoke scheduler thread, which will then select next user thread to run.
+		    *run_next_runnable_thread__xu__hook;				# Invoke scheduler thread, which will then select next user thread to run.
 		else
 
 		    # We're in a critical section
@@ -1553,7 +1569,7 @@ fi;
 															# like not segfaulting if someone references the register.
 		no_runnable_threads_left__hook		:=  bogus_void_fate;
 		thread_scheduler_shutdown_hook		:=  bogus_shutdown_fate;
-		run_next_runnable_thread__usend__hook	:=  default_scheduler_fate;
+		run_next_runnable_thread__xu__hook	:=  default_scheduler_fate;
 
 		cached_approximate_time :=   NULL;
 

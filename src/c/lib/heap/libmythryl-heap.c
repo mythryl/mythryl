@@ -967,7 +967,7 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
     Val		tmp;
 
     if (arg == OPTION_NULL) {
-//													log_if("setitimer.c: Turning OFF SIGALRM interval timer\n");
+													log_if("setitimer.c: Turning OFF SIGALRM interval timer\n");
         // Turn off the timer:
         //
 	new_itv.it_interval.tv_sec	=
@@ -986,7 +986,7 @@ static Val   do_set_sigalrm_frequency   (Task* task,  Val arg)   {
 
 	new_itv.it_interval.tv_usec	=
 	new_itv.it_value.tv_usec	= GET_TUPLE_SLOT_AS_INT(tmp, 1);
-//													log_if("setitimer.c: Turning ON SIGALRM interval itimer, sec,usec = (%d,%d)\n",new_itv.it_value.tv_sec, new_itv.it_value.tv_usec);
+													log_if("setitimer.c: Turning ON SIGALRM interval itimer, sec,usec = (%d,%d)\n",new_itv.it_value.tv_sec, new_itv.it_value.tv_usec);
     }
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, &arg );

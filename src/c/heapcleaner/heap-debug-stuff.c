@@ -1058,7 +1058,16 @@ void   dump_ramlog   (Task* task, char* caller) {							// Currently called (onl
 	fprintf(stderr,"dump_ramlog:  Unable to create '%s': %s\n", filename, strerror(errno) );
 	exit(1);
     }
-
+// Temporary debug support: XXX SUCKO DELETEME
+{ char* state = "HEAPCLEANER_IS_OFF";
+  switch (pth__heapcleaner_state__global) {
+  case HEAPCLEANER_IS_OFF:      state = "HEAPCLEANER_IS_OFF"; break;
+  case HEAPCLEANER_IS_STARTING: state = "HEAPCLEANER_IS_STARTING"; break;
+  case HEAPCLEANER_IS_RUNNING: state = "HEAPCLEANER_IS_RUNNING"; break;
+  default: state = "HEAPCLEANER IS BLOODY WEIRD"; break;
+  }
+fprintf(fd,"\ndump_ramlog: pth__running_hostthreads_count__global d=%d  pth__heapcleaner_state__global s=%s\n\n\n", pth__running_hostthreads_count__global,state);
+}
     dump_ramlog__guts (fd);
 
     fclose( fd );

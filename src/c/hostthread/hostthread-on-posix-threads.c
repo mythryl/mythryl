@@ -1540,7 +1540,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 // The central problems are
 //
 //   1) How to maintain Mythryl heap coherency in the
-//      face of multiple kernel threads executing Mythryl
+//      face of multiple hostthreads executing Mythryl
 //      code in parallel while retaining good performance.
 //
 //   2) How to maintain Mythryl heap coherency during
@@ -1549,7 +1549,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 // The matching solutions Morrisett and Tolmach adopted were:
 //
 //   1) Most heap allocation is done in agegroup zero;
-//      by giving each kernel thread its own independent
+//      by giving each hostthread its own independent
 //      agegroup zero, each can allocate at full speed
 //      without locking overhead.
 //
@@ -1562,7 +1562,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 //      see Cheng's 2001 CMU thesis: http://mythryl.org/pub/pml/
 //      -- so for ease of implementation (and debugging!) they
 //      instead used the  pre-existing garbage collector, running
-//      on a single kernel thread.
+//      on a single hostthread.
 //
 //
 // Point (2) requires further analysis and design effort.
@@ -1666,10 +1666,10 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 //   o  To distinguish hostthread modes we introduce a type
 //
 //         Hostthread_Mode = HOSTTHREAD_IS_RUNNING		// Hostthread is running Mythryl code -- will respond quickly to 
-//                      | HOSTTHREAD_IS_BLOCKED
-//                      | HOSTTHREAD_IS_PRIMARY_HEAPCLEANER
-//                      | HOSTTHREAD_IS_SECONDARY_HEAPCLEANER
-//
+//                         | HOSTTHREAD_IS_BLOCKED
+//                         | HOSTTHREAD_IS_PRIMARY_HEAPCLEANER
+//                         | HOSTTHREAD_IS_SECONDARY_HEAPCLEANER
+//			   ;
 //      in   src/c/h/runtime-base.h
 //
 //

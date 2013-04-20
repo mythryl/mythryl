@@ -991,6 +991,74 @@ log::note_in_ramlog .{ sprintf "test_select_over_input_mailqueues/BBB calling em
 		    };
 	    end;
 
+
+	fun test_basic_preemptive_scheduling_fairness ()
+	    =
+	    {
+		# Run two CPU-bound-loop microthreads for one second
+		# and verify that they both get a fair share of cycles:
+
+		mps::alarm_handler_calls                                        :=  0;
+		mps::alarm_handler_calls_with__uninterruptible_scope_mutex__set :=  0;
+		mps::alarm_handler_calls_with__microthread_switch_lock__set     :=  0;
+
+		stipulate
+		    dummy = REF 0;
+		herein
+		    fun worker_thread counter
+			=
+			{   for (i = 100000; i > 0; --i) {
+				if (i & 1 == 0)   dummy := *dummy + 1;			# This is just intended to discourage the compiler from optimizing the loop away.
+				else	          dummy := *dummy - 1;
+				fi;
+			    };
+			    counter := *counter + 1;					# Track 'work' done by microthread.
+			    worker_thread counter;	
+			};
+		end;
+
+
+		# Counters to track 'work' done by the two microthreads:
+		#
+		counter1 = REF 0;
+		counter2 = REF 0;
+
+		fun initialize__timeslicing__task ()
+		    =
+		    {   make_thread "worker thread" .{ worker_thread  counter1; };
+			make_thread "worker thread" .{ worker_thread  counter2; };
+			#
+			thread_exit { success => TRUE };
+		    };
+
+		task =  make_task "Test microthread pre-emptive timeslicing"  [ ("startup_thread", initialize__timeslicing__task) ];
+
+		sleep_for 1.0;						# Let the two worker threads run for a second.
+		kill_task { task, success => TRUE };			# Shut down the worker threads:
+
+		assert (*mps::alarm_handler_calls > 30);		# We usually timeslice at 50Hz, so we expect alarm_handler to have been called about 50 times.
+
+		assert (*counter1 > 0);					# We expect both worker threads to have done at least one work unit.
+		assert (*counter2 > 0);					# This also guarantees a trouble report when next test cannot run due to divide-by-zero.
+
+		if (*counter1 > 0
+		or  *counter2 > 0)
+		    #
+		    # Compute lesser/greater ratio, which will be
+		    # between 0.0 and 1.0 inclusive:
+		    #
+		    i2f = eight_byte_float::from_int;
+		    #
+		    f1  =  i2f *counter1;
+		    f2  =  i2f *counter2;
+		    #
+		    ratio = (f1 > f2)  ??  f2 // f1			# Avoid divide-by-zero if (only) one of the counts is zero.
+				       ::  f1 // f2;
+
+		    assert (ratio > 0.1);				# We expect about 1.0.  If one thread got < 10% as many CPU cycles as the other something is definitely wedged.
+		fi;
+	    };
+
 	fun run ()
 	    =
 	    {   my _ = printf "\nDoing %s:\n" name;   
@@ -1015,6 +1083,8 @@ log::note_in_ramlog .{ sprintf "test_select_over_input_mailqueues/BBB calling em
 		test_basic_select_functionality ();
 																	log::note .{ sprintf "%s\tthreadkit-unit-test/GGG  calling test_basic_succeed_vs_fail_functionality" (mps::thread_scheduler_statestring ()); };
 		test_basic_succeed_vs_fail_functionality ();
+																	log::note .{ sprintf "%s\tthreadkit-unit-test/HHH  calling test_basic_preemptive_scheduling_fairness" (mps::thread_scheduler_statestring ()); };
+		test_basic_preemptive_scheduling_fairness ();
 																	log::note .{ sprintf "%s\tthreadkit-unit-test/ZZZ" (mps::thread_scheduler_statestring ()); };
 
 		summarize_unit_tests  name;
