@@ -60,7 +60,7 @@ void   ramlog_printf   (char *format, ...)   {
 
     Hostthread* hostthread = pth__get_hostthread_by_ptid( pth__get_hostthread_ptid() );
 
-//  pthread_mutex_lock(    &pth__ramlog_mutex  );;
+    pthread_mutex_lock(    &pth__ramlog_mutex  );;
 
     va_list   ap;
 
@@ -105,7 +105,7 @@ void   ramlog_printf   (char *format, ...)   {
 	}
     }
 
-//  pthread_mutex_unlock(  &pth__ramlog_mutex  );
+    pthread_mutex_unlock(  &pth__ramlog_mutex  );
 }
 
 static int   count_lines_in_ramlog   (void) {
@@ -213,6 +213,17 @@ void   debug_ramlog  (int lines_to_print) {
 
 void   dump_ramlog__guts   (FILE* fd)   {
     // =================
+
+// Debug stuff -- I have the sense we're sometimes failing
+// to print out most of the contents of the ramlog. This
+// should help dis/confirm that next time it happens:
+{ int newlines = 0;
+  char* last_newline = ramlog_buf;
+  for (char* p = ramlog_buf; p < ramlog_soft_limit; ++p) {
+    if (*p == '\n')  { ++newlines; last_newline = p; }
+  }
+  fprintf(fd,"dump_ramlog__guts: ramlog buf x=%08x-%08x ramlog_next x=%08x newlines x=%08x d=%d (last %08x)\n\n", (unsigned int)ramlog_buf, (unsigned int)ramlog_soft_limit, ramlog_next-ramlog_buf, newlines,newlines, last_newline-ramlog_buf);
+}
 
     for_all_lines_in_ramlog(  write_line_to_file,  (void*) fd  );
 } 

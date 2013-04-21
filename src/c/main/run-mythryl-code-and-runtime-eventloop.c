@@ -158,9 +158,12 @@ ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING\n", sysca
 		//
 		// This "request" is really a POSIX interprocess signal.
 
+ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING: hostthread->interprocess_signal_pending = TRUE, ->id d=%d ->name s='%s'\n", syscalls_seen,hostthread->id,hostthread->name);
 		if (need_to_call_heapcleaner( task, 4*ONE_K_BINARY )) {
 		    //
+ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING: hostthread->interprocess_signal_pending = TRUE, CALLING HEAPCLEANER  ->id d=%d ->name s='%s'\n", syscalls_seen,hostthread->id,hostthread->name);
 		    call_heapcleaner( task, 0 );							// call_heapcleaner	def in   src/c/heapcleaner/call-heapcleaner.c
+ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING: hostthread->interprocess_signal_pending = TRUE, CALLED  HEAPCLEANER  ->id d=%d ->name s='%s'\n", syscalls_seen,hostthread->id,hostthread->name);
 		}
 
 	        // Figure out which interprocess signal needs handling

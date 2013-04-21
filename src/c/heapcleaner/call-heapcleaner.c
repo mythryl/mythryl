@@ -254,6 +254,7 @@ ramlog_printf("#%d call_heapcleaner/AAA\n", syscalls_seen );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 
+ramlog_printf("#%d call_heapcleaner/ZZZ\n", syscalls_seen );
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 }			 											// fun call_heapcleaner
 
@@ -332,6 +333,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	// into the vanilla single-threaded heapcleaning code:
     }
 
+ramlog_printf("#%d call_heapcleaner_with_extra_roots/AAA\n", syscalls_seen );
     note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
@@ -436,6 +438,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
+ramlog_printf("#%d call_heapcleaner_with_extra_roots/ZZZ\n", syscalls_seen );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 

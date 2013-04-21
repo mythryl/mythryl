@@ -29,18 +29,35 @@ stipulate
 #  50000 = 36.762u 1.124s 0:37.86 100.0%	0+0k 0+350104io 0pf+0w
 # 500000 = 
 
-    fun io_do (task: Void -> Void) = {								hth::acquire_mutex  io::mutex; 		 	hth::increment_microthread_switch_lock ();
+    fun io_do (task: Void -> Void) = {
+log::note_in_ramlog .{ sprintf "io_do/AAA -- acquiring mutex"; };
+												hth::acquire_mutex  io::mutex;
+log::note_in_ramlog .{ sprintf "io_do/BBB -- acquired mutex, incrementing microthread_switch_lock"; };
+ 		 										hth::increment_microthread_switch_lock ();
+log::note_in_ramlog .{ sprintf "io_do/CCC -- incremented microthread_switch_lock, updating queue"; };
 	io::external_request_queue :=  (io::DO_TASK task)  !  *io::external_request_queue; 
-												hth::decrement_microthread_switch_lock ();	hth::release_mutex io::mutex;  
-												hth::broadcast_condvar  io::condvar;  
+log::note_in_ramlog .{ sprintf "io_do/DDD -- decrementing microthread_switch_lock"; };
+												hth::decrement_microthread_switch_lock ();
+log::note_in_ramlog .{ sprintf "io_do/EEE -- decremented microthread_switch_lock, releasing mutex"; };
+												hth::release_mutex io::mutex;  
+log::note_in_ramlog .{ sprintf "io_do/FFF -- decremented microthread_switch_lock, released mutex, broadcasting condvar"; };
+result =
+												hth::broadcast_condvar  io::condvar;
+log::note_in_ramlog .{ sprintf "io_do/ZZZ"; };
+result;
     };           
 
     fun mps_do  (thunk: Void -> Void)
 	= 
-	{  											hth::acquire_mutex mps::mutex;  
+	{
+log::note_in_ramlog .{ sprintf "mps_do/AAA"; };
+  												hth::acquire_mutex mps::mutex;  
 		mps::request_queue :=  (mps::DO_THUNK thunk)  !  *mps::request_queue; 
 												hth::release_mutex mps::mutex;  
-												hth::broadcast_condvar mps::condvar;  
+result =
+												hth::broadcast_condvar mps::condvar;
+log::note_in_ramlog .{ sprintf "mps_do/ZZZ"; };
+result;
 	};           
 herein
 
@@ -63,18 +80,26 @@ herein
 
     fun is_perfect_number n
 	=
-	{   sum_of_nonself_factors
+	{
+log::note_in_ramlog .{ sprintf "is_perfect_number(%d)/AAA" n; };
+	    sum_of_nonself_factors
 		=
 		for (i = 1, sum = 0;  i < n;  ++i;  sum) {
 		    #
 		    sum =   (n % i == 0)   ??   (sum + i)   ::   sum;
 		};
 
+result =
 	    n == sum_of_nonself_factors;
+log::note_in_ramlog .{ sprintf "is_perfect_number(%d)/ZZZ" n; };
+result;
 	};
 
     fun is_perfect_number' (n: Int)
 	=
+{
+log::note_in_ramlog .{ sprintf "is_perfect_number'(%d)/AAA" n; };
+result =
 	case (take_from_oneshot  oneshot)
 	    #
 	    RESULT    z =>  z;
@@ -88,15 +113,25 @@ herein
 	    oneshot =   make_oneshot_maildrop ();
 
 	    io_do .{
+log::note_in_ramlog .{ sprintf "is_perfect_number'(%d)/io_do/AAA" n; };
 			result =    RESULT (is_perfect_number n)
 				    except
 					x = EXCEPTION x;
 
+log::note_in_ramlog .{ sprintf "is_perfect_number'(%d)/io_do/BBB -- calling mps_do" n; };
 			mps_do .{
+log::note_in_ramlog .{ sprintf "is_perfect_number'/mps_do(%d)/AAA" n; };
+result =
 				    put_in_oneshot (oneshot, result);
+log::note_in_ramlog .{ sprintf "is_perfect_number'/mps_do(%d)/ZZZ" n; };
+result;
 				};
+log::note_in_ramlog .{ sprintf "is_perfect_number'(%d)/io_do/ZZZ -- done mps_do call." n; };
 		    };
 	end; 
+log::note_in_ramlog .{ sprintf "is_perfect_number'(%d)/ZZZ" n ; };
+result;
+};
 
 
     Queue_Entry = PERFECT_NUMBER Int
@@ -105,14 +140,19 @@ herein
 
     result_queue =  make_mailqueue ():  Mailqueue( Queue_Entry );
 
+    taskref = REF (NULL:  Null_Or(Apptask));
+
     fun worker_thread n
 	=
-	if (is_perfect_number n)
+{
+	if (is_perfect_number' n)
 	    #
 	    put_in_mailqueue (result_queue, PERFECT_NUMBER n);
 
-	    thread_exit { success => TRUE };
 	fi;
+log::note_in_ramlog .{ sprintf "thread %d done live_tasks d=%d" n case *taskref   NULL => -1;   THE task => get_task's_alive_threads_count task; esac; };
+	thread_exit { success => TRUE };
+};
 
     result_maildrop =   make_oneshot_maildrop ():   Oneshot_Maildrop( List(Int) );
 
@@ -133,21 +173,26 @@ herein
 	{
 	    for (i = lower_number_to_check;  i < upper_number_to_check;  ++i) {
 		#
+log::note_in_ramlog .{ sprintf "initialize__find_perfect_numbers__task loop %d/AAA" i; };
 		make_thread "worker thread" .{ worker_thread  i; };
+log::note_in_ramlog .{ sprintf "initialize__find_perfect_numbers__task loop %d/BBB" i; };
 	    };
 	    #
+log::note_in_ramlog .{ sprintf "initialize__find_perfect_numbers__task DONE"; };
 	    thread_exit { success => TRUE };
 	};
 
     make_thread "boss thread" .{ result_loop []; };
 
     task =  make_task "Find Perfect Numbers"  [ ("startup_thread", initialize__find_perfect_numbers__task) ];
+    taskref := THE task;
 
     fun sentinel ()
 	=
 	{   task_finished' =  task_done__mailop  task;
 	    #
 	    block_until_mailop_fires  task_finished';
+log::note_in_ramlog .{ sprintf "sentinel firing"; };
 	    #
 	    put_in_mailqueue (result_queue, DONE);
 	};
