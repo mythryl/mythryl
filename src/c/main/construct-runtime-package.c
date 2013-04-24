@@ -335,7 +335,7 @@ void   construct_runtime_package__global   (Task* task) {
 	set_slot_in_nascent_heapchunk(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	set_slot_in_nascent_heapchunk(task,  9, MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL);					// microthread_switch_lock_refcell__global				in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  9, MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL);				// microthread_switch_lock_refcell__global			in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);				// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api

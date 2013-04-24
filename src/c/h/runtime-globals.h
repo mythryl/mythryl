@@ -179,11 +179,13 @@ extern Val   microthread_switch_lock_refcell__global   [];
     //                     Mythryl level in alarm_handler() in microthread-preemptive-scheduler.pkg,
     //                     so the refcell needs to be visible at both C and Mythryl levels, hence its
     //                     declaration here rather than at the Mythryl level. 
-    //
+    // Heapcleaning:       This refcell is protected against the heapcleaner by virtue of being
+    //			   slot 9 in the record 'runtime' in construct_runtime_package__global()	// construct_runtime_package__global				is from   src/c/main/construct-runtime-package.c
+    //                     which in turn is listed in c_roots__global[] in that file, which is 
+    //			   directly known to call_heapcleaner and call_heapcleaner_with_extra_roots	// call_heapcleaner						is from   src/c/heapcleaner/call-heapcleaner.c
 
-
-extern void   set_up_list_of_c_functions_callable_from_mythryl   ();				// set_up_list_of_c_functions_callable_from_mythryl		def in    src/c/lib/mythryl-callable-c-libraries.c
-extern Val    find_mythryl_callable_c_function   (char* lib_name, char* fun_name);		// find_mythryl_callable_c_function				def in    src/c/lib/mythryl-callable-c-libraries.c
+extern void   set_up_list_of_c_functions_callable_from_mythryl   ();					// set_up_list_of_c_functions_callable_from_mythryl		def in    src/c/lib/mythryl-callable-c-libraries.c
+extern Val    find_mythryl_callable_c_function   (char* lib_name, char* fun_name);			// find_mythryl_callable_c_function				def in    src/c/lib/mythryl-callable-c-libraries.c
 
 extern void   publish_runtime_package_contents ();						// publish_runtime_package_contents				def in    src/c/main/construct-runtime-package.c
 extern void   construct_runtime_package__global (Task* task);					// construct_runtime_package__global				def in    src/c/main/construct-runtime-package.c
