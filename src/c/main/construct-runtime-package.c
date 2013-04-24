@@ -194,7 +194,7 @@ DEFINE_VOID_REFCELL( posix_interprocess_signal_handler_refcell__global		);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_handler_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_switch_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_event_interval_refcell__global	);
-DEFINE_VOID_REFCELL( unused_int_refcell__global					);
+DEFINE_VOID_REFCELL( microthread_switch_lock__global				);
 
 #undef DEFINE_VOID_REFCELL
 
@@ -335,8 +335,8 @@ void   construct_runtime_package__global   (Task* task) {
 	set_slot_in_nascent_heapchunk(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	set_slot_in_nascent_heapchunk(task,  9, UNUSED_INT_REFCELL__GLOBAL);						// unused_int_refcell__global					in  src/lib/core/init/runtime.api
-	set_slot_in_nascent_heapchunk(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task,  9, MICROTHREAD_SWITCH_LOCK__GLOBAL);					// microthread_switch_lock__global				in  src/lib/core/init/runtime.api
+	set_slot_in_nascent_heapchunk(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);				// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
 	set_slot_in_nascent_heapchunk(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
 	runtime = commit_nascent_heapchunk(task, RUNTIME_SIZE);
@@ -494,7 +494,7 @@ void   publish_runtime_package_contents   ()   {
     // Use publish_cfun2() and see Hashtable_Entry comments in
     // src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
-    publish_cfun( "runtime::divide_exception",						DIVIDE_EXCEPTION__GLOBAL						);
+    publish_cfun( "runtime::divide_exception",						DIVIDE_EXCEPTION__GLOBAL					);
     publish_cfun( "runtime::overflow_exception",					OVERFLOW_EXCEPTION__GLOBAL					);
     publish_cfun( "runtime::runtime_exception",						RUNTIME_EXCEPTION__GLOBAL					);
     publish_cfun( "runtime::machine_id",						PTR_CAST( Val, machine_id.s)					);
@@ -505,7 +505,7 @@ void   publish_runtime_package_contents   ()   {
     publish_cfun( "runtime::software_generated_periodic_events_handler_refcell",   	SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_events_switch_refcell",		SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_event_interval_refcell",	SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL	);
-    publish_cfun( "runtime::active_pthreads_count_refcell",				UNUSED_INT_REFCELL__GLOBAL					);
+    publish_cfun( "runtime::active_pthreads_count_refcell",				MICROTHREAD_SWITCH_LOCK__GLOBAL					);
         //
 	// I'd like to comment out the above line, but if I do I get
 	//

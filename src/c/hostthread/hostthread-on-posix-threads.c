@@ -954,7 +954,7 @@ void   pth__start_up   (void)   {
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
     //
-    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );						// Make sure this refcell has a defined value, even though we don't want or use it.
+    ASSIGN( MICROTHREAD_SWITCH_LOCK__GLOBAL, TAGGED_INT_FROM_C_INT(0) );						// Make sure this refcell has a defined value, even though we don't want or use it.
 
     // malloc() and initialize our
     // dynamic-allocation vectors:
