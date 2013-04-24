@@ -160,7 +160,26 @@ extern Val   software_generated_periodic_events_switch_refcell__global  [];
 
 extern Val   microthread_switch_lock_refcell__global   [];
 #define      MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL   PTR_CAST( Val,  microthread_switch_lock_refcell__global +1 )
-
+    //
+    // Set in:             src/c/hostthread/hostthread-on-posix-threads.c
+    // Read in:            src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    // C declaration:      src/c/h/runtime-globals.h
+    // C defininition:     src/c/main/construct-runtime-package.c
+    // Mythryl declation:  src/lib/core/init/runtime.api
+    // Mythryl definition: src/lib/core/init/runtime.pkg 
+    // Semantics:          Counts number of hostthread-level mutexes held by the hostthread running microthread-preemptive-scheduler.pkg
+    // Rationale:          It is essential not to switch between microthreads while holding a mutex:
+    //                     some other microthread will promptly try to acquire the same mutex and
+    //                     block, hanging the system.  Trying to enforce this retail at the Mythryl
+    //                     level proved error-prone (e.g., the call to increment the counter can
+    //                     trigger a garbage collector probe and thus a microthread switch before
+    //                     the counter gets incremented; also, it is easy to forget to do this on
+    //                     some mutex call) so we switched to maintaining the count at the C level,
+    //                     in the un/lock mutex functions.  But the count needs to be tested at the
+    //                     Mythryl level in alarm_handler() in microthread-preemptive-scheduler.pkg,
+    //                     so the refcell needs to be visible at both C and Mythryl levels, hence its
+    //                     declaration here rather than at the Mythryl level. 
+    //
 
 
 extern void   set_up_list_of_c_functions_callable_from_mythryl   ();				// set_up_list_of_c_functions_callable_from_mythryl		def in    src/c/lib/mythryl-callable-c-libraries.c

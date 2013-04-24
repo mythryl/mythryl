@@ -920,12 +920,12 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
 											//	return "pth__pthread_join: Bogus value for hostthread-to-join (already-dead thread?)";
 											//  }
 
-    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );			// Enter BLOCKED mode.
+    RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );				// Enter BLOCKED mode.
 	//
-        int err =  pthread_join( hostthread_to_join->ptid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
+        int err =  pthread_join( hostthread_to_join->ptid, NULL );			// NULL is a void** arg that can return result of joined thread. We ignore it
 	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
-    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );				// Return to RUNNING mode.
+    RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );					// Return to RUNNING mode.
 
 
     switch (err) {
@@ -954,7 +954,7 @@ void   pth__start_up   (void)   {
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
     //
-    ASSIGN( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(0) );
+    ASSIGN( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(0) );	// Documented in   src/c/h/runtime-globals.h
 
     // malloc() and initialize our
     // dynamic-allocation vectors:
