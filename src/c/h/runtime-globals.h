@@ -158,8 +158,8 @@ extern Val  software_generated_periodic_event_interval_refcell__global   [];
 extern Val   software_generated_periodic_events_switch_refcell__global  [];
 #define      SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL  PTR_CAST( Val,  software_generated_periodic_events_switch_refcell__global +1)
 
-extern Val   microthread_switch_lock__global   [];
-#define      MICROTHREAD_SWITCH_LOCK__GLOBAL   PTR_CAST( Val,  microthread_switch_lock__global +1 )
+extern Val   microthread_switch_lock_refcell__global   [];
+#define      MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL   PTR_CAST( Val,  microthread_switch_lock_refcell__global +1 )
 
 
 
