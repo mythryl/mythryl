@@ -239,9 +239,10 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 
         // Load the live registers:
         //
-	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
-                image.posix_interprocess_signal_handler
-              );
+	STORE_INTO_REFCELL(
+            POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
+            image.posix_interprocess_signal_handler
+        );
 	//
 	task->argument		= image.stdArg;
 	task->fate		= image.stdCont;
@@ -262,7 +263,10 @@ Task*   import_heap_image__may_heapclean   (const char* fname, Heapcleaner_Args*
 
         // Restore the signal handler:
         //
-	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
+	STORE_INTO_REFCELL(
+	    POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
+	    image.posix_interprocess_signal_handler
+	);
 
         // Read the Mythryl heap:
         //
@@ -616,12 +620,12 @@ static void   read_heap   (
     // Adjust the Mythryl registers
     // to the new address space:
     //
-    ASSIGN(
+    STORE_INTO_REFCELL(
         POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
 	//
         repair_word (
 	    //
-	    DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL ),
+	    FETCH_FROM_REFCELL( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL ),
 	    oldBOOK2SIBID,
 	    addrOffset,
 	    boRegionTable,

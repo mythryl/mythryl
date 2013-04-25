@@ -57,7 +57,7 @@ void   partition_agegroup0_buffer_between_hostthreads   (Hostthread *hostthread_
     int poll_interval
 	=
 	TAGGED_INT_TO_C_INT(
-	    DEREF(
+	    FETCH_FROM_REFCELL(
 		SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL
 	    )
 	);

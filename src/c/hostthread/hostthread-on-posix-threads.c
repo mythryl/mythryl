@@ -954,7 +954,7 @@ void   pth__start_up   (void)   {
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
     //
-    ASSIGN( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(0) );	// Documented in   src/c/h/runtime-globals.h
+    STORE_INTO_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(0) );	// Documented in   src/c/h/runtime-globals.h
 
     // malloc() and initialize our
     // dynamic-allocation vectors:

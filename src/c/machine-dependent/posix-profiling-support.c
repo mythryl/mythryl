@@ -59,7 +59,7 @@ static void   sigvtalrm_handler   () {
 
     Vunt*	rw_vector = GET_VECTOR_DATACHUNK_AS( Vunt*, time_profiling_rw_vector__global );		// A vector with one slot for each Mythryl function being profiled.
 
-    int			fn_index = TAGGED_INT_TO_C_INT( DEREF( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL ) );			// 0..N-1 index of the currently executing Mythryl function.
+    int			fn_index = TAGGED_INT_TO_C_INT( FETCH_FROM_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL ) );	// 0..N-1 index of the currently executing Mythryl function.
 
     ++ rw_vector[ fn_index ];												// Do the increment.
 }

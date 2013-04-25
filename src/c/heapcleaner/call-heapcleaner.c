@@ -84,7 +84,7 @@ if (! (++callcount & 0xff)) log_if ("call_heapcleaner:  task %p  level %d  callc
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );					// check_agegroup0_overrun_tripwire_buffer		is from   src/c/heapcleaner/heap-debug-stuff.c
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
+    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );		// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined	in   src/c/h/runtime-globals.h
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
@@ -102,7 +102,7 @@ if (! (++callcount & 0xff)) log_if ("call_heapcleaner:  task %p  level %d  callc
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
+	    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );		// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	    return;
@@ -239,7 +239,7 @@ ramlog_printf("#%d call_heapcleaner/AAA\n", syscalls_seen );
         //
 	*roots_ptr = NULL;
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles are charged to the heapcleaner (multi-agegroup pass).
+	STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );	// Remember that CPU cycles are charged to the heapcleaner (multi-agegroup pass).
 
 	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
@@ -252,7 +252,7 @@ ramlog_printf("#%d call_heapcleaner/AAA\n", syscalls_seen );
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
+    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 
 ramlog_printf("#%d call_heapcleaner/ZZZ\n", syscalls_seen );
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
@@ -299,7 +299,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (agegroup-0 pass).
+    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );		// Remember that CPU cycles after this get charged to the heapcleaner (agegroup-0 pass).
 
     {														// Hostthread support.
 														HOSTTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid x=%lx\n", (unsigned long int) task->hostthread->ptid);
@@ -314,7 +314,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level,  Roots* extr
 	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );		// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 	    return;
@@ -426,7 +426,7 @@ ramlog_printf("#%d call_heapcleaner_with_extra_roots/AAA\n", syscalls_seen );
 
     if (level > 0) {
 	//
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles are now being charged to the heapcleaner (multi-agegroup pass).
+	STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );	// Remember that CPU cycles are now being charged to the heapcleaner (multi-agegroup pass).
 
 	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups	def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
@@ -440,7 +440,7 @@ ramlog_printf("#%d call_heapcleaner_with_extra_roots/AAA\n", syscalls_seen );
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 ramlog_printf("#%d call_heapcleaner_with_extra_roots/ZZZ\n", syscalls_seen );
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+    STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 
 														EXIT_MYTHRYL_CALLABLE_C_FN(__func__);
 
@@ -474,7 +474,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
     #if NEED_HOSTTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	return (((Vunt)(task->heap_allocation_pointer)+bytes_needed) >= (Vunt) HEAP_ALLOCATION_LIMIT( task ))	// HEAP_ALLOCATION_LIMIT	is from   src/c/h/heap.h
-	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
+	    || (FETCH_FROM_REFCELL( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);	// This appears to be set mainly (only?) in   src/c/heapcleaner/hostthread-heapcleaner-stuff.c
 														// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #else
 	//
@@ -493,8 +493,10 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
 
 	int poll_frequency
 	    = 
-	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL is #defined in src/c/h/runtime-globals.h
-													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
+	    TAGGED_INT_TO_C_INT(
+		FETCH_FROM_REFCELL( SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL)			// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL is #defined in src/c/h/runtime-globals.h
+	    );													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
+
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( task );
 
 	//

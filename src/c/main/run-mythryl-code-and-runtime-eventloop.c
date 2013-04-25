@@ -114,7 +114,7 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	// is #defined in
 	//     src/c/h/profiler-call-counts.h
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, previous_profile_index );
+	STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, previous_profile_index );
 
 	request = asm_run_mythryl_task( task );						//      asm_run_mythryl_task		def in    src/c/machine-dependent/prim.intel32.asm
 											//      asm_run_mythryl_task		def in    src/c/machine-dependent/win32-fault.c
@@ -147,9 +147,9 @@ void   run_mythryl_task_and_runtime_eventloop__may_heapclean   (Task* task, Root
 	// to be handled.
 
 
-	previous_profile_index =   DEREF( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL );
+	previous_profile_index =   FETCH_FROM_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL );
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime.
+	STORE_INTO_REFCELL( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime.
 
 	if (request == REQUEST_HEAPCLEANING) {
 ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING\n", syscalls_seen );
@@ -206,7 +206,7 @@ ramlog_printf("#%d runtime_eventloop:  request == REQUEST_HEAPCLEANING: hostthre
 		task->argument	      =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	      =  PTR_CAST( Val,  return_from_signal_handler_c );
 		task->exception_fate  =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
-		task->current_closure =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
+		task->current_closure =  FETCH_FROM_REFCELL( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter =
 		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
@@ -247,7 +247,7 @@ ramlog_printf("#%d runtime_eventloop:  setting hostthread->mythryl_handler_for_i
 		task->argument	      =  make_posthandler_resumption_fate_from_task(task, resume_after_handling_software_generated_periodic_event);	// make_posthandler_resumption_fate_from_task is from  src/c/machine-dependent/signal-stuff.c
 		task->fate	      =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
 		task->exception_fate  =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
-		task->current_closure =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
+		task->current_closure =  FETCH_FROM_REFCELL( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter =
 		task->link_register   =  GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );

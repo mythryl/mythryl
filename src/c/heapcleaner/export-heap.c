@@ -191,19 +191,19 @@ static Status   write_heap_image_to_file   (
 
         // Save the live registers:
 	//
-	image.posix_interprocess_signal_handler =   write_register(export_table,  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL )	);
-	image.stdArg				=   write_register(export_table,  task->argument						);
-	image.stdCont				=   write_register(export_table,  task->fate							);
+	image.posix_interprocess_signal_handler =   write_register(export_table,  FETCH_FROM_REFCELL( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL )	);
+	image.stdArg				=   write_register(export_table,  task->argument								);
+	image.stdCont				=   write_register(export_table,  task->fate									);
 	//
-	image.stdClos				=   write_register(export_table,  task->current_closure						);
-	image.pc				=   write_register(export_table,  task->program_counter						);
+	image.stdClos				=   write_register(export_table,  task->current_closure								);
+	image.pc				=   write_register(export_table,  task->program_counter								);
 	//
-	image.exception_fate			=   write_register(export_table,  task->exception_fate						);
-	image.current_thread			=   write_register(export_table,  task->current_thread						);
+	image.exception_fate			=   write_register(export_table,  task->exception_fate								);
+	image.current_thread			=   write_register(export_table,  task->current_thread								);
 	//
-	image.calleeSave[0]			=   write_register(export_table,  task->callee_saved_registers[0] 				);
-	image.calleeSave[1]			=   write_register(export_table,  task->callee_saved_registers[1] 				);
-	image.calleeSave[2]			=   write_register(export_table,  task->callee_saved_registers[2] 				);
+	image.calleeSave[0]			=   write_register(export_table,  task->callee_saved_registers[0] 						);
+	image.calleeSave[1]			=   write_register(export_table,  task->callee_saved_registers[1] 						);
+	image.calleeSave[2]			=   write_register(export_table,  task->callee_saved_registers[2] 						);
 
 
 	{   int bytes_written =  heapio__write_cfun_table( wr, export_table );				// heapio__write_cfun_table		def in    src/c/heapcleaner/export-heap-stuff.c

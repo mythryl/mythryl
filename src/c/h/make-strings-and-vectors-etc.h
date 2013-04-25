@@ -288,11 +288,10 @@ inline Val   make_one_word_int   (Task* task, Vint i) {
 
 
 ///////////////////////
-// Mythryl references
+// Mythryl refcells
 //
-#define DEREF(r)			GET_TUPLE_SLOT_AS_VAL(r, 0)
-#define ASSIGN(r, x)			(PTR_CAST(Val*, r)[0] = (x))
-
+#define FETCH_FROM_REFCELL(r)		GET_TUPLE_SLOT_AS_VAL(r, 0)
+#define STORE_INTO_REFCELL(r, x)	(PTR_CAST(Val*, r)[0] = (x))
 
 //////////////////
 // Mythryl options (Null_Or):

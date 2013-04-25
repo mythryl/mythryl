@@ -1071,8 +1071,8 @@ static Val   do_heapcleaner_control   (Task* task,  Val arg)   {
 	if      (STREQ("DoGC",  op))	    clean_i_agegroups   (task, cell, &arg);						// clean_i_agegroups is defined below.
 	else if (STREQ("AllGC", op))	    clean_all_agegroups (task, &arg);
         //
-	else if (STREQ("Messages",  op))   heapcleaner_messages_are_enabled__global = (TAGGED_INT_TO_C_INT(DEREF(cell)) >  0);
-	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled__global	    = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
+	else if (STREQ("Messages",  op))   heapcleaner_messages_are_enabled__global = (TAGGED_INT_TO_C_INT(FETCH_FROM_REFCELL(cell)) >  0);
+	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled__global	    = (TAGGED_INT_TO_C_INT(FETCH_FROM_REFCELL(cell)) <= 0);
         //
         else if (STREQ("set_max_retained_idle_fromspace_agegroup", op))	    set_max_retained_idle_fromspace_agegroup (task, cell);
     }
@@ -1087,7 +1087,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    int age =  TAGGED_INT_TO_C_INT(DEREF( arg ));
+    int age =  TAGGED_INT_TO_C_INT( FETCH_FROM_REFCELL( arg ));
 
     Heap*  heap  =  task->heap;
 
@@ -1104,7 +1104,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
 	}
     }
 
-    ASSIGN( arg, TAGGED_INT_FROM_C_INT(heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings) );
+    STORE_INTO_REFCELL( arg, TAGGED_INT_FROM_C_INT(heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings) );
 
     heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	=
@@ -1125,7 +1125,7 @@ static void   clean_i_agegroups   (
 
     Heap* heap  =  task->heap;
 
-    int   age =  TAGGED_INT_TO_C_INT( DEREF( arg ) );
+    int   age =  TAGGED_INT_TO_C_INT( FETCH_FROM_REFCELL( arg ) );
 
     // Clamp 'age' to sane range:
     //
