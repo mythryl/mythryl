@@ -292,6 +292,27 @@ inline Val   make_one_word_int   (Task* task, Vint i) {
 //
 #define FETCH_FROM_REFCELL(r)		GET_TUPLE_SLOT_AS_VAL(r, 0)
 #define STORE_INTO_REFCELL(r, x)	(PTR_CAST(Val*, r)[0] = (x))
+//
+#define INCREMENT_REFCELL(r)				\
+	    STORE_INTO_REFCELL(				\
+		(r),					\
+		TAGGED_INT_FROM_C_INT(			\
+		    TAGGED_INT_TO_C_INT(		\
+			FETCH_FROM_REFCELL( r )		\
+		    ) + 1				\
+		)					\
+	    )
+//	    
+#define DECREMENT_REFCELL(r)				\
+	    STORE_INTO_REFCELL(				\
+		(r),					\
+		TAGGED_INT_FROM_C_INT(			\
+		    TAGGED_INT_TO_C_INT(		\
+			FETCH_FROM_REFCELL( r )		\
+		    ) - 1				\
+		)					\
+	    )
+	    
 
 //////////////////
 // Mythryl options (Null_Or):

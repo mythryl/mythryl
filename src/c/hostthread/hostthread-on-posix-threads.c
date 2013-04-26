@@ -1026,11 +1026,15 @@ char*  pth__mutex_lock  (Task* task, Vunt mutex_id) {				// http://pubs.opengrou
 
     switch (err) {
 	//
-	case 0:				return NULL;				// Success.
 	case EINVAL:			return "pth__mutex_lock: Invalid mutex or mutex has HOSTTHREAD_PRIO_PROTECT set and calling thread's priority is higher than mutex's priority ceiling.";
 	case EBUSY:			return "pth__mutex_lock: Mutex was already locked.";
 	case EAGAIN:			return "pth__mutex_lock: Recursive lock limit exceeded.";
 	case EDEADLK:			return "pth__mutex_lock: Deadlock, or mutex already owned by thread.";
+
+	case 0:				// Success.
+	    if (task->hostthread->id == MICROTHREAD_SCHEDULER_HOSTTHREAD_ID)   INCREMENT_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL );
+	    return NULL;
+
 	default:			return "pth__mutex_lock: Undocumented error return from pthread_mutex_lock()";
     }
 }
@@ -1048,8 +1052,12 @@ char*  pth__mutex_trylock   (Task* task, Vunt mutex_id, Bool* result) {				// ht
 
     switch (err) {
 	//
-	case 0: 	*result = FALSE;	return NULL;					// Successfully acquired mutex.
-	case EBUSY:	*result = TRUE;		return NULL;					// Mutex was already taken.
+	case 0: 	*result = FALSE;							// Successfully acquired mutex.
+			if (task->hostthread->id == MICROTHREAD_SCHEDULER_HOSTTHREAD_ID)   INCREMENT_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL );
+			return NULL;
+
+	case EBUSY:	*result = TRUE;
+			return NULL;								// Mutex was already taken.
 	//
 	default:				return "pth__mutex_trylock: Error while attempting to test mutex.";
     }
@@ -1073,9 +1081,12 @@ char*  pth__mutex_unlock   (Task* task, Vunt mutex_id) {					// http://pubs.open
 
     switch (err) {
 	//
-	case 0: 				return NULL;					// Successfully released lock.
 	case EINVAL:				return "pth__mutex_unlock: Mutex has HOSTTHREAD_PRIO_PROTECT set and calling thread's priority is higher than mutex's priority ceiling.";
 	case EBUSY:				return "pth__mutex_unlock: The mutex already locked.";
+
+	case 0:					// Successfully released lock.
+	    if (task->hostthread->id == MICROTHREAD_SCHEDULER_HOSTTHREAD_ID)   DECREMENT_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL );
+ 	    return NULL;
 	//
 	default:				return "pth__mutex_unlock: Undocumented error returned by pthread_mutex_unlock().";
     }
@@ -1133,11 +1144,15 @@ char*  pth__condvar_wait   (Task* task, Vunt condvar_id, Vunt mutex_id) {			// h
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
+    if (task->hostthread->id == MICROTHREAD_SCHEDULER_HOSTTHREAD_ID)   DECREMENT_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL );
+
     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	//
 	int result = pthread_cond_wait( condvar, mutex );
 	//
     RECOVER_MYTHRYL_HEAP( task->hostthread, __func__ );
+
+    if (task->hostthread->id == MICROTHREAD_SCHEDULER_HOSTTHREAD_ID)   INCREMENT_REFCELL( MICROTHREAD_SWITCH_LOCK_REFCELL__GLOBAL );
 
     if (result)   return "pth__condvar_wait: Unable to wait on condition variable.";
     else	  return NULL;

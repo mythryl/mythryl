@@ -273,7 +273,7 @@ typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
 struct task {
     //
     Heap*	heap;							// The heap. task->heap is the same for all tasks.
-    Hostthread* hostthread;						// The Hostthread on which it is running. If you change the offset of this field you'll probably need to change:
+    Hostthread* hostthread;						// The Hostthread on which it is running. If you CHANGE THE OFFSET of this field you'll probably need to change
 									//     hostthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
     Val*	heap_allocation_buffer;					// The agegroup0 buffer.
     Val*	heap_allocation_pointer;				// We allocate heap memory just by advancing this pointer.
@@ -407,7 +407,7 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
 
     char*	name;						// Human-readable thread name for debugging and display.
 
-    int		id;						// Our own private small-int id for the record. We assign these sequentially starting at 1.
+    int		id;						// Our own private small-int id for the record. We assign these sequentially starting at 1, so the microthread scheduler will always be on hostthread 1.
     Ptid	ptid;	       					// Our os-assigned hostthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	//
 	// NB; 'ptid' MUST be declared Ptid (i.e., pthread_t from <pthread.h>)
@@ -419,7 +419,10 @@ struct hostthread {						// typedef struct hostthread	Hostthread	  def above.
 
 };
 
-
+#define MICROTHREAD_SCHEDULER_HOSTTHREAD_ID 0			// Keep synched with   microthread_scheduler_hostthread_id   in   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+	//
+	// For now at least we'll hardwire the assumption that the
+	// microthread host scheduler always runs with task->hostthread->id == 0.
 
 ///////////////////////////////////////////////////////////////////
 // Run-time system messages:
