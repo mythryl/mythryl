@@ -285,7 +285,7 @@ static Val   do_write_line_to_stderr   (Task* task,  Val arg)   {
     // absolutely necessary:
 
     char* heap_string = HEAP_STRING_AS_C_STRING(arg);
-
+									// log_if_to_stder	is from   src/c/main/error-reporting.c
     log_if_to_stderr( "%s", heap_string );				// Note that if we pass heapstring as first arg, any '%'s in it become problematic.
 									// We could define a separate ramlog_putstring(), but at the moment a simpler API (one less call) seems more attractive.
     return HEAP_VOID;

@@ -187,12 +187,12 @@ extern Val   microthread_switch_lock_refcell__global   [];
 extern void   set_up_list_of_c_functions_callable_from_mythryl   ();					// set_up_list_of_c_functions_callable_from_mythryl		def in    src/c/lib/mythryl-callable-c-libraries.c
 extern Val    find_mythryl_callable_c_function   (char* lib_name, char* fun_name);			// find_mythryl_callable_c_function				def in    src/c/lib/mythryl-callable-c-libraries.c
 
-extern void   publish_runtime_package_contents ();						// publish_runtime_package_contents				def in    src/c/main/construct-runtime-package.c
-extern void   construct_runtime_package__global (Task* task);					// construct_runtime_package__global				def in    src/c/main/construct-runtime-package.c
+extern void   publish_runtime_package_contents ();							// publish_runtime_package_contents				def in    src/c/main/construct-runtime-package.c
+extern void   construct_runtime_package__global (Task* task);						// construct_runtime_package__global				def in    src/c/main/construct-runtime-package.c
 
 
 #ifdef SIZES_C_64_MYTHRYL_32
-    extern void  patch_static_heapchunk_32_bit_addresses  ();					// From src/c/main/construct-runtime-package.c
+    extern void  patch_static_heapchunk_32_bit_addresses  ();						// From src/c/main/construct-runtime-package.c
 #endif
 
 #endif // RUNTIME_GLOBALS_H
