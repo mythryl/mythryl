@@ -59,6 +59,8 @@ herein
     {
 uninterruptible_scope_mutex = log::uninterruptible_scope_mutex;					# Putting the mutex in log allows its value to be printed from virtually anywhere -- handy during debugging.
 
+disable_debug_ramlogging = REF FALSE;
+
 	alarm_handler_calls                                        = REF 0;
 	alarm_handler_calls_with__uninterruptible_scope_mutex__set = REF 0;
 	alarm_handler_calls_with__microthread_switch_lock__set     = REF 0;
@@ -713,6 +715,10 @@ fi;
 	    {
 		if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
 
+# Floods ram.log:
+# log::note           .{ "dispatch_next_thread__xu__noreturn/BBB"; };
+if (!*disable_debug_ramlogging) log::note_in_ramlog .{ sprintf "dispatch_next_thread__xu__noreturn/BBB *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; }; fi;
+
 		if (*uninterruptible_scope_mutex != 1)
 		    bar = "===============================================================================================================================================\n";
 
@@ -736,6 +742,8 @@ fi;
 		    #
 		    need_to_switch_threads_when_exiting_uninterruptible_scope := FALSE;
 
+# Floods ram.log:
+if (!*disable_debug_ramlogging) log::note_in_ramlog .{ sprintf "dispatch_next_thread__xu__noreturn/BBB -- need to switch threads so calling run_next_runnable_thread__xu()  *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; }; fi;
 		    run_next_runnable_thread__xu ();
 		fi;
 
@@ -762,6 +770,12 @@ fi;
 		(dequeue_thread_preferably_an_io_bound_one ())
 		    ->
 		    (thread, fate);
+if (!*disable_debug_ramlogging) 
+{ thread -> itt::MICROTHREAD { thread_id, name, task, ... };
+  task -> itt::APPTASK   { task_id, ... };
+log::note_in_ramlog .{ sprintf "%s\tdispatch_next_thread__xu__noreturn/DDD dequeued thread == %d:%d(%s) calling set_current_thread and then switch_to_fate" (thread_scheduler_statestring()) thread_id task_id name; };
+};
+fi;
 		set_current_thread  thread;
 
 		#
@@ -780,48 +794,63 @@ assert_not_in_uninterruptible_scope ();
 		dispatch_next_thread__xu__noreturn ();
 	    };
 	#
+fun lognote (msg, thread)
+ =
+ {
+    old_thread = get_current_thread();
+    old_thread -> itt::MICROTHREAD { thread_id => old_id, name => old_name, task => old_task, ... };
+	thread -> itt::MICROTHREAD { thread_id => new_id, name => new_name, task => new_task, ... };
+    new_task -> itt::APPTASK   { task_id => new_task_id, ... };
+    old_task -> itt::APPTASK   { task_id => old_task_id, ... };
+#   log::note .{ sprintf "%s\t old=%d:%d(%s) new=%d:%d(%s) %s" (thread_scheduler_statestring()) old_id old_task_id old_name new_id new_task_id new_name msg; };
+ };
 	#
 	fun switch_to_thread__xu (requested_thread, requested_fate, requested_arg)			# Exported.  Switch to requested_thread/requested_fate/requested_arg while leaving a critical section.	Derived from Reppy's atomicSwitchTo.
 	    =														# Called only from src/lib/src/lib/thread-kit/src/core-thread-kit/mailslot.pkg
-	    {   if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
+{
+ log::note_in_ramlog .{ sprintf "switch_to_thread__xu calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
+	    if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
+#															lognote("switch_to_thread__xu/AAA calling nested call_with_current_fate()s",requested_thread);
+	    call_with_current_fate (
 		#
-		call_with_current_fate (
-		    #
-		    fn old_fate
-			=
-			{   mode =  *uninterruptible_scope_mutex;
+		fn old_fate
+		    =
+		    {   mode =  *uninterruptible_scope_mutex;
+			#
+			if (mode == 1  and  *need_to_switch_threads_when_exiting_uninterruptible_scope)
 			    #
-			    if (mode == 1  and  *need_to_switch_threads_when_exiting_uninterruptible_scope)
-				#
-				call_with_current_fate									# This is the abnormal path through this fn -- see Note[A] below.
-				    (
-				     fn requested_fate'									# Get an explicit representation of currently running fate.
-					=
-					{
-					    old_thread = get_current_thread();
-					    push_thread_into_foreground_run_queue (requested_thread, requested_fate');	# requested_fate' will immediately do below   'switch_to_fate  requested_fate  requested_arg;'
-					    push_thread_into_foreground_run_queue (old_thread, old_fate);
+			    call_with_current_fate									# This is the abnormal path through this fn -- see Note[A] below.
+				(
+				 fn requested_fate'									# Get an explicit representation of currently running fate.
+				    =
+				    {
+#															lognote("switch_to_thread__xu/BBB calling push_thread_into_foreground_run_queue on BOTH",requested_thread);
+					old_thread = get_current_thread();
+					push_thread_into_foreground_run_queue (requested_thread, requested_fate');	# requested_fate' will immediately do below   'switch_to_fate  requested_fate  requested_arg;'
+					push_thread_into_foreground_run_queue (old_thread, old_fate);
 
-					    need_to_switch_threads_when_exiting_uninterruptible_scope :=  FALSE;
+					need_to_switch_threads_when_exiting_uninterruptible_scope :=  FALSE;
 
-					    run_next_runnable_thread__xu ();						# "Now for something completely different."
-					}
-				    );
-			    else
+					run_next_runnable_thread__xu ();						# "Now for something completely different."
+				    }
+				);
+			else
+#															lognote("switch_to_thread__xu/PPP calling enqueue_old_thread_plus_fate",requested_thread);
 
-				enqueue_old_thread_plus_old_fate_then_install_new_thread					# Put old thread+fate on run queue for later resumption.
-				  {
-				    new_thread => requested_thread,
-				    old_fate
-				  };
+			    enqueue_old_thread_plus_old_fate_then_install_new_thread					# Put old thread+fate on run queue for later resumption.
+			      {
+				new_thread => requested_thread,
+				old_fate
+			      };
 
-				uninterruptible_scope_mutex :=  mode - 1;							# Exit uninterruptible scope.
-			    fi;
+			    uninterruptible_scope_mutex :=  mode - 1;							# Exit uninterruptible scope.
+			fi;
 
-			    switch_to_fate  requested_fate  requested_arg;							# Switch to requested_thread + requested_fate + requested_arg.
-			}
-		);
-	    };
+#															log::note .{ sprintf "%s\tswitch_to_thread__xu/QQQ back from enqueue_old_thread_plus_fate or run_next_runnable_thread__xu, calling switch_to_fate" (thread_scheduler_statestring()); };
+			switch_to_fate  requested_fate  requested_arg;							# Switch to requested_thread + requested_fate + requested_arg.
+		    }
+	    );
+};
 	    ##################################################################################
 	    # Note[A].
 	    # This is the abnormal path through this fn.
@@ -851,6 +880,11 @@ assert_not_in_uninterruptible_scope ();
 	fun yield_to_next_thread__xu   fate								# Exported.	Derived from Reppy's atomicYield.
 	    =
 	    {
+{ thread = get_current_thread();
+  thread -> itt::MICROTHREAD { thread_id, name, task, ... };
+  task -> itt::APPTASK   { task_id, ... };
+# log::note .{ sprintf "%s\tyield_to_next_thread__xu %d:%d(%s)" (thread_scheduler_statestring()) thread_id task_id name; };
+};
 		set_didmail_flag_and_push_thread_into_foreground_run_queue  (get_current_thread (),  fate);
 		#
 		dispatch_next_thread__xu__noreturn ();
@@ -1046,7 +1080,7 @@ assert_not_in_uninterruptible_scope ();
 		    wxp::exit_uncleanly  wxp::failure;								# A clean exit would try to run more timeslicing-based exit code, which isn't a good idea with timeslicing bollixed this badly.
 		fi;
 
-#		log::uninterruptible_scope_mutex := 1;								# We don't need this call because we're only called from inside an uninterruptible scope anyhow.
+#		log::uninterruptible_scope_mutex := 1;									# We don't need this call because we're only called from inside an uninterruptible scope anyhow.
 		    #
 		    q.front :=    (itt::run_thunk_immediately_thread, fate_to_run)  !  *q.front;		# Jump run_thunk_immediately_thread directly to the head of the foreground run queue.
 		    #
@@ -1175,6 +1209,7 @@ assert_not_in_uninterruptible_scope ();
 	    {   # Instrumentation:
 		#
 		alarm_handler_calls     :=  *alarm_handler_calls + 1;
+disable_debug_ramlogging :=  (posixlib::getenv "DISABLE_DEBUG_RAMLOGGING" != NULL);
 		#
 		if (*uninterruptible_scope_mutex != 0)
 		    alarm_handler_calls_with__uninterruptible_scope_mutex__set := *alarm_handler_calls_with__uninterruptible_scope_mutex__set + 1;
@@ -1194,8 +1229,12 @@ assert_not_in_uninterruptible_scope ();
 		    # clear it -- we no longer
 		    # know what time it is.
 
+# Floods ram.log:
+# log::note_in_ramlog .{ sprintf "alarm handler *uninterruptible_scope_mutex d=%d  *runtime::microthread_switch_lock_refcell__global d=%d"   *uninterruptible_scope_mutex  *runtime::microthread_switch_lock_refcell__global; };
 		if (*uninterruptible_scope_mutex == 0  and  *runtime::microthread_switch_lock_refcell__global == 0)
 		    #
+# Floods ram.log:
+# log::note_in_ramlog .{ sprintf "alarm handler calling if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue *uninterruptible_scope_mutex d=%d"   *uninterruptible_scope_mutex; };
 		    if_pending_requests_then_add_inter_hostthread_request_handler_thunks_to_run_queue ();
 		    #
 		    preempt__eu  current_fate;						# Put current thread to sleep so we can give someone else a chance to run.
@@ -1230,7 +1269,9 @@ assert_not_in_uninterruptible_scope ();
 	    =
 	    {   kill_count :=  *kill_count + 1;
 		#
+# log::note_in_ramlog .{ sprintf "kill_handler setting kill_count to %d *uninterruptible_scope_mutex d=%d" *kill_count  *uninterruptible_scope_mutex; };
 		current_fate;
+#		fate::switch_to_fate  current_fate  ();
 	    };
 
 
@@ -1269,6 +1310,7 @@ assert_not_in_uninterruptible_scope ();
 		    #
 		    ();
 		else
+
 		    # A quick sanity check:  the microthread_switch_lock_refcell logic in
 		    #     src/c/hostthread/hostthread-on-posix-threads.c
 		    # depends on our task->hostthread->id being 1, so check that it is to
@@ -1543,24 +1585,40 @@ fi;
 	condvar =  hth::make_condvar ();  
 
 
+my _ = printf "mutex d=%d -- microthread_preemptive_scheduler"  (hth::mutex_to_int  mutex);
+my _ = log::note           .{  sprintf "mutex d=%d -- microthread_preemptive_scheduler"  (hth::mutex_to_int  mutex);  };
+my _ = log::note_in_ramlog .{  sprintf "mutex d=%d -- microthread_preemptive_scheduler"  (hth::mutex_to_int  mutex);  };
+
 
 
 
 	#
 	fun do_thunk (thunk: Void -> Void)						# Internal fn -- will execute in context of server hostthread.
 	    =
+{
+ 													log::note_in_ramlog .{ sprintf "do_thunk/AAA: uninterruptible_scope_mutexxx=%d -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
+result =
 	    thunk ();
-
+ 													log::note_in_ramlog .{ sprintf "do_thunk/ZZZ: uninterruptible_scope_mutexxx=%d -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
+result;
+};
 	#
 	fun do  (thunk: Void -> Void)							# Exported -- will execute in context of client hostthread.
 	    = 
 	    {
+ 														log::note_in_ramlog .{ sprintf "mps::do/TOP: uninterruptible_scope_mutexxx=%d acquiring mutex -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
+# if (posixlib::getenv "BOOJEX" != NULL)           log::uninterruptible_scope_mutex := 1; fi;
+ 														log::note_in_ramlog .{ sprintf "mps::do/AAA: uninterruptible_scope_mutexxx=%d acquiring mutex -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 		hth::acquire_mutex mutex;  
 		    # 
 		    request_queue :=  (DO_THUNK thunk)  !  *request_queue; 
 		    # 
 		hth::release_mutex mutex;  
 		hth::broadcast_condvar condvar;  
+
+ 														log::note_in_ramlog .{ sprintf "mps::do/DDD: uninterruptible_scope_mutexxx=%d broadcasting  request_queue len %d-- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex (list::length *request_queue); };
+# if (posixlib::getenv "BOOJEX" != NULL)           log::uninterruptible_scope_mutex := 0; fi;
+ 														log::note_in_ramlog .{ sprintf "mps::do/ZZZ: uninterruptible_scope_mutexxx=%d done -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 	    };           
 
 
@@ -1637,8 +1695,10 @@ fi;
 		fun queue_inter_hostthread_requests__iu  (request ! rest) 
 			=> 
 			{
+ 													log::note_in_ramlog .{ sprintf "queue_inter_hostthread_requests__iu/AAA: uninterruptible_scope_mutexxx=%d -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 			    queue_inter_hostthread_request__iu   request; 
 			    #
+ 													log::note_in_ramlog .{ sprintf "queue_inter_hostthread_requests__iu/BBB: uninterruptible_scope_mutexxx=%d -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 			    queue_inter_hostthread_requests__iu  rest;
 			} 
 			where 
@@ -1647,7 +1707,11 @@ fi;
 			    end;
 			end;
 
-		    queue_inter_hostthread_requests__iu  [] =>   ();
+#		    queue_inter_hostthread_requests__iu  [] =>   ();
+		    queue_inter_hostthread_requests__iu  [] =>   {
+ 													log::note_in_ramlog .{ sprintf "queue_inter_hostthread_requests__iu/ZZZ: uninterruptible_scope_mutexxx=%d -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
+									();
+								 };
 		end; 
 	    end;
 
@@ -1665,6 +1729,7 @@ fi;
 		# the mutex, because we are only called when
 		# there are no  other ready-to-run microthreads.
 		#
+ 													log::note_in_ramlog .{ sprintf "mps::block_until_inter_hostthread_request_queue_is_nonempty/AAA: uninterruptible_scope_mutexxx=%d done -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 		hth::acquire_mutex  mutex;  
 		    # 
 		    for (inter_hostthread_request_queue_is_empty()) {
@@ -1674,6 +1739,7 @@ fi;
 		    # 
 		hth::release_mutex  mutex;  
 		hth::broadcast_condvar condvar;  
+ 													log::note_in_ramlog .{ sprintf "mps::block_until_inter_hostthread_request_queue_is_nonempty/ZZZ: uninterruptible_scope_mutexxx=%d done -- microthread-preemptive-scheduler.pkg" *uninterruptible_scope_mutex; };
 	    };
 
 	# REMAINING WORK:	
