@@ -87,6 +87,36 @@ GLUE_DEPENDENCIES :=
 
 ###################################################################################
 # Do not edit this or following lines --- they are autobuilt.  (patchname="defs")
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/qqq/sh/make-qqq-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-qqq-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-qqq-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  qqq-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/opengl/sh/make-opengl-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-opengl-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-opengl-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  opengl-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/opencv/sh/make-opencv-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-opencv-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-opencv-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  opencv-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/ncurses/sh/make-ncurses-glue	     
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-ncurses-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-ncurses-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  ncurses-glue
+
+
+STUFF_FOR_ETAGS_TO_INDEX      +=  src/opt/gtk/sh/make-gtk-glue
+STUFF_TO_REMOVE_WHEN_CLEANING +=  bin/mythryl-gtk-library-in-c-subprocess 
+COMPILED_C_PROGRAMS           +=  bin/mythryl-gtk-library-in-c-subprocess
+GLUE_DEPENDENCIES	      +=  gtk-glue	
+
 # Do not edit this or preceding lines --- they are autobuilt.
 ###################################################################################
 
@@ -350,6 +380,51 @@ glue: $(GLUE_DEPENDENCIES)
 
 ###################################################################################
 # Do not edit this or following lines --- they are autobuilt.  (patchname="rules")
+
+qqq-glue:				  
+	src/opt/qqq/sh/make-qqq-glue
+
+bin/mythryl-qqq-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-qqq-library-in-c-subprocess)
+
+
+
+
+opengl-glue:				  
+	src/opt/opengl/sh/make-opengl-glue
+
+bin/mythryl-opengl-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-opengl-library-in-c-subprocess)
+
+
+
+
+opencv-glue:				  
+	src/opt/opencv/sh/make-opencv-glue
+
+bin/mythryl-opencv-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-opencv-library-in-c-subprocess)
+
+
+
+
+ncurses-glue:				  
+	src/opt/ncurses/sh/make-ncurses-glue
+
+bin/mythryl-ncurses-library-in-c-subprocess:			 
+	(cd src/c/o; make mythryl-ncurses-library-in-c-subprocess)
+
+
+
+
+# Stuff related to src/opt/gtk/sh/make-gtk-glue:
+						     
+gtk-glue:
+	src/opt/gtk/sh/make-gtk-glue
+
+bin/mythryl-gtk-library-in-c-subprocess:					# Is this ever actually used?
+	(cd src/c/o; make mythryl-gtk-library-in-c-subprocess)
+
 # Do not edit this or preceding lines --- they are autobuilt.
 ###################################################################################
 
