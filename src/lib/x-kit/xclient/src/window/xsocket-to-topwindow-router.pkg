@@ -141,10 +141,6 @@ herein
 		  = NOTE_NEW_TOPWINDOW             (xt::Window_Id, xg::Window_Site)
 		  | GET_WINDOW_SITE                (xt::Window_Id,     /* reply_oneshot: */ Oneshot_Maildrop(xg::Box))
 		  #
-		  | LOCK_WINDOW                     xt::Window_Id
-		  | UNLOCK_WINDOW                   xt::Window_Id
-		  | IS_WINDOW_LOCKED                xt::Window_Id
-		  #
 		  | GET_''SEEN_FIRST_EXPOSE''_ONESHOT  (xt::Window_Id, /* reply_oneshot: */ Oneshot_Maildrop( Null_Or(Oneshot_Maildrop(Void))) )
 		  | NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT (xt::Window_Id, /* reply_oneshot: */ Oneshot_Maildrop( Void ))
 		  #
@@ -427,42 +423,53 @@ trace .{ sprintf "pick_xevent_action/CREATE_NOTIFY: parent_window_id s=%s create
 		  to_selection_imp_slot
 		}
 		=
-		{
-		    xevent_in'
-			=
-			xok::wait_for_xevent  xsocket;
-
+		{   xevent_in' =   xok::wait_for_xevent  xsocket;
+		    #
 		    plea_slot  =   make_mailslot ();
 		    reply_slot =   make_mailslot ();
 		    lock_slot  =   make_mailslot ();
 
 		    plea_in'   =   take_from_mailslot'  plea_slot;
 
-		    window_id_to_window_info_map
+		    window_id__to__window_info__map
                         =
                         hash_xid::make_map ()						# hash_xid	is from   src/lib/x-kit/xclient/src/stuff/hash-xid.pkg
                         :
-                        hash_xid::Xid_Map( Window_Info );
-
-		    #
-		    get_info          =  hash_xid::get           window_id_to_window_info_map;
-		    set_info          =  hash_xid::set           window_id_to_window_info_map;
-		    get_and_drop_info =  hash_xid::get_and_drop  window_id_to_window_info_map;
+                        hash_xid::Xid_Map( Window_Info )
+			;
+		    get_info		=  hash_xid::get	    window_id__to__window_info__map;
+		    set_info'		=  hash_xid::set	    window_id__to__window_info__map;
+		    drop_info		=  hash_xid::drop    	    window_id__to__window_info__map;
+		    get_and_drop_info	=  hash_xid::get_and_drop   window_id__to__window_info__map;
 			#
 			# This is our primary state, mapping
 			# Window_Id to Window_Info values.
 
+		    window_id__to__pleas__map
+                        =
+                        hash_xid::make_map ()
+                        :
+			hash_xid::Xid_Map( List( plea::Mail ) )
+			;
+		    get_pleas          =  hash_xid::get           window_id__to__pleas__map;
+		    set_pleas          =  hash_xid::set           window_id__to__pleas__map;
+		    get_and_drop_pleas =  hash_xid::get_and_drop  window_id__to__pleas__map;
+			#
+			# If a plea for a window arrives before we've
+			# registered it, we hold it in this until it is
+			# registered, giving us the we have the info
+			# needed to process the plea.
 
 
-		    window_id_to_oneshot_map
+		    window_id__to__oneshot__map
                         =
                         hash_xid::make_map ()
 			:
-			hash_xid::Xid_Map( Oneshot_Maildrop(Void) );
-		    #
-		    take_from_oneshot_map =  hash_xid::get   window_id_to_oneshot_map;
-		    set_in_oneshot_map    =  hash_xid::set   window_id_to_oneshot_map;
-		    drop_from_oneshot_map =  hash_xid::drop  window_id_to_oneshot_map;
+			hash_xid::Xid_Map( Oneshot_Maildrop(Void) )
+			;
+		    take_from_oneshot_map =  hash_xid::get   window_id__to__oneshot__map;
+		    set_in_oneshot_map    =  hash_xid::set   window_id__to__oneshot__map;
+		    drop_from_oneshot_map =  hash_xid::drop  window_id__to__oneshot__map;
 			#
 			# There is an unfortunate race condition in which
 			# 	  NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT
@@ -470,9 +477,10 @@ trace .{ sprintf "pick_xevent_action/CREATE_NOTIFY: parent_window_id s=%s create
 			# thread before we have seen the
 			#     NOTE_NEW_WINDOW
 			# from the X server which creates the
-			#     window_id_to_window_info_map
-			# entry for that window_id.  We use the above map
-			# to hold such "prematurely registered" requests
+			#     window_id__to__window_info__map
+			# entry for that window_id.  We use the above
+			#     window_id__to__oneshot__map
+			# map to hold such "prematurely registered" requests
 			# pending arrival of the corresponding NOTE_NEW_WINDOW.
 
 		    
@@ -490,378 +498,376 @@ trace .{ sprintf "pick_xevent_action/CREATE_NOTIFY: parent_window_id s=%s create
 		    seen_first_expose_xevent_of_session
 			=
 			REF FALSE;
-		    #
-		    fun do_plea (plea::NOTE_NEW_TOPWINDOW  (window_id, window_site))
-			    =>
-			    {   # Log a new top-level window:
-				#
-				to_topwindow_slot = make_mailslot ();
 
-				# Handle any prematurely-registered oneshot.
-				# I'm not sure a topwindow will ever get an
-				# EXPOSE event, so this may be pointless:
-				#
-				oneshot =   {   oneshot =  take_from_oneshot_map  window_id;
-						drop_from_oneshot_map  window_id;
-						THE oneshot;
-					    }	
-					    except
-                                                hash_xid::XID_NOT_FOUND
-						    =
-						    NULL;
-
-				set_info
-				  ( window_id,
-				    WINDOW_INFO
-				      {
-					window_id,
-					to_topwindow_slot,
-					route       =>  ENVELOPE_ROUTE_END  window_id,
-					parent_info =>  NULL,
-					children    =>  REF [],
-					lock        =>  REF FALSE,
-					site	    =>  REF (xg::site_to_box window_site),
-					#
-					seen_first_expose	  => REF( FALSE ),
-					seen_first_expose_oneshot => REF( oneshot )
-				      }
-				  );
-
-				put_in_mailslot  (reply_slot,  take_from_mailslot'  to_topwindow_slot);
-			    }
-			    except hash_xid::XID_NOT_FOUND = ();
-
-		        do_plea (plea::NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT  (window_id, oneshot))
-			    =>
-			    {   # Note the oneshot used to signal receipt
-				# of the first EXPOSE event on a window:
-trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/TOP: window_id s=%s" (xtype_to_string::xid_to_string window_id); };
-
-				{   (get_info  window_id)
-					->
-					WINDOW_INFO { 
-					    seen_first_expose	=> REF( seen_first_expose ),
-					    seen_first_expose_oneshot,
-					    ...
-					};
-
-trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/MID: window_id s=%s, first_expose b=%s" (xtype_to_string::xid_to_string window_id) case seen_first_expose TRUE => "TRUE"; _ => "FALSE"; esac; };
-				    seen_first_expose_oneshot :=   THE oneshot;
-
-				    if seen_first_expose
-					#
-					put_in_oneshot (oneshot, ());				# This shouldn't happen.
-				    fi;
-				}
-				except hash_xid::XID_NOT_FOUND
-                                    =
-				    {
-trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/MUD: window_id s=%s: WINDOW_INFO record does not exist yet, parking the oneshot" (xtype_to_string::xid_to_string window_id); };
-				        set_in_oneshot_map (window_id, oneshot);		# WINDOW_INFO record doesn't exist yet, so park oneshot for now.
-				    };
-				    	
-trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/BOT: window_id s=%s" (xtype_to_string::xid_to_string window_id); };
-			    };
-			    
-
-			do_plea (plea::LOCK_WINDOW   window_id) =>   lock_tree (get_info  window_id)  except hash_xid::XID_NOT_FOUND = ();
-			do_plea (plea::UNLOCK_WINDOW window_id) => unlock_tree (get_info  window_id)  except hash_xid::XID_NOT_FOUND = ();
-
-			do_plea (plea::IS_WINDOW_LOCKED window_id)
-			    =>
-			    {   (get_info  window_id)
-				    ->
-				    WINDOW_INFO { lock, ... };
-
-				put_in_mailslot  (lock_slot,  *lock);
-			    }
-			    except
-				hash_xid::XID_NOT_FOUND
-				    =
-				    {
-					log::note_on_stderr .{ "do_plea IS_WINDOW_LOCKED/except  ERROR!!  -- xsocket-to-topwindow-router.pkg"; };
-					log::note_in_ramlog .{ "do_plea IS_WINDOW_LOCKED/except  ERROR!!  -- xsocket-to-topwindow-router.pkg"; };
-					log::fatal          .{ "do_plea IS_WINDOW_LOCKED/except  ERROR!!  -- xsocket-to-topwindow-router.pkg"; };
-					trace .{ sprintf "ERROR!!  IS_WINDOW_LOCKED: window_id %s not yet registered" (xtype_to_string::xid_to_string window_id); };
-                                        ();						# We probably should be either returning NULL or generating an exception in client thread here.  XXX BUGGO FIXME
-# XXX BUGGO FIXME I think maybe we should be registering window ids here before putting
-# them into circulation, so as to basically eliminate the possibility of this error.
-				    };
-
-			do_plea (plea::GET_WINDOW_SITE (window_id, reply_oneshot))
-			    =>
-			    {
-# log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/AAA  -- xsocket-to-topwindow-router.pkg"; };
-				(get_info  window_id)
-				    ->
-				    WINDOW_INFO { site, ... };
-
-# log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/BBB  -- xsocket-to-topwindow-router.pkg"; };
-result =
-				put_in_oneshot (reply_oneshot,  *site);
-# log::note_in_ramlog .{ "do_plean GET_WINDOW_SITE/ZZZ  -- xsocket-to-topwindow-router.pkg"; };
-result;
-			    }
-			    except
-				hash_xid::XID_NOT_FOUND
-				    =
-				    {
-					log::note_on_stderr .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
-					log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
-					log::fatal          .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
-					trace .{ sprintf "ERROR!!  GET_WINDOW_SITE: window_id %s not yet registered" (xtype_to_string::xid_to_string window_id); };
-                                        ();						# We probably should be either returning NULL or generating an exception in client thread here.  XXX BUGGO FIXME
-# XXX BUGGO FIXME I think maybe we should be registering window ids here before putting
-# them into circulation, so as to basically eliminate the possibility of this error.
-				    };
-
-			do_plea (plea::GET_''SEEN_FIRST_EXPOSE''_ONESHOT (window_id, reply_oneshot))
-			    =>
-			    {   (get_info  window_id)
-				    ->
-				    WINDOW_INFO { seen_first_expose_oneshot, ... };
-
-				put_in_oneshot (reply_oneshot,  *seen_first_expose_oneshot);
-			    }
-			    except hash_xid::XID_NOT_FOUND
+		    fun loop
+			      ( window_id__to__window_info__map,
+				window_id__to__pleas__map,
+				window_id__to__oneshot__map
+			      )
+			=
+			{
+			    #
+			    fun set_info (arg as (window_id, window_info_map))
 				=
-				{   put_in_oneshot (reply_oneshot,  THE (take_from_oneshot_map  window_id))
+				{
+				    set_info' arg;
+				}
+			    also
+			    fun do_plea (plea::NOTE_NEW_TOPWINDOW  (window_id, window_site))
+				    =>
+				    {   # Log a new top-level window:
+					#
+					to_topwindow_slot = make_mailslot ();
+
+					# Handle any prematurely-registered oneshot.
+					# I'm not sure a topwindow will ever get an
+					# EXPOSE event, so this may be pointless:
+					#
+					oneshot =   {   oneshot =  take_from_oneshot_map  window_id;
+							drop_from_oneshot_map  window_id;
+							THE oneshot;
+						    }	
+						    except
+							hash_xid::XID_NOT_FOUND
+							    =
+							    NULL;
+
+					set_info
+					  ( window_id,
+					    WINDOW_INFO
+					      {
+						window_id,
+						to_topwindow_slot,
+						route       =>  ENVELOPE_ROUTE_END  window_id,
+						parent_info =>  NULL,
+						children    =>  REF [],
+						lock        =>  REF FALSE,
+						site	    =>  REF (xg::site_to_box window_site),
+						#
+						seen_first_expose	  => REF( FALSE ),
+						seen_first_expose_oneshot => REF( oneshot )
+					      }
+					  );
+
+					put_in_mailslot  (reply_slot,  take_from_mailslot'  to_topwindow_slot);
+				    }
+				    except hash_xid::XID_NOT_FOUND = ();
+
+				do_plea (plea::NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT  (window_id, oneshot))
+				    =>
+				    {   # Note the oneshot used to signal receipt
+					# of the first EXPOSE event on a window:
+	trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/TOP: window_id s=%s" (xtype_to_string::xid_to_string window_id); };
+
+					{   (get_info  window_id)
+						->
+						WINDOW_INFO { 
+						    seen_first_expose	=> REF( seen_first_expose ),
+						    seen_first_expose_oneshot,
+						    ...
+						};
+
+	trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/MID: window_id s=%s, first_expose b=%s" (xtype_to_string::xid_to_string window_id) case seen_first_expose TRUE => "TRUE"; _ => "FALSE"; esac; };
+					    seen_first_expose_oneshot :=   THE oneshot;
+
+					    if seen_first_expose
+						#
+						put_in_oneshot (oneshot, ());				# This shouldn't happen.
+					    fi;
+					}
+					except hash_xid::XID_NOT_FOUND
+					    =
+					    {
+	trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/MUD: window_id s=%s: WINDOW_INFO record does not exist yet, parking the oneshot" (xtype_to_string::xid_to_string window_id); };
+						set_in_oneshot_map (window_id, oneshot);		# WINDOW_INFO record doesn't exist yet, so park oneshot for now.
+					    };
+
+	trace .{ sprintf "NOTE_''SEEN_FIRST_EXPOSE''_ONESHOT/BOT: window_id s=%s" (xtype_to_string::xid_to_string window_id); };
+				    };
+
+
+				do_plea (plea::GET_WINDOW_SITE (window_id, reply_oneshot))
+				    =>
+				    {
+	# log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/AAA  -- xsocket-to-topwindow-router.pkg"; };
+					(get_info  window_id)
+					    ->
+					    WINDOW_INFO { site, ... };
+
+	# log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/BBB  -- xsocket-to-topwindow-router.pkg"; };
+	result =
+					put_in_oneshot (reply_oneshot,  *site);
+	# log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/ZZZ  -- xsocket-to-topwindow-router.pkg"; };
+	result;
+				    }
 				    except
 					hash_xid::XID_NOT_FOUND
 					    =
 					    {
-						log::note_on_stderr .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
-						log::note_in_ramlog .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
-						log::fatal          .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
-						put_in_oneshot (reply_oneshot,  NULL);		# We probably should be generating an exception in client thread here.  XXX BUGGO FIXME
-# XXX BUGGO FIXME I think maybe we should be registering window ids here before putting
-# them into circulation, so as to basically eliminate the possibility of this error.
+						log::note_on_stderr .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
+						log::note_in_ramlog .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
+						log::fatal          .{ "do_plea GET_WINDOW_SITE/except  ERROR!!  GET_WINDOW_SITE  -- xsocket-to-topwindow-router.pkg"; };
+						trace .{ sprintf "ERROR!!  GET_WINDOW_SITE: window_id %s not yet registered" (xtype_to_string::xid_to_string window_id); };
+						();						# We probably should be either returning NULL or generating an exception in client thread here.  XXX BUGGO FIXME
+	# XXX BUGGO FIXME I think maybe we should be registering window ids here before putting
+	# them into circulation, so as to basically eliminate the possibility of this error.
+	# [ MUCH LATER ]:
+	#     I think maybe we need a deferral mechanism here matching that for
+	#     the seen-first-expose case.         
 					    };
-				};
 
-			do_plea (plea::GET_''GUI_STARTUP_COMPLETE''_ONESHOT reply_oneshot)
-			    =>
-			    put_in_oneshot (reply_oneshot, gui_startup_complete_oneshot);
-		    end;
-		    #
-		    fun note_new_subwindow (parent_window_id, child_window_id, box)
-			=
-			{
-			    (get_info  parent_window_id)
-				-> 
-				parent_info as WINDOW_INFO { route, to_topwindow_slot, children, lock, ... };
-			    #
-			    fun extend_route (ENVELOPE_ROUTE_END window_id)      =>  ENVELOPE_ROUTE (window_id, ENVELOPE_ROUTE_END child_window_id);
-				extend_route (ENVELOPE_ROUTE (window_id, route)) =>  ENVELOPE_ROUTE (window_id, extend_route route);
-			    end;
+				do_plea (plea::GET_''SEEN_FIRST_EXPOSE''_ONESHOT (window_id, reply_oneshot))
+				    =>
+				    {   (get_info  window_id)
+					    ->
+					    WINDOW_INFO { seen_first_expose_oneshot, ... };
 
-			    child_route = extend_route route;
-
-			    # Handle any prematurely-registered oneshot:
-			    #
-			    oneshot =   {   oneshot =  take_from_oneshot_map  child_window_id;
-					    drop_from_oneshot_map            child_window_id;
-trace .{ sprintf "note_new_subwindow: window_id s=%s PICKING UP PREMATURELY REGISTERED ONESHOT" (xtype_to_string::xid_to_string child_window_id); };
-					    THE oneshot;
-					}	
-					except
-					    hash_xid::XID_NOT_FOUND
-						=
-						NULL;
-
-			    child_info
-				=
-				WINDOW_INFO
-				  {
-				    window_id   =>  child_window_id,
-				    route       =>  child_route,
-				    site        =>  REF box,
-				    parent_info =>  THE parent_info,
-				    children    =>  REF [],
-				    lock        =>  REF *lock,
-				    #
-				    to_topwindow_slot,
-				    #
-				    seen_first_expose	      =>  REF( FALSE ),
-				    seen_first_expose_oneshot =>  REF( oneshot )
-				  };
-
-			    children := child_info ! *children;
-
-			    set_info (child_window_id, child_info);
-			};
-
-		    #
-		    fun note_site_change (window_id, box)
-			=
-			{   (get_info window_id) ->  WINDOW_INFO { site, ... };
-
-			    site := box;
-			}
-			except
-			    hash_xid::XID_NOT_FOUND = ();
-
-		    #
-		    fun maybe_note_first_expose_event  window_id
-			=
-			{
-			    # If this is the first EXPOSE event seen for
-			    # this X session, broadcast that fact for
-			    # anyone waiting:
-			    #
-			    if (not *seen_first_expose_xevent_of_session)
-				#
-				seen_first_expose_xevent_of_session :=  TRUE;
-				#
-				put_in_oneshot (gui_startup_complete_oneshot, ());
-			    fi; 
-
-			    # If this is the first EXPOSE event for window,
-			    # remember that we've seen it and set the
-			    # condition variable   seen_first_expose_oneshot
-			    # to notify any threads waiting for the
-			    # EXPOSE -- see   seen_first_redraw_oneshot_of   in
-			    #     src/lib/x-kit/widget/basic/widget.api
-			    # 
-			    (get_info  window_id)
-				->
-				WINDOW_INFO
-                                  { seen_first_expose         =>      seen_first_expose,
-				    seen_first_expose_oneshot =>  REF seen_first_expose_oneshot,
-                                    ...
-                                  };
-
-trace .{ sprintf "maybe_note_first_expose_event: window_id s=%s, first_expose b=%s" (xtype_to_string::xid_to_string window_id) case seen_first_expose REF TRUE => "TRUE"; _ => "FALSE"; esac; };
-			    case seen_first_expose
-				#
-				REF TRUE  => ();						# Nothing to do.
-
-				REF FALSE =>
-				    {
-					seen_first_expose :=  TRUE;
-trace .{ sprintf "maybe_note_first_expose_event: window_id s=%s, first_expose b=%s FIRST EXPOSE NOTED" (xtype_to_string::xid_to_string window_id) case seen_first_expose REF TRUE => "TRUE"; _ => "FALSE"; esac; };
-
-					case seen_first_expose_oneshot
-					    #
-					    THE oneshot =>  put_in_oneshot (oneshot, ());	# Tell all waiting threads this widget is GO for action. :-)
-					    NULL        =>  ();					# Oneshot not yet registered -- shouldn't really happen,
-					esac;							# but no big deal, we'll set it when it arrives.
-				    };
-			    esac;
-			}
-			except
-			    hash_xid::XID_NOT_FOUND = ();
-
-		    #
-		    fun route_xevent_per_window_info (e, WINDOW_INFO { route, to_topwindow_slot, ... } )
-			= 
-			put_in_mailslot  (to_topwindow_slot, (route, e));
-
-		    #
-		    fun route_xevent_to_window_id (xevent, window_id)
-			=
-			route_xevent_per_window_info (xevent, get_info window_id)
-			except
-			    hash_xid::XID_NOT_FOUND = ();
-		    #
-		    fun do_xevent xevent
-			=
-			case (pick_xevent_action xevent)
-			    #
-			    SEND_TO_WINDOW  window_id
-				=>
-				route_xevent_to_window_id (xevent, window_id);
-
-			    NOTE_EXPOSE_AND_SEND_TO_WINDOW  window_id
-				=>
-				{
-				    maybe_note_first_expose_event window_id;
-
-				    route_xevent_to_window_id (xevent, window_id);
-				};
-
-			    NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW (window_id, box)
-				=>
-				{   note_site_change (window_id, box);			# Window has changed size and/or position.
-				    route_xevent_to_window_id (xevent, window_id);
-				};
-
-			    NOTE_NEW_WINDOW { parent_window_id, created_window_id, box }
-				=>
-				{   note_new_subwindow (parent_window_id, created_window_id, box);
-				    #
-				    route_xevent_to_window_id (xevent, parent_window_id);
-				};
-
-			    NOTE_WINDOW_DESTRUCTION  window_id
-				=>
-				case (get_and_drop_info  window_id)
-				    #
-				    THE (window_info as WINDOW_INFO { parent_info => THE (WINDOW_INFO { children, ... } ), ... } )
-					=>
-					{   fun remove_child ((window_info' as WINDOW_INFO { window_id => window_id', ... } ) ! rest)
-						    =>
-						    if (window_id' == window_id)  rest;
-						    else                          (window_info' ! (remove_child rest));
-						    fi;
-
-						remove_child []
-						    =>
-						    {   xgripe::warning "[xsocket-to-topwin: missing child]";
-							[];
+					put_in_oneshot (reply_oneshot,  *seen_first_expose_oneshot);
+				    }
+				    except hash_xid::XID_NOT_FOUND
+					=
+					{   put_in_oneshot (reply_oneshot,  THE (take_from_oneshot_map  window_id))
+					    except
+						hash_xid::XID_NOT_FOUND
+						    =
+						    {
+							log::note_on_stderr .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
+							log::note_in_ramlog .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
+							log::fatal          .{ "do_plea GET_''SEEN_FIRST_EXPOSE''_ONESHOT/except  ERROR!!    -- xsocket-to-topwindow-router.pkg"; };
+							put_in_oneshot (reply_oneshot,  NULL);		# We probably should be generating an exception in client thread here.  XXX BUGGO FIXME
+	# XXX BUGGO FIXME I think maybe we should be registering window ids here before putting
+	# them into circulation, so as to basically eliminate the possibility of this error.
 						    };
-					    end;
-
-					    children
-						:=
-						remove_child *children;
-
-					    route_xevent_per_window_info (xevent, window_info);
 					};
 
-				    THE window_info
-					=>
-					route_xevent_per_window_info (xevent, window_info);
+				do_plea (plea::GET_''GUI_STARTUP_COMPLETE''_ONESHOT reply_oneshot)
+				    =>
+				    put_in_oneshot (reply_oneshot, gui_startup_complete_oneshot);
+			    end;
+			    #
+			    fun note_new_subwindow (parent_window_id, child_window_id, box)
+				=
+				{
+				    (get_info  parent_window_id)
+					-> 
+					parent_info as WINDOW_INFO { route, to_topwindow_slot, children, lock, ... };
+				    #
+				    fun extend_route (ENVELOPE_ROUTE_END window_id)      =>  ENVELOPE_ROUTE (window_id, ENVELOPE_ROUTE_END child_window_id);
+					extend_route (ENVELOPE_ROUTE (window_id, route)) =>  ENVELOPE_ROUTE (window_id, extend_route route);
+				    end;
 
-				    NULL => ();							# Shouldn't happen.
-				esac;
+				    child_route = extend_route route;
 
-			    SEND_TO_KEYMAP_IMP
-				=>
-				{   xgripe::warning "[xsocket-to-topwin: unexpected SEND_TO_KEYMAP_IMP]";
-				    ();
+				    # Handle any prematurely-registered oneshot:
+				    #
+				    oneshot =   {   oneshot =  take_from_oneshot_map  child_window_id;
+						    drop_from_oneshot_map            child_window_id;
+	trace .{ sprintf "note_new_subwindow: window_id s=%s PICKING UP PREMATURELY REGISTERED ONESHOT" (xtype_to_string::xid_to_string child_window_id); };
+						    THE oneshot;
+						}	
+						except
+						    hash_xid::XID_NOT_FOUND
+							=
+							NULL;
+
+				    child_info
+					=
+					WINDOW_INFO
+					  {
+					    window_id   =>  child_window_id,
+					    route       =>  child_route,
+					    site        =>  REF box,
+					    parent_info =>  THE parent_info,
+					    children    =>  REF [],
+					    lock        =>  REF *lock,
+					    #
+					    to_topwindow_slot,
+					    #
+					    seen_first_expose	      =>  REF( FALSE ),
+					    seen_first_expose_oneshot =>  REF( oneshot )
+					  };
+
+				    children := child_info ! *children;
+
+				    set_info (child_window_id, child_info);
 				};
 
-			    SEND_TO_WINDOW_PROPERTY_IMP  =>  put_in_mailslot  (to_window_property_imp_slot, xevent);
-			    SEND_TO_SELECTION_IMP        =>  put_in_mailslot  (to_selection_imp_slot,       xevent);
+			    #
+			    fun note_site_change (window_id, box)
+				=
+				{   (get_info window_id) ->  WINDOW_INFO { site, ... };
+				    #
+				    site := box;
+				}
+				except
+				    hash_xid::XID_NOT_FOUND = ();
 
-			    IGNORE => ();
+			    #
+			    fun maybe_note_first_expose_event  window_id
+				=
+				{
+				    # If this is the first EXPOSE event seen for
+				    # this X session, broadcast that fact for
+				    # anyone waiting:
+				    #
+				    if (not *seen_first_expose_xevent_of_session)
+					#
+					seen_first_expose_xevent_of_session :=  TRUE;
+					#
+					put_in_oneshot (gui_startup_complete_oneshot, ());
+				    fi; 
 
-			    SEND_TO_ALL_WINDOWS
-				=>
-				apply (fn (_, window_info) = route_xevent_per_window_info (xevent, window_info))
-				      (hash_xid::list  window_id_to_window_info_map);
-			esac;
+				    # If this is the first EXPOSE event for window,
+				    # remember that we've seen it and set the
+				    # condition variable   seen_first_expose_oneshot
+				    # to notify any threads waiting for the
+				    # EXPOSE -- see   seen_first_redraw_oneshot_of   in
+				    #     src/lib/x-kit/widget/basic/widget.api
+				    # 
+				    (get_info  window_id)
+					->
+					WINDOW_INFO
+					  { seen_first_expose         =>      seen_first_expose,
+					    seen_first_expose_oneshot =>  REF seen_first_expose_oneshot,
+					    ...
+					  };
 
-		    mailop =  cat_mailops
-				[
-				  plea_in'   ==>  do_plea,
-				  xevent_in' ==>  do_xevent
-			        ];
+	trace .{ sprintf "maybe_note_first_expose_event: window_id s=%s, first_expose b=%s" (xtype_to_string::xid_to_string window_id) case seen_first_expose REF TRUE => "TRUE"; _ => "FALSE"; esac; };
+				    case seen_first_expose
+					#
+					REF TRUE  => ();						# Nothing to do.
 
-		    # fun loop () = {   block_until_mailop_fires  mailop;    loop(); };
-	  /* DEBUG */ fun loop () = {   trace .{ "xsocket_to_topwindow_router: loop: Top."; };
-				        block_until_mailop_fires mailop;
-				        loop();
-				    };
+					REF FALSE =>
+					    {
+						seen_first_expose :=  TRUE;
+	trace .{ sprintf "maybe_note_first_expose_event: window_id s=%s, first_expose b=%s FIRST EXPOSE NOTED" (xtype_to_string::xid_to_string window_id) case seen_first_expose REF TRUE => "TRUE"; _ => "FALSE"; esac; };
 
-		    xtr::make_thread  "xsocket-to-topwin"  loop;
+						case seen_first_expose_oneshot
+						    #
+						    THE oneshot =>  put_in_oneshot (oneshot, ());	# Tell all waiting threads this widget is GO for action. :-)
+						    NULL        =>  ();					# Oneshot not yet registered -- shouldn't really happen,
+						esac;							# but no big deal, we'll set it when it arrives.
+					    };
+				    esac;
+				}
+				except
+				    hash_xid::XID_NOT_FOUND = ();
+
+			    #
+			    fun route_xevent_per_window_info (e, WINDOW_INFO { route, to_topwindow_slot, ... } )
+				= 
+				put_in_mailslot  (to_topwindow_slot, (route, e));
+
+			    #
+			    fun route_xevent_to_window_id (xevent, window_id)
+				=
+				route_xevent_per_window_info (xevent, get_info window_id)
+				except
+				    hash_xid::XID_NOT_FOUND = ();
+			    #
+			    fun do_xevent xevent
+				=
+				case (pick_xevent_action xevent)
+				    #
+				    SEND_TO_WINDOW  window_id
+					=>
+					route_xevent_to_window_id (xevent, window_id);
+
+				    NOTE_EXPOSE_AND_SEND_TO_WINDOW  window_id
+					=>
+					{
+					    maybe_note_first_expose_event window_id;
+
+					    route_xevent_to_window_id (xevent, window_id);
+					};
+
+				    NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW (window_id, box)
+					=>
+					{   note_site_change (window_id, box);			# Window has changed size and/or position.
+					    route_xevent_to_window_id (xevent, window_id);
+					};
+
+				    NOTE_NEW_WINDOW { parent_window_id, created_window_id, box }
+					=>
+					{   note_new_subwindow (parent_window_id, created_window_id, box);
+					    #
+					    route_xevent_to_window_id (xevent, parent_window_id);
+					};
+
+				    NOTE_WINDOW_DESTRUCTION  window_id
+					=>
+					case (get_and_drop_info  window_id)
+					    #
+					    THE (window_info as WINDOW_INFO { parent_info => THE (WINDOW_INFO { children, ... } ), ... } )
+						=>
+						{   fun remove_child ((window_info' as WINDOW_INFO { window_id => window_id', ... } ) ! rest)
+							    =>
+							    if (window_id' == window_id)  rest;
+							    else                          (window_info' ! (remove_child rest));
+							    fi;
+
+							remove_child []
+							    =>
+							    {   xgripe::warning "[xsocket-to-topwin: missing child]";
+								[];
+							    };
+						    end;
+
+						    children
+							:=
+							remove_child *children;
+
+						    route_xevent_per_window_info (xevent, window_info);
+						};
+
+					    THE window_info
+						=>
+						route_xevent_per_window_info (xevent, window_info);
+
+					    NULL => ();							# Shouldn't happen.
+					esac;
+
+				    SEND_TO_KEYMAP_IMP
+					=>
+					{   xgripe::warning "[xsocket-to-topwin: unexpected SEND_TO_KEYMAP_IMP]";
+					    ();
+					};
+
+				    SEND_TO_WINDOW_PROPERTY_IMP  =>  put_in_mailslot  (to_window_property_imp_slot, xevent);
+				    SEND_TO_SELECTION_IMP        =>  put_in_mailslot  (to_selection_imp_slot,       xevent);
+
+				    IGNORE => ();
+
+				    SEND_TO_ALL_WINDOWS
+					=>
+					apply (fn (_, window_info) = route_xevent_per_window_info (xevent, window_info))
+					      (hash_xid::list  window_id__to__window_info__map);
+				esac;
+
+			    trace .{ "xsocket_to_topwindow_router: loop: Top."; };
+
+			    do_one_mailop 
+			      [
+				plea_in'   ==>  do_plea,
+				xevent_in' ==>  do_xevent
+			      ];
+
+			    loop  (window_id__to__window_info__map, window_id__to__pleas__map, window_id__to__oneshot__map);
+			};
+
+		    xtr::make_thread  "xsocket-to-topwin"  .{
+			#
+			loop  ( window_id__to__window_info__map,
+				window_id__to__pleas__map,
+				window_id__to__oneshot__map
+			      );
+		    };
 
 		    XSOCKET_TO_TOPWINDOW_ROUTER { plea_slot, reply_slot, lock_slot };
 		};										# fun make_xsocket_to_topwindow_router
 
 
-	    # Add 'topwindow' to    window_id_to_window_info_map
+	    # Add 'topwindow' to    window_id__to__window_info__map
 	    # and return the event slot through which we will feed
 	    # X events to that window and its subwindows.
 	    #
@@ -880,25 +886,6 @@ trace .{ sprintf "maybe_note_first_expose_event: window_id s=%s, first_expose b=
 		    take_from_mailslot   reply_slot;
 		};
 
-	    # This is nowhere called:
-	    #
-	    fun lock_window_tree (XSOCKET_TO_TOPWINDOW_ROUTER { plea_slot, reply_slot, ... }, window_id)
-		=
-		{   put_in_mailslot (plea_slot, plea::LOCK_WINDOW window_id);
-
-		    .{  put_in_mailslot (plea_slot, plea::UNLOCK_WINDOW window_id);  };
-		};
-
-	    # This gets called exactly one place, in
-	    #
-	    #     src/lib/x-kit/xclient/src/window/draw-imp.pkg
-	    #
-	    fun window_is_locked (XSOCKET_TO_TOPWINDOW_ROUTER { plea_slot, lock_slot, ... }, window_id)
-		=
-		{   put_in_mailslot (plea_slot, plea::IS_WINDOW_LOCKED window_id);
-		    #
-		    take_from_mailslot  lock_slot;
-		};
 	    #
 	    fun get_window_site (XSOCKET_TO_TOPWINDOW_ROUTER { plea_slot, ... }, window_id)
 		=
