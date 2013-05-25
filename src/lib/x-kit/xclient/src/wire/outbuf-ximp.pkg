@@ -1,0 +1,297 @@
+## outbuf-ximp.pkg
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xsession.pkg
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+							# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+							# xerrors				is from   src/lib/x-kit/xclient/src/wire/xerrors.pkg
+
+stipulate
+    include threadkit;					# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package mps =  microthread_preemptive_scheduler;	# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    #
+    package un  =  unt;					# unt					is from   src/lib/std/unt.pkg
+    package uid =  issue_unique_id;			# issue_unique_id			is from   src/lib/src/issue-unique-id.pkg
+#   package wv8 =  rw_vector_of_one_byte_unts;		# rw_vector_of_one_byte_unts		is from   src/lib/std/src/rw-vector-of-one-byte-unts.pkg
+    package psx =  posixlib;				# posixlib				is from   src/lib/std/src/psx/posixlib.pkg
+    package e2s =  xerror_to_string;			# xerror_to_string			is from   src/lib/x-kit/xclient/src/to-string/xerror-to-string.pkg
+    package skj =  socket_junk;				# socket_junk				is from   src/lib/internet/socket-junk.pkg
+    package sok =  socket__premicrothread;		# socket__premicrothread		is from   src/lib/std/socket--premicrothread.pkg
+    package v1u =  vector_of_one_byte_unts;		# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package v2w =  value_to_wire;			# value_to_wire				is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package w2v =  wire_to_value;			# wire_to_value				is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;				# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    package   outbuf_ximp
+    : (weak)  Outbuf_Ximp				# Outbuf_Ximp				is from   src/lib/x-kit/xclient/src/wire/outbuf-ximp.api
+    {
+
+	Initialplea =   START_ON  Maildrop(Void)
+		    ;
+	Initialport = Mailslot( Initialplea );
+
+	Controlplea =   STOP
+		    ;
+	ControlPort = Mailslot( Controlplea );
+
+
+
+	Runtimeplea =   SEND_BYTES v1u::Vector
+		    ;
+	Runtimeport = Mailqueue( Runtimeplea );
+
+
+	Ports	= { initialport: Initialport,
+		    runtimeport: Runtimeport,
+		    controlport: Controlport
+		  };
+
+
+#	fun out_msg_to_string FLUSH_OUTBUF
+#		=>
+#		"OutFlush";
+#
+#	    out_msg_to_string SHUT_DOWN_OUTBUF
+#		=>
+#		"OutQuit";
+#
+#	    out_msg_to_string (ADD_TO_OUTBUF v)
+#		=>
+#		{   prefix_to_show
+#			=
+#			byte::unpack_string_vector
+#			    (vector_slice_of_one_byte_unts::make_slice
+#				(v, 0, max_chars_to_trace_per_send)
+#			    );
+#
+#		    case max_chars_to_trace_per_send
+#			#
+#			THE n =>    cat [ "Sent to X server: ",   string_to_hex    prefix_to_show,
+#					  "... == \"",            string_to_ascii  prefix_to_show,
+#					  "\"... (", int::to_string (v1u::length v), " bytes)"
+#					];
+#
+#			NULL =>    cat [ "Sent to X server: ",   string_to_hex prefix_to_show,
+#					  " == \"",               string_to_ascii  prefix_to_show,
+#					  "\"  (", int::to_string (v1u::length v), " bytes)"
+#					];
+#		    esac;
+#		};	
+#	end;
+
+
+	fun shut_down_outbuf_imp ()
+	    =
+	    {   sok::close socket;
+		thread_exit { success => TRUE };							# Will not return.	
+	    };
+
+
+	fun runtime_loop (ports: Ports,  state)
+	    =
+	    do_one_mailop [
+		#
+		(take_from_mailslot'  ports.controlport ==> do_controlplea),
+
+		(take_from_mailqueue' ports.runtimeport ==> do_runtimeplea)
+	    ]
+	    where
+		fun do_controlplea  STOP
+		    =
+		    shut_down_outbuf_imp ();									# Will not return.	
+
+		fun do_runtimeplea  (SEND_BYTES (vector: v1u::Vector))
+		    =
+		    {   skj::send_vector (socket, vector);
+			#
+			runtime_loop (ports, state);
+		    };
+	    end;
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_outbuf_ximp (name: String) (socket: sok::Socket (X, sok::Stream(sok::Active)))				# External entrypoint.
+	    =
+	    {
+		initialport =  make_mailslot  ():  Mailqueue( Initialplea );
+		controlport =  make_mailslot  ():  Mailqueue( Controlplea );
+		runtimeport =  make_mailqueue ():  Mailqueue( Runtimeplea );
+
+		ports	    =  { initialport, controlport, runtimeport };
+
+		xlogger::make_thread  name  (start_initial_loop  ports);
+
+		ports;
+	    }
+	    where
+		fun initial_loop  (ports: Ports,  state)
+		    =
+		    do_initialplea  (take_from_mailslot  ports.initialport)
+		    where
+			fun do_initialplea  (WAIT_ON  maildrop)
+			    =
+			    {   take_from_maildrop  maildrop;								# Wait for the start signal.
+				#
+				runtime_loop (ports,  state);								# Will not return.
+			    };
+		    end;
+
+		fun start_initial_loop (ports: Ports) ()
+		    =
+		    {   state = ();
+			initial_loop (ports, state);									# Will not return.
+		    };
+	    end;
+
+	
+	fun send_bytes (mailqueue: Runtimeport,  vector: v1u::Vector)							# External entrypoint.
+	    =	
+	    put_in_mailqueue (mailqueue, SEND_BYTES vector);
+
+	package initial {
+	    #
+	    fun start_on  (mailslot: Initialport,   maildrop: Maildrop(Void))						# External entrypoint.
+		=
+		put_in_mailslot  (mailslot,  START_ON maildrop);
+	};
+
+	package control {
+	    #
+	    fun stop  (mailslot: Controlport)										# External entrypoint.
+		=
+		put_in_mailslot  (mailslot,  STOP);
+	};
+
+#
+#		fun flush_outbuf strings
+#		    =
+#		    skj::send_vector (socket, v1u::cat (reverse strings));						# This ultimately does a blocking send.
+#
+#    #  +DEBUG 
+#		# Tracelogging version of above:
+#		#
+#		flush_outbuf
+#		    =
+#		    fn strs
+#			=
+#			{   xlogger::log_if  xlogger::io_logging  0
+#			       .{   cat [
+#					"Flush: ", int::to_string (list::length strs), " msgs, ",
+#					int::to_string (list::fold_forward (fn (s, n) = v1u::length s + n) 0 strs), " bytes."
+#				    ];
+#			       };
+#
+#			    flush_outbuf strs;
+#			};
+#    #  -DEBUG 
+#
+#		fun add_to_outbuf (string, (strings, bytes_in_buf))
+#		    =
+#		    {   added_bytes =  v1u::length  string;
+#			#
+#			if (added_bytes + bytes_in_buf  >  max_bytes_per_socket_write)
+#			    #
+#			    flush_outbuf strings;
+#			    ([string], added_bytes);
+#			else
+#			    (string ! strings, added_bytes + bytes_in_buf);
+#			fi;
+#		    };
+#
+#		fun print_msg  msg
+#		    =
+#		    {   xlogger::log_if  xlogger::io_logging  0
+#			   .{   cat ["outbuf_imp::loop: ", out_msg_to_string msg]; };
+#
+#			msg;
+#		    };
+#
+#		fun loop (outbuf, bytes_in_buf)
+#		    =
+#		    {   xlogger::log_if xlogger::io_logging  0  .{
+#			    cat [ "outbuf_imp::loop: waiting ", int::to_string (list::length outbuf)];
+#			};
+#
+#			case outbuf
+#			    #
+#			    [] =>	# Buffer is empty, so no need to
+#					# flush buffer on timeout; just
+#					# wait for a command:
+#					#
+#					case (print_msg (take_from_mailslot  in_mailslot))
+#					    #
+#					    FLUSH_OUTBUF         =>  loop([], 0);			# Buffer empty, so flush is a no-op.
+#					    ADD_TO_OUTBUF string =>  loop([string], v1u::length string);
+#					    SHUT_DOWN_OUTBUF     =>  shut_down_outbuf_imp ();
+#					esac;
+#
+#			    strings =>  # Read and execute command;  if no command
+#					# arrives within 50ms, write buffer contents
+#					# to X server socket:
+#					# 
+#					do_one_mailop [
+#					    #
+#					    (take_from_mailslot' in_mailslot ==> print_msg)
+#						==>
+#						fn FLUSH_OUTBUF          => {  flush_outbuf strings;  loop([], 0);  };
+#						   SHUT_DOWN_OUTBUF      => {  flush_outbuf strings;  shut_down_outbuf_imp();       };
+#						   #
+#						   ADD_TO_OUTBUF string => loop (add_to_outbuf (string, (outbuf, bytes_in_buf)));
+#						end,
+#
+#					    flush_time_out'
+#						==>
+#						(fn _ = {   flush_outbuf strings;
+#							    loop([], 0);
+#							}
+#						)
+#
+#					];
+#			esac;
+#		    };
+#	    end;				# fun outbuf_imp
+
+
+
+    };						# package outbuf_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.
