@@ -30,6 +30,18 @@ herein
 		      rear:   List(X)
 		    };
 
+	Mailqueue_State(X)
+	  = EMPTY      Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)))
+	  | NONEMPTY  (Int, Queue(X))											# The 'Int' is a priority -- starts at 1, incremented by is_mailop_ready_to_fire ().
+	  ;														# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
+
+	Mailqueue(X) = MAILQUEUE  Ref( Mailqueue_State(X) );
+
+	empty_queue =  EMPTY  { front => [],
+				rear  => []
+			      };
+
+
 	fun enqueue ( { front, rear }, x)
 	    =
 	    { front,
@@ -43,16 +55,13 @@ herein
 	    # This will raise an exception if queue is empty, but
 	    # caller guarantees that queue is nonempty.
 
-	Mailqueue_State(X)
-	  = EMPTY      Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)))
-	  | NONEMPTY  (Int, Queue(X))											# The 'Int' is a priority -- starts at 1, incremented by is_mailop_ready_to_fire ().
-	  ;														# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
-
-	Mailqueue(X) = MAILQUEUE  Ref( Mailqueue_State(X) );
-
-	empty_queue =  EMPTY  { front => [],
-				rear  => []
-			      };
+	fun dequeue_all ( { front => x,  rear => [] } ) =>  x;
+	    dequeue_all ( { front => [], rear => y  } ) =>  list::reverse y;
+	    dequeue_all ( { front => x,  rear => y  } ) =>  (x @ (list::reverse y));
+	end;
+	    # Remove all items from queue and return as a list.
+	    # This will raise an exception if queue is empty, but
+	    # caller guarantees that queue is nonempty.
 
 	fun reset_mailqueue (MAILQUEUE state)
 	    =
@@ -206,7 +215,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 					    #
 					    mps::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => end_do1mailoprun_and_return_thread  do1mailoprun_status,   old_fate };
 
-					    switch_to_fate  get_fate  x;								# 
+					    switch_to_fate  get_fate  x;				# 
 					}
 				    );
 			esac;
@@ -245,6 +254,18 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		msg;
 	    };
 
+	fun get_msgs__xu (qstate, q)
+	    =
+	    {
+		msgs = dequeue_all q;
+		#
+		qstate :=  empty_queue;
+
+		log::uninterruptible_scope_mutex := 0;
+
+		msgs;
+	    };
+
 	fun take_from_mailqueue (mq as MAILQUEUE qstate)
 	    =
 	    {
@@ -273,6 +294,38 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		  NONEMPTY (priority, q)
 		      =>
 		      get_msg__xu (qstate, q);
+
+		esac;
+	    };
+
+	fun take_all_from_mailqueue (mq as MAILQUEUE qstate)
+	    =
+	    {
+microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+		log::uninterruptible_scope_mutex := 1;
+		#
+		case *qstate
+		    #
+		    EMPTY q
+			=>
+			{   msg =   call_with_current_fate
+					(
+					 fn get_fate
+					    =
+					    {   qstate :=  EMPTY (enqueue (q, (make__mailop_done__refcell(), get_fate)));
+						#
+						mps::dispatch_next_thread__xu__noreturn ();
+					    }
+					);
+
+			    log::uninterruptible_scope_mutex := 0;
+
+			    [ msg ];
+			 };
+
+		  NONEMPTY (priority, q)
+		      =>
+		      get_msgs__xu (qstate, q);
 
 		esac;
 	    };
@@ -346,6 +399,64 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				    priority,
 				    fire_mailop    =>  .{   
 							    get_msg__xu (qstate, q);
+							}
+				  };
+			    };
+		    esac;
+
+
+		itt::BASE_MAILOPS  [ is_mailop_ready_to_fire ];		# Recall that in essence a base mailop *is* an is_mailop_ready_to_fire -- see  src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+	    };
+
+	fun take_all_from_mailqueue' (mq as MAILQUEUE qstate)
+	    =
+	    {
+		fun set_up_mailopready_watch
+		      {
+			do1mailoprun_status,						# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+		      }
+		    =
+		    {   q = case *qstate    EMPTY    q =>  q;
+			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/set_up_mailopready_watch";	# Should be impossible, since is_mailop_ready_to_fire() (below)
+			    esac;																# only queues us up if *qstate is EMPTY.
+
+			(call_with_current_fate
+			    #
+			    (fn get_fate
+				=
+				{   qstate :=  EMPTY (enqueue (q, (do1mailoprun_status, get_fate)));
+				    #
+				    return_to__set_up_mailopready_watches__loop ();									# Return control to mailop.pkg.
+													raise exception FAIL "Mailqueue: impossible";	# return_to__set_up_mailopready_watches__loop() should never return.
+				}
+			    )
+			)
+			    -> msg;															# Execution will pick up on this line when 'get_fate" is eventually called.
+
+			finish_do1mailoprun ();
+
+			log::uninterruptible_scope_mutex := 0;
+
+			[ msg ];
+		    };
+
+		fun is_mailop_ready_to_fire ()
+		    =
+		    case *qstate
+			#
+			EMPTY _ =>   itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			#
+			NONEMPTY (priority, q)
+			    =>
+			    {   qstate :=  NONEMPTY (priority+1, q);
+				#
+				itt::MAILOP_IS_READY_TO_FIRE
+				  {
+				    priority,
+				    fire_mailop    =>  .{   
+							    get_msgs__xu (qstate, q);		
 							}
 				  };
 			    };
