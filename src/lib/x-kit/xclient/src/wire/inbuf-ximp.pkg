@@ -1,0 +1,338 @@
+## inbuf-ximp.pkg
+#
+##########################################################################################
+# X socket input buffer imp.
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xsession.pkg
+#
+# Here we monitor the input stream from the X-server
+# socket and break it up into individual messages which
+# are sent on out_mailslot to be unmarshalled and routed
+# by the sequencer.
+#
+# We get three kinds of messages from the X server:
+#	
+#  o Replies to requests we have sent. Always at least 32 bytes long.
+#  o Error messages.                   Always  exactly 32 bytes long.
+#  o Events.                           Always  exactly 32 bytes long.
+#	
+# The first byte of the message distinguishes the three types.
+#	
+# For more details see (e.g.) p1 "1 Protocol Formats" in:
+#
+#     http://mythryl.org/pub/exene/X-protocol-R6.pdf
+#	
+# Our task here is to repetitively read one complete message
+# from the X server socket (which on a reply means reading any
+# extra databytes) and then forward to the sequencer a pair
+#
+#     (message-bytecode, message-bytes)
+# 
+# where 'message-bytecode' is the first byte from the message
+# and message-bytes is the complete message, including bytecode.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+							# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+							# xerrors				is from   src/lib/x-kit/xclient/src/wire/xerrors.pkg
+
+stipulate
+    include threadkit;						# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package mps =  microthread_preemptive_scheduler;		# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    #
+    package un  =  unt;						# unt					is from   src/lib/std/unt.pkg
+    package uid =  issue_unique_id;				# issue_unique_id			is from   src/lib/src/issue-unique-id.pkg
+#   package wv8 =  rw_vector_of_one_byte_unts;			# rw_vector_of_one_byte_unts		is from   src/lib/std/src/rw-vector-of-one-byte-unts.pkg
+    package psx =  posixlib;					# posixlib				is from   src/lib/std/src/psx/posixlib.pkg
+    package e2s =  xerror_to_string;				# xerror_to_string			is from   src/lib/x-kit/xclient/src/to-string/xerror-to-string.pkg
+    package skj =  socket_junk;					# socket_junk				is from   src/lib/internet/socket-junk.pkg
+    package sok =  socket__premicrothread;			# socket__premicrothread		is from   src/lib/std/socket--premicrothread.pkg
+    package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package v2w =  value_to_wire;				# value_to_wire				is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package w2v =  wire_to_value;				# wire_to_value				is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    #
+    package xg  =  xgeometry;					# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;					# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
+
+    std_msg_size = 32;						# Standard size-in-bytes for an X protocol message.
+herein
+
+
+    package   inbuf_ximp
+    : (weak)  Inbuf_Ximp					# Inbuf_Ximp				is from   src/lib/x-kit/xclient/src/wire/inbuf-ximp.api
+    {
+	Xmsg    = { code: v1u::Element,  msg: v1u::Vector };	# message-bytecode, message-bytes.
+								# code is first byte from message.
+								# msg  is complete message, including code.
+
+	Initialplea  =   START_ON  Maildrop(Void)
+		     |   NOTE_XMSG_SINK (Xmsg -> Void)
+		     ;
+	Initialport  = Mailslot( Initialplea );
+	Initialport2 = Initialport;				# Used to guarantee that note_xmsg_sink() is called before start_on().
+
+	Controlplea =   STOP
+		    ;
+	Controlport = Mailslot( Controlplea );
+
+
+
+	Runtimeplea =   DO_SOMETHING Int
+		    ;
+	Runtimeport = Mailqueue( Runtimeplea );
+
+
+	Ports	= { initialport:  Initialport,
+		    runtimeport:  Runtimeport,
+		    controlport:  Controlport
+		  };
+
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_inbuf_ximp   (name: String)   (socket: sok::Socket (X, sok::Stream(sok::Active)))			# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
+		#
+		xlogger::make_thread  name  (start_initial_loop  (reply_oneshot, socket));
+
+		get_from_oneshot  reply_oneshot;
+	    }
+	    where
+		fun start_initial_loop (reply_oneshot, socket) ()
+		    =
+		    {   xmsg_sink =  (fn _ = raise exception FAIL "note_xmsg_sink() not called -- make_inbuf_ximp()");	# Should not be possible.
+			#
+			initial_loop  xmsg_sink;
+		    }
+		    where
+		        initialport =  make_mailslot  ():  Mailslot(  Initialplea );
+			controlport =  make_mailslot  ():  Mailslot(  Controlplea );
+			runtimeport =  make_mailqueue ():  Mailqueue( Runtimeplea );
+
+			put_in_oneshot (reply_oneshot, { initialport, controlport, runtimeport });
+
+			fun initial_loop  xmsg_sink
+			    =
+			    {	fun do_initialplea  (NOTE_XMSG_SINK xmsg_sink)
+					=>
+					initial_loop  xmsg_sink;							# Where to send all the stuff
+															# which we read from the X server.
+				    do_initialplea  (START_ON  maildrop)
+					=>
+					{   take_from_maildrop  maildrop;						# Wait for the starting gun.
+					    #
+					    initial_state = ();
+					    #
+					    runtime_loop  initial_state;						# Will not return.
+					};
+				end;
+
+				do_initialplea  (get_from_mailslot  initialport);
+			    }
+			    where
+				fun runtime_loop  state
+				    =
+				    # Here we should be doing something like this:
+				    # 
+				    #    do_one_mailop [
+				    #        #
+				    #	    (get_from_mailslot'  controlport ==> do_controlplea),
+				    #
+				    #       (take_from_mailqueue' runtimeport ==> do_runtimeplea)
+				    #    ]
+				    #
+				    # with get_xmsg() as a third option,
+				    # but at the moment (2013-05-25) I'm too
+				    # lazy to work out how to wrap get_xmsg()	# XXX SUCKO FIXME
+				    # up as a mailop, so I'm this simple loop
+				    # which just ignores controlport input.
+				    # (It may be this ximp doesn't need a
+				    # runtimeport at all.)
+				    #	
+				    {   xmsg_sink (get_xmsg());								# Read on message from X server and pass to sequencer_ximp.
+					#
+					runtime_loop state;			
+				    }
+				    where
+					# Read exactly n bytes from the X server socket
+					# and return it as a byte-vector:
+					#
+					fun read_vector (bytes_to_read, header)
+					    =
+					    read (bytes_to_read, header)
+					    where
+						fun read (0, [result_bytevector])
+							=>
+							result_bytevector;
+
+						    read (0, bytevectors)
+							=>
+							v1u::cat (list::reverse bytevectors);
+
+						    read (remaining_bytes_to_read, result_bytevectors)
+							=>
+							{
+							    bytevector =  sok::receive_vector (socket, remaining_bytes_to_read);		# What we'd like to be doing.  Restored as an experiment 2012-12-03 CrT.  Still hangs, without or without socket redirection.
+							    #
+							    case (v1u::length bytevector)
+								#
+								0   =>
+								    {   log::fatal .{ "socket closed -- inbuf-ximp.pkg: read_vector()"; };
+									raise exception FAIL "Socket closed"; 					# We need a more graceful way to signal that the socket has closed.  XXX SUCKO FIXME
+								    };
+								#
+								bytes_read
+								    =>
+								    read ( remaining_bytes_to_read - bytes_read,
+									   bytevector ! result_bytevectors
+									 );
+							    esac;
+							};
+						end;
+					    end;
+
+
+					fun get_xmsg ()
+					    =
+					    {   msg = read_vector (std_msg_size, []);
+						#
+						case (v1u::get (msg, 0))							# Read first byte of message.
+						    #
+						    0u1 =>  # Reply -- may need to read additional data bytes.
+							    # 
+							    # Byte    0 contains the 'Reply' bytecode (0u1).
+							    # 
+							    # Bytes 1-4 contain the number of extra 32-bit words
+							    #           of data following the stock 32-byte header.
+							    {
+								extra_dwords =  large_unt::to_int_x (pack_big_endian_unt1::get_vec (msg, 1));
+								#
+								{ code =>  0u1,
+								  #
+								  msg  =>  (extra_dwords > 0)
+									     ?? read_vector (extra_dwords * 4, [msg])		# "* 4" because we measure in bytes but X protocol measures in 32-bit words.
+									     :: msg
+								};
+							    };
+
+						    k =>    {  code => k,  msg  };						# Error or event.
+						esac;
+					    };
+
+					# Tracelogging version of above:
+					#
+#					get_xmsg =  .{   (get_xmsg ())
+#							    ->
+#							    (result as { code, msg } );
+#
+#							xlogger::log_if xlogger::io_logging  0
+#							   .{   prefix_to_show
+#								    =
+#								    byte::unpack_string_vector
+#									(vector_slice_of_one_byte_unts::make_slice (msg, 0, max_chars_to_trace_per_read));
+#
+#
+#								case max_chars_to_trace_per_read
+#								    #
+#								    THE n =>    cat [ "Read from X server: code=", one_byte_unt::to_string code,
+#										      "  len=", int::to_string (v1u::length msg),
+#										      "  body=",                string_to_hex    prefix_to_show,
+#										      "... == \"",              string_to_ascii  prefix_to_show,
+#										      "\"..."
+#										    ];
+#
+#								    NULL =>     cat [ "Read from X server: code=", one_byte_unt::to_string code,
+#										      "  len=", int::to_string (v1u::length msg),
+#										      "  body=",                string_to_hex    prefix_to_show,
+#										      " == \"",                 string_to_ascii  prefix_to_show,
+#										      "\""
+#										    ];
+#								esac;
+#							};
+#
+#							result;
+#						    };
+
+					fun do_runtimeplea  (DO_SOMETHING i)
+					    =
+					    {   # Insert code to do something here ...
+						#
+						runtime_loop state;
+					    };
+
+					fun shut_down_inbuf_imp ()
+					    =
+					    {
+						thread_exit { success => TRUE };					# Will not return.	
+					    };
+
+					fun do_controlplea  STOP
+					    =
+					    shut_down_inbuf_imp ();							# Will not return.
+
+				    end;
+			    end;
+		    end;	
+	    end;
+
+	
+	package initial {
+	    #
+	    fun note_xmsg_sink  (mailslot: Initialport,   xmsg_sink: Xmsg -> Void)					# External entrypoint.
+		=
+		{   put_in_mailslot  (mailslot,  NOTE_XMSG_SINK xmsg_sink);
+		    mailslot;
+		};
+	    #
+	    fun start_on  (mailslot: Initialport2,   maildrop: Maildrop(Void))						# External entrypoint.
+		=
+		put_in_mailslot  (mailslot,  START_ON maildrop);
+	};
+
+	package control {
+	    #
+	    fun stop  (mailslot: Controlport)										# External entrypoint.
+		=
+		put_in_mailslot  (mailslot,  STOP);
+	};
+
+
+    };						# package inbuf_ximp
+end;
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.
