@@ -10,152 +10,165 @@
 
 
 
-							# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
-							# xerrors				is from   src/lib/x-kit/xclient/src/wire/xerrors.pkg
+								# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+								# xerrors				is from   src/lib/x-kit/xclient/src/wire/xerrors.pkg
 
 stipulate
-    include threadkit;					# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    include threadkit;						# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
     #
-    package skj =  socket_junk;				# socket_junk				is from   src/lib/internet/socket-junk.pkg
-    package sok =  socket__premicrothread;		# socket__premicrothread		is from   src/lib/std/socket--premicrothread.pkg
-    package v1u =  vector_of_one_byte_unts;		# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package skj =  socket_junk;					# socket_junk				is from   src/lib/internet/socket-junk.pkg
+    package sok =  socket__premicrothread;			# socket__premicrothread		is from   src/lib/std/socket--premicrothread.pkg
+    package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
     #
-    package xtr =  xlogger;				# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    package xtr =  xlogger;					# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
     #
-    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+    trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
 herein
 
 
     package   outbuf_ximp
-    : (weak)  Outbuf_Ximp				# Outbuf_Ximp				is from   src/lib/x-kit/xclient/src/wire/outbuf-ximp.api
+    : (weak)  Outbuf_Ximp					# Outbuf_Ximp				is from   src/lib/x-kit/xclient/src/wire/outbuf-ximp.api
     {
-	Initialplea =   START_ON  Mailop(Void)
-		    ;
-	Initialport = Mailslot( Initialplea );
+	Starting_Gun = Mailop(Void);				# Purely for readability.
 
-	Controlplea =   STOP
-		    ;
-	Controlport = Mailslot( Controlplea );
+	Outbuf_Ximp_State					# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    Ref( Void );
+
+	Links = { int_sink: Int -> Void };
+
+	Configport(X)
+	    =
+	    Mailslot(  {   links:		Links,
+			    me:			Outbuf_Ximp_State,
+			    starting_gun':	Starting_Gun,
+			    socket:		sok::Socket (X, sok::Stream(sok::Active))				# Socket to read.
+			}
+		    );
+
+	Patronplea =   STOP
+		   ;
+	Patronport = Mailslot( Patronplea );
 
 
 
-	Runtimeplea =   v1u::Vector
-		    ;
-	Runtimeport = Mailqueue( Runtimeplea );
+	Clientplea =   v1u::Vector
+		   ;
+	Clientport = Mailqueue( Clientplea );
 
 
-	Ports	= { initialport: Initialport,
-		    runtimeport: Runtimeport,
-		    controlport: Controlport
+	Ports(X)= { configport: Configport(X),
+		    clientport: Clientport,
+		    patronport: Patronport
 		  };
 
 
 
+
+	fun run { me:			Outbuf_Ximp_State,								# These four values will be statically globally visible
+		  patronport:		Patronport,									# throughout the code body for the imp.
+		  clientport:		Clientport,
+		  links:		Links,
+		  socket:		sok::Socket (X, sok::Stream(sok::Active))					# Socket to read.
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop [
+			    #
+			    (take_from_mailslot'  patronport  ==>  do_patronplea),
+
+			    (take_all_from_mailqueue' clientport  ==>  do_clientplea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_outbuf_imp' ()
+			    =
+			    {	sok::close socket;
+				#
+				thread_exit { success => TRUE };							# Will not return.	
+			    };
+
+			fun do_patronplea  STOP
+			    =
+			    shut_down_outbuf_imp' ();									# Will not return.	
+
+			fun do_clientplea  []
+				=>
+				{   log::fatal       .{   "take_all_from_mailqueue' returned an empty list! -- outbuf-ximp.pkg"; };
+				    raise exception FAIL  "take_all_from_mailqueue' returned an empty list! -- outbuf-ximp.pkg";
+				};
+
+			    do_clientplea  [ vector: v1u::Vector ]
+				=>
+				skj::send_vector  (socket, vector);
+
+			    do_clientplea  vectors
+				=>
+				skj::send_vector  (socket,  (v1u::cat  vectors));
+			end;
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports(X) ))   ()						# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configport =  make_mailslot  ():  Configport(X);
+		patronport =  make_mailslot  ():  Patronport;
+		clientport =  make_mailqueue ():  Clientport;
+
+		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sample_ximp().
+
+		(take_from_mailslot  configport)									# Input args from configure_sample_imp().
+		    ->
+		    { me, links, starting_gun', socket };
+
+		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
+
+		run { me, patronport, clientport, links, socket };							# Will not return.
+	    };
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_outbuf_ximp  (name: String)  (socket: sok::Socket (X, sok::Stream(sok::Active)))			# External entrypoint.
+	fun make_outbuf_ximp_state ()											# External entrypoint.
 	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
+	    REF ();
+
+	fun make_outbuf_ximp  (name: String)										# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports(X) );
 		#
-		xlogger::make_thread  name  (start_initial_loop  reply_oneshot);
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
 
 		get_from_oneshot  reply_oneshot;
-	    }
-	    where
-		fun start_initial_loop (result_oneshot: Oneshot_Maildrop( Ports )) ()
-		    =
-		    {   parameters = ();
-			#
-			initial_loop  parameters;									# Will not return.
-		    }
-		    where
-		        initialport =  make_mailslot  ():  Mailslot(  Initialplea );
-			controlport =  make_mailslot  ():  Mailslot(  Controlplea );
-			runtimeport =  make_mailqueue ():  Mailqueue( Runtimeplea );
+	    };
 
-			put_in_oneshot (result_oneshot, { initialport, controlport, runtimeport });
-
-			fun initial_loop  parameters
-			    =
-			    {   fun do_initialplea  (START_ON  starting_gun')
-				    =
-				    {   block_until_mailop_fires  starting_gun';					# Wait for the starting gun.
-					#
-					initial_state = ();
-
-					runtime_loop  initial_state;							# Will not return.
-				    };
-
-				do_initialplea  (take_from_mailslot  initialport);
-			    }
-			    where
-				fun runtime_loop state
-				    =
-				    do_one_mailop [
-					#
-					(take_from_mailslot'  controlport ==> do_controlplea),
-
-					(take_all_from_mailqueue' runtimeport ==> do_runtimeplea)
-				    ]
-				    where
-					fun shut_down_outbuf_imp ()
-					    =
-					    {   sok::close socket;
-						thread_exit { success => TRUE };					# Will not return.	
-					    };
-
-
-					fun do_controlplea  STOP
-					    =
-					    shut_down_outbuf_imp ();							# Will not return.	
-
-					fun do_runtimeplea  []
-						=>
-						runtime_loop  state;
-
-					    do_runtimeplea  [ vector: v1u::Vector ]
-						=>
-						{   skj::send_vector  (socket, vector);
-						    #
-						    runtime_loop  state;
-						};
-
-					    do_runtimeplea  vectors
-						=>
-						{   skj::send_vector  (socket,  (v1u::cat  vectors));
-						    #
-						    runtime_loop  state;
-						};
-					end;
-				    end;
-
-			    end;
-		    end;
-	    end;
-
-	
-	fun send_bytes (args as (mailqueue: Runtimeport,  vector: v1u::Vector))						# External entrypoint.
+	fun send_bytes (args as (mailqueue: Clientport,  vector: v1u::Vector))						# External entrypoint.
 	    =	
-	    put_in_mailqueue args;
-
-	package initial {
-	    #
-	    fun start_on  (mailslot: Initialport,   starting_gun': Mailop(Void))						# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  START_ON starting_gun');
-	};
-
-	package control {
-	    #
-	    fun stop  (mailslot: Controlport)										# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  STOP);
-	};
+	    put_in_mailqueue  args;
 
 
-    };						# package outbuf_ximp
+	fun configure_outbuf_ximp											# External entrypoint.
+	      (
+		configport:	Configport(X),
+		me:		Outbuf_Ximp_State,
+		links:		Links,
+		starting_gun':	Starting_Gun,
+		socket:		sok::Socket (X, sok::Stream(sok::Active))						# Socket to read.
+	      )
+	    =
+	    put_in_mailslot  (configport, { me, links, starting_gun', socket });
+
+	fun shut_down_outbuf_ximp  (patronport: Patronport)								# External entrypoint.
+	    =
+	    put_in_mailslot  (patronport,  STOP);
+
+    };															# package outbuf_ximp
 end;
 
 #	fun out_msg_to_string FLUSH_OUTBUF
