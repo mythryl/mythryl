@@ -27,134 +27,123 @@ herein
     package   sample_ximp
     : (weak)  Sample_Ximp				# Sample_Ximp				is from   src/lib/x-kit/xclient/src/wire/sample-ximp.api
     {
+	Starting_Gun = Mailop(Void);			# Purely for readability.
+	#
+	Sample_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    Ref( Void );
 
-	Initialplea  =   START_ON  Maildrop(Void)
-		     |   NOTE_INT_SINK (Int -> Void)
-		     ;
-	Initialport  = Mailslot( Initialplea );
-	Initialport2 = Initialport;
+	Links = { int_sink: Int -> Void };
 
-	Controlplea =   STOP
+	Configport = Mailslot( {  links: Links,  me: Sample_Ximp_State,  starting_gun': Starting_Gun  } );
+
+	Patronplea =   STOP
 		    ;
-	Controlport = Mailslot( Controlplea );
+	Patronport = Mailslot( Patronplea );
 
 
-	Runtimeplea =   DO_SOMETHING Int
+	Clientplea =   DO_SOMETHING Int
 		    ;
-	Runtimeport = Mailqueue( Runtimeplea );
+	Clientport = Mailqueue( Clientplea );
 
 
-	Ports	= { initialport:  Initialport,
-		    runtimeport:  Runtimeport,
-		    controlport:  Controlport
+	Ports	= { configport:		Configport,
+		    clientport:		Clientport,
+		    patronport:		Patronport
 		  };
 
 
+	fun run {   me:			Sample_Ximp_State,								# These four values will be statically globally visible
+		    patronport:		Patronport,									# throughout the code body for the imp.
+		    clientport:		Clientport,
+		    links:		Links
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop [
+			    #
+			    (take_from_mailslot'  patronport  ==>  do_patronplea),
+
+			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_sample_imp' ()
+			    =
+			    {
+				thread_exit { success => TRUE };							# Will not return.	
+			    };
+
+			fun do_patronplea  STOP
+			    =
+			    shut_down_sample_imp' ();									# Will not return.	
+
+			fun do_clientplea  (DO_SOMETHING i)
+			    =
+			    {   links.int_sink i;									# Demonstrate use of links.
+			    };
+		    end;
+	    end;	
 
 
+
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configport =  make_mailslot  ():  Configport;
+		patronport =  make_mailslot  ():  Patronport;
+		clientport =  make_mailqueue ():  Clientport;
+
+		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sample_ximp().
+
+		(take_from_mailslot  configport)									# Input args from configure_sample_imp().
+		    ->
+		    { me, links, starting_gun' };
+
+		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
+
+		run { me, patronport, clientport, links };								# Will not return.
+	    };
 
         ##########################################################################################
 	# External entrypoints
 	#
+	fun make_sample_ximp_state ()											# External entrypoing.
+	    =
+	    REF ();
+
 	fun make_sample_ximp  (name: String)										# External entrypoint.
 	    =
 	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
 		#
-		xlogger::make_thread  name  (start_initial_loop  reply_oneshot);
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
 
 		get_from_oneshot  reply_oneshot;
-	    }
-	    where
-		fun start_initial_loop (result_oneshot: Oneshot_Maildrop( Ports )) ()
-		    =
-		    {   parameters =  (fn _ = ());
-			#
-			initial_loop  parameters;									# Will not return.
-		    }
-		    where
-			initialport =  make_mailslot  ():  Mailslot(  Initialplea );
-			controlport =  make_mailslot  ():  Mailslot(  Controlplea );
-			runtimeport =  make_mailqueue ():  Mailqueue( Runtimeplea );
+	    };
 
-			put_in_oneshot (result_oneshot, { initialport, controlport, runtimeport });
-
-			fun initial_loop  parameters
-			    =
-			    {   do_initialplea  (get_from_mailslot  initialport)
-				where
-				    fun do_initialplea  (START_ON  maildrop)
-					    =>
-					    {   take_from_maildrop  maildrop;							# Wait for the starting gun.
-						#
-						initial_state = ();
-
-						runtime_loop  initial_state;							# Will not return.
-					    };
-
-					 do_initialplea  (NOTE_INT_SINK  int_sink)
-					    =>
-					    initial_loop  int_sink;
-				    end;
-				end;
-			    }
-			    where
-				fun runtime_loop  state
-				    =
-				    do_one_mailop [
-					#
-					(get_from_mailslot'  controlport ==> do_controlplea),
-
-					(take_from_mailqueue' runtimeport ==> do_runtimeplea)
-				    ]
-				    where
-					fun shut_down_sample_imp ()
-					    =
-					    {
-						thread_exit { success => TRUE };					# Will not return.	
-					    };
-
-					fun do_controlplea  STOP
-					    =
-					    shut_down_sample_imp ();							# Will not return.	
-
-					fun do_runtimeplea  (DO_SOMETHING i)
-					    =
-					    {   # Insert code to do something here ...
-						#
-						runtime_loop state;
-					    };
-				    end;
-			    end;
-		    end;
-	    end;
-
-	
-	fun do_something (args as (mailqueue: Runtimeport,  i: Int))							# External entrypoint.
+	fun do_something (args as (mailqueue: Clientport,  i: Int))							# External entrypoint.
 	    =	
 	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
 
-	package initial {
-	    #
-	    fun note_int_sink (mailslot: Initialport,   int_sink: Int -> Void)						# External entrypoint.
-		=
-		{   put_in_mailslot  (mailslot,  NOTE_INT_SINK int_sink);
-		    mailslot;
-		};
 
-	    fun start_on  (mailslot: Initialport2,   maildrop: Maildrop(Void))						# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  START_ON maildrop);
-	};
+	fun configure_sample_imp											# External entrypoint.
+	      (
+		configport:	Configport,
+		me:		Sample_Ximp_State,
+		links:		Links,
+		starting_gun':	Starting_Gun
+	      )
+	    =
+	    put_in_mailslot  (configport, { me, links, starting_gun' });
 
-	package control {
-	    #
-	    fun stop  (mailslot: Controlport)										# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  STOP);
-	};
-
-
-    };						# package sample_ximp
+	fun shut_down_sample_ximp  (patronport: Patronport)								# External entrypoint.
+	    =
+	    put_in_mailslot  (patronport,  STOP);
+    };															# package sample_ximp
 end;
 
 
