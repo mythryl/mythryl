@@ -58,11 +58,17 @@ herein
 	exception LOST_REPLY;
 	exception ERROR_REPLY  xerrors::Xerror;
 
+	Starting_Gun = Mailop(Void);			# Purely for readability.
+
+	Sequencer_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    Ref( Void );
+
 	max_bytes_per_socket_write = 2048;
 
 	# Client pleas to sequencer:
 	#
-	Runtimeplea					# 'Plea_Mail' in xsocket.pkg
+	Clientplea					# 'Plea_Mail' in xsocket.pkg
 	  = PLEA_QUIT
 	  | PLEA             v1u::Vector
 	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
@@ -81,28 +87,28 @@ herein
 	  ;
 
 
-	Initialplea  =   START_ON  Mailop(Void)
-		     |   NOTE_LINKS (Int -> Void)
-		     ;
-	Initialport  = Mailslot( Initialplea );
-	Initialport2 = Initialport;
+	Outbuf_Ximp_State					# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    Ref( Void );
 
-	Controlplea  =   STOP
-		     ;
-	Controlport  = Mailslot( Controlplea );
+	Links = { int_sink: Int -> Void };
 
+	Configport = Mailslot( {  links: Links,  me: Sequencer_Ximp_State,  starting_gun': Starting_Gun  } );
 
-	Runtimeplea  =   DO_SOMETHING Int
-		     ;
-	Runtimeport  = Mailqueue( Runtimeplea );
+	Patronplea  =   STOP
+		    ;
+	Patronport  = Mailslot( Patronplea );
 
 
-	Ports	= { initialport:  Initialport,
-		    runtimeport:  Runtimeport,
-		    controlport:  Controlport
+	Clientplea  =   DO_SOMETHING Int
+		    ;
+	Clientport  = Mailqueue( Clientplea );
+
+
+	Ports	= { configport:  Configport,
+		    clientport:  Clientport,
+		    patronport:  Patronport
 		  };
-
-	Links = (Int -> Void);
 
 
 	Pending_Reply = ONE_REPLY       (un::Unt, Mailslot( Reply_Mail ))
@@ -444,111 +450,94 @@ herein
 		    =>
 		    pending_reply_queue';
 	    esac;
+# ABOVE CODE COMPILES BUT NOT YET CALLED.
 
+	
+	fun run { me:			Sequencer_Ximp_State,								# These four values will be statically globally visible
+		  patronport:		Patronport,									# throughout the code body for the imp.
+		  clientport:		Clientport,
+		  links:		Links
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop [
+			    #
+			    (take_from_mailslot'  patronport  ==>  do_patronplea),
 
+			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			];
 
+			loop ();
+		    }	
+		    where
+			fun shut_down_sequencer_imp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+
+			fun do_patronplea  STOP
+			    =
+			    shut_down_sequencer_imp' ();								# Will not return.	
+
+			fun do_clientplea  (DO_SOMETHING i)
+			    =
+			    {   links.int_sink i;									# Demonstrate use of links.
+			    };
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configport =  make_mailslot  ():  Configport;
+		patronport =  make_mailslot  ():  Patronport;
+		clientport =  make_mailqueue ():  Clientport;
+
+		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sample_ximp().
+
+		(take_from_mailslot  configport)									# Input args from configure_sequencer_imp().
+		    ->
+		    { me, links, starting_gun' };
+
+		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
+
+		run { me, patronport, clientport, links };								# Will not return.
+	    };
 
         ##########################################################################################
 	# External entrypoints
 	#
+	fun make_sequencer_ximp_state ()											# External entrypoint.
+	    =
+	    REF ();
+
 	fun make_sequencer_ximp  (name: String)										# External entrypoint.
 	    =
 	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
 		#
-		xlogger::make_thread  name  (start_initial_loop  reply_oneshot);
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
 
 		get_from_oneshot  reply_oneshot;
-	    }
-	    where
-		fun start_initial_loop (result_oneshot: Oneshot_Maildrop( Ports )) ()
-		    =
-		    {   parameters =  (fn _ = ());
-			#
-			initial_loop  parameters;									# Will not return.
-		    }
-		    where
-			initialport =  make_mailslot  ():  Mailslot(  Initialplea );
-			controlport =  make_mailslot  ():  Mailslot(  Controlplea );
-			runtimeport =  make_mailqueue ():  Mailqueue( Runtimeplea );
+	    };
 
-			put_in_oneshot (result_oneshot, { initialport, controlport, runtimeport });
-
-			fun initial_loop  parameters
-			    =
-			    {   do_initialplea  (take_from_mailslot  initialport)
-				where
-				    fun do_initialplea  (START_ON  starting_gun')
-					    =>
-					    {   block_until_mailop_fires  starting_gun';				# Wait for the starting gun.
-						#
-						initial_state = ();
-
-						runtime_loop  initial_state;						# Will not return.
-					    };
-
-					 do_initialplea  (NOTE_LINKS  int_sink)
-					    =>
-					    initial_loop  int_sink;
-				    end;
-				end;
-			    }
-			    where
-				fun runtime_loop  state
-				    =
-				    do_one_mailop [
-					#
-					(take_from_mailslot'  controlport ==> do_controlplea),
-
-					(take_from_mailqueue' runtimeport ==> do_runtimeplea)
-				    ]
-				    where
-					fun shut_down_sequencer_imp ()
-					    =
-					    {
-						thread_exit { success => TRUE };					# Will not return.	
-					    };
-
-					fun do_controlplea  STOP
-					    =
-					    shut_down_sequencer_imp ();							# Will not return.	
-
-					fun do_runtimeplea  (DO_SOMETHING i)
-					    =
-					    {   # Insert code to do something here ...
-						#
-						runtime_loop state;
-					    };
-				    end;
-			    end;
-		    end;
-	    end;
-
-	
-	fun do_something (args as (mailqueue: Runtimeport,  i: Int))							# External entrypoint.
+	fun do_something (mailqueue: Clientport,  i: Int)								# External entrypoint.
 	    =	
 	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
 
-	package initial {
-	    #
-	    fun note_links (mailslot: Initialport,   links: Links)							# External entrypoint.
-		=
-		{   put_in_mailslot  (mailslot,  NOTE_LINKS links);
-		    #
-		    mailslot: Initialport2;
-		};
+	fun configure_sequencer_ximp											# External entrypoint.
+	      (
+		configport:	Configport,
+		me:		Sequencer_Ximp_State,
+		links:		Links,
+		starting_gun':	Starting_Gun
+	      )
+	    =
+	    put_in_mailslot  (configport, { me, links, starting_gun' });
 
-	    fun start_on  (mailslot: Initialport2,   starting_gun': Mailop(Void))					# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  START_ON starting_gun');
-	};
-
-	package control {
-	    #
-	    fun stop  (mailslot: Controlport)										# External entrypoint.
-		=
-		put_in_mailslot  (mailslot,  STOP);
-	};
-
+	fun shut_down_sequencer_ximp  (patronport: Patronport)								# External entrypoint.
+	    =
+	    put_in_mailslot  (patronport,  STOP);
 
     };						# package sequencer_ximp
 end;
