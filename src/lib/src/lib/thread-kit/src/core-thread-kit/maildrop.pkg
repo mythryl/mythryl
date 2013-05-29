@@ -5,8 +5,9 @@
 #  o  Attempting to read from an empty maildrop will block the reading
 #     microthread until some other thread deposits a value in the maildrop. 
 #
-#  o  Reads are pure: Once a maildrop has a value, it may be read any number
-#     of times by any number of microthreads.
+#  o  'take' ops remove the value from a maildrop, leaving it empty.
+#
+#  o  'peek' ops read the value from a maildrop while leaving it unchanged.
 #
 #  o  The value stored in a maildrop may be removed, replaced or swapped.
 
@@ -23,34 +24,38 @@
 
 
 stipulate
-    package fat =  fate;					# fate					is from   src/lib/std/src/nj/fate.pkg
-    package itt =  internal_threadkit_types;			# internal_threadkit_types		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
-    package rwq =  rw_queue;					# rw_queue				is from   src/lib/src/rw-queue.pkg
-    package mps =  microthread_preemptive_scheduler;		# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    package fat =  fate;											# fate					is from   src/lib/std/src/nj/fate.pkg
+    package itt =  internal_threadkit_types;									# internal_threadkit_types		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package rwq =  rw_queue;											# rw_queue				is from   src/lib/src/rw-queue.pkg
+    package mps =  microthread_preemptive_scheduler;								# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
     #
     call_with_current_fate =  fat::call_with_current_fate;
     switch_to_fate         =  fat::switch_to_fate;
 herein
 
     package   maildrop
-    :         Maildrop						# Maildrop			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/maildrop.api
+    :         Maildrop												# Maildrop				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/maildrop.api
     {
 	exception MAY_NOT_FILL_ALREADY_FULL_MAILDROP;
 	#
 	Fate(X) =   fat::Fate(X);
 	#
-	Maildrop(X) =   MAILDROP
-			  {
-			    priority:  Ref( Int ),
-			    read_q:    rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)) ),
-			    value:     Ref( Null_Or(X) )
-			  };
+	Maildrop(X) =   MAILDROP  { priority:  Ref( Int ),
+				    read_q:    rwq::Rw_Queue( (Ref(itt::Do1mailoprun_Status), Fate(X)) ),
+				    value:     Ref( Null_Or(X) )
+				  };
 
 
-	fun maildrop_to_string (MAILDROP { priority => REF p, read_q, value })						# Debug support, primarily to textify mailslot state for logging via log::note or such.
+	fun maildrop_to_string (MAILDROP { priority => REF p, read_q, value })					# Debug support, primarily to textify mailslot state for logging via log::note or such.
 	    =
 	    {   q_len = list::length (rwq::to_list read_q);
-		sprintf "prio=%d len(in_q)=%d value is %s"  p  q_len  case *value NULL => "EMPTY"; _ => "FULL"; esac;
+		#
+		sprintf "prio=%d len(in_q)=%d value is %s"
+			p
+			q_len
+			case *value NULL => "EMPTY";
+                                    _    => "FULL";
+			esac;
 	    };
 
 	fun make_cell ()
@@ -72,20 +77,20 @@ herein
 	    REF (itt::DO1MAILOPRUN_IS_BLOCKED (mps::get_current_thread()));
 
 
-	fun mark_do1mailoprun_complete_and_return_thread  (do1mailoprun_status  as  REF  (itt::DO1MAILOPRUN_IS_BLOCKED  thread_id))
+	fun mark_do1mailoprun_complete_and_return_thread  (do1mailoprun_status  as  REF  (itt::DO1MAILOPRUN_IS_BLOCKED  microthread_id))
 		=>
 		{   do1mailoprun_status :=   itt::DO1MAILOPRUN_IS_COMPLETE;
 		    #
-		    thread_id;
+		    microthread_id;
 		};
 
 	    mark_do1mailoprun_complete_and_return_thread  (REF (itt::DO1MAILOPRUN_IS_COMPLETE))
 		=>
-		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";		# Never happens; here to suppress 'nonexhaustive match' compile warning.
+		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";	# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
 
 
-	fun bump_priority (p as REF n)											# Bump a priority value by one, returning the old value.
+	fun bump_priority (p as REF n)										# Bump a priority value by one, returning the old value.
 	    =
 	    {   p := n+1;
 		n;
@@ -102,18 +107,18 @@ herein
 	#
 	stipulate
 
-	    fun clean ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest)				# Drop any cancelled transactions at start of list.
+	    fun clean ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest)						# Drop any cancelled transactions at start of list.
 		    =>
 		    clean rest;
 
-		clean l  =>  l;
-	    end;
+		clean l  =>  l;											# Stop at first non-COMPLETE entry in list -- otherwise
+	    end;												# clean_queue_and_remove_one_entry will be O(N**2) instead of O(N).
 
-	    fun clean_rev ([], result)								# Drop all cancelled transactions from list; result is in reverse order.
+	    fun clean_rev ([], result)										# Drop all cancelled transactions from list; result is in reverse order.
 		    =>
 		    result;
 
-		clean_rev ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest,  result)
+		clean_rev ((REF itt::DO1MAILOPRUN_IS_COMPLETE, _) ! rest,  result)				# Drop cancelled transaction.
 		    =>
 		    clean_rev (rest, result);
 
@@ -124,51 +129,7 @@ herein
 
 	herein
 
-	    fun clean_and_check (priority, rwq::RW_QUEUE { front, back } )
-		=
-		clean_front *front
-		where
-		    fun clean_front []
-			    =>
-			    clean_back *back;
-
-			clean_front f
-			    =>
-			    case (clean f)
-				#
-				[] =>   clean_back  *back;
-
-				f' =>   {   front :=  f';
-					    #
-					    bump_priority  priority;
-				        };
-			    esac;
-		    end
-
-		    also
-		    fun clean_back []
-			    =>
-			    0;
-
-			clean_back r
-			    =>
-			    {   back :=  [];
-				#
-				case (clean_rev (r, []))
-				    #
-				    [] =>   0;
-
-				    rr =>   {   front :=  rr;
-						#
-						bump_priority  priority;
-					    };
-				esac;
-			    };
-		    end;
-		end;
-
-
-	    fun clean_and_remove (rwq::RW_QUEUE { front, back, ... } )
+	    fun clean_queue_and_remove_one_entry (rwq::RW_QUEUE { front, back, ... } )				# Drop cancelled transactions and return first non-cancelled one.
 		=
 		clean_front *front
 		where
@@ -209,74 +170,42 @@ herein
 		    end;
 		end;
 
-	    fun clean_and_enqueue (rwq::RW_QUEUE { front, back, ... }, item)
-		=
-		clean_front  *front
-		where
-		    fun clean_front [] =>   clean_back  *back;
-			#
-			clean_front f
-			    =>
-			    case (clean f)
-				#
-				[] =>   clean_back *back;
-
-				f' =>   {   front := f';
-					    #
-					    back  := item ! *back;
-				        };
-			    esac;
-		    end
-
-		    also
-		    fun clean_back []
-			    =>
-			    front := [item];
-
-			clean_back r
-			    =>
-			    case (clean_rev (r, []))
-				#
-				[] => {  front := [item];  back  := []; };
-				rr => {  back  := [item];  front := rr; };
-			    esac;
-		    end;
-		end;
 	end;					# stipulate
 
 
-	# When a thread is resumed after being blocked
-	# on a maildrop or oneshot_maildrop op there may
-	# be other threads also blocked on the variable.
+	# When a microthread is resumed after being blocked
+	# on a maildrop 'get' or 'take' op there may
+	# be other threads also blocked on the maildrop.
 	#
 	# This function is used to propagate the message
-	# to all of the threads that are blocked on the
-	# variable (or until one of them takes the value
-	# in the mvar case).
+	# to the threads that are blocked on the maildrop.
 	#
-	# It must be called from an atomic region.
-	# When the readQ is finally empty we leave
-	# the atomic region.
+	# It must be called from an uninterruptible scope.
+	# When the read_q is finally empty we exit the
+	# uninterruptible scope.
 	#
-	# We must use "clean_and_remove" to get items
-	# from the readQ in the unlikely event that
-	# a single thread executes a choice of
-	# multiple gets on the same variable.
-	#
-	fun relay_msg (read_q, msg)
+	# We must use "clean_queue_and_remove_one_entry"
+	# to get items from the read_q to cover the unlikely
+	# case that a single microthread executes a choice of
+	# multiple gets on the same maildrop.
+	#													# Called from   get_from_maildrop   and   get_from_maildrop'.
+	fun relay_msg__xu (read_q, v)										# 'v' is the value being stored into the maildrop.
 	    =
-	    case (clean_and_remove  read_q)
+	    case (clean_queue_and_remove_one_entry  read_q)
 		#
 		NO_ITEM =>   log::uninterruptible_scope_mutex := 0;
 
-		ITEM (do1mailoprun_status, fate)
+		ITEM (do1mailoprun_status, get_v)
 		    =>
 		    call_with_current_fate
 			(fn old_fate
 			    =
-			    {   mps::enqueue_old_thread_plus_old_fate_then_install_new_thread  { new_thread => mark_do1mailoprun_complete_and_return_thread  do1mailoprun_status,   old_fate };
+			    {   new_thread = mark_do1mailoprun_complete_and_return_thread  do1mailoprun_status;
 				#
-				switch_to_fate  fate  msg;									# 
+				mps::enqueue_old_thread_plus_old_fate_then_install_new_thread { new_thread, old_fate };
+				#
+				switch_to_fate  get_v  v;							# In essence do get_v(v) and continue interrupted 'get' or 'take' op.
+														# The fn we return to will call us right back to continue processing read_q.
 			    }
 			);
 	    esac;
@@ -286,9 +215,7 @@ herein
 	    raise exception  FAIL "maildrop: impossible";
 
 
-	# M-variables:
-	#
-	make_empty_maildrop
+	make_empty_maildrop											# Id calls these "m-variables".  (Thought you'd want to know.)
 	    =
 	    make_cell;
 
@@ -303,44 +230,43 @@ herein
 	same_maildrop =  same_cell;
 
 
-	fun put_in_maildrop (maildrop as MAILDROP { priority, read_q, value }, maildrop_value)
+	fun put_in_maildrop (maildrop as MAILDROP { priority, read_q, value }, v)				# 'v' is value being stored into the maildrop.
 	    =
 	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
 		case *value
 		    #
 		    NULL =>
-			{   value := THE maildrop_value;
+			{   value := THE v;
 			    #
-			    case (clean_and_remove read_q)
+			    case (clean_queue_and_remove_one_entry  read_q)
 				#
-				NO_ITEM =>  {
-						log::uninterruptible_scope_mutex := 0;
-					    };
+				NO_ITEM =>  log::uninterruptible_scope_mutex := 0;
 
-				ITEM (do1mailoprun_status, fate)
+				ITEM (do1mailoprun_status, get_v)
 				    =>
-				    {
-					call_with_current_fate
-					    #
-					    (fn old_fate
-						=
-						{   mps::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => mark_do1mailoprun_complete_and_return_thread  do1mailoprun_status,   old_fate };
-						    #
-						    priority := 1;
+				    call_with_current_fate
+					#
+					(fn old_fate
+					    =
+					    {   new_thread =  mark_do1mailoprun_complete_and_return_thread
+								do1mailoprun_status;
+						#
+						mps::enqueue_old_thread_plus_old_fate_then_install_new_thread
+						  { new_thread, old_fate };
 
-						    switch_to_fate  fate  maildrop_value;									# Resume empty' below.
-						}
-					    );
-				    };
+						priority := 1;
+
+						switch_to_fate  get_v  v;					# Do the get_v(v) call that some get_* or take_* is waiting for.
+					    }
+					);
 			    esac;
 			};
 
 		    THE _ =>
-			{
-			    log::uninterruptible_scope_mutex := 0;
+			{   log::uninterruptible_scope_mutex := 0;
 			    #
 			    raise exception MAY_NOT_FILL_ALREADY_FULL_MAILDROP;
 			};
@@ -348,15 +274,15 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	    };
 
 
-	fun get_from_maildrop' (MAILDROP { priority, read_q, value } )
+	fun take_from_maildrop' (MAILDROP { priority, read_q, value } )
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
-		fun set_up_mailopready_watch						# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			do1mailoprun_status,						# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
-			finish_do1mailoprun,						# This typically does  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and then sends nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
+			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,									# This typically does  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and then sends nacks as appropriate.
+			return_to__set_up_mailopready_watches__loop						# After starting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -390,14 +316,15 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				}
 			    )
 			)
-			    ->	maildrop_value;									# Execution will pick up here when fill() (above) eventually does:   switch_to_fate  fate  maildrop_value;
+			    ->	v;										# Execution will pick up here when fill() (above) eventually does:   switch_to_fate  get_v  v;
 
-			finish_do1mailoprun ();									# Do stuff like   do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			finish_do1mailoprun ();									# Remember that this do_one_mailop[] call has fired a mailop -- no other mailop in call is eligible to fire.
+
 			value := NULL;										# Empty the maildrop.
 
 			log::uninterruptible_scope_mutex := 0;							# End uninterruptible scope.
 
-			maildrop_value;										# Return value read from maildrop.
+			v;											# Return value read from maildrop.
 		    };
 
 		fun is_mailop_ready_to_fire ()									# Reppy refers to 'is_mailop_ready_to_fire' as 'pollFn'
@@ -410,7 +337,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				      {
 					priority    =>   bump_priority  priority,
 
-					fire_mailop => .{   value := NULL;				# Reppy refers to 'fire_mailop' as 'doFn'.
+					fire_mailop => .{   value := NULL;					# Reppy refers to 'fire_mailop' as 'doFn'.
 							    log::uninterruptible_scope_mutex := 0;
 							    v;
 							}
@@ -419,10 +346,10 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	    end;
 
 
-	fun nonblocking_get_from_maildrop (MAILDROP { priority, read_q, value } )
+	fun nonblocking_take_from_maildrop (MAILDROP { priority, read_q, value } )
 	    =
 	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
 		case *value
@@ -437,82 +364,73 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	    };
 
 
-	fun get_from_maildrop (maildrop as MAILDROP { priority, read_q, value } )
+	fun take_from_maildrop (maildrop as MAILDROP { priority, read_q, value } )				# Destructive read.
 	    =
 	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
 		case *value
 		    #
-		    NULL =>
-			{
-			    v = call_with_current_fate
-				    (fn fate
-					=
-					{
-					    rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
-					    #
-					    mps::dispatch_next_thread__xu__noreturn ();
-					}
-				    );
-
-			    value := NULL;
-			    log::uninterruptible_scope_mutex := 0;
-			    v;
-			};
-
-		    THE v =>
-			{
-			    value := NULL;
-			    log::uninterruptible_scope_mutex := 0;
-			    v;
-			};
-		esac;
-	    };
-
-
-	fun peek_in_maildrop (maildrop as MAILDROP { priority, read_q, value } )
-	    =
-	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
-		log::uninterruptible_scope_mutex := 1;
-		#
-		case *value
-		    #
-		    NULL =>     {
-				    v =  call_with_current_fate
-					    (fn fate
-						=
-						{
-						    rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
-						    #
-						    mps::dispatch_next_thread__xu__noreturn ();
-						}
-					    );
-
-				    relay_msg (read_q, v);
-
-				    v;
-				};
-
-		    THE v =>    {
+		    THE v =>    {   value := NULL;
 				    log::uninterruptible_scope_mutex := 0;
 				    v;
 				};
+
+		    NULL =>     {   (call_with_current_fate
+					(fn get_v = {   rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), get_v));
+							#
+							mps::dispatch_next_thread__xu__noreturn ();
+						    }
+					)) -> v;								# When get_v(v) finally gets called, the 'v' winds up here.
+
+				    value := NULL;
+														# Note that we do not call relay_msg__xu() here to wake up other microthreads waiting
+														# to read this maildrop -- because there is no value left in maildrop for them to read.
+				    log::uninterruptible_scope_mutex := 0;
+
+				    v;
+				};
 		esac;
 	    };
 
 
-	fun peek_in_maildrop' (maildrop as MAILDROP { priority, read_q, value } )
+	fun get_from_maildrop (maildrop as MAILDROP { priority, read_q, value } )				# Pure read.
+	    =
+	    {
+														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+		log::uninterruptible_scope_mutex := 1;
+		#
+		case *value
+		    #
+		    THE v =>    {   log::uninterruptible_scope_mutex := 0;
+				    v;
+				};
+
+		    NULL =>     {   (call_with_current_fate
+					(fn get_v = {   rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), get_v));
+							#
+							mps::dispatch_next_thread__xu__noreturn ();
+						    }
+					)) -> v;								# When get_v(v) finally gets called, the 'v' winds up here.	
+
+				    relay_msg__xu (read_q, v);							# Wake up any other microthreads waiting to read this maildrop.
+
+				    v;
+				};
+		esac;
+	    };
+
+
+	fun get_from_maildrop' (maildrop as MAILDROP { priority, read_q, value } )
 	    =
 	    itt::BASE_MAILOPS [ is_mailop_ready_to_fire ]
 	    where
-		fun set_up_mailopready_watch						# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			do1mailoprun_status,						# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
-			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop			# After starting a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
+			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			return_to__set_up_mailopready_watches__loop						# After starting a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -537,19 +455,22 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		    #
 		    {
 			(call_with_current_fate
-			    (fn fate
+			    (fn get_v
 				=
-				{
-				    rwq::put_on_back_of_queue (read_q, (do1mailoprun_status, fate));
+				{   rwq::put_on_back_of_queue (read_q, (do1mailoprun_status, get_v));
+				    #
 				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
-											    impossible ();	# return_to__set_up_mailopready_watches__loop should never return.
+
+								impossible ();					# return_to__set_up_mailopready_watches__loop should never return.
 				}
 			    )
 			)
-			    -> v;										# Execution will resume on this line when 'fate' is eventually called.
+			    -> v;										# Execution will resume on this line when 'get_v(v)' is eventually done.
 
-			finish_do1mailoprun();
-			relay_msg (read_q, v);
+			finish_do1mailoprun();									# Remember that this do_one_mailop[] call has fired a mailop -- no other mailop in call is eligible to fire.
+
+			relay_msg__xu (read_q, v);								# Wake up any other microthreads waiting to read this maildrop.
+
 			v;
 		    };
 
@@ -576,26 +497,9 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 
 
 
-	fun nonblocking_peek_in_maildrop (maildrop as MAILDROP { priority, read_q, value } )
+	fun nonblocking_get_from_maildrop (maildrop as MAILDROP { value, ... } )
 	    =
-	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
-		log::uninterruptible_scope_mutex := 1;
-		#
-		case *value
-		    #
-		    THE v =>    {
-				    log::uninterruptible_scope_mutex := 0;
-				    #
-				    THE v;
-				};
-
-		    NULL =>	{
-				    log::uninterruptible_scope_mutex := 0;
-				    NULL;
-				};
-		esac;
-	    };
+	    *value;
 
 
 	# Swap the current contents of the cell with a new value.
@@ -609,15 +513,15 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	fun maildrop_swap (MAILDROP { priority, read_q, value }, new_v)
 	    =
 	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
 		case *value
 		    #
 		    NULL =>     {   v = call_with_current_fate
-					    (fn fate
+					    (fn get_v
 						=
-						{   rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), fate));
+						{   rwq::put_on_back_of_queue (read_q, (make_do1mailoprun_status(), get_v));
 						    #
 						    mps::dispatch_next_thread__xu__noreturn ();
 						}
@@ -625,7 +529,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 
 				    value :=  THE new_v;
 
-				    relay_msg  (read_q,  new_v);					# Relay the new value to any other blocked threads.
+				    relay_msg__xu  (read_q,  new_v);						# Wake up any other microthreads waiting to read this maildrop.
 
 				    v;
 				};
@@ -642,11 +546,11 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	    =
 	    itt::BASE_MAILOPS [ is_mailop_ready_to_fire ]
 	    where
-		fun set_up_mailopready_watch								# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
 		      {
-			do1mailoprun_status,								# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
-			finish_do1mailoprun,								# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop					# After starting a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			return_to__set_up_mailopready_watches__loop						# After starting a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -678,12 +582,15 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				}
 			    )
 			)
-			    -> old_maildrop_value;								# Execution picks up on this line when 'fate' eventually gets called.
+			    -> v;										# Execution picks up on this line when 'get_v(v)' eventually gets called.
 
-			finish_do1mailoprun ();
+			finish_do1mailoprun ();									# Remember that this do_one_mailop[] call has fired a mailop -- no other mailop in call is eligible to fire.
+
 			value := THE new_maildrop_value;
-			relay_msg (read_q, new_maildrop_value);
-			old_maildrop_value;
+
+			relay_msg__xu (read_q, new_maildrop_value);						# Wake up any other microthreads waiting to read this maildrop.
+
+			v;
 		    };
 
 		fun is_mailop_ready_to_fire ()
@@ -696,7 +603,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				      {
 					priority    =>   bump_priority priority,
 					#
-					fire_mailop => .{   value := THE new_maildrop_value;				# Reppy refers to 'fire_mailop' as 'doFn'.
+					fire_mailop => .{   value := THE new_maildrop_value;			# Reppy refers to 'fire_mailop' as 'doFn'.
 							    log::uninterruptible_scope_mutex := 0;
 							    v;
 							}
