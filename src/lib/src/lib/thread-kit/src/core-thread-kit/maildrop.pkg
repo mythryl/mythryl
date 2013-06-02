@@ -40,30 +40,21 @@ herein
 	#
 	Fate(X) =   fat::Fate(X);
 	#
-	Maildrop(X) =   MAILDROP  { priority:  Ref( Int ),
-				    read_q:    rwq::Rw_Queue( (Ref(itt::Do1mailoprun_Status), Fate(X)) ),
+	Maildrop(X) =   MAILDROP  { read_q:    rwq::Rw_Queue( (Ref(itt::Do1mailoprun_Status), Fate(X)) ),
 				    value:     Ref( Null_Or(X) )
 				  };
 
 
-	fun maildrop_to_string (MAILDROP { priority => REF p, read_q, value })					# Debug support, primarily to textify mailslot state for logging via log::note or such.
+	fun maildrop_to_string (MAILDROP { read_q, value })							# Debug support, primarily to textify mailslot state for logging via log::note or such.
 	    =
 	    {   q_len = list::length (rwq::to_list read_q);
 		#
-		sprintf "prio=%d len(in_q)=%d value is %s"
-			p
+		sprintf "len(in_q)=%d value is %s"
 			q_len
 			case *value NULL => "EMPTY";
                                     _    => "FULL";
 			esac;
 	    };
-
-	fun make_cell ()
-	    =
-	    MAILDROP  { priority =>  REF 0,
-			value    =>  REF NULL,
-			read_q   =>  rwq::make_rw_queue ()
-		      };
 
 	fun same_cell ( MAILDROP { value => v1, ... },
 			MAILDROP { value => v2, ... }
@@ -88,13 +79,6 @@ herein
 		=>
 		raise exception FAIL "Compiler bug:  Attempt to cancel already-cancelled transaction-id";	# Never happens; here to suppress 'nonexhaustive match' compile warning.
 	end;
-
-
-	fun bump_priority (p as REF n)										# Bump a priority value by one, returning the old value.
-	    =
-	    {   p := n+1;
-		n;
-	    };
 
 
 	Qy_Item(X)
@@ -215,22 +199,22 @@ herein
 	    raise exception  FAIL "maildrop: impossible";
 
 
-	make_empty_maildrop											# Id calls these "m-variables".  (Thought you'd want to know.)
+	fun make_empty_maildrop ()										# Id calls these "m-variables".  (Thought you'd want to know.)
 	    =
-	    make_cell;
-
+	    MAILDROP  { value    =>  REF NULL,
+			read_q   =>  rwq::make_rw_queue ()
+		      };
 
 	fun make_maildrop  initial_value
 	    =
-	    MAILDROP { priority =>  REF 0,
-		       read_q   =>  rwq::make_rw_queue (),
+	    MAILDROP { read_q   =>  rwq::make_rw_queue (),
 		       value    =>  REF (THE initial_value)
 		     };
 
 	same_maildrop =  same_cell;
 
 
-	fun put_in_maildrop (maildrop as MAILDROP { priority, read_q, value }, v)				# 'v' is value being stored into the maildrop.
+	fun put_in_maildrop (maildrop as MAILDROP { read_q, value }, v)						# 'v' is value being stored into the maildrop.
 	    =
 	    {
 														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -257,8 +241,6 @@ herein
 						mps::enqueue_old_thread_plus_old_fate_then_install_new_thread
 						  { new_thread, old_fate };
 
-						priority := 1;
-
 						switch_to_fate  get_v  v;					# Do the get_v(v) call that some get_* or take_* is waiting for.
 					    }
 					);
@@ -274,15 +256,15 @@ herein
 	    };
 
 
-	fun take_from_maildrop' (MAILDROP { priority, read_q, value } )
+	fun take_from_maildrop' (MAILDROP { read_q, value } )
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
-		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop								# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
 			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,									# This typically does  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and then sends nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop						# After starting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop					# After starting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -296,7 +278,7 @@ herein
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -311,8 +293,8 @@ herein
 				=
 				{   rwq::put_on_back_of_queue (read_q, (do1mailoprun_status, fate));
 				    #
-				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg
-												impossible ();	# return_to__set_up_mailopready_watches__loop() should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();			# Return control to mailop.pkg
+												impossible ();	# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
@@ -331,12 +313,10 @@ herein
 		    =
 		    case *value
 			#
-			NULL  =>    itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			NULL  =>    itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 			#
-			THE v =>    itt::MAILOP_IS_READY_TO_FIRE
+			THE v =>    itt::READY_MAILOP
 				      {
-					priority    =>   bump_priority  priority,
-
 					fire_mailop => .{   value := NULL;					# Reppy refers to 'fire_mailop' as 'doFn'.
 							    log::uninterruptible_scope_mutex := 0;
 							    v;
@@ -346,7 +326,7 @@ herein
 	    end;
 
 
-	fun nonblocking_take_from_maildrop (MAILDROP { priority, read_q, value } )
+	fun nonblocking_take_from_maildrop (MAILDROP { read_q, value } )
 	    =
 	    {
 														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -364,7 +344,7 @@ herein
 	    };
 
 
-	fun take_from_maildrop (maildrop as MAILDROP { priority, read_q, value } )				# Destructive read.
+	fun take_from_maildrop (maildrop as MAILDROP { read_q, value } )					# Destructive read.
 	    =
 	    {
 														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -395,7 +375,7 @@ herein
 	    };
 
 
-	fun get_from_maildrop (maildrop as MAILDROP { priority, read_q, value } )				# Pure read.
+	fun get_from_maildrop (maildrop as MAILDROP { read_q, value } )						# Pure read.
 	    =
 	    {
 														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -422,15 +402,15 @@ herein
 	    };
 
 
-	fun get_from_maildrop' (maildrop as MAILDROP { priority, read_q, value } )
+	fun get_from_maildrop' (maildrop as MAILDROP { read_q, value } )
 	    =
 	    itt::BASE_MAILOPS [ is_mailop_ready_to_fire ]
 	    where
-		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop								# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
 			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop						# After starting a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop					# After starting a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -444,7 +424,7 @@ herein
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -459,9 +439,9 @@ herein
 				=
 				{   rwq::put_on_back_of_queue (read_q, (do1mailoprun_status, get_v));
 				    #
-				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();			# Return control to mailop.pkg.
 
-								impossible ();					# return_to__set_up_mailopready_watches__loop should never return.
+								impossible ();					# return_to__suspend_then_eventually_fire_mailops__loop should never return.
 				}
 			    )
 			)
@@ -478,15 +458,11 @@ herein
 		    =
 		    case *value
 			#	        
-			NULL  =>    {
-					itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
-				    };
+			NULL  =>    itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 			#
 			THE v =>    {
-					itt::MAILOP_IS_READY_TO_FIRE
+					itt::READY_MAILOP
 					  {
-					    priority    =>   bump_priority priority,
-					    #
 					    fire_mailop => .{   log::uninterruptible_scope_mutex := 0;		# Reppy refers to 'fire_mailop' as 'doFn'.
 								v;
 							    }
@@ -510,7 +486,7 @@ herein
 	#
 	# It is also somewhat more efficient.
 	#
-	fun maildrop_swap (MAILDROP { priority, read_q, value }, new_v)
+	fun maildrop_swap (MAILDROP { read_q, value }, new_v)
 	    =
 	    {
 														microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -542,15 +518,15 @@ herein
 	    };
 
 
-	fun maildrop_swap' (MAILDROP { priority, read_q, value }, new_maildrop_value)
+	fun maildrop_swap' (MAILDROP { read_q, value }, new_maildrop_value)
 	    =
 	    itt::BASE_MAILOPS [ is_mailop_ready_to_fire ]
 	    where
-		fun set_up_mailopready_watch									# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop								# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
 			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop						# After starting a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop					# After starting a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -564,7 +540,7 @@ herein
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -577,8 +553,8 @@ herein
 			    (fn fate
 				=
 				{   rwq::put_on_back_of_queue (read_q, (do1mailoprun_status, fate));
-				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
-												impossible();	# return_to__set_up_mailopready_watches__loop() should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();			# Return control to mailop.pkg.
+												impossible();	# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
@@ -597,12 +573,10 @@ herein
 		    =
 		    case *value
 			#
-			NULL  =>    itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			NULL  =>    itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 
-			THE v =>    itt::MAILOP_IS_READY_TO_FIRE
+			THE v =>    itt::READY_MAILOP
 				      {
-					priority    =>   bump_priority priority,
-					#
 					fire_mailop => .{   value := THE new_maildrop_value;			# Reppy refers to 'fire_mailop' as 'doFn'.
 							    log::uninterruptible_scope_mutex := 0;
 							    v;

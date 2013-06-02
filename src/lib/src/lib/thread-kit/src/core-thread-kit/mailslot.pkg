@@ -31,7 +31,7 @@
 #      atomic region (in the mailop case, it must also execute the clean-up
 #      action).  The fire_mailop fn always transfers control to the blocked thread
 #      without leaving the atomic region.  Note that the give (and give')
-#      set_up_mailopready_watch()s run using the receiver's thread state."
+#      suspend_then_eventually_fire_mailop()s run using the receiver's thread state."
 #                                       -- John H Reppy
 
 # Compiled by:
@@ -81,31 +81,27 @@ herein
 	Mailslot(X)
 	    =
 	    MAILSLOT
-	      { priority:  Ref( Int ),
-		in_q:      rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)) ),
+	      { in_q:      rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)) ),
 		out_q:     rwq::Rw_Queue( (Ref( itt::Do1mailoprun_Status ), Fate( (itt::Microthread, Fate(X)) )) )
 	      };													# The above two should probably be records not tuples. XXX SUCKO FIXME.
 
-	fun mailslot_to_string (MAILSLOT { priority => REF p, in_q, out_q })						# Debug support, primarily to textify mailslot state for logging via log::note or such.
+	fun mailslot_to_string (MAILSLOT { in_q, out_q })						# Debug support, primarily to textify mailslot state for logging via log::note or such.
 	    =
 	    {   i_len = list::length (rwq::to_list  in_q);
 		o_len = list::length (rwq::to_list out_q);
-		sprintf "prio=%d len(in_q)=%d len(out_q)=%d"  p  i_len  o_len;
+		sprintf "len(in_q)=%d len(out_q)=%d"  i_len  o_len;
 	    };
 
-	fun reset_mailslot (MAILSLOT { priority, in_q, out_q } )
+	fun reset_mailslot (MAILSLOT { in_q, out_q } )
 	    =
-	    {   priority :=  1;
-		#
-		rwq::clear_queue_to_empty  in_q;
+	    {   rwq::clear_queue_to_empty  in_q;
 		rwq::clear_queue_to_empty  out_q;
 	    };
 
 	fun make_mailslot ()
 	    =
 	    MAILSLOT
-	      { priority => REF 1,
-		in_q     => rwq::make_rw_queue (),
+	      { in_q     => rwq::make_rw_queue (),
 		out_q    => rwq::make_rw_queue ()
 	      };
 
@@ -148,15 +144,6 @@ herein
 	  |    ITEM  (Ref(itt::Do1mailoprun_Status), Fate(X))
 	  ;															# ITEM should probably host a record not a tuple.  XXX SUCKO FIXME.
 
-	# Bump a priority value by one,
-	# returning the old value:
-	#
-	fun bump_priority (p as REF n)
-	    =
-	    {   p := n+1;
-		n;
-	    };
-
 	# Functions to clean slot input and output queues 
 	#
 	stipulate
@@ -197,7 +184,7 @@ herein
 
 	herein
 
-	    fun clean_and_check (priority, rwq::RW_QUEUE { front, back } )
+	    fun clean_and_check (rwq::RW_QUEUE { front, back } )
 		= 
 		clean_front  *front
 		where
@@ -212,14 +199,13 @@ herein
 				[] =>   clean_back  *back;
 				#
 				f' =>   {   front :=  f';
-					    #
-					    bump_priority  priority;
-				        };
+					    TRUE;
+					};
 			    esac;
 		    end
 
 		    also
-		    fun clean_back [] =>   0;
+		    fun clean_back [] =>   FALSE;
 			#
 			clean_back r
 			    =>
@@ -227,11 +213,10 @@ herein
 				#
 				case (clean_rev (r, []))
 				    #
-				    [] =>   0;
+				    [] =>   FALSE;
 				    #
 				    rr =>   {   front :=  rr;
-						#
-					        bump_priority  priority;
+						TRUE;
 					    };
 				esac;
 			    };
@@ -296,7 +281,7 @@ herein
 	    raise exception  FAIL "Slot: impossible";
 
 
-	fun put_in_mailslot (mailslot as MAILSLOT { priority, in_q, out_q }, msg)							# Derives from Reppy's send()
+	fun put_in_mailslot (mailslot as MAILSLOT { in_q, out_q }, msg)								# Derives from Reppy's send()
 	    =
 	    {
 microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -313,7 +298,6 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 						    old_fate   =>  give_fatep
 						  };
 						#
-						priority := 1;
 
 						switch_to_fate  take_fateq  msg;						# take_fateq_revival_point.  This will canonically jump to take_fateq_resumption_point below.
 					    }
@@ -339,7 +323,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 	    };
 
 
-	fun put_in_mailslot' (MAILSLOT { priority, in_q, out_q }, msg)							# Derives from Reppy's sendEvt().
+	fun put_in_mailslot' (MAILSLOT { in_q, out_q }, msg)							# Derives from Reppy's sendEvt().
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
@@ -355,18 +339,16 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				=
 				{   mps::enqueue_old_thread_plus_old_fate_then_install_new_thread   { new_thread => end_do1mailoprun_and_return_thread  do1mailoprun_status,    old_fate => give_fate };
 				    #
-				    priority := 1;
-
-				    switch_to_fate  take_fate  msg;					# 
+				    switch_to_fate  take_fate  msg;						# 
 				}
 			    );
 		    };
 
-		fun set_up_mailopready_watch							# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop								# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
-			do1mailoprun_status,							# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
-			finish_do1mailoprun,							# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop				# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			do1mailoprun_status,									# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+			finish_do1mailoprun,									# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+			return_to__suspend_then_eventually_fire_mailops__loop					# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -380,7 +362,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -394,12 +376,12 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 			    (fn give_fate
 				=
 				{   clean_and_enqueue (out_q, (do1mailoprun_status, give_fate));
-				    return_to__set_up_mailopready_watches__loop();			# Return control to mailop.pkg.
-										    impossible ();	# return_to__set_up_mailopready_watches__loop() should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop();			# Return control to mailop.pkg.
+										    impossible ();		# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
-			    -> (take_thread, take_fate);						# Execution will pick up on this line when 'give_fate' is eventually called.
+			    -> (take_thread, take_fate);							# Execution will pick up on this line when 'give_fate' is eventually called.
 
 			finish_do1mailoprun();
 
@@ -408,19 +390,19 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 
 		fun is_mailop_ready_to_fire ()
 		    =
-		    case (clean_and_check (priority, in_q))
+		    case (clean_and_check  in_q)
 			#
-			0        =>  itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			FALSE =>  itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 			#
-			priority =>  itt::MAILOP_IS_READY_TO_FIRE    { priority, fire_mailop };
+			TRUE  =>  itt::READY_MAILOP { fire_mailop };
 		    esac;
 	    end;
 
-	fun nonblocking_put_in_mailslot (MAILSLOT { priority, in_q, out_q }, msg)					# Derives from Reppy's sendPoll().
+	fun nonblocking_put_in_mailslot (MAILSLOT { in_q, out_q }, msg)						# Derives from Reppy's sendPoll().
 	    =
 	    call_with_current_fate
 		(
-		 fn give_fate										# Is this 'give_fate' really simply discarded?
+		 fn give_fate											# Is this 'give_fate' really simply discarded?
 		    =
 		    {
 microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -440,8 +422,6 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 						    old_fate   =>  give_fate
 						  };
 						#
-						priority :=  1;
-
 						switch_to_fate  take_fate  msg;				# NB: switch_to_fate never returns.
 					    }
 					);
@@ -459,7 +439,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		    }
 		);
 
-	fun take_from_mailslot (mailslot as MAILSLOT { priority, in_q, out_q } )							# Derives from Reppy's recv().
+	fun take_from_mailslot (mailslot as MAILSLOT { in_q, out_q } )					# Derives from Reppy's recv().
 	    =
 	    {
 microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
@@ -473,8 +453,6 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 			    take_thread =  mps::get_current_thread ();
 			    #
 			    set_current_thread  do1mailoprun_status;					# Make 'give' thread the current thread.
-
-			    priority := 1;
 
 			    (call_with_current_fate
 			      (
@@ -498,7 +476,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				    =
 				    {   do1mailoprun_status =  make__mailop_done__refcell();
 					#
-					enqueue (in_q, (do1mailoprun_status, take_fateq));			# take_fateq will canonically be revived at  take_fateq_revival_point  above.
+					enqueue (in_q, (do1mailoprun_status, take_fateq));		# take_fateq will canonically be revived at  take_fateq_revival_point  above.
 													# The fate enqueued here needs to EXIT UNINTERRUPTIBLE MODE
 					#
 					mps::dispatch_next_thread__xu__noreturn ();
@@ -513,66 +491,8 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		esac;
 	    };
 
-# At the moment a/the problematic sequence is:
-#
-#
-#
-#
-# [A] give/TOP mode d=0  (about to enter uninterruptible mode)
-# [B] give/AAA mode d=1  (after entering uninterruptible mode)
-# [C] give/NO_ITEM/MMM mode d=1
-#     dispatch_next_thread__xu__noreturn/AAA: mode d=1
-#     dispatch_next_thread__xu__noreturn/CCC: mode d=1
-#     test_basic_mailslot_functionality_a/AAA (above take):  mps::get_uninterruptible_scope_nesting_depth () d=0
-# [D] take/TOP mode d=0
-# [E] take/ITEM/AAA mode d=1
-# [F] take/ITEM/DDD mode d=1 (doing switch_to_fate give_fate)
-# [G] give/NO_ITEM/QQQ mode d=1 (calling switch_to_thread__xu (take_thread, take_fate, msg))
-# [H] take/YYY mode d=-1
-#
-# [1] take/TOP mode d=0
-# [2] take/NO_ITEM/AAA mode d=1
-# [3] take/NO_ITEM/BBB mode d=1
-#     dispatch_next_thread__xu__noreturn/AAA: mode d=1
-#     dispatch_next_thread__xu__noreturn/CCC: mode d=1
-#     test_basic_mailslot_functionality_b/send LUP(7)post-give:  mps::get_uninterruptible_scope_nesting_depth () d=0
-#     test_basic_mailslot_functionality_b/send LUP(8)TOP:        mps::get_uninterruptible_scope_nesting_depth () d=0
-# [4] give/TOP mode d=0  (about to enter uninterruptible mode)
-# [5] give/AAA mode d=1  (after entering uninterruptible mode)
-# [6] give/ITEM mode d=1
-# [7] give/ITEM/JJJ mode d=1  (just before switch_to_fate)
-#     wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate mode d=1
-#     dispatch_next_thread__xu__noreturn/AAA: mode d=2
-#     dispatch_next_thread__xu__noreturn/CCC: mode d=2
-#
-#     take/TOP mode d=0
-#     take/NO_ITEM/AAA mode d=1
-#     take/NO_ITEM/BBB mode d=1
-#     dispatch_next_thread__xu__noreturn/AAA: mode d=1
-#     dispatch_next_thread__xu__noreturn/CCC: mode d=1
-#     test_basic_mailslot_functionality_b/send LUP(1)post-give:  mps::get_uninterruptible_scope_nesting_depth () d=0
-#     test_basic_mailslot_functionality_b/send LUP(2)TOP:        mps::get_uninterruptible_scope_nesting_depth () d=0
-#     give/TOP mode d=0  (about to enter uninterruptible mode)
-#     give/AAA mode d=1  (after entering uninterruptible mode)
-#     give/ITEM mode d=1
-#     give/ITEM/JJJ mode d=1  (just before switch_to_fate)
-#     take/ZZZ mode d=1
-#
-#
-# [1] take/TOP mode d=0
-# [2] take/NO_ITEM/AAA mode d=1
-# [3] take/NO_ITEM/BBB mode d=1
-#     dispatch_next_thread__xu__noreturn/AAA: mode d=1
-#     dispatch_next_thread__xu__noreturn/CCC: mode d=1
-#     test_basic_mailslot_functionality_b/send LUP(1)post-give:  mps::get_uninterruptible_scope_nesting_depth () d=0
-#     test_basic_mailslot_functionality_b/send LUP(2)TOP:        mps::get_uninterruptible_scope_nesting_depth () d=0
-# [4] give/TOP mode d=0  (about to enter uninterruptible mode)
-# [5] give/AAA mode d=1  (after entering uninterruptible mode)
-# [6] give/ITEM mode d=1
-# [7] give/ITEM/JJJ mode d=1  (just before switch_to_fate)
-# [8] take/ZZZ mode d=1
 
-	fun take_from_mailslot' (MAILSLOT { priority, in_q, out_q } )							# Derives from Reppy's recvEvt().
+	fun take_from_mailslot' (MAILSLOT { in_q, out_q } )						# Derives from Reppy's recvEvt().
 	    =
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]
 	    where
@@ -586,8 +506,6 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 
 			set_current_thread  do1mailoprun_status;
 
-			priority := 1;
-
 			call_with_current_fate
 			    #
 			    (fn take_fate
@@ -596,11 +514,11 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 			    );
 		    };
 
-		fun set_up_mailopready_watch								# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop							# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
 			do1mailoprun_status,								# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,								# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop					# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop				# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -614,7 +532,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -629,8 +547,8 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 				=
 				{   clean_and_enqueue  (in_q,  (do1mailoprun_status, take_fate));
 				    #
-				    return_to__set_up_mailopready_watches__loop ();			# Return control to mailop.pkg.
-											impossible();	# return_to__set_up_mailopready_watches__loop () should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();		# Return control to mailop.pkg.
+											impossible();	# return_to__suspend_then_eventually_fire_mailops__loop () should never return.
 				}
 			    )
 			)
@@ -645,18 +563,17 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 
 		fun is_mailop_ready_to_fire ()
 		    =
-		    case (clean_and_check (priority, out_q))
+		    case (clean_and_check out_q)
 			#
-			0        =>  itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
-			#
-			priority =>  itt::MAILOP_IS_READY_TO_FIRE    { priority, fire_mailop };
+			FALSE =>  itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
+			TRUE  =>    itt::READY_MAILOP { fire_mailop };
 		    esac;
 	    end;
 
-	fun nonblocking_take_from_mailslot (MAILSLOT { priority, in_q, out_q } )					# Derives from Reppy's recvPoll(0.
+	fun nonblocking_take_from_mailslot (MAILSLOT { in_q, out_q } )					# Derives from Reppy's recvPoll(0.
 	    =
 	    {
-microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
+													microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 		log::uninterruptible_scope_mutex := 1;
 		#
 		case (clean_and_remove out_q)
@@ -670,9 +587,7 @@ microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope ();
 					#
 					set_current_thread  do1mailoprun_status;
 
-					priority := 1;
-
-					switch_to_fate  give_fate  (my_id,  take_fate);		# 
+					switch_to_fate  give_fate  (my_id,  take_fate);			# 
 				    }
 			    )   );
 

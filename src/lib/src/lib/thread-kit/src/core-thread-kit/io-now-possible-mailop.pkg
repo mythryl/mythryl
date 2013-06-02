@@ -30,9 +30,9 @@ herein
 	Ioplea_Item
 	    =
 	    { ioplea:		wio::Ioplea,					# Ioplea =  { io_descriptor: Iod, readable: Bool, writable: Bool, oobdable: Bool };
-	      do1mailoprun_status:	Ref( itt::Do1mailoprun_Status ),			# Do1mailoprun_Status = DO1MAILOPRUN_IS_COMPLETE | DO1MAILOPRUN_IS_BLOCKED  Thread; do1mailoprun_status is a mutex enforcing the one-mailop-fires-per-select() rule.
+	      do1mailoprun_status:	Ref( itt::Do1mailoprun_Status ),	# Do1mailoprun_Status = DO1MAILOPRUN_IS_COMPLETE | DO1MAILOPRUN_IS_BLOCKED  Thread; do1mailoprun_status is a mutex enforcing the one-mailop-fires-per-select() rule.
 	      #
-	      finish_do1mailoprun:	Void -> Void,					# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+	      finish_do1mailoprun:	Void -> Void,				# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
 	      fate:		fat::Fate( wio::Ioplea_Result )
 	    };
 
@@ -41,8 +41,6 @@ herein
 	#
 	fun check_for_io_opportunities  wait_requests
 	    =
-{
-printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pkg: check_for_io_opportunities: calling wio::wait_for_io_opportunity\n";
 	    wio::wait_for_io_opportunity					# In some OSs (e.g., Linux) this may raise an EINTR error even though it is non-blocking.
 	      {
 		wait_requests,
@@ -50,7 +48,6 @@ printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pk
 	      }
 	    except
 		_ = [];
-};
 
 										# NOTE:  As in the case of condition variables -- see 
 										#     src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
@@ -62,11 +59,11 @@ printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pk
 	    itt::BASE_MAILOPS [is_mailop_ready_to_fire]				#				  src/lib/std/src/posix/winix-data-file-io-driver-for-posix.pkg
 	    where
 
-		fun set_up_mailopready_watch					# Reppy refers to 'set_up_mailopready_watch' as 'blockFn'.
+		fun suspend_then_eventually_fire_mailop				# Reppy refers to 'suspend_then_eventually_fire_mailop' as 'blockFn'.
 		      {
 			do1mailoprun_status,					# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,					# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop		# After setting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop	# After setting up a mailop-ready-to-fire watch, we call this fn to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -80,7 +77,7 @@ printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pk
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -99,10 +96,10 @@ printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pk
 				    #
 				    waiting_queue__local :=  item  !  *waiting_queue__local;
 				    #
-				    return_to__set_up_mailopready_watches__loop ();				# Return control to mailop.pkg.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();			# Return control to mailop.pkg.
 				    #
-														raise exception FAIL "io_mailop' -- return_to__set_up_mailopready_watches__loop returned";
-														# return_to__set_up_mailopready_watches__loop() should never return.
+														raise exception FAIL "io_mailop' -- return_to__suspend_then_eventually_fire_mailops__loop returned";
+														# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
@@ -111,21 +108,19 @@ printf "src/lib/src/lib/thread-kit/src/core-thread-kit/io-now-possible-mailop.pk
 		    end;											# select()/poll() indicates that fd read/write is possible (i.e., data in input buffer or space in output buffer).
 
 		fun is_mailop_ready_to_fire ()									# Reppy refers to 'is_mailop_ready_to_fire' calls this 'pollFn'.
-		    =												# If it returns MAILOP_IS_READY_TO_FIRE   then the mailop is     a candidate to fire in the do_one_mailop [] call.
-		    case (check_for_io_opportunities  [ioplea])							# If it returns MAILOP_IS_NOT_READY_TO_FIRE then the mailop is not a candidate to fire in the do_one_mailop [] call.
+		    =												# If it returns READY_MAILOP   then the mailop is     a candidate to fire in the do_one_mailop [] call.
+		    case (check_for_io_opportunities  [ioplea])							# If it returns UNREADY_MAILOP then the mailop is not a candidate to fire in the do_one_mailop [] call.
 			#
 			[an_ioplea]
 			    =>
-				itt::MAILOP_IS_READY_TO_FIRE
+				itt::READY_MAILOP
 				  {
-				    priority	=>   -1,
-				    #
 				    fire_mailop	=> .{   log::uninterruptible_scope_mutex := 0;			# Reppy refers to 'fire_mailop' as 'doFn'.
 							an_ioplea;
 						    }
 				  };
 
-			_   =>  itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			_   =>  itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 		    esac;
 	    end;
 

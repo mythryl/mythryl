@@ -32,8 +32,8 @@ herein
 
 	Mailqueue_State(X)
 	  = EMPTY      Queue( (Ref( itt::Do1mailoprun_Status ), Fate(X)))
-	  | NONEMPTY  (Int, Queue(X))											# The 'Int' is a priority -- starts at 1, incremented by is_mailop_ready_to_fire ().
-	  ;														# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
+	  | NONEMPTY   Queue(X)												# NB: The queue of the NONEMPTY constructor should never be empty -- use EMPTY instead.
+	  ;
 
 	Mailqueue(X) = MAILQUEUE  Ref( Mailqueue_State(X) );
 
@@ -112,8 +112,8 @@ herein
 		#
 		case state
 		    #
-		    EMPTY     _                   =>  0;
-		    NONEMPTY (_, { front, rear }) =>  {  (list::length front) + (list::length rear); };
+		    EMPTY     _              =>  0;
+		    NONEMPTY { front, rear } =>  {  (list::length front) + (list::length rear); };
 		esac;
 	    };
 
@@ -123,8 +123,8 @@ herein
 		#
 		case state
 		    #
-		    EMPTY        { front, rear }  =>  {  f = (list::length front);  r = (list::length rear);  sprintf "EMPTY [%d|%d]=%d"            f r (f+r); };
-		    NONEMPTY (i, { front, rear }) =>  {  f = (list::length front);  r = (list::length rear);  sprintf "NONEMPTY(%d,[%d|%d]=%d)"  i  f r (f+r); };
+		    EMPTY    { front, rear } =>  {  f = (list::length front);  r = (list::length rear);  sprintf "EMPTY [%d|%d]=%d"       f r (f+r); };
+		    NONEMPTY { front, rear } =>  {  f = (list::length front);  r = (list::length rear);  sprintf "NONEMPTY [%d|%d]=%d)"   f r (f+r); };
 		esac;
 	    };
 
@@ -201,7 +201,7 @@ herein
 			    #
 			    NO_ITEM =>
 				{
-				    qstate :=  NONEMPTY (1, { front => [x], rear => [] } );
+				    qstate :=  NONEMPTY { front => [x], rear => [] };
 				    #
 				    log::uninterruptible_scope_mutex := 0;
 				};
@@ -220,13 +220,13 @@ herein
 				    );
 			esac;
 
-		    NONEMPTY (p, q)
+		    NONEMPTY q
 			=> 
 			call_with_current_fate								# We force a context switch here to reduce the risk of a producer outrunning its consumer.
 			    #
 			    (fn fate
 				=
-				{   qstate :=  NONEMPTY (p, enqueue (q, x));
+				{   qstate :=  NONEMPTY (enqueue (q, x));
 				    #
 				    mps::yield_to_next_thread__xu  fate;
 				}
@@ -245,7 +245,7 @@ herein
 		      rear  => []
 		    }
 			=>   qstate :=  empty_queue;
-		    _   =>   qstate :=  NONEMPTY (1, q');
+		    _   =>   qstate :=  NONEMPTY q';
 
 		esac;
 
@@ -291,7 +291,7 @@ herein
 			    msg;
 			 };
 
-		  NONEMPTY (priority, q)
+		  NONEMPTY q
 		      =>
 		      get_msg__xu (qstate, q);
 
@@ -323,7 +323,7 @@ herein
 			    [ msg ];
 			 };
 
-		  NONEMPTY (priority, q)
+		  NONEMPTY q
 		      =>
 		      get_msgs__xu (qstate, q);
 
@@ -333,11 +333,11 @@ herein
 	fun take_from_mailqueue' (mq as MAILQUEUE qstate)
 	    =
 	    {
-		fun set_up_mailopready_watch
+		fun suspend_then_eventually_fire_mailop
 		      {
 			do1mailoprun_status,						# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop		# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    # This fn gets used in
@@ -351,7 +351,7 @@ herein
 		    # call has no mailops ready to fire.  'do_one_mailop' must then block until
 		    # at least one mailop is ready to fire.  It does this by calling the
 		    #
-		    #     set_up_mailopready_watch ()
+		    #     suspend_then_eventually_fire_mailop ()
 		    #
 		    # fn on each mailop in the list; each such call will typically
 		    # make an entry in one or more run queues of blocked threads.
@@ -361,8 +361,8 @@ herein
 		    #     do1mailoprun_status :=  DO1MAILOPRUN_IS_COMPLETE;
 		    #
 		    {   q = case *qstate    EMPTY    q =>  q;
-			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/set_up_mailopready_watch";	# Should be impossible, since is_mailop_ready_to_fire() (below)
-			    esac;																# only queues us up if *qstate is EMPTY.
+			    /* */	    NONEMPTY _ =>  raise exception FAIL "Unsupported NONEMPTY case in suspend_then_eventually_fire_mailop";	# Should be impossible, since is_mailop_ready_to_fire() (below)
+			    esac;															# only queues us up if *qstate is EMPTY.
 
 			(call_with_current_fate
 			    #
@@ -370,8 +370,8 @@ herein
 				=
 				{   qstate :=  EMPTY (enqueue (q, (do1mailoprun_status, get_fate)));
 				    #
-				    return_to__set_up_mailopready_watches__loop ();									# Return control to mailop.pkg.
-													raise exception FAIL "Mailqueue: impossible";	# return_to__set_up_mailopready_watches__loop() should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();								# Return control to mailop.pkg.
+													raise exception FAIL "Mailqueue: impossible";	# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
@@ -388,39 +388,33 @@ herein
 		    =
 		    case *qstate
 			#
-			EMPTY _ =>   itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			EMPTY _ =>   itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 			#
-			NONEMPTY (priority, q)
+			NONEMPTY q
 			    =>
-			    {   qstate :=  NONEMPTY (priority+1, q);
+			    {   qstate :=  NONEMPTY q;
 				#
-				itt::MAILOP_IS_READY_TO_FIRE
-				  {
-				    priority,
-				    fire_mailop    =>  .{   
-							    get_msg__xu (qstate, q);
-							}
-				  };
+				itt::READY_MAILOP  {  fire_mailop =>  .{   get_msg__xu (qstate, q); }  };
 			    };
 		    esac;
 
 
-		itt::BASE_MAILOPS  [ is_mailop_ready_to_fire ];		# Recall that in essence a base mailop *is* an is_mailop_ready_to_fire -- see  src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+		itt::BASE_MAILOPS  [ is_mailop_ready_to_fire ];				# Recall that in essence a base mailop *is* an is_mailop_ready_to_fire -- see  src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
 	    };
 
 	fun take_all_from_mailqueue' (mq as MAILQUEUE qstate)
 	    =
 	    {
-		fun set_up_mailopready_watch
+		fun suspend_then_eventually_fire_mailop
 		      {
 			do1mailoprun_status,						# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
 			finish_do1mailoprun,						# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
-			return_to__set_up_mailopready_watches__loop			# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
+			return_to__suspend_then_eventually_fire_mailops__loop		# After starting up a mailop-ready-to-fire watch, we call this to return control to mailop.pkg.
 		      }
 		    =
 		    {   q = case *qstate    EMPTY    q =>  q;
-			    /* */	    NONEMPTY _ =>  raise exception FAIL "Compiler bug: Unsupported NONEMPTY case in poll'/set_up_mailopready_watch";	# Should be impossible, since is_mailop_ready_to_fire() (below)
-			    esac;																# only queues us up if *qstate is EMPTY.
+			    /* */	    NONEMPTY _ =>  raise exception FAIL "Unsupported NONEMPTY case in /suspend_then_eventually_fire_mailop";	# Should be impossible, since is_mailop_ready_to_fire() (below)
+			    esac;															# only queues us up if *qstate is EMPTY.
 
 			(call_with_current_fate
 			    #
@@ -428,8 +422,8 @@ herein
 				=
 				{   qstate :=  EMPTY (enqueue (q, (do1mailoprun_status, get_fate)));
 				    #
-				    return_to__set_up_mailopready_watches__loop ();									# Return control to mailop.pkg.
-													raise exception FAIL "Mailqueue: impossible";	# return_to__set_up_mailopready_watches__loop() should never return.
+				    return_to__suspend_then_eventually_fire_mailops__loop ();								# Return control to mailop.pkg.
+													raise exception FAIL "Mailqueue: impossible";	# return_to__suspend_then_eventually_fire_mailops__loop() should never return.
 				}
 			    )
 			)
@@ -446,19 +440,13 @@ herein
 		    =
 		    case *qstate
 			#
-			EMPTY _ =>   itt::MAILOP_IS_NOT_READY_TO_FIRE  set_up_mailopready_watch;
+			EMPTY _ =>   itt::UNREADY_MAILOP  suspend_then_eventually_fire_mailop;
 			#
-			NONEMPTY (priority, q)
+			NONEMPTY q
 			    =>
-			    {   qstate :=  NONEMPTY (priority+1, q);
+			    {   qstate :=  NONEMPTY q;
 				#
-				itt::MAILOP_IS_READY_TO_FIRE
-				  {
-				    priority,
-				    fire_mailop    =>  .{   
-							    get_msgs__xu (qstate, q);		
-							}
-				  };
+				itt::READY_MAILOP  {  fire_mailop  =>  .{ get_msgs__xu (qstate, q); } };
 			    };
 		    esac;
 
