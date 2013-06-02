@@ -1022,19 +1022,86 @@ herein
 
 
 
-	Replyqueue           = itt::Replyqueue;
-	make_replyqueue      = itt::make_replyqueue;
-	put_in_replyqueue    = itt::put_in_replyqueue;
-	drop_from_replyqueue = itt::drop_from_replyqueue;
 
-	fun do_one_mailop'  (q: Replyqueue) mailops												# Just like do_one_mailop, except also processes the request queue of pending replies from other imps.
+
+	Replyqueue_Entry									# See Note[1] below.
+	  =
+	  { id:		Int,									# The 'id' field is so that we can unambiguously remove a request from a request queue -- Mailops are not an equality type.
+	    op:		Mailop(Void)								# This will be the oneshot for the reply from another imp, together with our logic for handling that reply.
+	  };
+	Replyqueue
+	  =
+	  { next_id:	Ref(Int),								# Used to generate Request.id values.
+	    queue:	Ref( List( Replyqueue_Entry ) )						# The request queue proper, a list of reply oneshots wrapped in handling logic.
+	  };
+
+	fun make_replyqueue ()
 	    =
-	    do_one_mailop  mailops;														# Type-correct zeroth-order implementation which simply ignores the Replyqueue.
+	    { next_id => REF 1,
+	      queue   => REF []
+	    };
+
+
+	fun put_in_replyqueue									# Remember that we're expeding a reply to a request made of an external imp.
+	      (
+                q:	Replyqueue,								# This is our imp-private reply queue.
+		op:	Mailop(Void)								# This is the mailop which will fire when our reply arrives.
+	      )	
+	    =
+	    {   id =  *q.next_id;	q.next_id := id + 1;					# Allocate a fresh id for the nascent replyqueue entry.
+		#
+		op =  (op ==> (fn x =  {  drop_from_replyqueue { q, id };  x;  }));		# Wrap given mailop so that when it fires it will delete its replyqueue entry.
+		
+		q.queue :=   { id, op }  !  *q.queue;						# Add entry to replyqueue.
+	    }
+	    where
+		fun drop_from_replyqueue  { q: Replyqueue,  id: Int }				# Drop from replyqueue the entry with id==my_id.
+		    =
+		    q.queue :=  drop_it (*q.queue, [])
+		    where
+			fun drop_it ((queue_entry as { id => id', op }) ! rest, result)		# Copy given list, dropping id' from it.
+				=>
+				if (id' == id)   drop_it (rest,                 result);	# This is the queue entry to drop -- ignore it, but copy rest of list.
+				else		 drop_it (rest,   queue_entry ! result);	# Not our queue entry -- copy it to result list.
+				fi;
+
+			    drop_it ([], result) =>   result;					# Yes, result is reversed relative to input list. We don't care.
+			end;
+		    end;
+	    end;
+
+
+	fun do_one_mailop'  (q: Replyqueue)  mailops						# Just like do_one_mailop, except also processes the request queue of pending replies from other imps.
+	    =
+	    do_one_mailop  mailops;								# Type-correct zeroth-order implementation which simply ignores the Replyqueue.
 
 
 
     };					# package mailop
 end;
+
+##############################################################################################
+# Note[1]
+#
+# To avoid deadlock, it is critically important that each imp
+# write to message queues (a write to a message queue cannot block)
+# and read via a single call (ensuring it cannot be blocked on one
+# read call while another has input ready to process).
+#
+# Obtaining a value from another imp is done by putting it in a
+# request queue together with a oneshot maildrop for the reply.
+#     Our imp then needs to keep a list of such oneshot-maildrops
+# and scan it as part of our mailop input statement (do_one_mailop []).
+#     Any oneshot which fires during such a read statement needs to
+# be dropped from the request queue, since it will never fire again
+# and thus is just clutter and a potential memory leak.
+#
+# Note that since a refcell is equal to itself and nothing else,
+# we could use Ref(Void) refcells for the id type, thus avoiding
+# the need for next_id and the risk of Int wrap-around.  I'm using
+# Int anyhow because it simplifies debugging by allowing logging
+# of more readable traces.
+
 
 ## COPYRIGHT (c) 1989-1991 John H. Reppy
 ## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
