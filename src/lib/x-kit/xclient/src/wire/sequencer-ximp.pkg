@@ -60,21 +60,18 @@ herein
 
 	Starting_Gun = Mailop(Void);			# Purely for readability.
 
-	Sequencer_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
-	    =
-	    Ref( Void );
-
 	max_bytes_per_socket_write = 2048;
 
 	# Client pleas to sequencer:
 	#
 	Clientplea					# 'Plea_Mail' in xsocket.pkg
 	  = PLEA_QUIT
-	  | PLEA             v1u::Vector
-	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
-	  | PLEA_REPLY      (v1u::Vector, Mailslot(Reply_Mail))
-	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
-	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
+#	  | PLEA_FLUSH
+#	  | PLEA             v1u::Vector
+#	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
+#	  | PLEA_REPLY      (v1u::Vector, Mailslot(Reply_Mail))
+#	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
+#	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
 
 
 	# Sequencer replies to client requests:
@@ -87,28 +84,6 @@ herein
 	  ;
 
 
-	Outbuf_Ximp_State					# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
-	    =
-	    Ref( Void );
-
-	Links = { int_sink: Int -> Void };
-
-	Configport = Mailslot( {  links: Links,  me: Sequencer_Ximp_State,  starting_gun': Starting_Gun  } );
-
-	Patronplea  =   STOP
-		    ;
-	Patronport  = Mailslot( Patronplea );
-
-
-	Clientplea  =   DO_SOMETHING Int
-		    ;
-	Clientport  = Mailqueue( Clientplea );
-
-
-	Ports	= { configport:  Configport,
-		    clientport:  Clientport,
-		    patronport:  Patronport
-		  };
 
 
 	Pending_Reply = ONE_REPLY       (un::Unt, Mailslot( Reply_Mail ))
@@ -132,6 +107,32 @@ herein
 	    #    we accumulate responses until the (v1u::Vector -> Int)
 	    #    function argument ("remaining") returns 0. 
 	    #    (The fourth slot is just the reply accumulator.)
+
+	Sequencer_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    { last_seqn_read: Ref(Unt),
+              last_seqn_sent: Ref(Unt),
+	      pending_reply_queue: Ref {   front:    List( Pending_Reply ),
+					    rear:    List( Pending_Reply )
+				       }
+	    };
+
+	Links = { int_sink: Int -> Void };
+
+	Configport = Mailslot( {  links: Links,  me: Sequencer_Ximp_State,  starting_gun': Starting_Gun  } );
+
+	Patronplea  =   STOP
+		    ;
+	Patronport  = Mailslot( Patronplea );
+
+
+	Clientport  = Mailqueue( Clientplea );
+
+
+	Ports	= { configport:  Configport,
+		    clientport:  Clientport,
+		    patronport:  Patronport
+		  };
 
 
 	empty_v =   v1u::from_list [];
@@ -172,13 +173,13 @@ herein
 	    =
 	    un::format  number_string::DECIMAL  n;
 
-
+	#
 	fun queue_element_to_string (ERROR_CHECK       (n, _)) => "  ERROR_CHECK seqn=="    + (seqn_to_string n);
 	    queue_element_to_string (ONE_REPLY         (n, _)) => "  ONE_REPLY seqn=="      + (seqn_to_string n);
 	    queue_element_to_string (MULTI_REPLY (n, _, _, _)) => "  MULTI_REPLY seqn=="    + (seqn_to_string n);
 	    queue_element_to_string (EXPOSURE_REPLY    (n, _)) => "  EXPOSURE_REPLY seqn==" + (seqn_to_string n);
 	end;
-
+	#
 	fun pending_reply_queue_to_string ([], [])
 		=>
 		"(pending reply queue is empty)";
@@ -193,7 +194,7 @@ herein
 		end;
 	end;
 #  -DEBUG 
-
+	#
 	fun seqn_of (ERROR_CHECK    (seqn, _      )) =>  seqn;
 	    seqn_of (ONE_REPLY      (seqn, _      )) =>  seqn;
 	    seqn_of (MULTI_REPLY    (seqn, _, _, _)) =>  seqn;
@@ -237,7 +238,7 @@ herein
 		();
 	    };
 
-
+	#
 	fun add_to_pending_reply_queue (pending_reply, (front, rear))
 	    =
 	    # { trace  .{ sprintf "xsocket::add_to_pending_reply_queue(%s)/TOP pending_reply_queue = %s" (queue_element_to_string pending_reply) (pending_reply_queue_to_string (front,rear)); }; result =
@@ -288,7 +289,7 @@ herein
 			put_in_oneshot  (sync_1shot,  fn () = raise exception LOST_REPLY);
 		end;
 
-
+		#
 		fun drop_outdated_pending_replies (q' as ([], []))
 			=>
 			{ found_it => FALSE, updated_queue => q' };
@@ -435,7 +436,7 @@ herein
 /* DEBUG */         };
 	    esac;
 
-
+	#
 	fun handle_event_message (n, pending_reply_queue)
 	    =
 	    case (get_pending_reply_n (n, pending_reply_queue))
@@ -466,8 +467,8 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (take_from_mailslot'  patronport  ==>  do_patronplea),
-			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			    (take_from_mailslot'      patronport  ==>  do_patronplea),
+			    (take_all_from_mailqueue' clientport  ==>  do_clientpleas)
 			];
 
 			loop ();
@@ -476,27 +477,97 @@ herein
 			fun shut_down_sequencer_imp' ()
 			    =
 			    thread_exit { success => TRUE };								# Will not return.	
-
+			#
 			fun do_patronplea  STOP
 			    =
 			    shut_down_sequencer_imp' ();								# Will not return.	
+			#
 
-			fun do_clientplea  (DO_SOMETHING i)
-			    =
-			    {   links.int_sink i;									# Demonstrate use of links.
-			    };
+			stipulate
+			    fun add_to_pending_reply_queue (pending_reply, (front, rear))
+				=
+				(front, pending_reply ! rear);
+
+#			    fun send_request_and_check (req, reply_mailslot)
+#				=
+#				{   n = *me.last_seqn_sent + 0u1;
+#
+#				    me.last_seqn_sent := n;
+#				    #
+#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
+#
+#				    m.pending_reply_queue :=  add_to_pending_reply_queue (ERROR_CHECK (n, reply_mailslot), *me.pending_reply_queue);
+#				};
+#
+#			    fun send_request_reply (req, reply_mailslot)
+#				=
+#				{   n = *me.last_seqn_sent + 0u1;
+#				    me.last_seqn_sent := n;
+#				    #
+#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
+#
+#				    me.pending_reply_queue :=  add_to_pending_reply_queue (ONE_REPLY (n, reply_mailslot), *me.pending_reply_queue);
+#				};
+#
+#			    fun send_request_replies (req, reply_mailslot, remain)
+#				=
+#				{   n = *me.last_seqn_sent + 0u1;
+#				    me.last_seqn_sent := n;
+#				    #
+#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
+#
+#				    me.pending_reply_queue :=  add_to_pending_reply_queue (MULTI_REPLY (n, reply_mailslot, remain, []), *me.pending_reply_queue);
+#				};
+#
+#			    fun send_request_exposures (req, sync_v)
+#				=
+#				{   n = *me.last_seqn_sent + 0u1;
+#				    me.last_seqn_sent := n;
+#				    #
+#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
+#
+#				    me.pending_reply_queue := add_to_pending_reply_queue (EXPOSURE_REPLY (n, sync_v), *me.pending_reply_queue);
+#				};
+
+			    fun do_clientplea  PLEA_QUIT               =   thread_exit { success => TRUE };							# Will not return.
+#				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
+#				do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
+#				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
+#				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
+#				#
+#				do_clientplea (PLEA request)
+#				    =>
+#				    {   put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF request);
+#					#
+#					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
+#				    };
+#
+#			    end;
+
+			herein
+			    # Handle requests from clients
+			    # (app threads on our side):
+			    # 
+			    fun do_clientpleas [] =>    ();
+				#
+				do_clientpleas pleas => {   apply  do_clientplea  pleas;
+							    #	
+#							    put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
+							};
+			    end;
+			end;
 		    end;												# fun loop
 	    end;													# fun run
 	
 	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configport =  make_mailslot  ()				:  Configport;
-		patronport =  make_mailslot  ()				:  Patronport;
+	    {   configport =  make_mailslot  ()					:  Configport;
+		patronport =  make_mailslot  ()					:  Patronport;
 		clientport =  make_mailqueue (get_current_microthread())	:  Clientport;
 
 		to         =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sample_ximp().
+		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sequencer_ximp().
 
 		(take_from_mailslot  configport)									# Input args from configure_sequencer_imp().
 		    ->
@@ -510,10 +581,15 @@ herein
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_sequencer_ximp_state ()											# External entrypoint.
-	    =
-	    REF ();
-
+	fun make_sequencer_ximp_state ()										# External entrypoint.
+	  =
+	  { last_seqn_read	=>  REF 0u0,
+	    last_seqn_sent	=>  REF 0u0,
+	    pending_reply_queue	=>  REF { front =>  [],
+					   rear =>  []
+				        }
+	  };
+	#
 	fun make_sequencer_ximp  (name: String)										# External entrypoint.
 	    =
 	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
@@ -522,11 +598,11 @@ herein
 
 		get_from_oneshot  reply_oneshot;
 	    };
-
-	fun do_something (mailqueue: Clientport,  i: Int)								# External entrypoint.
-	    =	
-	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
-
+	#
+#	fun do_something (mailqueue: Clientport,  i: Int)								# External entrypoint.
+#	    =	
+#	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
+	#
 	fun configure_sequencer_ximp											# External entrypoint.
 	      (
 		configport:	Configport,
@@ -536,7 +612,7 @@ herein
 	      )
 	    =
 	    put_in_mailslot  (configport, { me, links, starting_gun' });
-
+	#
 	fun shut_down_sequencer_ximp  (patronport: Patronport)								# External entrypoint.
 	    =
 	    put_in_mailslot  (patronport,  STOP);

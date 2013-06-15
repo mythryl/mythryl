@@ -1,0 +1,217 @@
+## xevent-reader-ximp.pkg
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xsession.pkg
+#
+# X event buffer imp.
+#
+# Here we decode and buffer X events
+# from the X-server -- keystrokes,
+# mouseclicks, mouse-motions etc.
+#
+# We also pack expose events.
+# 
+# We communicate via two mailslots as follows:
+# 
+#   from_sequencer_mailslot      --  raw messages from the sequencer_imp
+#   to_widget_mailslot           --  decoded events headed for the appropriate widget.
+#
+# X events that we send to 'to_widget_mailslot' get routed by
+#     xsocket_to_topwindow
+# from
+#     src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router.pkg
+#
+# to the correct topwindow, where they get routed on down that window's widget-tree by
+#     topwindow_to_widget_router
+# from
+#     src/lib/x-kit/xclient/src/window/topwindow-to-widget-router.pkg
+#
+# This machinery mostly gets wired up in display and xsession from (respectively)
+#
+#     src/lib/x-kit/xclient/src/wire/display.pkg
+#     src/lib/x-kit/xclient/src/window/xsession.pkg
+# 
+# -- see the dataflow diagram in top-of-file comments there.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;					# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    #
+    package et  =  event_types;				# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+    package un  =  unt;					# unt					is from   src/lib/std/unt.pkg
+    package v1u =  vector_of_one_byte_unts;		# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package w2v =  wire_to_value;			# wire_to_value				is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package xg  =  xgeometry;				# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;				# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    package   xevent_reader_ximp
+    : (weak)  Xevent_Reader_Ximp			# Xevent_Reader_Ximp			is from   src/lib/x-kit/xclient/src/wire/xevent-reader-ximp.api
+    {
+
+	Starting_Gun = Mailop(Void);			# Purely for readability.
+
+	# Client pleas to xevent_reader:
+	#
+	Clientplea					# 'Plea_Mail' in xsocket.pkg
+	  = PLEA_QUIT
+	  ;
+
+
+	Xevent_Reader_Ximp_State			# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
+	    =
+	    Ref { front:    List( et::x::Event ),
+		  rear:	    List( et::x::Event )
+		};
+
+	Links = { int_sink: Int -> Void };
+
+	Configport = Mailslot( {  links: Links,  me: Xevent_Reader_Ximp_State,  starting_gun': Starting_Gun  } );
+
+	Patronplea  =   STOP
+		    ;
+	Patronport  = Mailslot( Patronplea );
+
+
+	Clientport  = Mailqueue( Clientplea );
+
+
+	Ports	= { configport:  Configport,
+		    clientport:  Clientport,
+		    patronport:  Patronport
+		  };
+
+
+
+
+
+	
+	fun run { me:			Xevent_Reader_Ximp_State,							# These four values will be statically globally visible
+		  patronport:		Patronport,									# throughout the code body for the imp.
+		  clientport:		Clientport,
+		  links:		Links,
+		  to:			Replyqueue(Void)								# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (take_from_mailslot'  patronport  ==>  do_patronplea),
+			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_xevent_reader_imp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+			#
+			fun do_patronplea  STOP
+			    =
+			    shut_down_xevent_reader_imp' ();								# Will not return.	
+			#
+
+			fun do_clientplea PLEA_QUIT
+			        =
+			        thread_exit { success => TRUE };							# Will not return.	
+#			end;
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configport =  make_mailslot  ()					:  Configport;
+		patronport =  make_mailslot  ()					:  Patronport;
+		clientport =  make_mailqueue (get_current_microthread())	:  Clientport;
+
+		to         =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_xevent_reader_ximp().
+
+		(take_from_mailslot  configport)									# Input args from configure_xevent_reader_imp().
+		    ->
+		    { me, links, starting_gun' };
+
+		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
+
+		run { me, patronport, clientport, links, to };								# Will not return.
+	    };
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_xevent_reader_ximp_state ()										# External entrypoint.
+	    =
+	    REF { front =>  []:   List( et::x::Event ),
+		  rear  =>  []:   List( et::x::Event )
+	        };
+	#
+	fun make_xevent_reader_ximp  (name: String)									# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Ports );
+		#
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+
+		get_from_oneshot  reply_oneshot;
+	    };
+	#
+#	fun do_something (mailqueue: Clientport,  i: Int)								# External entrypoint.
+#	    =	
+#	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
+	#
+	fun configure_xevent_reader_ximp										# External entrypoint.
+	      (
+		configport:	Configport,
+		me:		Xevent_Reader_Ximp_State,
+		links:		Links,
+		starting_gun':	Starting_Gun
+	      )
+	    =
+	    put_in_mailslot  (configport, { me, links, starting_gun' });
+	#
+	fun shut_down_xevent_reader_ximp  (patronport: Patronport)							# External entrypoint.
+	    =
+	    put_in_mailslot  (patronport,  STOP);
+
+    };						# package xevent_reader_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.

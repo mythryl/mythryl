@@ -22,6 +22,8 @@ herein
     package   binarytree_ximp
     : (weak)  Binarytree_Ximp												# Binarytree_Ximp			is from   src/lib/x-kit/xclient/src/wire/binarytree-ximp.api
     {
+	include binarytree_ximp_clientport;										# binarytree_ximp_clientport		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/binarytree-ximp-clientport.pkg
+
 	Starting_Gun = Mailop(Void);											# Purely for readability.
 	#
 	Binarytree_Ximp_State = Ref( Int );										# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
@@ -34,7 +36,7 @@ herein
 	Clientplea  =  SET_STATE Int
 		    |  PASS_SUBTREE_SUM Oneshot_Maildrop( Int )
 		    ;
-	Clientport = Mailqueue( Clientplea );
+	Clientq     = Mailqueue( Clientplea );
 
 	Links = {  leftkid:  Null_Or(Clientport),
                   rightkid:  Null_Or(Clientport)
@@ -52,30 +54,9 @@ herein
 		  };
 
 
-	fun pass_subtree_sum  (mailqueue: Clientport)  (replyqueue: Replyqueue(Void))  (reply_handler: Int -> Void)	# External entrypoint.
-	    =
-	    {
-		reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-		#
-		put_in_mailqueue  (mailqueue, PASS_SUBTREE_SUM reply_oneshot);
-
-		put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
-	    };
-
-	fun get_subtree_sum  (mailqueue: Clientport)									# External entrypoint.
-	    =
-	    {
-		reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-		#
-		put_in_mailqueue  (mailqueue, PASS_SUBTREE_SUM reply_oneshot);
-
-		get_from_oneshot reply_oneshot;
-	    };
-
-
 	fun run {   me:			Binarytree_Ximp_State,								# These four values will be statically globally visible
 		    patronport:		Patronport,									# throughout the code body for the imp.
-		    clientport:		Clientport,
+		    clientq:		Clientq,
 		    links:		Links,
 		    to:			Replyqueue(Void)								# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
 		}
@@ -87,7 +68,7 @@ herein
 		    {   do_one_mailop' to [
 			    #
 			    (take_from_mailslot'  patronport  ==>  do_patronplea),
-			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			    (take_from_mailqueue' clientq     ==>  do_clientplea)
 			];
 
 			loop ();
@@ -111,13 +92,13 @@ herein
 				=>
 				case links.leftkid
 				    #
-				    THE leftkid =>  pass_subtree_sum(leftkid) to .{
+				    THE leftkid =>  leftkid.pass_subtree_sum to .{
 							#
 							sum =  *me  +  #subtree_sum;
 
 							case links.rightkid
 							    #
-							    THE rightkid => pass_subtree_sum(rightkid) to .{
+							    THE rightkid => rightkid.pass_subtree_sum to .{
 										#
 										put_in_oneshot (reply_oneshot, sum + #subtree_sum);
 									    };
@@ -129,7 +110,7 @@ herein
 
 				    NULL    =>  case links.rightkid
 						    #
-						    THE rightkid => pass_subtree_sum(rightkid) to .{
+						    THE rightkid => rightkid.pass_subtree_sum to .{
 									#
 									put_in_oneshot (reply_oneshot, *me + #subtree_sum);
 								    };
@@ -147,7 +128,8 @@ herein
 	    =
 	    {   configport =  make_mailslot  ()					:  Configport;
 		patronport =  make_mailslot  ()					:  Patronport;
-		clientport =  make_mailqueue (get_current_microthread())	:  Clientport;
+
+		clientport  = { set_state, pass_subtree_sum, get_subtree_sum };
 
 		to         =  make_replyqueue();
 
@@ -159,8 +141,35 @@ herein
 
 		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
 
-		run { me, patronport, clientport, links, to };								# Will not return.
-	    };
+		run { me, patronport, clientq, links, to };								# Will not return.
+	    }
+	    where
+		clientq =  make_mailqueue (get_current_microthread())	:  Clientq;
+
+		fun set_state (i: Int)											# External entrypoint.
+		    =	
+		    put_in_mailqueue  (clientq, SET_STATE i);
+
+
+		fun pass_subtree_sum  (replyqueue: Replyqueue(Void))  (reply_handler: Int -> Void)			# External entrypoint.
+		    =
+		    {
+			reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (clientq, PASS_SUBTREE_SUM reply_oneshot);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+		fun get_subtree_sum  ()											# External entrypoint.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (clientq, PASS_SUBTREE_SUM reply_oneshot);
+
+			get_from_oneshot reply_oneshot;
+		    };
+	    end;
 
 
         ##########################################################################################
@@ -188,10 +197,6 @@ herein
 	      )
 	    =
 	    put_in_mailslot  (configport, { me, links, starting_gun' });
-
-	fun set_state (args as (mailqueue: Clientport,  i: Int))							# External entrypoint.
-	    =	
-	    put_in_mailqueue  (mailqueue, SET_STATE i);
 
 
 	fun shut_down_binarytree_ximp  (patronport: Patronport)								# External entrypoint.

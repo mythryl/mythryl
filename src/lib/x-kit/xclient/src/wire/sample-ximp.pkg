@@ -22,8 +22,10 @@ herein
     package   sample_ximp
     : (weak)  Sample_Ximp												# Sample_Ximp				is from   src/lib/x-kit/xclient/src/wire/sample-ximp.api
     {
-	Starting_Gun = Mailop(Void);											# Purely for readability.
+	include sample_ximp_clientport;											# sample_ximp_clientport		is from   src/lib/x-kit/xclient/src/wire/sample-ximp-clientport.pkg
 	#
+	Starting_Gun = Mailop(Void);											# Purely for readability.
+
 	Sample_Ximp_State = Ref( Void );										# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
 
 	Links = { int_sink: Int -> Void };
@@ -38,7 +40,7 @@ herein
 	Clientplea  =  DO_SOMETHING Int
 		    |  PASS_SOMETHING Oneshot_Maildrop( Int )
 		    ;
-	Clientport = Mailqueue( Clientplea );
+	Clientq     = Mailqueue( Clientplea );
 
 
 	Ports	= { configport:		Configport,
@@ -49,7 +51,7 @@ herein
 
 	fun run {   me:			Sample_Ximp_State,								# These four values will be statically globally visible
 		    patronport:		Patronport,									# throughout the code body for the imp.
-		    clientport:		Clientport,
+		    clientq:		Clientq,
 		    links:		Links,
 		    to:			Replyqueue(Void)								# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
 		}
@@ -61,7 +63,7 @@ herein
 		    {   do_one_mailop' to [
 			    #
 			    (take_from_mailslot'  patronport  ==>  do_patronplea),
-			    (take_from_mailqueue' clientport  ==>  do_clientplea)
+			    (take_from_mailqueue' clientq     ==>  do_clientplea)
 			];
 
 			loop ();
@@ -94,12 +96,13 @@ herein
 
 	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configport =  make_mailslot  ()				:  Configport;
-		patronport =  make_mailslot  ()				:  Patronport;
-		clientport =  make_mailqueue (get_current_microthread())	:  Clientport;
+	    {   configport  =  make_mailslot  ()	:  Configport;
+		patronport  =  make_mailslot  ()	:  Patronport;
 
-		to         =  make_replyqueue();
+		clientport  = { do_something, pass_something };
 
+		to          =  make_replyqueue();
+		#
 		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sample_ximp().
 
 		(take_from_mailslot  configport)									# Input args from configure_sample_ximp().
@@ -108,8 +111,26 @@ herein
 
 		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
 
-		run { me, patronport, clientport, links, to };								# Will not return.
-	    };
+		run { me, patronport, clientq, links, to };								# Will not return.
+	    }
+	    where
+		clientq     =  make_mailqueue (get_current_microthread()):  Clientq;
+
+		fun do_something (i: Int)										# External entrypoint.
+		    =	
+		    put_in_mailqueue  (clientq, DO_SOMETHING i);
+
+
+		fun pass_something  (replyqueue: Replyqueue(Void))  (reply_handler: Int -> Void)			# External entrypoint.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (clientq, PASS_SOMETHING reply_oneshot);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+	    end;
+
 
         ##########################################################################################
 	# External entrypoints
@@ -125,20 +146,6 @@ herein
 		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
 
 		get_from_oneshot  reply_oneshot;
-	    };
-
-	fun do_something (args as (mailqueue: Clientport,  i: Int))							# External entrypoint.
-	    =	
-	    put_in_mailqueue  (mailqueue, DO_SOMETHING i);
-
-
-	fun pass_something  (mailqueue: Clientport)  (replyqueue: Replyqueue(Void))  (reply_handler: Int -> Void)	# External entrypoint.
-	    =
-	    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-		#
-		put_in_mailqueue  (mailqueue, PASS_SOMETHING reply_oneshot);
-
-		put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 	    };
 
 	fun configure_sample_ximp											# External entrypoint.
