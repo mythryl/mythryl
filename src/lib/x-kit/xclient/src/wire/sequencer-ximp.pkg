@@ -39,35 +39,42 @@
 
 
 stipulate
-    include threadkit;					# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    include threadkit;						# threadkit					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
     #
     #
-    package un  =  unt;					# unt					is from   src/lib/std/unt.pkg
-    package v1u =  vector_of_one_byte_unts;		# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
-    package w2v =  wire_to_value;			# wire_to_value				is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
-    package xg  =  xgeometry;				# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
-    package xtr =  xlogger;				# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    package un  =  unt;						# unt						is from   src/lib/std/unt.pkg
+    package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package w2v =  wire_to_value;				# wire_to_value					is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package xg  =  xgeometry;					# xgeometry					is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;					# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+
+    package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.api
+    package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.api
+    package xms =  xmsg_sink;					# xmsg_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-sink.pkg
+
     #
-    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+    trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
 herein
 
 
     package   sequencer_ximp
-    : (weak)  Sequencer_Ximp				# Sequencer_Ximp			is from   src/lib/x-kit/xclient/src/wire/sequencer-ximp.api
+    : (weak)  Sequencer_Ximp					# Sequencer_Ximp				is from   src/lib/x-kit/xclient/src/wire/sequencer-ximp.api
     {
-	include sequencer_ximp_clientport;		# sequencer_ximp_clientport		is from   src/lib/x-kit/xclient/src/wire/sequencer-ximp-clientport.pkg
 
 	exception LOST_REPLY;
 	exception ERROR_REPLY  xerrors::Xerror;
 
-	Starting_Gun = Mailop(Void);			# Purely for readability.
+	Starting_Gun = Mailop(Void);				# Purely for readability.
 
 	max_bytes_per_socket_write = 2048;
 
+	Xmsg_Plea =  XPLEA_NOTE_XMSG  xms::Xmsg;
+
 	# Client pleas to sequencer:
 	#
-	Clientplea					# 'Plea_Mail' in xsocket.pkg
+	Sequencer_Plea						# 'Plea_Mail' in xsocket.pkg
 	  = PLEA_DO_SOMETHING Int
+#	  = PLEA_QUIT
 #	  | PLEA_FLUSH
 #	  | PLEA             v1u::Vector
 #	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
@@ -119,21 +126,26 @@ herein
 				       }
 	    };
 
-	Links = { int_sink: Int -> Void };
+	Links = { outbuf_port:  op::Outbuf_Port };
 
-	Configport = Mailslot( {  links: Links,  me: Sequencer_Ximp_State,  starting_gun': Starting_Gun  } );
+	Configport = Mailslot( {  links:		Links,
+                                  me:			Sequencer_Ximp_State,
+				  starting_gun':	Starting_Gun 
+				}
+			     );
 
 	Patronplea  =   STOP
 		    ;
 	Patronport  = Mailslot( Patronplea );
 
 
-	Clientq     = Mailqueue( Clientplea );
+	Sequencer_Q      = Mailqueue( Sequencer_Plea );
+	Xmsg_Q  = Mailqueue( Xmsg_Plea );
 
-
-	Ports	= { configport:  Configport,
-		    clientport:  Clientport,
-		    patronport:  Patronport
+	Ports	= { configport:		Configport,
+		    patronport:		Patronport,
+		    xmsg_sink:		xms::Xmsg_Sink,						# From xserver via inbuf.
+		    sequencer_port:	sp::Sequencer_Port					# Requests from widget/application code.
 		  };
 
 
@@ -166,7 +178,7 @@ herein
 	#
 	fun bytes_to_ascii  bytes
 	    =
-	    string_to_ascii (byte::unpack_string_vector(vector_slice_of_one_byte_unts::make_slice (bytes, 0, NULL)));
+	    string_to_ascii (byte::unpack_string_vector (vector_slice_of_one_byte_unts::make_slice (bytes, 0, NULL)));
 
 
 
@@ -458,7 +470,8 @@ herein
 	
 	fun run { me:			Sequencer_Ximp_State,								# These four values will be statically globally visible
 		  patronport:		Patronport,									# throughout the code body for the imp.
-		  clientq:		Clientq,
+		  xmsg_q:		Xmsg_Q,
+		  sequencer_q:		Sequencer_Q,
 		  links:		Links,
 		  to:			Replyqueue(Void)								# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
 		}
@@ -469,8 +482,9 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (take_from_mailslot'      patronport  ==>  do_patronplea),
-			    (take_all_from_mailqueue' clientq     ==>  do_clientpleas)
+			    (take_from_mailslot'      patronport    ==>  do_patronplea),
+			    (take_all_from_mailqueue' sequencer_q   ==>  do_sequencer_pleas),
+			    (take_from_mailqueue'     xmsg_q  	    ==>  do_xmsg_plea)
 			];
 
 			loop ();
@@ -547,15 +561,21 @@ herein
 #			    end;
 
 			herein
+			    fun do_xmsg_plea (XPLEA_NOTE_XMSG xmsg)
+				=
+				();
+
 			    # Handle requests from clients
 			    # (app threads on our side):
 			    # 
-			    fun do_clientpleas [] =>    ();
+			    fun do_sequencer_pleas  [] =>    ();
 				#
-				do_clientpleas pleas => {   apply  do_clientplea  pleas;
-							    #	
-#							    put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
-							};
+				do_sequencer_pleas  pleas
+				    =>
+				    {   apply  do_clientplea  pleas;
+					#	
+				#       put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
+				    };
 			    end;
 			end;
 		    end;												# fun loop
@@ -563,14 +583,15 @@ herein
 	
 	fun startup   (reply_oneshot:  Oneshot_Maildrop( Ports ))   ()							# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configport =  make_mailslot  ()					:  Configport;
-		patronport =  make_mailslot  ()					:  Patronport;
+	    {   configport     =  make_mailslot  ()	:  Configport;
+		patronport     =  make_mailslot  ()	:  Patronport;
 
-		clientport  = { do_something };
+		xmsg_sink      =  { note_xmsg };
+		sequencer_port =  { do_something };
 
-		to         =  make_replyqueue();
+		to             =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, { configport, patronport, clientport });					# Return value from make_sequencer_ximp().
+		put_in_oneshot (reply_oneshot, { configport, patronport, xmsg_sink, sequencer_port });			# Return value from make_sequencer_ximp().
 
 		(take_from_mailslot  configport)									# Input args from configure_sequencer_imp().
 		    ->
@@ -578,14 +599,19 @@ herein
 
 		block_until_mailop_fires  starting_gun';								# Wait for the starting gun.
 
-		run { me, patronport, clientq, links, to };								# Will not return.
+		run { me, patronport, xmsg_q, sequencer_q, links, to };							# Will not return.
 	    }
 	    where
-		clientq =  make_mailqueue (get_current_microthread())	:  Clientq;
+		xmsg_q       =  make_mailqueue (get_current_microthread())	:  Xmsg_Q;
+		sequencer_q  =  make_mailqueue (get_current_microthread())	:  Sequencer_Q;
 
 		fun do_something (i: Int)										# External entrypoint.
 		    =	
-		    put_in_mailqueue  (clientq, PLEA_DO_SOMETHING i);
+		    put_in_mailqueue  (sequencer_q, PLEA_DO_SOMETHING i);
+
+		fun note_xmsg (xmsg: xms::Xmsg)										# External entrypoint.
+		    =	
+		    put_in_mailqueue  (xmsg_q, XPLEA_NOTE_XMSG xmsg);
 	    end;
 
         ##########################################################################################
