@@ -76,10 +76,10 @@ herein
 	Sequencer_Plea						# 'Plea_Mail' in xsocket.pkg
 	  = PLEA_DO_SOMETHING Int
 	  | PLEA             v1u::Vector
+	  | PLEA_REPLY      (v1u::Vector, Mailslot(Reply_Mail))
 #	  = PLEA_QUIT
 #	  | PLEA_FLUSH
 #	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
-#	  | PLEA_REPLY      (v1u::Vector, Mailslot(Reply_Mail))
 #	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
 #	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
 
@@ -123,8 +123,8 @@ herein
 	    { last_seqn_read: Ref(Unt),
               last_seqn_sent: Ref(Unt),
 	      #	
-	      pending_reply_queue: Ref {   front:    List( Pending_Reply ),
-					    rear:    List( Pending_Reply )
+	      pending_reply_queue:     {   front:    Ref( List( Pending_Reply ) ),
+					    rear:    Ref( List( Pending_Reply ) )
 				       }
 	    };
 
@@ -250,16 +250,6 @@ herein
 
 		();
 	    };
-
-	#
-	fun add_to_pending_reply_queue (pending_reply, (front, rear))
-	    =
-	    # { trace  .{ sprintf "xsocket::add_to_pending_reply_queue(%s)/TOP pending_reply_queue = %s" (queue_element_to_string pending_reply) (pending_reply_queue_to_string (front,rear)); }; result =
-
-	    (front, pending_reply ! rear);
-
-	    # trace  .{ sprintf "xsocket::add_to_pending_reply_queue(%s)/BOT pending_reply_queue = %s" (queue_element_to_string pending_reply) (pending_reply_queue_to_string result); }; result;
-	    # };
 
 
 
@@ -495,10 +485,24 @@ herein
 			#
 
 			stipulate
-			    fun add_to_pending_reply_queue (pending_reply, (front, rear))
+			    fun add_to_pending_reply_queue  pending_reply
 				=
-				(front, pending_reply ! rear);
+				{   me.pending_reply_queue -> { front, rear };
+				    #
+				    rear :=  pending_reply ! *rear;
+				};
+			    #
+			    fun send_request_reply (request, reply_mailslot)
+				=
+				{   n = *me.last_seqn_sent + 0u1;
+				    me.last_seqn_sent := n;
 
+				    outports.outbuf_port.send_bytes  request;
+
+				    add_to_pending_reply_queue (ONE_REPLY (n, reply_mailslot));
+				};
+
+			    #
 #			    fun send_request_and_check (req, reply_mailslot)
 #				=
 #				{   n = *me.last_seqn_sent + 0u1;
@@ -508,16 +512,6 @@ herein
 #				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
 #
 #				    m.pending_reply_queue :=  add_to_pending_reply_queue (ERROR_CHECK (n, reply_mailslot), *me.pending_reply_queue);
-#				};
-#
-#			    fun send_request_reply (req, reply_mailslot)
-#				=
-#				{   n = *me.last_seqn_sent + 0u1;
-#				    me.last_seqn_sent := n;
-#				    #
-#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
-#
-#				    me.pending_reply_queue :=  add_to_pending_reply_queue (ONE_REPLY (n, reply_mailslot), *me.pending_reply_queue);
 #				};
 #
 #			    fun send_request_replies (req, reply_mailslot, remain)
@@ -539,13 +533,14 @@ herein
 #
 #				    me.pending_reply_queue := add_to_pending_reply_queue (EXPOSURE_REPLY (n, sync_v), *me.pending_reply_queue);
 #				};
-
+			    #
 			    fun do_clientplea (PLEA_DO_SOMETHING i)
 				    =>
 				    ();
 
+				do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
+
 #				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
-#				do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
 #				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
 #				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
 #				#
@@ -558,7 +553,7 @@ herein
 			    end;
 
 			herein
-			    fun do_xmsg_plea (XPLEA_NOTE_XMSG xmsg)
+			    fun do_xmsg_plea (XPLEA_NOTE_XMSG (xmsg as { code: v1u::Element,  msg: v1u::Vector }))
 				=
 				();
 
@@ -583,7 +578,11 @@ herein
 	    {   configport     =  make_mailslot  ()	:  Configport;
 
 		xmsg_sink      =  { note_xmsg };
-		sequencer_port =  { do_something, send_xrequest };
+
+		sequencer_port =  { do_something,
+				    send_xrequest,
+				    send_xrequest_and_read_reply
+				  };
 
 		to             =  make_replyqueue();
 
@@ -601,16 +600,42 @@ herein
 		xmsg_q       =  make_mailqueue (get_current_microthread())	:  Xmsg_Q;
 		sequencer_q  =  make_mailqueue (get_current_microthread())	:  Sequencer_Q;
 
-		fun send_xrequest (s: v1u::Vector)
+		# Reply handling in the Client-thread context.
+		#
+		# Most processing happens in our own microthread,
+		# but any client-relevant exception
+		# needs to be raised in the context of the
+		# calling client thread.  That is our job here:
+		#
+		fun unwrap_reply  REPLY_LOST     =>  raise exception LOST_REPLY;
+		    unwrap_reply (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
+		    unwrap_reply (REPLY s)       =>  s;
+		end;
+		#
+		fun send_xrequest  (s: v1u::Vector)
 		    =
 		    {
 			put_in_mailqueue (sequencer_q, PLEA s);
 		    };
 
+		# This is a workhorse call,
+		# request-with-single-reply:
+		# 
+		fun send_xrequest_and_read_reply  (s: v1u::Vector)
+		    =
+		    {   reply_mailslot = make_mailslot ();
+			#
+			put_in_mailqueue (sequencer_q, PLEA_REPLY (s, reply_mailslot));
+
+			take_from_mailslot'  reply_mailslot
+			    ==>
+			    unwrap_reply;
+		    };
+		#
 		fun do_something (i: Int)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (sequencer_q, PLEA_DO_SOMETHING i);
-
+		#
 		fun note_xmsg (xmsg: xms::Xmsg)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (xmsg_q, XPLEA_NOTE_XMSG xmsg);
@@ -623,9 +648,9 @@ herein
 	  =
 	  { last_seqn_read	=>  REF 0u0,
 	    last_seqn_sent	=>  REF 0u0,
-	    pending_reply_queue	=>  REF { front =>  [],
-					   rear =>  []
-				        }
+	    pending_reply_queue	=>  { front =>  REF [],
+				      rear  =>  REF []
+				    }
 	  };
 	#
 	fun make_sequencer_ximp  (name: String)										# External entrypoint.
