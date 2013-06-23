@@ -52,6 +52,8 @@ stipulate
     package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.api
     package xes =  xerror_sink;					# xerror_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-error.pkg
     package xms =  xmsg_sink;					# xmsg_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-sink.pkg
+    package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
 
     #
     trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
@@ -76,7 +78,7 @@ herein
 	#
 	Sequencer_Plea						# 'Plea_Mail' in xsocket.pkg
 	  = PLEA             v1u::Vector
-	  | PLEA_REPLY      (v1u::Vector, Mailslot(Reply_Mail))
+	  | PLEA_REPLY      (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
 #	  = PLEA_QUIT
 #	  | PLEA_FLUSH
 #	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
@@ -96,10 +98,10 @@ herein
 
 
 
-	Pending_Reply = ONE_REPLY       (un::Unt, Mailslot( Reply_Mail ))
+	Pending_Reply = ONE_REPLY       (un::Unt, Oneshot_Maildrop( Reply_Mail ))
 		      | EXPOSURE_REPLY  (un::Unt, Oneshot_Maildrop( Void -> List( xg::Box ) ))
-		      | ERROR_CHECK     (un::Unt, Mailslot( Reply_Mail ))
-		      | MULTI_REPLY     (un::Unt, Mailslot( Reply_Mail ), (v1u::Vector -> Int), List( v1u::Vector ))
+		      | ERROR_CHECK     (un::Unt, Oneshot_Maildrop( Reply_Mail ))
+#		      | MULTI_REPLY     (un::Unt, Oneshot_Maildrop( Reply_Mail ), (v1u::Vector -> Int), List( v1u::Vector ))
 		      ;
 	    #
 	    # Above gives the kind of reply that is
@@ -123,12 +125,13 @@ herein
 	    { last_seqn_read: Ref(Unt),
               last_seqn_sent: Ref(Unt),
 	      #	
-	      pending_reply_queue:     {   front:    Ref( List( Pending_Reply ) ),
-					    rear:    Ref( List( Pending_Reply ) )
+	      pending_reply_queue: Ref {   front:    List( Pending_Reply ),
+					    rear:    List( Pending_Reply )
 				       }
 	    };
 
 	Outports  = { outbuf_port:		op::Outbuf_Port,
+		      xmsg_sink:		xms::Xmsg_Sink,					# Forwards xmsgs to xevent_reader_ximp from   src/lib/x-kit/xclient/src/wire/xevent-reader-ximp.pkg
 		      xerror_sink:		xes::Xerror_Sink				# Sends errors to err_handler() in  src/lib/x-kit/xclient/src/wire/display.pkg  via  read_xerror() in  src/lib/x-kit/xclient/src/wire/xsocket.pkg
 		    };
 
@@ -189,17 +192,17 @@ herein
 	#
 	fun queue_element_to_string (ERROR_CHECK       (n, _)) => "  ERROR_CHECK seqn=="    + (seqn_to_string n);
 	    queue_element_to_string (ONE_REPLY         (n, _)) => "  ONE_REPLY seqn=="      + (seqn_to_string n);
-	    queue_element_to_string (MULTI_REPLY (n, _, _, _)) => "  MULTI_REPLY seqn=="    + (seqn_to_string n);
+#	    queue_element_to_string (MULTI_REPLY (n, _, _, _)) => "  MULTI_REPLY seqn=="    + (seqn_to_string n);
 	    queue_element_to_string (EXPOSURE_REPLY    (n, _)) => "  EXPOSURE_REPLY seqn==" + (seqn_to_string n);
 	end;
 	#
-	fun pending_reply_queue_to_string ([], [])
+	fun pending_reply_queue_to_string { front => [], rear => [] }
 		=>
 		"(pending reply queue is empty)";
 
-	    pending_reply_queue_to_string (front, rear)
+	    pending_reply_queue_to_string { front, rear }
 		=>
-		"(" + (cat (queue_to_strings (front @ (reverse rear), []))) + ")"
+		"{" + (cat (queue_to_strings (front @ (reverse rear), []))) + "}"
 		where
 		    fun queue_to_strings ([], l)    =>  reverse l;
 			queue_to_strings (x ! r, l) =>  queue_to_strings (r, ((queue_element_to_string x) + ";  ") ! l);
@@ -210,46 +213,29 @@ herein
 	#
 	fun seqn_of (ERROR_CHECK    (seqn, _      )) =>  seqn;
 	    seqn_of (ONE_REPLY      (seqn, _      )) =>  seqn;
-	    seqn_of (MULTI_REPLY    (seqn, _, _, _)) =>  seqn;
+#	    seqn_of (MULTI_REPLY    (seqn, _, _, _)) =>  seqn;
 	    seqn_of (EXPOSURE_REPLY (seqn, _      )) =>  seqn;
 	end;
 
-	# Spawn throw-away thread to deliver
-	# X server reply to requesting client
-	# application thread.  This avoids
-	# blocking our own thread until the
-	# the client thread is ready:
-	# 
-	fun send_reply  arg
-	    =
-	    {   make_thread  "xsocket reply"  .{  put_in_mailslot arg;  };
-		#
-		();
-	    };
 
 	# Spawn throw-away thread to deliver
 	# multiple X server replies.  This is
 	# to handle the currently-unused MULTI_REPLY:
 	#
-	fun send_replies (slot, replies)
-	    =
-	    {   fun loop [] =>  ();
-		    #
-		    loop (s ! rest)
-			=>
-			{   put_in_mailslot (slot, REPLY s);
-			    #
-			    loop rest;
-			};
-		end;
-
-		make_thread "xsocket replies"  .{
-		    #
-		    loop (reverse replies);
-		};
-
-		();
-	    };
+#	fun send_replies (slot, replies)
+#	    =
+#	    loop (reverse replies)
+#	    where	
+#	        fun loop [] =>  ();
+#		    #
+#		    loop (s ! rest)
+#			=>
+#			{   put_in_mailslot (slot, REPLY s);
+#			    #
+#			    loop rest;
+#			};
+#		end;
+#	    end;
 
 
 
@@ -279,37 +265,37 @@ herein
 	#	
 	fun get_pending_reply_n (n, q)
 	    =
-	    drop_outdated_pending_replies q
+	    handle_lost_replies  q
 	    where
-		fun drop_outdated_reply (ERROR_CHECK(_, slot)) =>  send_reply (slot, REPLY empty_v);
-		    drop_outdated_reply (ONE_REPLY  (_, slot)) =>  send_reply (slot, REPLY_LOST);
+		fun handle_lost_reply (ERROR_CHECK(_, oneshot)) =>  put_in_oneshot (oneshot, REPLY empty_v);
+		    handle_lost_reply (ONE_REPLY  (_, oneshot)) =>  put_in_oneshot (oneshot, REPLY_LOST);
 
-		    drop_outdated_reply (MULTI_REPLY(_, slot, _, []     )) =>  send_reply   (slot, REPLY_LOST);
-		    drop_outdated_reply (MULTI_REPLY(_, slot, _, replies)) =>  send_replies (slot, replies);
+#		    handle_lost_reply (MULTI_REPLY(_, oneshot, _, []     )) =>  put_in_oneshot  (oneshot, REPLY_LOST);
+#		    handle_lost_reply (MULTI_REPLY(_, oneshot, _, replies)) =>  put_in_oneshot  (oneshot, replies);
 
-		    drop_outdated_reply (EXPOSURE_REPLY(_, sync_1shot))
+		    handle_lost_reply (EXPOSURE_REPLY(_, oneshot))
 			=>
-			put_in_oneshot  (sync_1shot,  fn () = raise exception LOST_REPLY);
+			put_in_oneshot  (oneshot,  fn () = raise exception LOST_REPLY);
 		end;
 
 		#
-		fun drop_outdated_pending_replies (q' as ([], []))
+		fun handle_lost_replies (q' as { front => [], rear => [] })
 			=>
 			{ found_it => FALSE, updated_queue => q' };
 
-		    drop_outdated_pending_replies ([], rear)
+		    handle_lost_replies { front => [], rear }
 			=>
-			drop_outdated_pending_replies (reverse rear, []);
+			handle_lost_replies { front => (reverse rear), rear => [] };
 
-		    drop_outdated_pending_replies (q' as ((pending_reply ! r), rear))
+		    handle_lost_replies  (q' as  { front => pending_reply ! rest,  rear })
 			=>
 			{   seqn =  seqn_of  pending_reply;
 			    #
 			    if (seqn < n)
 				#
-				drop_outdated_reply  pending_reply;
+				handle_lost_reply  pending_reply;
 				#
-				drop_outdated_pending_replies (r, rear);
+				handle_lost_replies  { front => rest,  rear };
 			    else
 				seqn > n  ??   { found_it => FALSE, updated_queue => q' }
 					  ::   { found_it => TRUE,  updated_queue => q' };
@@ -333,34 +319,36 @@ herein
 	    =
 	    case (get_pending_reply_n (seqn, pending_reply_queue))
 		#
-		{ found_it => TRUE,  updated_queue => (ONE_REPLY(_, slot) ! r, rear) }
+		{ found_it => TRUE,  updated_queue =>  { front => ONE_REPLY(_, oneshot) ! rest,  rear } }
 		    =>
-		    {   send_reply (slot, REPLY reply);
-			(r, rear);
+		    {   put_in_oneshot (oneshot, REPLY reply);
+			{ front => rest, rear };
 		    };
 
-		{ found_it => TRUE,  updated_queue => (MULTI_REPLY (seqn, slot, remaining, replies) ! rest, rear) }
-		    =>
-		    if (remaining reply  ==  0)
-			#
-			send_replies (slot, reply ! replies);
-			(rest, rear);
-		    else
-			( MULTI_REPLY (seqn, slot, remaining, reply ! replies) ! rest,
-			  rear
-			);
-		    fi;
-												    # xgripe	is from   src/lib/x-kit/xclient/src/stuff/xgripe.pkg
+#		{ found_it => TRUE,  updated_queue => { front => MULTI_REPLY (seqn, slot, remaining, replies) ! rest,  rear } }
+#		    =>
+#		    if (remaining reply  ==  0)
+#			#
+#			send_replies (slot, reply ! replies);
+#			(rest, rear);
+#		    else
+#			( MULTI_REPLY (seqn, slot, remaining, reply ! replies) ! rest,
+#			  rear
+#			);
+#		    fi;
+
 		_   => 
 		    {   # Debug support:
 			#	
-			trace  .{   sprintf "IMPOSSIBLE ERROR: xsocket::handle_reply_message(seqn==%s, reply x=%s (%d bytes)...): BOGUS PENDING REPLY QUEUE, queue =%s"
-					(seqn_to_string seqn)
-					(bytes_to_hex reply)
-					(v1u::length reply)
-					(pending_reply_queue_to_string pending_reply_queue);
-				};
-			xgripe::impossible (sprintf "XERROR: xsocket::handle_reply_message(seqn==%s,...): BOGUS PENDING REPLY QUEUE" (seqn_to_string seqn));
+			log::fatal
+			   .{   sprintf "IMPOSSIBLE ERROR: xsocket::handle_reply_message(seqn==%s, reply x=%s (%d bytes)...): BOGUS PENDING REPLY QUEUE, queue =%s"
+				    (seqn_to_string seqn)
+				    (bytes_to_hex reply)
+				    (v1u::length reply)
+				    (pending_reply_queue_to_string  pending_reply_queue);
+			    };									# Does not return
+
+			pending_reply_queue;							# Cannot execute -- just to pacify compiler typechecker.
 		    };
 	   esac;
 
@@ -368,17 +356,17 @@ herein
 	# Extract the pending-reply queue entry
 	# with seqence number n:
 	#
-	fun handle_expose_message (n, reply, pending_reply_queue)
+	fun handle_expose_event_train (n, reply, pending_reply_queue)
 	    =
 	    {
 		case (get_pending_reply_n (n, pending_reply_queue))
 		    #
 		    { found_it      =>  TRUE,
-		      updated_queue =>  (EXPOSURE_REPLY(_, sync_1shot) ! rest,  rear)
+		      updated_queue =>  { front => EXPOSURE_REPLY(_, oneshot) ! rest,  rear }
 		    }
-			=>  {   put_in_oneshot  (sync_1shot,  fn () = reply);
+			=>  {   put_in_oneshot  (oneshot,  fn () = reply);
 				#
-				(rest, rear);
+				{ front => rest, rear };
 			    };
 
 		    # For now, just drop it.
@@ -393,7 +381,7 @@ herein
 
 							    # +DEBUG 
 							    # (dumpPendingQ (n, q);
-							    #  xgripe::impossible "ERROR: xsocket::handle_expose_message: bogus pending reply queue]")
+							    #  xgripe::impossible "ERROR: xsocket::handle_expose_event_train: bogus pending reply queue]")
 							    # -DEBUG
 	    };
 
@@ -405,28 +393,31 @@ herein
 	    = 
 	    case (get_pending_reply_n (n, pending_reply_queue))
 		#
-		{ found_it => TRUE,  updated_queue => (ERROR_CHECK(_, slot) ! rest,  rear) }
+		{ found_it => TRUE,  updated_queue => { front => ERROR_CHECK(_, oneshot) ! rest,  rear } }
 		    =>
-		    {   send_reply (slot, REPLY_ERROR err);
-			(rest, rear);
+		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
+			#
+			{ front => rest, rear };
 		    };
 
-		{ found_it => TRUE,  updated_queue => (ONE_REPLY(_, slot) ! rest,  rear) }
+		{ found_it => TRUE,  updated_queue => { front => ONE_REPLY(_, oneshot) ! rest,  rear } }
 		    =>
-		    {   send_reply (slot, REPLY_ERROR err);
-			(rest, rear);
+		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
+			#
+			{ front => rest, rear };
 		    };
 
-		{ found_it => TRUE,  updated_queue => (MULTI_REPLY(_, slot, _, _) ! rest, rear) }
-		    =>
-		    {   send_reply (slot, REPLY_ERROR err);
-			(rest, rear);
-		    };
+#		{ found_it => TRUE,  updated_queue => { front => MULTI_REPLY(_, oneshot, _, _) ! rest, rear } }
+#		    =>
+#		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
+#			{ front => rest, rear };
+#		    };
 
-		{ found_it => TRUE,  updated_queue => (EXPOSURE_REPLY(_, sync_1shot) ! rest, rear) }
+		{ found_it => TRUE,  updated_queue => { front => EXPOSURE_REPLY(_, oneshot) ! rest, rear } }
 		    =>
-		    {   put_in_oneshot  (sync_1shot,  fn () = raise exception ERROR_REPLY (w2v::decode_error err));
-			(rest, rear);
+		    {   put_in_oneshot  (oneshot,  fn () = raise exception ERROR_REPLY (w2v::decode_error err));
+			#
+			{ front => rest, rear };
 		    };
 
 		{ found_it => FALSE,  updated_queue => pending_reply_queue' }
@@ -444,10 +435,11 @@ herein
 	    =
 	    case (get_pending_reply_n (n, pending_reply_queue))
 		#
-		{ found_it => TRUE,  updated_queue => (ERROR_CHECK(_, slot) ! rest,  rear) }
+		{ found_it => TRUE,  updated_queue => { front => ERROR_CHECK(_, oneshot) ! rest,  rear } }
 		    =>
-		    {   send_reply (slot, REPLY empty_v);
-			(rest, rear);
+		    {   put_in_oneshot (oneshot, REPLY empty_v);
+			#
+			{ front => rest, rear };
 		    };
 
 		{ found_it,  updated_queue => pending_reply_queue' }
@@ -457,12 +449,14 @@ herein
 # ABOVE CODE COMPILES BUT NOT YET CALLED.
 
 	
-	fun run { me:			Sequencer_Ximp_State,								# These four values will be statically globally visible
-		  xmsg_q:		Xmsg_Q,										# throughout the code body for the imp.
-		  sequencer_q:		Sequencer_Q,
-		  outports:		Outports,
-		  to:			Replyqueue(Void),								# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
-		  end_gun':		End_Gun										# We shut down the microthread when this fires.
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:				Sequencer_Ximp_State,							# State which is preserved across imp shutdown/restart cycles.
+		  outports:			Outports,								# Ximps to which we send requests.
+		  to:				Replyqueue(Void),							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		  end_gun':			End_Gun,								# We shut down the microthread when this fires.
+		  xmsg_q:			Xmsg_Q,									# Xmsgs from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
+		  sequencer_q:			Sequencer_Q,								# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )			# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
 		}
 	    =
 	    loop ()
@@ -487,19 +481,19 @@ herein
 			stipulate
 			    fun add_to_pending_reply_queue  pending_reply
 				=
-				{   me.pending_reply_queue -> { front, rear };
+				{   (*me.pending_reply_queue) -> { front, rear };
 				    #
-				    rear :=  pending_reply ! *rear;
+				    me.pending_reply_queue := { front, rear =>  pending_reply ! rear };
 				};
 			    #
-			    fun send_request_reply (request, reply_mailslot)
+			    fun send_request_reply (request, reply_oneshot)
 				=
 				{   n = *me.last_seqn_sent + 0u1;
 				    me.last_seqn_sent := n;
 
 				    outports.outbuf_port.send_bytes  request;
 
-				    add_to_pending_reply_queue (ONE_REPLY (n, reply_mailslot));
+				    add_to_pending_reply_queue (ONE_REPLY (n, reply_oneshot));
 				};
 
 			    #
@@ -551,120 +545,117 @@ herein
 			herein
 			    fun do_xmsg_plea (XPLEA_NOTE_XMSG (xmsg as { code: v1u::Element,  msg: v1u::Vector }))
 				=
-				();
-# SOON!
-#				{
-#				    # NOTE: this doesn't work if there are 2**17
-#				    # outgoing messages between replies/events.
-#				    #
-#				    # We need to track (last_seqn_sent - last_seqn_read),
-#				    # and if it gets bigger than some reasonable size,
-#				    # generate a synchronization (i.e., get_input_focus message).	XXX BUGGO FIXME
-#
-#				    fun get_seq_n ()
-#					=
-#					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (msg, 1));
-#					    #
-#					    seqn' = un::bitwise_or
-#						      ( un::bitwise_and (last_seqn_read, un::bitwise_not 0uxffff),
-#							short_seq_n
-#						      );
-#
-#					    seqn' < last_seqn_read
-#					      ??  seqn' + 0ux10000		#  NOTE: we should check for (seqn' + 0x10000) > lastReqOut    XXX BUGGO FIXME
-#					      ::  seqn';
-#					};
-#
-#				    case code
-#					#
-#					0u0 =>  {   # Error message:
-#						    #
-#						    seqn = get_seq_n();
-#
-#						    put_in_mailslot (xerror_mailslot, (seqn, msg));
-#
-#						    (seqn, last_seqn_sent, handle_error_message (seqn, msg, pending_reply_queue));
-#						};
-#
-#
-#					0u1 =>  {   # Reply message:
-#						    #
-#						    seqn = get_seq_n();
-#
-#						    (seqn, last_seqn_sent, handle_reply_message (seqn, msg, pending_reply_queue));
-#						};
-#
-#
-#					0u11 => {   # KeymapNotify event:
-#						    #
-#						    put_in_mailslot (to_xbuf_mailslot, (code, msg));
-#
-#						    ( last_seqn_read,
-#						      last_seqn_sent,
-#						      handle_event_message (last_seqn_read, pending_reply_queue)
-#						    );
-#						};
-#
-#
-#					0u13 => {   # GraphicsExpose event:
-#						    #
-#						    seqn = get_seq_n();
-#
-#						    include  event_types;
-#
-#						    boxes = read_expose_event_train  ([],  w2v::decode_graphics_expose  msg)
-#							    where
-#								# The X server sends numbered trains of expose events;
-#								# read a complete train and return it as a list:
-#								#
-#								fun read_expose_event_train (result_list, x::GRAPHICS_EXPOSE { box, count=>0, ... } )
-#									=>
-#									box ! result_list;		# DONE.
-#
-#								    read_expose_event_train (result_list, x::GRAPHICS_EXPOSE { box, ... } )
-#									=>
-#									case (take_from_mailslot  from_x_mailslot)	# Read next expose event, add to result list.
-#									    #
-#									    { code => 0u13, msg=>s }
-#										=>
-#										read_expose_event_train (box ! result_list, w2v::decode_graphics_expose s);
-#
-#									    _   =>
-#										{   xgripe::warning  "[xok::sequencer_imp: misleading GraphicsExpose count]";
-#
-#										    box ! result_list;
-#										};
-#									esac;
-#
-#								    read_expose_event_train _ =>   raise exception FAIL "Bug: Unsupported case in read_expose_event_train.";
-#								end;
-#							    end;
-#
-#						    ( seqn,
-#						      last_seqn_sent,
-#						      handle_expose_message (seqn, boxes, pending_reply_queue)
-#						    );
-#						};
-#
-#
-#					0u14 => {   # NoExpose event:
-#
-#						    seqn = get_seq_n();
-#
-#						    (seqn, last_seqn_sent, handle_expose_message (seqn, [], pending_reply_queue));
-#						};
-#
-#
-#					_    => {   # Other event messages:
-#
-#						    seqn = get_seq_n();
-#
-#						    put_in_mailslot (to_xbuf_mailslot, (code, msg));
-#
-#						    (seqn, last_seqn_sent, handle_event_message (seqn, pending_reply_queue));
-#						};
-#				    esac;
-#				};
+				{
+				    # NOTE: this doesn't work if there are 2**17
+				    # outgoing messages between replies/events.
+				    #
+				    # We need to track (last_seqn_sent - last_seqn_read),
+				    # and if it gets bigger than some reasonable size,
+				    # generate a synchronization (i.e., get_input_focus message).	XXX BUGGO FIXME
+
+				    fun get_seq_n ()
+					=
+					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (msg, 1));
+					    #
+					    seqn' = un::bitwise_or
+						      ( un::bitwise_and (*me.last_seqn_read, un::bitwise_not 0uxffff),
+							short_seq_n
+						      );
+
+					    seqn' < *me.last_seqn_read
+					      ??  seqn' + 0ux10000		#  NOTE: we should check for (seqn' + 0x10000) > lastReqOut    XXX BUGGO FIXME
+					      ::  seqn';
+					};
+
+				    case code
+					#
+					0u0 =>  {   # Error message:
+						    #
+						    seqn = get_seq_n ();
+
+						    me.last_seqn_read := seqn;	
+
+						    outports.xerror_sink.note_xerror  { seqn, msg };
+
+						    me.pending_reply_queue :=  handle_error_message (seqn, msg, *me.pending_reply_queue);
+						};
+
+
+					0u1 =>  {   # Reply message:
+						    #
+						    seqn = get_seq_n ();
+						    me.last_seqn_read := seqn;
+
+						    me.pending_reply_queue :=   handle_reply_message (seqn, msg, *me.pending_reply_queue);
+						};
+
+
+					0u11 => {   # KeymapNotify event:
+						    #
+						    outports.xmsg_sink.note_xmsg  { code, msg };
+
+						    me.pending_reply_queue :=   handle_event_message (*me.last_seqn_read, *me.pending_reply_queue);
+						};
+
+
+					0u13 => {   # GraphicsExpose event:
+						    #
+						    seqn = get_seq_n ();
+						    me.last_seqn_read := seqn;
+
+						    include  et;														# event_types	is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+
+						    (w2v::decode_graphics_expose  msg)
+							->
+							et::x::GRAPHICS_EXPOSE  graphics_expose_record;
+
+						    case *expose_event_accumulator
+							#
+							NULL	        =>      accumulate_expose_events  []   graphics_expose_record;						# Start    accumulating expose events in a fresh  sequence.
+							THE accumulator =>      accumulator                    graphics_expose_record;						# Continue accumulating expose events in existing sequence.
+						    esac
+						    where
+							# The X server sends numbered trains of expose events.
+							# We use our 'expose_event_accumulator' refcell to accumulate
+							# a train of expose events, then handle it when complete:
+							#
+							fun accumulate_expose_events   boxes   ({ box, count=>0, ... }:  et::x::Graphics_Expose_Record)				# Note currying.
+								=>
+								{   me.pending_reply_queue   :=   handle_expose_event_train  (seqn,  box ! boxes,  *me.pending_reply_queue);	# Sequence complete -- pass boxes to client code.
+								    #
+								    expose_event_accumulator :=   NULL;										# Done with this expose event sequence.
+								};
+
+							    accumulate_expose_events   boxes   ({ box,           ... }:  et::x::Graphics_Expose_Record)				# Sequence not complete -- continue accumulation.
+								=>
+								{
+								    expose_event_accumulator :=   THE (accumulate_expose_events (box ! boxes));					# Note partial application of curried fn.
+								};
+							end;
+						    end;
+						};
+
+
+					0u14 => {   # NoExpose event:
+						    #
+						    seqn = get_seq_n ();
+						    me.last_seqn_read := seqn;
+
+						    me.pending_reply_queue :=   handle_expose_event_train (seqn, [], *me.pending_reply_queue);
+						};
+
+
+					_    => {   # Other event messages:
+						    #
+						    seqn = get_seq_n ();
+						    me.last_seqn_read := seqn;
+
+						    outports.xmsg_sink.note_xmsg { code, msg };
+
+						    me.pending_reply_queue :=  handle_event_message (seqn, *me.pending_reply_queue);
+						};
+				    esac;
+				};
 
 			    # Handle requests from clients
 			    # (app threads on our side):
@@ -702,7 +693,9 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, xmsg_q, sequencer_q, outports, to, end_gun' };						# Will not return.
+		expose_event_accumulator = REF NULL;
+
+		run { me, xmsg_q, sequencer_q, outports, to, end_gun', expose_event_accumulator };			# Will not return.
 	    }
 	    where
 		xmsg_q       =  make_mailqueue (get_current_microthread())	:  Xmsg_Q;
@@ -731,11 +724,11 @@ herein
 		# 
 		fun send_xrequest_and_read_reply  (s: v1u::Vector)
 		    =
-		    {   reply_mailslot = make_mailslot ();
+		    {   reply_oneshot = make_oneshot_maildrop ();
 			#
-			put_in_mailqueue (sequencer_q, PLEA_REPLY (s, reply_mailslot));
+			put_in_mailqueue (sequencer_q, PLEA_REPLY (s, reply_oneshot));
 
-			take_from_mailslot'  reply_mailslot
+			get_from_oneshot'  reply_oneshot
 			    ==>
 			    unwrap_reply;
 		    };
@@ -752,9 +745,9 @@ herein
 	  =
 	  { last_seqn_read	=>  REF 0u0,
 	    last_seqn_sent	=>  REF 0u0,
-	    pending_reply_queue	=>  { front =>  REF [],
-				      rear  =>  REF []
-				    }
+	    pending_reply_queue	=>  REF { front =>  [],
+				           rear =>  []
+				        }
 	  };
 	#
 	fun make_sequencer_ximp  (name: String)										# External entrypoint.
