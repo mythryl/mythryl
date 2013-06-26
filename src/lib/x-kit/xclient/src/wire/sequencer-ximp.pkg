@@ -79,9 +79,9 @@ herein
 	Sequencer_Plea						# 'Plea_Mail' in xsocket.pkg
 	  = PLEA             v1u::Vector
 	  | PLEA_REPLY      (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
+	  | PLEA_AND_CHECK  (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
 #	  = PLEA_QUIT
 #	  | PLEA_FLUSH
-#	  | PLEA_AND_CHECK  (v1u::Vector, Mailslot(Reply_Mail))
 #	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
 #	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
 
@@ -497,17 +497,16 @@ herein
 				};
 
 			    #
-#			    fun send_request_and_check (req, reply_mailslot)
-#				=
-#				{   n = *me.last_seqn_sent + 0u1;
-#
-#				    me.last_seqn_sent := n;
-#				    #
-#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
-#
-#				    m.pending_reply_queue :=  add_to_pending_reply_queue (ERROR_CHECK (n, reply_mailslot), *me.pending_reply_queue);
-#				};
-#
+			    fun send_request_and_check (request, reply_oneshot)
+				=
+				{   n = *me.last_seqn_sent + 0u1;
+				    me.last_seqn_sent := n;
+				    #
+				    outports.outbuf_port.send_bytes  request;
+
+				    add_to_pending_reply_queue (ERROR_CHECK (n, reply_oneshot));
+				};
+
 #			    fun send_request_replies (req, reply_mailslot, remain)
 #				=
 #				{   n = *me.last_seqn_sent + 0u1;
@@ -529,8 +528,8 @@ herein
 #				};
 			    #
 			    fun do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
+				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
 
-#				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
 #				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
 #				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
 #				#
@@ -575,7 +574,7 @@ herein
 
 						    me.last_seqn_read := seqn;	
 
-						    outports.xerror_sink.note_xerror  { seqn, msg };
+						    outports.xerror_sink.note_value  { seqn, msg };
 
 						    me.pending_reply_queue :=  handle_error_message (seqn, msg, *me.pending_reply_queue);
 						};
@@ -592,7 +591,7 @@ herein
 
 					0u11 => {   # KeymapNotify event:
 						    #
-						    outports.xmsg_sink.note_xmsg  { code, msg };
+						    outports.xmsg_sink.note_value  { code, msg };
 
 						    me.pending_reply_queue :=   handle_event_message (*me.last_seqn_read, *me.pending_reply_queue);
 						};
@@ -650,7 +649,7 @@ herein
 						    seqn = get_seq_n ();
 						    me.last_seqn_read := seqn;
 
-						    outports.xmsg_sink.note_xmsg { code, msg };
+						    outports.xmsg_sink.note_value { code, msg };
 
 						    me.pending_reply_queue :=  handle_event_message (seqn, *me.pending_reply_queue);
 						};
@@ -677,10 +676,11 @@ herein
 	    =
 	    {   configport     =  make_mailslot  ()	:  Configport;
 
-		xmsg_sink      =  { note_xmsg };
+		xmsg_sink      =  { note_value };
 
 		sequencer_port =  { send_xrequest,
-				    send_xrequest_and_read_reply
+				    send_xrequest_and_read_reply,
+				    send_xrequest_and_return_completion_mailop
 				  };
 
 		to             =  make_replyqueue();
@@ -732,8 +732,43 @@ herein
 			    ==>
 			    unwrap_reply;
 		    };
+
+		# Generate a request to the server and
+		# check on its successful completion. 
 		#
-		fun note_xmsg (xmsg: xms::Xmsg)										# External entrypoint.
+		# The only uses of this I find are:
+		#
+		#     property::change_property  in
+		#         src/lib/x-kit/xclient/src/iccc/window-property.pkg
+		#
+		#     font_imp::open_font  in
+		#         src/lib/x-kit/xclient/src/window/font-imp.pkg
+		#     
+		# In both cases the idea is to wait for
+		# successful completion of the op before
+		# continuing.
+		#
+		fun send_xrequest_and_return_completion_mailop  (s: v1u::Vector)
+		    =
+		    {   reply_oneshot1 =  make_oneshot_maildrop ();
+			reply_oneshot2 =  make_oneshot_maildrop ();								# Nobody will read this...?
+
+			put_in_mailqueue (sequencer_q, PLEA_AND_CHECK (s, reply_oneshot1));
+			put_in_mailqueue (sequencer_q, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_oneshot2));	# Presumably somehow flushes the preceding command through.
+
+			# Construct and return a mailop which caller can
+			#     block_until_mailop_fires
+			# on to await completion of the requested operation:
+			#
+			get_from_oneshot' reply_oneshot1
+			    ==>
+			    fn (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
+			       _               =>  ();
+			    end;
+		    };
+
+		#
+		fun note_value (xmsg: xms::Xmsg)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (xmsg_q, XPLEA_NOTE_XMSG xmsg);
 	    end;
