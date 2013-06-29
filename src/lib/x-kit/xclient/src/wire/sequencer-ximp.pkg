@@ -50,7 +50,6 @@ stipulate
 
     package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.api
     package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.api
-    package xes =  xerror_sink;					# xerror_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-error.pkg
     package xms =  xmsg_sink;					# xmsg_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
@@ -81,8 +80,8 @@ herein
 	  | PLEA_REPLY      (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
 	  | PLEA_AND_CHECK  (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
 	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
+	  | PLEA_FLUSH      (Void -> Void)							# signal_fn arg will be called when all preceding commands have been written to socket.
 #	  = PLEA_QUIT
-#	  | PLEA_FLUSH
 #	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
 
 
@@ -131,19 +130,19 @@ herein
 	    };
 
 	Imports   = { outbuf_port:		op::Outbuf_Port,
-		      xmsg_sink:		xms::Xmsg_Sink,					# Forwards xmsgs to xevent_reader_ximp from   src/lib/x-kit/xclient/src/wire/xevent-reader-ximp.pkg
-		      xerror_sink:		xes::Xerror_Sink				# Sends errors to err_handler() in  src/lib/x-kit/xclient/src/wire/display.pkg  via  read_xerror() in  src/lib/x-kit/xclient/src/wire/xsocket.pkg
+		      xmsg_sink:		xms::Xmsg_Sink					# Forwards xmsgs to xevent_reader_ximp from   src/lib/x-kit/xclient/src/wire/xevent-reader-ximp.pkg
 		    };
 
 	Configstate = Mailslot( {  imports:	Imports,
-                                  me:		Sequencer_Ximp_State,
-				  run_gun':	Run_Gun,
-				  end_gun':	End_Gun
-				}
-			     );
+				   me:		Sequencer_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun
+				 }
+			      );
 
-	Sequencer_Q      = Mailqueue( Sequencer_Plea );
-	Xmsg_Q  = Mailqueue( Xmsg_Plea );
+	Sequencer_Q = Mailqueue( Sequencer_Plea );
+	Xmsg_Q      = Mailqueue( Xmsg_Plea      );
+	Xerror_Q    = Mailqueue( sp::Xerror     );
 
 	Exports	= { xmsg_sink:		xms::Xmsg_Sink,						# From xserver via inbuf.
 		    sequencer_port:	sp::Sequencer_Port					# Requests from widget/application code.
@@ -455,6 +454,7 @@ herein
 		  end_gun':			End_Gun,								# We shut down the microthread when this fires.
 		  xmsg_q:			Xmsg_Q,									# Xmsgs from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
 		  sequencer_q:			Sequencer_Q,								# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  xerror_q:			Xerror_Q,								# 
 		  expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )			# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
 		}
 	    =
@@ -490,7 +490,7 @@ herein
 				{   n = *me.last_seqn_sent + 0u1;
 				    me.last_seqn_sent := n;
 
-				    imports.outbuf_port.note_value  request;
+				    imports.outbuf_port.put_value  request;
 
 				    add_to_pending_reply_queue (ONE_REPLY (n, reply_oneshot));
 				};
@@ -501,7 +501,7 @@ herein
 				{   n = *me.last_seqn_sent + 0u1;
 				    me.last_seqn_sent := n;
 				    #
-				    imports.outbuf_port.note_value  request;
+				    imports.outbuf_port.put_value  request;
 
 				    add_to_pending_reply_queue (ERROR_CHECK (n, reply_oneshot));
 				};
@@ -511,10 +511,14 @@ herein
 				{   n = *me.last_seqn_sent + 0u1;
 				    me.last_seqn_sent := n;
 				    #
-				    imports.outbuf_port.note_value  request;
+				    imports.outbuf_port.put_value  request;
 
 				    add_to_pending_reply_queue (EXPOSURE_REPLY (n, reply_oneshot));
 				};
+
+			    fun send_flush (signalf: Void -> Void)
+				=
+				imports.outbuf_port.flush_outbuf  signalf;
 
 #			    fun send_request_replies (req, reply_mailslot, remain)
 #				=
@@ -530,12 +534,13 @@ herein
 			    fun do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
 				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
 				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
+				do_clientplea (PLEA_FLUSH     signalf) =>  send_flush             signalf;
 
 #				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
 #				#
 				do_clientplea (PLEA request)
 				    =>
-				    {   imports.outbuf_port.note_value  request;
+				    {   imports.outbuf_port.put_value  request;
 					#
 					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
 				    };
@@ -574,7 +579,7 @@ herein
 
 						    me.last_seqn_read := seqn;	
 
-						    imports.xerror_sink.note_value  { seqn, msg };
+						    put_in_mailqueue (xerror_q, { seqn, msg });
 
 						    me.pending_reply_queue :=  handle_error_message (seqn, msg, *me.pending_reply_queue);
 						};
@@ -591,7 +596,7 @@ herein
 
 					0u11 => {   # KeymapNotify event:
 						    #
-						    imports.xmsg_sink.note_value  { code, msg };
+						    imports.xmsg_sink.put_value { code, msg };
 
 						    me.pending_reply_queue :=   handle_event_message (*me.last_seqn_read, *me.pending_reply_queue);
 						};
@@ -653,7 +658,7 @@ herein
 						    seqn = get_seq_n ();
 						    me.last_seqn_read := seqn;
 
-						    imports.xmsg_sink.note_value { code, msg };
+						    imports.xmsg_sink.put_value { code, msg };
 
 						    me.pending_reply_queue :=  handle_event_message (seqn, *me.pending_reply_queue);
 						};
@@ -680,12 +685,15 @@ herein
 	    =
 	    {   configstate     =  make_mailslot  ()	:  Configstate;
 		#
-		xmsg_sink      =  { note_value };
+		xmsg_sink      =  { put_value };
 
 		sequencer_port =  { send_xrequest,
 				    send_xrequest_and_read_reply,
 				    send_xrequest_and_return_completion_mailop,
-				    send_xrequest_and_handle_exposures
+				    send_xrequest_and_handle_exposures,
+				    flush_xsocket,
+				    take_xerror,
+				    take_xerror'
 				  };
 
 		to             =  make_replyqueue();
@@ -700,11 +708,12 @@ herein
 
 		expose_event_accumulator = REF NULL;
 
-		run { me, xmsg_q, sequencer_q, imports, to, end_gun', expose_event_accumulator };			# Will not return.
+		run { me, xmsg_q, sequencer_q, xerror_q, imports, to, end_gun', expose_event_accumulator };		# Will not return.
 	    }
 	    where
 		xmsg_q       =  make_mailqueue (get_current_microthread())	:  Xmsg_Q;
 		sequencer_q  =  make_mailqueue (get_current_microthread())	:  Sequencer_Q;
+		xerror_q     =  make_mailqueue (get_current_microthread())	:  Xerror_Q;
 
 		# Reply handling in the Client-thread context.
 		#
@@ -784,8 +793,17 @@ herein
 		    };
 
 
+		fun flush_xsocket  (signalf: Void -> Void)
+		    =
+		    {
+			put_in_mailqueue (sequencer_q, PLEA_FLUSH signalf);
+		    };
+
+		take_xerror  =   fn () = take_from_mailqueue  xerror_q;
+		take_xerror' =           take_from_mailqueue' xerror_q;
+
 		#
-		fun note_value (xmsg: xms::Xmsg)										# External entrypoint.
+		fun put_value (xmsg: xms::Xmsg)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (xmsg_q, XPLEA_NOTE_XMSG xmsg);
 	    end;

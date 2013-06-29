@@ -31,8 +31,8 @@ herein
     package   outbuf_ximp
     : (weak)  Outbuf_Ximp					# Outbuf_Ximp				is from   src/lib/x-kit/xclient/src/wire/outbuf-ximp.api
     {
-	Run_Gun  = Mailop(Void);				# Purely for readability.
-	End_Gun = Mailop(Void);				# Purely for readability.
+	Run_Gun =  Mailop(Void);				# Purely for readability.
+	End_Gun =  Mailop(Void);				# Purely for readability.
 
 	Outbuf_Ximp_State					# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
 	    =
@@ -52,8 +52,9 @@ herein
 
 
 
-	Outbuf_Plea =   v1u::Vector
-		   ;
+	Outbuf_Plea = SEND  v1u::Vector
+		    | FLUSH (Void -> Void)
+		    ;
 	Outbuf_Q    = Mailqueue( Outbuf_Plea );
 
 
@@ -87,33 +88,71 @@ herein
 		    where
 			fun shut_down_outbuf_imp' ()
 			    =
-			    {	sok::close socket;
-				#
+			    {
+#				sok::close socket;
+				    #
+				    # Reppy closed the socket here.
+				    #
+				    # I do NOT close the socket here because I want
+				    # to be able to kill off and recreate impgraphs
+				    # freely without affecting the xserver session.
+				    #
+				    # I think of outbuf as USING the socket but not
+				    # OWNING it.  We get handed the socket already
+				    # opened by some external agent, and it is up to
+				    # that external agent to close the socket when/if
+				    # it wants the socket closed.
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
 			fun do_outbuf_pleas  []
 				=>
-				{   log::fatal       .{   "take_all_from_mailqueue' returned an empty list! -- outbuf-ximp.pkg"; };
-				    raise exception FAIL  "take_all_from_mailqueue' returned an empty list! -- outbuf-ximp.pkg";
-				};
+				();
 
-			    do_outbuf_pleas  [ vector: v1u::Vector ]
+			    do_outbuf_pleas  [ SEND vector ]
 				=>
 				skj::send_vector  (socket, vector);
 
-			    do_outbuf_pleas  vectors
+			    do_outbuf_pleas  (FLUSH signal_fn ! rest)
 				=>
-				skj::send_vector  (socket,  (v1u::cat  vectors));
+				{   signal_fn ();									# An upstream caller can use this to verify that all output to given point has been flushed beyond outbuf.
+				    do_outbuf_pleas  rest;
+				};
+
+			    do_outbuf_pleas  pleas
+				=>
+				{   (scan_pleas (pleas, [])) ->  (rest, vectors);
+				    skj::send_vector  (socket,  (v1u::cat  vectors));
+				    do_outbuf_pleas rest;
+				}
+				where
+				    # Find longest prefix consisting of SENDs and
+				    # return all the vectors from it, plus the
+				    # 'rest' of the pleas-list:
+				    #	
+				    fun scan_pleas ([], vectors)
+					    =>
+					    ([], reverse vectors);
+
+					scan_pleas (SEND vector ! rest, vectors)
+					    =>
+					    scan_pleas (rest, vector ! vectors);
+
+					scan_pleas (rest as (FLUSH _ ! _), vectors)
+					    =>
+					    (rest, reverse vectors);
+				    end;
+				end;
 			end;
 		    end;												# fun loop
 	    end;													# fun run
 	
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate(X), Exports) ))   ()						# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate(X), Exports) ))   ()				# Root fn of imp microthread.  Note currying.
 	    =
 	    {   configstate  =  make_mailslot  ()	:  Configstate(X);
-
-		outbuf_port =  { note_value };
+		#
+		outbuf_port =  { put_value, flush_outbuf };
 
 		to          =  make_replyqueue();
 
@@ -130,9 +169,13 @@ herein
 	    where
 		outbuf_q =  make_mailqueue (get_current_microthread())	:  Outbuf_Q;
 
-		fun note_value (vector: v1u::Vector)									# External entrypoint.
+		fun put_value (vector: v1u::Vector)									# External entrypoint.
 		    =	
-		    put_in_mailqueue  (outbuf_q, vector);
+		    put_in_mailqueue  (outbuf_q, SEND vector);
+
+		fun flush_outbuf (signal_fn: Void -> Void)								# External entrypoint.
+		    =	
+		    put_in_mailqueue  (outbuf_q, FLUSH signal_fn);
 	    end;
 
         ##########################################################################################
