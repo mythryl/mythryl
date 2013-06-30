@@ -90,7 +90,7 @@
 #
 #
 # In this file we implement the xsession inbuf_imp,
-# outbuf_imp, sequencer_imp and xevent_reader_imps.
+# outbuf_imp, sequencer_imp and decode_xpackets_imps.
 # Client code interacts with us mainly by using one
 # of the sequencer_imp entrypoints
 # 
@@ -1169,13 +1169,14 @@ herein
 
 
         ##########################################################################################
-	# X event buffer imp.
+	# expose train imp.
 	#
-	# Here we decode and buffer X events
-        # from the X-server -- keystrokes,
-	# mouseclicks, mouse-motions etc.
+	# This imp is a filter on the stream of X events
+        # from the X-server -- keystrokes, mouseclicks,
+	# mouse-motions etc.
 	#
-	# We also pack expose events.
+	# Our job here is to pack EXPOSE event trains into single
+	# events for the convenience of downstream client code.
 	# 
 	# We communicate via two mailslots as follows:
 	# 
@@ -1199,15 +1200,15 @@ herein
 	# 
 	# -- see the dataflow diagram in top-of-file comments there.
 	#
-	fun xevent_reader_imp  (from_sequencer_mailslot,  to_widget_mailslot)
+	fun decode_xpackets_imp  (from_sequencer_mailslot,  to_widget_mailslot)
 	    =
-	    route_p
+	    .{ loop { front => [], rear => [] }; } 
 	    where
 		include event_types;
 
 		fun decode (opcode, bytestring)
 		    =
-		    {   (w2v::decode_xevent (opcode, bytestring))
+		    {   (w2v::decode_xpacket (opcode, bytestring))
 			    ->
 			    (not_via_sendevent, event);
 
@@ -1230,7 +1231,7 @@ herein
 
 				pack (rl, _)
 				    =>
-				    {   xgripe::warning "[xok::xevent_reader_imp: misleading Expose count]";
+				    {   xgripe::warning "[xok::decode_xpackets_imp: misleading Expose count]";
 					rl;
 				    };
 			    end;
@@ -1252,43 +1253,38 @@ herein
 
 		take_xevent' = take_from_mailslot'  from_sequencer_mailslot;
 
-		fun route_p ()
-		    =
-		    loop ([], [])
-		    where
-			fun loop ([], [])
-				=>
-				loop  (do_xevent  (take_from_mailslot  from_sequencer_mailslot,  []),  []);
+		fun loop { front => [], rear => [] }
+			=>
+			loop  { front => do_xevent  (take_from_mailslot  from_sequencer_mailslot,  []),   rear => [] };
 
-			    loop ([], rear)
-				=>
-				loop (reverse rear, []);
+		    loop { front => [], rear }
+			=>
+			loop  { front => reverse rear,  rear => [] };
 
-			    loop (front as (x ! rest), rear)
-				=>
-				loop (
-				    do_one_mailop [
-					#
-					take_xevent'
-					    ==>
-					    (fn mail = (front, do_xevent (mail, rear))),
+		    loop  { front => front as (x ! rest),  rear }
+			=>
+			loop (
+			    do_one_mailop [
+				#
+				take_xevent'
+				    ==>
+				    (fn mail =  { front,  rear => do_xevent (mail, rear) }  ),
 
-					put_in_mailslot' (to_widget_mailslot, x)
-					    ==>
-					    .{  (rest, rear);  }
-				    ]
-				);
+				put_in_mailslot' (to_widget_mailslot, x)
+				    ==>
+				    .{  { front => rest,  rear };  }
+			    ]
+			);
 
-			end;
-		    end;
-	    end;					# fun xevent_reader_imp
+		end;
+	    end;					# fun decode_xpackets_imp
 
 
 
         ##########################################################################################
 	# Create the threads and internal mailslots
 	# to manage a connection to the X server:
-	# inbuf_imp, outbuf_imp, xevent_reader_imp, sequencer_imp...
+	# inbuf_imp, outbuf_imp, decode_xpackets_imp, sequencer_imp...
 	#
 	# We assume that the connection request/reply
 	# has already been dealt with.
@@ -1342,9 +1338,9 @@ herein
 		      )
 		  );
 
-		xlogger::make_thread  "inbuf_imp"          (inbuf_imp          ( inbuf_to_sequencer_mailslot, socket));
-		xlogger::make_thread  "outbuf_imp"         (outbuf_imp         (sequencer_to_outbuf_mailslot, socket));
-		xlogger::make_thread  "xevent_reader_imp"  (xevent_reader_imp  (  sequencer_to_xbuf_mailslot, xbuf_to_client_mailslot));
+		xlogger::make_thread  "inbuf_imp"            (inbuf_imp             ( inbuf_to_sequencer_mailslot, socket));
+		xlogger::make_thread  "outbuf_imp"           (outbuf_imp            (sequencer_to_outbuf_mailslot, socket));
+		xlogger::make_thread  "decode_xpackets_imp"  (decode_xpackets_imp   (  sequencer_to_xbuf_mailslot, xbuf_to_client_mailslot));
 
 		XSOCKET
 		  { xsocket_id   =>  uid::issue_unique_id (),

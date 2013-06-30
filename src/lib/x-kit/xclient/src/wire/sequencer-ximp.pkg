@@ -50,7 +50,7 @@ stipulate
 
     package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.api
     package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.api
-    package xms =  xmsg_sink;					# xmsg_sink					is from   src/lib/x-kit/xclient/src/wire/xmsg-sink.pkg
+    package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
 
@@ -71,7 +71,7 @@ herein
 
 	max_bytes_per_socket_write = 2048;
 
-	Xmsg_Plea =  XPLEA_NOTE_XMSG  xms::Xmsg;
+	Xpacket_Plea =  XPLEA_NOTE_XPACKET  xps::Xpacket;
 
 	# Client pleas to sequencer:
 	#
@@ -130,7 +130,7 @@ herein
 	    };
 
 	Imports   = { outbuf_port:		op::Outbuf_Port,
-		      xmsg_sink:		xms::Xmsg_Sink					# Forwards xmsgs to xevent_reader_ximp from   src/lib/x-kit/xclient/src/wire/xevent-reader-ximp.pkg
+		      xpacket_sink:		xps::Xpacket_Sink				# Carries xpackets to decode_xpackets_ximp from   src/lib/x-kit/xclient/src/wire/decode-xpackets-ximp.pkg
 		    };
 
 	Configstate = Mailslot( {  imports:	Imports,
@@ -141,10 +141,10 @@ herein
 			      );
 
 	Sequencer_Q = Mailqueue( Sequencer_Plea );
-	Xmsg_Q      = Mailqueue( Xmsg_Plea      );
+	Xpacket_Q   = Mailqueue( Xpacket_Plea   );
 	Xerror_Q    = Mailqueue( sp::Xerror     );
 
-	Exports	= { xmsg_sink:		xms::Xmsg_Sink,						# From xserver via inbuf.
+	Exports	= { xpacket_sink:	xps::Xpacket_Sink,					# Carries xpackets to us from xserver via inbuf-ximp.
 		    sequencer_port:	sp::Sequencer_Port					# Requests from widget/application code.
 		  };
 
@@ -448,14 +448,14 @@ herein
 
 	
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:				Sequencer_Ximp_State,							# State which is preserved across imp shutdown/restart cycles.
-		  imports:			Imports,								# Ximps to which we send requests.
-		  to:				Replyqueue(Void),							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
-		  end_gun':			End_Gun,								# We shut down the microthread when this fires.
-		  xmsg_q:			Xmsg_Q,									# Xmsgs from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
-		  sequencer_q:			Sequencer_Q,								# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
-		  xerror_q:			Xerror_Q,								# 
-		  expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )			# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
+		  me:					Sequencer_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		  imports:				Imports,							# Ximps to which we send requests.
+		  to:					Replyqueue(Void),						# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		  xpacket_q:				Xpacket_Q,							# Xpackets from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
+		  sequencer_q:				Sequencer_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  xerror_q:				Xerror_Q,							# 
+		  graphics_expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )		# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
 		}
 	    =
 	    loop ()
@@ -466,7 +466,7 @@ herein
 			    #
 			    (end_gun'                               ==>  shut_down_sequencer_imp'),
 			    (take_all_from_mailqueue' sequencer_q   ==>  do_sequencer_pleas),
-			    (take_from_mailqueue'     xmsg_q  	    ==>  do_xmsg_plea)
+			    (take_from_mailqueue'     xpacket_q     ==>  do_xpacket_plea)
 			];
 
 			loop ();
@@ -547,7 +547,7 @@ herein
 			    end;
 
 			herein
-			    fun do_xmsg_plea (XPLEA_NOTE_XMSG (xmsg as { code: v1u::Element,  msg: v1u::Vector }))
+			    fun do_xpacket_plea (XPLEA_NOTE_XPACKET (xpacket as { code: v1u::Element,  packet: v1u::Vector }))
 				=
 				{
 				    # NOTE: this doesn't work if there are 2**17
@@ -559,7 +559,7 @@ herein
 
 				    fun get_seq_n ()
 					=
-					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (msg, 1));
+					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (packet, 1));
 					    #
 					    seqn' = un::bitwise_or
 						      ( un::bitwise_and (*me.last_seqn_read, un::bitwise_not 0uxffff),
@@ -579,9 +579,9 @@ herein
 
 						    me.last_seqn_read := seqn;	
 
-						    put_in_mailqueue (xerror_q, { seqn, msg });
+						    put_in_mailqueue (xerror_q, { seqn, msg => packet });
 
-						    me.pending_reply_queue :=  handle_error_message (seqn, msg, *me.pending_reply_queue);
+						    me.pending_reply_queue :=  handle_error_message (seqn, packet, *me.pending_reply_queue);
 						};
 
 
@@ -590,13 +590,13 @@ herein
 						    seqn = get_seq_n ();
 						    me.last_seqn_read := seqn;
 
-						    me.pending_reply_queue :=   handle_reply_message (seqn, msg, *me.pending_reply_queue);
+						    me.pending_reply_queue :=   handle_reply_message (seqn, packet, *me.pending_reply_queue);
 						};
 
 
 					0u11 => {   # KeymapNotify event:
 						    #
-						    imports.xmsg_sink.put_value { code, msg };
+						    imports.xpacket_sink.put_value { code, packet };
 
 						    me.pending_reply_queue :=   handle_event_message (*me.last_seqn_read, *me.pending_reply_queue);
 						};
@@ -611,33 +611,33 @@ herein
 
 						    graphics_expose_record
 							=
-						        case (w2v::decode_graphics_expose  msg)
+						        case (w2v::decode_graphics_expose  packet)
 							    #
 						    	    et::x::GRAPHICS_EXPOSE  graphics_expose_record   =>  graphics_expose_record;
 							    _						     =>  raise exception FAIL "Impossible case";		
 							esac;
 
-						    case *expose_event_accumulator
+						    case *graphics_expose_event_accumulator
 							#
-							NULL	        =>      accumulate_expose_events  []   graphics_expose_record;						# Start    accumulating expose events in a fresh  sequence.
-							THE accumulator =>      accumulator                    graphics_expose_record;						# Continue accumulating expose events in existing sequence.
+							NULL	        =>      accumulate_graphics_expose_events  []   graphics_expose_record;						# Start    accumulating GRAPHICS_EXPOSE events in a fresh  sequence.
+							THE accumulator =>      accumulator                             graphics_expose_record;						# Continue accumulating GRAPHICS_EXPOSE events in existing sequence.
 						    esac
 						    where
 							# The X server sends numbered trains of expose events.
-							# We use our 'expose_event_accumulator' refcell to accumulate
+							# We use our 'graphics_expose_event_accumulator' refcell to accumulate
 							# a train of expose events, then handle it when complete:
 							#
-							fun accumulate_expose_events   boxes   ({ box, count=>0, ... }:  et::x::Graphics_Expose_Record)				# Note currying.
+							fun accumulate_graphics_expose_events   boxes   ({ box, count=>0, ... }:  et::x::Graphics_Expose_Record)				# Note currying.
 								=>
 								{   me.pending_reply_queue   :=   handle_expose_event_train  (seqn,  box ! boxes,  *me.pending_reply_queue);	# Sequence complete -- pass boxes to client code.
 								    #
-								    expose_event_accumulator :=   NULL;										# Done with this expose event sequence.
+								    graphics_expose_event_accumulator :=   NULL;										# Done with this expose event sequence.
 								};
 
-							    accumulate_expose_events   boxes   ({ box,           ... }:  et::x::Graphics_Expose_Record)				# Sequence not complete -- continue accumulation.
+							    accumulate_graphics_expose_events   boxes   ({ box,           ... }:  et::x::Graphics_Expose_Record)				# Sequence not complete -- continue accumulation.
 								=>
 								{
-								    expose_event_accumulator :=   THE (accumulate_expose_events (box ! boxes));					# Note partial application of curried fn.
+								    graphics_expose_event_accumulator :=   THE (accumulate_graphics_expose_events (box ! boxes));					# Note partial application of curried fn.
 								};
 							end;
 						    end;
@@ -653,12 +653,12 @@ herein
 						};
 
 
-					_    => {   # Other event messages:
+					_    => {   # Other event packets:
 						    #
 						    seqn = get_seq_n ();
 						    me.last_seqn_read := seqn;
 
-						    imports.xmsg_sink.put_value { code, msg };
+						    imports.xpacket_sink.put_value { code, packet };
 
 						    me.pending_reply_queue :=  handle_event_message (seqn, *me.pending_reply_queue);
 						};
@@ -685,7 +685,7 @@ herein
 	    =
 	    {   configstate     =  make_mailslot  ()	:  Configstate;
 		#
-		xmsg_sink      =  { put_value };
+		xpacket_sink    =  { put_value };
 
 		sequencer_port =  { send_xrequest,
 				    send_xrequest_and_read_reply,
@@ -698,7 +698,7 @@ herein
 
 		to             =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { xmsg_sink, sequencer_port }));				# Return value from make_sequencer_ximp().
+		put_in_oneshot (reply_oneshot, (configstate, { xpacket_sink, sequencer_port }));			# Return value from make_sequencer_ximp().
 
 		(take_from_mailslot  configstate)									# Input args from configure_sequencer_imp().
 		    ->
@@ -706,12 +706,12 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		expose_event_accumulator = REF NULL;
+		graphics_expose_event_accumulator = REF NULL;
 
-		run { me, xmsg_q, sequencer_q, xerror_q, imports, to, end_gun', expose_event_accumulator };		# Will not return.
+		run { me, xpacket_q, sequencer_q, xerror_q, imports, to, end_gun', graphics_expose_event_accumulator };	# Will not return.
 	    }
 	    where
-		xmsg_q       =  make_mailqueue (get_current_microthread())	:  Xmsg_Q;
+		xpacket_q    =  make_mailqueue (get_current_microthread())	:  Xpacket_Q;
 		sequencer_q  =  make_mailqueue (get_current_microthread())	:  Sequencer_Q;
 		xerror_q     =  make_mailqueue (get_current_microthread())	:  Xerror_Q;
 
@@ -803,9 +803,9 @@ herein
 		take_xerror' =           take_from_mailqueue' xerror_q;
 
 		#
-		fun put_value (xmsg: xms::Xmsg)										# External entrypoint.
+		fun put_value (xpacket: xps::Xpacket)									# External entrypoint. inbuf-ximp calls this to pass us a packet from xserver.
 		    =	
-		    put_in_mailqueue  (xmsg_q, XPLEA_NOTE_XMSG xmsg);
+		    put_in_mailqueue  (xpacket_q, XPLEA_NOTE_XPACKET xpacket);
 	    end;
 
         ##########################################################################################
