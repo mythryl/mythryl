@@ -45,6 +45,7 @@ stipulate
     package un  =  unt;						# unt						is from   src/lib/std/unt.pkg
     package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
     package w2v =  wire_to_value;				# wire_to_value					is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package x2s =  xerror_to_string;				# xerror_to_string				is from   src/lib/x-kit/xclient/src/to-string/xerror-to-string.pkg
     package xg  =  xgeometry;					# xgeometry					is from   src/lib/std/2d/xgeometry.pkg
     package xtr =  xlogger;					# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
 
@@ -693,6 +694,7 @@ herein
 				    send_xrequest_and_read_reply,
 				    send_xrequest_and_pass_reply,
 				    send_xrequest_and_return_completion_mailop,
+				    send_xrequest_and_pass_completion_flag,
 				    send_xrequest_and_handle_exposures,
 				    flush_xsocket
 				  };
@@ -727,10 +729,15 @@ herein
 		# needs to be raised in the context of the
 		# calling client thread.  That is our job here:
 		#
-		fun unwrap_reply  REPLY_LOST     =>  raise exception LOST_REPLY;
-		    unwrap_reply (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
-		    unwrap_reply (REPLY s)       =>  s;
-		end;
+		fun unwrap_reply  REPLY_LOST     =>  { log::fatal .{ "sequencer-ximp.pkg: Lost X-server reply"; };  						raise exception FAIL "LOST REPLY";  };
+		    unwrap_reply (REPLY_ERROR s) =>  { log::fatal .{ "sequencer-ximp.pkg: X-server error: " + (x2s::xerror_to_string (w2v::decode_error s)); };	raise exception FAIL "ERROR_REPLY"; };
+		    unwrap_reply (REPLY s)       =>  s;														# NB log::fatal should never return;
+		end;																		# above 'raises' keep typechecker happy.
+		fun unwrap_flag r
+			=
+			{   unwrap_reply r;
+			    ();
+			};
 		#
 		fun send_xrequest  (s: v1u::Vector)									# External entrypoint.
 		    =
@@ -760,12 +767,7 @@ herein
 			#
 			put_in_mailqueue  (sequencer_q,  PLEA_REPLY (s, reply_oneshot));
 
-			fun reply_handler' (REPLY_LOST) 		   => ();	# XXX BUGGO FIXME
-			    reply_handler' (REPLY_ERROR  (v: v1u::Vector)) => ();	# XXX BUGGO FIXME
-	                    reply_handler' (REPLY        (v: v1u::Vector)) => (reply_handler v); 		# A normal reply.
-			end;
-
-			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler');
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> (reply_handler o unwrap_reply));
 		    };
 
 		# Generate a request to the server and
@@ -783,23 +785,45 @@ herein
 		# successful completion of the op before
 		# continuing.
 		#
-		fun send_xrequest_and_return_completion_mailop  (s: v1u::Vector)					# External entrypoint.
+		fun send_xrequest_and_return_completion_mailop  (s: v1u::Vector)						# External entrypoint.
 		    =
-		    {   reply_oneshot1 =  make_oneshot_maildrop ();
-			reply_oneshot2 =  make_oneshot_maildrop ();								# Nobody will read this...?
+		    {   reply_oneshot1 =  make_oneshot_maildrop ();								# Nobody will read this.
+			reply_oneshot2 =  make_oneshot_maildrop ();
 
 			put_in_mailqueue (sequencer_q, PLEA_AND_CHECK (s, reply_oneshot1));
-			put_in_mailqueue (sequencer_q, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_oneshot2));	# Presumably somehow flushes the preceding command through.
-
+			put_in_mailqueue (sequencer_q, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_oneshot2));	# Reppy often uses dummy get_input_focus calls, presumably
+																# to verify that preceding commands have completed.
 			# Construct and return a mailop which caller can
 			#     block_until_mailop_fires
 			# on to await completion of the requested operation:
 			#
-			get_from_oneshot' reply_oneshot1
-			    ==>
-			    fn (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
-			       _               =>  ();
-			    end;
+			get_from_oneshot' reply_oneshot2									# This was using 'reply_oneshot1' which made no sense to me, so I changed it to
+			    ==>													# 'reply_oneshot2' on the presumption that it was a coding error.   -- 2013-07-04 CrT
+			    unwrap_flag;
+# fn (REPLY_ERROR s) =>  {    log::fatal .{ "sequencer-ximp.pkg: X-server error: "
+#								    + (x2s::xerror_to_string (w2v::decode_error s));
+#                                                                    };
+#							raise exception FAIL "ERROR_REPLY";
+#						   };
+#				REPLY_LOST     =>  {    log::fatal .{ "sequencer-ximp.pkg: Lost X-server reply"; };  						raise exception FAIL "LOST REPLY";  };
+#							raise exception FAIL "ERROR_REPLY";
+#						   };
+#			       _               =>  ();
+#			    end;
+		    };
+
+		fun send_xrequest_and_pass_completion_flag 									# External entrypoint.
+		        (s: v1u::Vector)
+			(replyqueue:	Replyqueue(Void))
+			(reply_handler: Void -> Void)										# Call this when request is confirmed executed by X server.
+		    =
+		    {   reply_oneshot1 =  make_oneshot_maildrop ();								# Nobody will read this.
+			reply_oneshot2 =  make_oneshot_maildrop ();
+
+			put_in_mailqueue (sequencer_q, PLEA_AND_CHECK (s, reply_oneshot1));
+			put_in_mailqueue (sequencer_q, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_oneshot2));	# Reppy often uses dummy get_input_focus calls, presumably
+																# to verify that preceding commands have completed.
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot2) ==> (reply_handler o unwrap_flag));
 		    };
 
 		# This is directly used exactly once,
