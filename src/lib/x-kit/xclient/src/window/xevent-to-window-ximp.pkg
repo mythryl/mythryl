@@ -53,11 +53,14 @@ stipulate
     package xg  =  xgeometry;					# xgeometry					is from   src/lib/std/2d/xgeometry.pkg
     package xtr =  xlogger;					# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
 
-    package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.api
-    package sp  =  xevent_to_window_port;				# xevent_to_window_port				is from   src/lib/x-kit/xclient/src/wire/xevent-to-window-port.api
-    package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
+    package hx  =  hash_xid;					# hash_xid					is from   src/lib/x-kit/xclient/src/stuff/hash-xid.pkg
+    package dy  =  display;					# display					is from   src/lib/x-kit/xclient/src/wire/display.pkg
+    package kp  =  keymap_port;					# keymap_port					is from   src/lib/x-kit/xclient/src/window/keymap-port.pkg
+    package xwp =  xevent_to_window_port;			# xevent_to_window_port				is from   src/lib/x-kit/xclient/src/window/xevent-to-window-port.pkg
+    package xes =  xevent_sink;					# xevent_sink					is from   src/lib/x-kit/xclient/src/wire/xevent-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+    package xm  =  xt::xid_map;					# Map where key::Key == xt::Xid.
 
     #
     trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
@@ -65,402 +68,277 @@ herein
 
 
     package   xevent_to_window_ximp
-    : (weak)  Xevent_To_Window_Ximp						# Xevent_To_Window_Ximp				is from   src/lib/x-kit/xclient/src/wire/xevent-to-window-ximp.api
+    : (weak)  Xevent_To_Window_Ximp				# Xevent_To_Window_Ximp				is from   src/lib/x-kit/xclient/src/wire/xevent-to-window-ximp.api
     {
 
-	exception LOST_REPLY;
-	exception ERROR_REPLY  xerrors::Xerror;
 
 	Run_Gun =  Mailop(Void);				# Purely for readability.
 	End_Gun =  Mailop(Void);				# Purely for readability.
 
-	max_bytes_per_socket_write = 2048;
 
-	Xpacket_Plea =  XPLEA_NOTE_XPACKET  xps::Xpacket;
-
-	# Client pleas to font:
-	#
-	Xevent_To_Window_Plea						# 'Plea_Mail' in xsocket.pkg
-	  = PLEA             v1u::Vector
-	  | PLEA_REPLY      (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
-	  | PLEA_AND_CHECK  (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
-	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
-	  | PLEA_FLUSH      (Void -> Void)							# signal_fn arg will be called when all preceding commands have been written to socket.
-#	  = PLEA_QUIT
-#	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
-
-
-	# Font replies to client requests:
-	#
-	also
-	Reply_Mail
-	  = REPLY_LOST				# The reply was lost somewhere in transit.
-	  | REPLY        v1u::Vector		# A normal reply.
-	  | REPLY_ERROR  v1u::Vector		# The server returned an error message.
+	Client_Plea
+	  = PLEA_NOTE_NEW_TOPWINDOW            (xt::Window_Id, xg::Window_Site, (xwp::Envelope_Route, event_types::x::Event) -> Void)
+	  #
+	  | PLEA_GET_WINDOW_SITE               (xt::Window_Id, Oneshot_Maildrop( xg::Box ))
 	  ;
 
+	Client_Q =  Mailqueue( Client_Plea  );
+	Xevent_Q =  Mailqueue( et::x::Event );
 
-
-
-	Pending_Reply = ONE_REPLY       (un::Unt, Oneshot_Maildrop( Reply_Mail ))
-		      | EXPOSURE_REPLY  (un::Unt, Oneshot_Maildrop( Void -> List( xg::Box ) ))
-		      | ERROR_CHECK     (un::Unt, Oneshot_Maildrop( Reply_Mail ))
-#		      | MULTI_REPLY     (un::Unt, Oneshot_Maildrop( Reply_Mail ), (v1u::Vector -> Int), List( v1u::Vector ))
-		      ;
-	    #
-	    # Above gives the kind of reply that is
-	    # pending for an outstanding request in
-	    # the outstanding-request queue.
-	    #
-	    # We use unsigneds to represent the
-	    # sequence numbers.
-	    #
-	    # ONE_REPLY is the workhorse call:
-	    #    A request generating a single reply.
-	    #
-	    # MULTI_REPLY is a currently unused call
-	    #    supporting multiple responses to a single request:
-	    #    we accumulate responses until the (v1u::Vector -> Int)
-	    #    function argument ("remaining") returns 0. 
-	    #    (The fourth slot is just the reply accumulator.)
+	Window_Info
+	    =
+	    WINDOW_INFO
+	      {
+		window_id:	xt::Window_Id,					# 29-bit X id for this particular window.
+		route:		xwp::Envelope_Route,				# Path needed to reach this window, starting at its topwindow.
+		parent_info:	Null_Or( Window_Info ),
+		#
+		children:	Ref( List(Window_Info) ),
+		lock:		Ref( Bool ),
+		site:		Ref( xg::Box ),
+		#
+		xevent_sink:   (xwp::Envelope_Route, et::x::Event) -> Void	# Where to send events headed for this window.
+	      };
 
 	Xevent_To_Window_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
-	    =
-	    { last_seqn_read: Ref(Unt),
-              last_seqn_sent: Ref(Unt),
-	      #	
-	      pending_reply_queue: Ref {   front:    List( Pending_Reply ),
-					    rear:    List( Pending_Reply )
-				       }
-	    };
+	  =
+	  { wid_to_winfo:   Ref( xm::Map( Window_Info ) ),								# "wid_to_winfo" == "window id to window info map"
+	    #
+	    wid_to_pleas:   Ref( xm::Map( List(Client_Plea) ) ),							# "wid_to_pleas" == "window id to window pleas map"
 
-	Imports   = { outbuf_port:		op::Outbuf_Port,
-		      xpacket_sink:		xps::Xpacket_Sink				# Carries xpackets to decode_xpackets_ximp from   src/lib/x-kit/xclient/src/wire/decode-xpackets-ximp.pkg
+	    wid_to_1shot:   Ref( xm::Map( Oneshot_Maildrop(Void) ) )							# "wid_to_1shot" == "window id to oneshot map"
+	  };
+
+	Imports   = {													# Ports we use which are exported by other imps.
+		      keymap_port:				kp::Keymap_Port,
+		      window_property_ximp_xevent_sink:		xes::Xevent_Sink,					# 
+		      selection_ximp_xevent_sink:		xes::Xevent_Sink					# 
 		    };
 
-	Configstate = Mailslot( {  imports:	Imports,
-				   me:		Xevent_To_Window_Ximp_State,
-				   run_gun':	Run_Gun,
-				   end_gun':	End_Gun
+	Configstate = Mailslot( { imports:	Imports,
+				  me:		Xevent_To_Window_Ximp_State,
+				  run_gun':	Run_Gun,
+				  end_gun':	End_Gun,
+				  display:	dy::Xdisplay
 				 }
 			      );
 
-	Xevent_To_Window_Q = Mailqueue( Xevent_To_Window_Plea );
-	Xpacket_Q   = Mailqueue( Xpacket_Plea   );
-	Xerror_Q    = Mailqueue( sp::Xerror     );
 
-	Exports	= { xpacket_sink:	xps::Xpacket_Sink,					# Carries xpackets to us from xserver via inbuf-ximp.
-		    xevent_to_window_port:	sp::Xevent_To_Window_Port					# Requests from widget/application code.
-		  };
+	Exports	  = {													# Ports we export for use by other imps.
+		      xevent_sink:		xes::Xevent_Sink,							# For xevents from xserver via inbuf, sequencer and decoder ximp.
+		      xevent_to_window_port:	xwp::Xevent_To_Window_Port						# Requests from widget/application code.
+		    };
 
-
-	empty_v =   v1u::from_list [];
-
-	# Convert "abc" -> "61.62.63." etc:
+	
+	# The various things we can
+	# do with a given X event:
 	#
-	fun string_to_hex s
+	Xevent_Action
+	  #	
+	  = SEND_TO_WINDOW                        xt::Window_Id			# Forward event to given window via all of its ancestors from topwindow down.
+	  | NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW  (xt::Window_Id, xg::Box)	# Note new size+position of window, then forward event normally.
+	  | NOTE_WINDOW_DESTRUCTION               xt::Window_Id
+	  | SEND_TO_KEYMAP_IMP							# This appears to be unused at present.
+	  | SEND_TO_WINDOW_PROPERTY_IMP
+	  | SEND_TO_SELECTION_IMP
+	  | SEND_TO_ALL_WINDOWS							# So everyone hears about changes in modifier key, keyboard and pointer mappings.
+	  | IGNORE
+	  | NOTE_NEW_WINDOW
+	      { parent_window_id:   xt::Window_Id,
+		created_window_id:  xt::Window_Id,
+		box:                xg::Box 
+	      }
+	  ;
+
+	# Discard instances of an X-event that
+	# are the product of SubstructureNotify,
+	# instead of StructureNotify.
+	#
+	fun ignore_substructure_notify_xevents (window_id1, window_id2)
 	    =
-	    string::translate
-		(fn c =  number_string::pad_left '0' 2 (int::format number_string::HEX (char::to_int c)) + ".")
-		 s;
+	    if (xt::same_xid (window_id1, window_id2))  SEND_TO_WINDOW window_id1;
+	    else                           		    IGNORE;
+	    fi;
 
-	# As above, starting with byte-vector:
+	# Decide what action to take for given X event.  Here
 	#
-	fun bytes_to_hex  bytes
-	    =
-	    string_to_hex (byte::unpack_string_vector(vector_slice_of_one_byte_unts::make_slice (bytes, 0, NULL)));
-
-	# Show printing chars verbatim, everything
-	# else as '.', per hexdump tradition:
+	#     event_window_id
 	#
-	fun string_to_ascii s
-	    =
-	    string::translate
-		(fn c =  char::is_print c  ??  string::from_char c  ::  ".")
-		s;
-
-	# As above, starting with byte-vector:
+	# is the window corresponding to the widget which
+	# should actually handle the event, as determined
+	# by the X server;  the X server algorithm is
+	# described on pages 76-77 of
 	#
-	fun bytes_to_ascii  bytes
-	    =
-	    string_to_ascii (byte::unpack_string_vector (vector_slice_of_one_byte_unts::make_slice (bytes, 0, NULL)));
-
-
-
-#  +DEBUG 
-	fun seqn_to_string  n					# "seqn" == "sequence number"
-	    =
-	    un::format  number_string::DECIMAL  n;
-
+	#     http://mythryl.org/pub/exene/X-protocol-R6.pdf
 	#
-	fun queue_element_to_string (ERROR_CHECK       (n, _)) => "  ERROR_CHECK seqn=="    + (seqn_to_string n);
-	    queue_element_to_string (ONE_REPLY         (n, _)) => "  ONE_REPLY seqn=="      + (seqn_to_string n);
-	    queue_element_to_string (EXPOSURE_REPLY    (n, _)) => "  EXPOSURE_REPLY seqn==" + (seqn_to_string n);
-#	    queue_element_to_string (MULTI_REPLY (n, _, _, _)) => "  MULTI_REPLY seqn=="    + (seqn_to_string n);
-	end;
-	#
-	fun pending_reply_queue_to_string { front => [], rear => [] }
+	fun pick_xevent_action (et::x::KEY_PRESS      { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::KEY_RELEASE    { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::BUTTON_PRESS   { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::BUTTON_RELEASE { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::MOTION_NOTIFY  { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::ENTER_NOTIFY   { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::LEAVE_NOTIFY   { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::FOCUS_IN       { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+	    pick_xevent_action (et::x::FOCUS_OUT      { event_window_id, ... } ) =>  SEND_TO_WINDOW event_window_id;
+
+#	    pick_xevent_action (et::x::KeymapNotify {, ... } ) = 
+#	    pick_xevent_action (et::x::GraphicsExpose ?? 
+#	    pick_xevent_action (et::x::NoExpose {, ... } ) =
+#	    pick_xevent_action (et::x::MapRequest {, ... } ) =
+#	    pick_xevent_action (et::x::ConfigureRequest {, ... } ) =
+#	    pick_xevent_action (et::x::ResizeRequest {, ... } ) =
+#	    pick_xevent_action (et::x::CirculateRequest {, ... } ) =
+
+	    pick_xevent_action (et::x::EXPOSE { exposed_window_id, ... } ) =>  SEND_TO_WINDOW  exposed_window_id;
+
+
+	    pick_xevent_action (et::x::VISIBILITY_NOTIFY { changed_window_id, ... } ) =>  SEND_TO_WINDOW  changed_window_id;
+
+	    pick_xevent_action (et::x::CREATE_NOTIFY { parent_window_id, created_window_id, box, ... } )
 		=>
-		"(pending reply queue is empty)";
+		NOTE_NEW_WINDOW { parent_window_id, created_window_id, box };
 
-	    pending_reply_queue_to_string { front, rear }
+	    pick_xevent_action (et::x::DESTROY_NOTIFY { event_window_id, destroyed_window_id, ... } )
 		=>
-		"{" + (cat (queue_to_strings (front @ (reverse rear), []))) + "}"
-		where
-		    fun queue_to_strings ([], l)    =>  reverse l;
-			queue_to_strings (x ! r, l) =>  queue_to_strings (r, ((queue_element_to_string x) + ";  ") ! l);
-		    end;
-		end;
+		xt::same_xid (event_window_id, destroyed_window_id)
+		    ##
+		    ??  NOTE_WINDOW_DESTRUCTION  event_window_id	# Remove window from registry. 
+		    ::  SEND_TO_WINDOW           event_window_id;	# Report to parent that child is dead. 
+
+	    pick_xevent_action (et::x::UNMAP_NOTIFY { event_window_id, unmapped_window_id, ... } )
+		=>
+		ignore_substructure_notify_xevents (event_window_id, unmapped_window_id);
+
+	    pick_xevent_action (et::x::MAP_NOTIFY { event_window_id, mapped_window_id, ... } )
+		=>
+		ignore_substructure_notify_xevents (event_window_id, mapped_window_id);
+
+
+	    pick_xevent_action (et::x::REPARENT_NOTIFY _)
+		=>
+		IGNORE;
+
+	    pick_xevent_action (et::x::CONFIGURE_NOTIFY { event_window_id, configured_window_id, box, ... } )
+		=>
+		case (ignore_substructure_notify_xevents (event_window_id, configured_window_id))
+		    #
+		    SEND_TO_WINDOW _ =>  NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW (configured_window_id, box);
+		    _                =>  IGNORE;
+		esac;
+
+
+	    pick_xevent_action (et::x::GRAVITY_NOTIFY { event_window_id, moved_window_id, ... } )
+		=>
+		ignore_substructure_notify_xevents (event_window_id, moved_window_id);
+
+
+	    pick_xevent_action (et::x::CIRCULATE_NOTIFY { event_window_id, circulated_window_id, ... } )
+		=>
+		ignore_substructure_notify_xevents (event_window_id, circulated_window_id);
+
+
+	    pick_xevent_action (et::x::PROPERTY_NOTIFY   _) => SEND_TO_WINDOW_PROPERTY_IMP;    # We may have other uses of PropertyNotify someday.
+	    pick_xevent_action (et::x::SELECTION_CLEAR   _) => SEND_TO_SELECTION_IMP;
+	    pick_xevent_action (et::x::SELECTION_REQUEST _) => SEND_TO_SELECTION_IMP;
+	    pick_xevent_action (et::x::SELECTION_NOTIFY  _) => SEND_TO_SELECTION_IMP;
+
+	    pick_xevent_action (et::x::COLORMAP_NOTIFY { window_id, ... } ) => SEND_TO_WINDOW window_id;
+	    pick_xevent_action (et::x::CLIENT_MESSAGE  { window_id, ... } ) => SEND_TO_WINDOW window_id;
+
+	    pick_xevent_action  et::x::MODIFIER_MAPPING_NOTIFY     => SEND_TO_ALL_WINDOWS;
+	    pick_xevent_action (et::x::KEYBOARD_MAPPING_NOTIFY _)  => SEND_TO_ALL_WINDOWS;
+	    pick_xevent_action  et::x::POINTER_MAPPING_NOTIFY      => SEND_TO_ALL_WINDOWS;
+
+	    pick_xevent_action e => {   log::fatal .{ string::cat [ "[xsocket-to-topwin: unexpected ", xevent_to_string::xevent_name e, " event]\n"]; };
+					IGNORE;
+				    };
 	end;
-#  -DEBUG 
+
+	# Define a tracelogging version of
 	#
-	fun seqn_of (ERROR_CHECK    (seqn, _      )) =>  seqn;
-	    seqn_of (ONE_REPLY      (seqn, _      )) =>  seqn;
-	    seqn_of (EXPOSURE_REPLY (seqn, _      )) =>  seqn;
-#	    seqn_of (MULTI_REPLY    (seqn, _, _, _)) =>  seqn;
-	end;
-
-
-	# Spawn throw-away thread to deliver
-	# multiple X server replies.  This is
-	# to handle the currently-unused MULTI_REPLY:
+	#     pick_xevent_action
 	#
-#	fun send_replies (slot, replies)
-#	    =
-#	    loop (reverse replies)
-#	    where	
-#	        fun loop [] =>  ();
-#		    #
-#		    loop (s ! rest)
-#			=>
-#			{   put_in_mailslot (slot, REPLY s);
-#			    #
-#			    loop rest;
-#			};
-#		end;
-#	    end;
+	stipulate
+	    #
+	    fun xevent_action_to_string (SEND_TO_WINDOW w)
+		    =>
+		    ("SEND_TO_WINDOW(" + xt::xid_to_string w + ")");
 
+	        xevent_action_to_string (NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW (w,_))
+		    =>
+		    ("NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW(" + xt::xid_to_string w + ")");
 
+		xevent_action_to_string (NOTE_NEW_WINDOW { parent_window_id, created_window_id, box } )
+		    =>
+		    string::cat
+		      [
+			"NOTE_NEW_WINDOW { parent=",  xt::xid_to_string  parent_window_id,
+			      ", new_window=",  xt::xid_to_string created_window_id,
+			"}"
+		      ];
 
-	# Search pending-reply queue for the
-	# sequence number n, which is from the
-	# latest X server message received.
-	#
-	# If we have any pending replies with
-	# lower sequence numbers they must
-	# correspond to lost X server requests,
-	# so we do the best we can with them
-	# and then drop them from the queue.
-	#
-	# We return the pair
-	#
-	#    { found_it, updated_queue }
-	#
-	# where:
-	#
-	#    updated_queue
-	#        is the updated queue.
-	#
-	#    found_it
-	#        is TRUE iff the head
-	#        of updated_queue has
-	#        sequence number n.
-	#	
-	fun get_pending_reply_n (n, q)
-	    =
-	    handle_lost_replies  q
-	    where
-		fun handle_lost_reply (ERROR_CHECK(_, oneshot)) =>  put_in_oneshot (oneshot, REPLY empty_v);
-		    handle_lost_reply (ONE_REPLY  (_, oneshot)) =>  put_in_oneshot (oneshot, REPLY_LOST);
+		xevent_action_to_string (NOTE_WINDOW_DESTRUCTION w) => ("NOTE_WINDOW_DESTRUCTION(" + xt::xid_to_string w + ")");
+		xevent_action_to_string SEND_TO_KEYMAP_IMP          => "SEND_TO_KEYMAP_IMP";
+		xevent_action_to_string SEND_TO_WINDOW_PROPERTY_IMP => "SEND_TO_WINDOW_PROPERTY_IMP";
+		xevent_action_to_string SEND_TO_SELECTION_IMP       => "SEND_TO_SELECTION_IMP";
+		xevent_action_to_string SEND_TO_ALL_WINDOWS         => "SEND_TO_ALL_WINDOWS";
+		xevent_action_to_string IGNORE                      => "IGNORE";
+	    end;
 
-#		    handle_lost_reply (MULTI_REPLY(_, oneshot, _, []     )) =>  put_in_oneshot  (oneshot, REPLY_LOST);
-#		    handle_lost_reply (MULTI_REPLY(_, oneshot, _, replies)) =>  put_in_oneshot  (oneshot, replies);
+	herein
+	    #
+	    pick_xevent_action
+		=
+		fn xevent
+		    =
+		    {   xevent_action =  pick_xevent_action  xevent;
 
-		    handle_lost_reply (EXPOSURE_REPLY(_, oneshot))
-			=>
-			put_in_oneshot  (oneshot,  fn () = raise exception LOST_REPLY);
-		end;
-
-		#
-		fun handle_lost_replies (q' as { front => [], rear => [] })
-			=>
-			{ found_it => FALSE, updated_queue => q' };
-
-		    handle_lost_replies { front => [], rear }
-			=>
-			handle_lost_replies { front => (reverse rear), rear => [] };
-
-		    handle_lost_replies  (q' as  { front => pending_reply ! rest,  rear })
-			=>
-			{   seqn =  seqn_of  pending_reply;
+			trace .{
 			    #
-			    if (seqn < n)
-				#
-				handle_lost_reply  pending_reply;
-				#
-				handle_lost_replies  { front => rest,  rear };
-			    else
-				seqn > n  ??   { found_it => FALSE, updated_queue => q' }
-					  ::   { found_it => TRUE,  updated_queue => q' };
-			    fi;
+			    cat [ "xsocket_to_topwindow_router: ", xevent_to_string::xevent_name  xevent,
+                                  " => ", xevent_action_to_string xevent_action
+                                ];
 			};
-		  end;
 
+			xevent_action;
+		    };
+	end;
+    #  -DEBUG 
+
+
+	fun set_window_subtree_locks_to
+		(bool: Bool)	
+	    =
+	    set
+	    where
+		fun set (WINDOW_INFO { lock, children, ... } )
+		    =
+		    {   lock := bool;
+			set_list *children;
+		    }
+
+		also
+		fun set_list (wd ! r)
+			=>
+			{   set wd;
+			    set_list r;
+			};
+
+		    set_list []
+			=>
+			();
+		end;
 	    end;
 
 
-
-	# Extract the pending-reply queue entry 
-	# with the sequence number n.
-	#
-	# If all of the expected X server replies
-	# for that entry have been received then
-	# send the extracted reply to the requesting
-	# client.
-	#
-	fun handle_reply_message (seqn, reply, pending_reply_queue)
-	    =
-	    case (get_pending_reply_n (seqn, pending_reply_queue))
-		#
-		{ found_it => TRUE,  updated_queue =>  { front => ONE_REPLY(_, oneshot) ! rest,  rear } }
-		    =>
-		    {   put_in_oneshot (oneshot, REPLY reply);
-			{ front => rest, rear };
-		    };
-
-#		{ found_it => TRUE,  updated_queue => { front => MULTI_REPLY (seqn, slot, remaining, replies) ! rest,  rear } }
-#		    =>
-#		    if (remaining reply  ==  0)
-#			#
-#			send_replies (slot, reply ! replies);
-#			(rest, rear);
-#		    else
-#			( MULTI_REPLY (seqn, slot, remaining, reply ! replies) ! rest,
-#			  rear
-#			);
-#		    fi;
-
-		_   => 
-		    {   # Debug support:
-			#	
-			log::fatal
-			   .{   sprintf "IMPOSSIBLE ERROR: xsocket::handle_reply_message(seqn==%s, reply x=%s (%d bytes)...): BOGUS PENDING REPLY QUEUE, queue =%s"
-				    (seqn_to_string seqn)
-				    (bytes_to_hex reply)
-				    (v1u::length reply)
-				    (pending_reply_queue_to_string  pending_reply_queue);
-			    };									# Does not return
-
-			pending_reply_queue;							# Cannot execute -- just to pacify compiler typechecker.
-		    };
-	   esac;
-
-
-	# Extract the pending-reply queue entry
-	# with seqence number n:
-	#
-	fun handle_expose_event_train (n, reply, pending_reply_queue)
-	    =
-	    {
-		case (get_pending_reply_n (n, pending_reply_queue))
-		    #
-		    { found_it      =>  TRUE,
-		      updated_queue =>  { front => EXPOSURE_REPLY(_, oneshot) ! rest,  rear }
-		    }
-			=>  {   put_in_oneshot  (oneshot,  fn () = reply);
-				#
-				{ front => rest, rear };
-			    };
-
-		    # For now, just drop it.
-		    # When the gc-server supports graphics-exposures,
-		    # these shouldn't happen:				XXX SUCKO FIXME
-		    #
-		    _   =>  {
-				pending_reply_queue;
-			    };
-
-		esac;
-
-							    # +DEBUG 
-							    # (dumpPendingQ (n, q);
-							    #  xgripe::impossible "ERROR: xsocket::handle_expose_event_train: bogus pending reply queue]")
-							    # -DEBUG
-	    };
-
-	# Extract the pending-reply queue entry
-	# with seqence number n (corresponding
-	# to the given error message):
-	#
-	fun handle_error_message (n, err, pending_reply_queue)
-	    = 
-	    case (get_pending_reply_n (n, pending_reply_queue))
-		#
-		{ found_it => TRUE,  updated_queue => { front => ERROR_CHECK(_, oneshot) ! rest,  rear } }
-		    =>
-		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
-			#
-			{ front => rest, rear };
-		    };
-
-		{ found_it => TRUE,  updated_queue => { front => ONE_REPLY(_, oneshot) ! rest,  rear } }
-		    =>
-		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
-			#
-			{ front => rest, rear };
-		    };
-
-#		{ found_it => TRUE,  updated_queue => { front => MULTI_REPLY(_, oneshot, _, _) ! rest, rear } }
-#		    =>
-#		    {   put_in_oneshot (oneshot, REPLY_ERROR err);
-#			{ front => rest, rear };
-#		    };
-
-		{ found_it => TRUE,  updated_queue => { front => EXPOSURE_REPLY(_, oneshot) ! rest, rear } }
-		    =>
-		    {   put_in_oneshot  (oneshot,  fn () = raise exception ERROR_REPLY (w2v::decode_error err));
-			#
-			{ front => rest, rear };
-		    };
-
-		{ found_it => FALSE,  updated_queue => pending_reply_queue' }
-		    =>
-		    pending_reply_queue';
-
-		_   =>
-/* DEBUG */         {   trace .{ sprintf "IMPOSSIBLE ERROR: xsocket::handle_error_message(seqn==%s: BOGUS PENDING REPLY QUEUE, queue =%s" (seqn_to_string n) (pending_reply_queue_to_string pending_reply_queue);  };
-			xgripe::impossible "ERROR: xsocket::handle_error_message: bogus pending reply queue]";
-/* DEBUG */         };
-	    esac;
-
-	#
-	fun handle_event_message (n, pending_reply_queue)
-	    =
-	    case (get_pending_reply_n (n, pending_reply_queue))
-		#
-		{ found_it => TRUE,  updated_queue => { front => ERROR_CHECK(_, oneshot) ! rest,  rear } }
-		    =>
-		    {   put_in_oneshot (oneshot, REPLY empty_v);
-			#
-			{ front => rest, rear };
-		    };
-
-		{ found_it,  updated_queue => pending_reply_queue' }
-		    =>
-		    pending_reply_queue';
-	    esac;
-# ABOVE CODE COMPILES BUT NOT YET CALLED.
-
-	
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:					Xevent_To_Window_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		  me:					Xevent_To_Window_Ximp_State,					# State which is preserved across imp shutdown/restart cycles.
 		  imports:				Imports,							# Ximps to which we send requests.
 		  to:					Replyqueue(Void),						# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
 		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
-		  xpacket_q:				Xpacket_Q,							# Xpackets from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
-		  xevent_to_window_q:				Xevent_To_Window_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or xevent_to_window_imp.
-		  xerror_q:				Xerror_Q,							# 
-		  graphics_expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )		# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
+		  client_q:				Client_Q,							# Requests from x-widgets and such
+		  xevent_q:				Xevent_Q,							# 
+		  display:				dy::Xdisplay
 		}
 	    =
 	    loop ()
@@ -469,9 +347,9 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (end_gun'                               ==>  shut_down_xevent_to_window_imp'),
-			    (take_all_from_mailqueue' xevent_to_window_q   ==>  do_xevent_to_window_pleas),
-			    (take_from_mailqueue'     xpacket_q     ==>  do_xpacket_plea)
+			    (end_gun'                       ==>  shut_down_xevent_to_window_imp'),
+			    (take_from_mailqueue' client_q  ==>  do_plea),
+			    (take_from_mailqueue' xevent_q  ==>  do_xevent)
 			];
 
 			loop ();
@@ -482,335 +360,241 @@ herein
 			    thread_exit { success => TRUE };								# Will not return.	
 			#
 
-			stipulate
-			    fun add_to_pending_reply_queue  pending_reply
-				=
-				{   (*me.pending_reply_queue) -> { front, rear };
-				    #
-				    me.pending_reply_queue := { front, rear =>  pending_reply ! rear };
-				};
-			    #
-			    fun send_request_reply (request, reply_oneshot)
-				=
-				{   n = *me.last_seqn_sent + 0u1;
-				    me.last_seqn_sent := n;
-
-				    imports.outbuf_port.put_value  request;
-
-				    add_to_pending_reply_queue (ONE_REPLY (n, reply_oneshot));
-				};
-
-			    #
-			    fun send_request_and_check (request, reply_oneshot)
-				=
-				{   n = *me.last_seqn_sent + 0u1;
-				    me.last_seqn_sent := n;
-				    #
-				    imports.outbuf_port.put_value  request;
-
-				    add_to_pending_reply_queue (ERROR_CHECK (n, reply_oneshot));
-				};
-
-			    fun send_request_exposures (request, reply_oneshot)
-				=
-				{   n = *me.last_seqn_sent + 0u1;
-				    me.last_seqn_sent := n;
-				    #
-				    imports.outbuf_port.put_value  request;
-
-				    add_to_pending_reply_queue (EXPOSURE_REPLY (n, reply_oneshot));
-				};
-
-			    fun send_flush (signalf: Void -> Void)
-				=
-				imports.outbuf_port.flush_outbuf  signalf;
-
-#			    fun send_request_replies (req, reply_mailslot, remain)
-#				=
-#				{   n = *me.last_seqn_sent + 0u1;
-#				    me.last_seqn_sent := n;
-#				    #
-#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
-#
-#				    me.pending_reply_queue :=  add_to_pending_reply_queue (MULTI_REPLY (n, reply_mailslot, remain, []), *me.pending_reply_queue);
-#				};
-#
-			    #
-			    fun do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
-				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
-				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
-				do_clientplea (PLEA_FLUSH     signalf) =>  send_flush             signalf;
-
-#				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
-#				#
-				do_clientplea (PLEA request)
-				    =>
-				    {   imports.outbuf_port.put_value  request;
-					#
-					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
-				    };
-			    end;
-
-			herein
-			    fun do_xpacket_plea (XPLEA_NOTE_XPACKET (xpacket as { code: v1u::Element,  packet: v1u::Vector }))
-				=
-				{
-				    # NOTE: this doesn't work if there are 2**17
-				    # outgoing messages between replies/events.
-				    #
-				    # We need to track (last_seqn_sent - last_seqn_read),
-				    # and if it gets bigger than some reasonable size,
-				    # generate a synchronization (i.e., get_input_focus message).	XXX BUGGO FIXME
-
-				    fun get_seq_n ()
-					=
-					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (packet, 1));
-					    #
-					    seqn' = un::bitwise_or
-						      ( un::bitwise_and (*me.last_seqn_read, un::bitwise_not 0uxffff),
-							short_seq_n
-						      );
-
-					    seqn' < *me.last_seqn_read
-					      ??  seqn' + 0ux10000		#  NOTE: we should check for (seqn' + 0x10000) > lastReqOut    XXX BUGGO FIXME
-					      ::  seqn';
-					};
-
-				    case code
-					#
-					0u0 =>  {   # Error message:
-						    #
-						    seqn = get_seq_n ();
-
-						    me.last_seqn_read := seqn;	
-
-						    put_in_mailqueue (xerror_q, { seqn, msg => packet });
-
-						    me.pending_reply_queue :=  handle_error_message (seqn, packet, *me.pending_reply_queue);
-						};
-
-
-					0u1 =>  {   # Reply message:
-						    #
-						    seqn = get_seq_n ();
-						    me.last_seqn_read := seqn;
-
-						    me.pending_reply_queue :=   handle_reply_message (seqn, packet, *me.pending_reply_queue);
-						};
-
-
-					0u11 => {   # KeymapNotify event:
-						    #
-						    imports.xpacket_sink.put_value { code, packet };
-
-						    me.pending_reply_queue :=   handle_event_message (*me.last_seqn_read, *me.pending_reply_queue);
-						};
-
-
-					0u13 => {   # GraphicsExpose event:
-						    #
-						    seqn = get_seq_n ();
-						    me.last_seqn_read := seqn;
-
-						    include  et;														# event_types	is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
-
-						    graphics_expose_record
-							=
-						        case (w2v::decode_graphics_expose  packet)
-							    #
-						    	    et::x::GRAPHICS_EXPOSE  graphics_expose_record   =>  graphics_expose_record;
-							    _						     =>  raise exception FAIL "Impossible case";		
-							esac;
-
-						    case *graphics_expose_event_accumulator
-							#
-							NULL	        =>      accumulate_graphics_expose_events  []   graphics_expose_record;						# Start    accumulating GRAPHICS_EXPOSE events in a fresh  sequence.
-							THE accumulator =>      accumulator                             graphics_expose_record;						# Continue accumulating GRAPHICS_EXPOSE events in existing sequence.
-						    esac
-						    where
-							# The X server sends numbered trains of expose events.
-							# We use our 'graphics_expose_event_accumulator' refcell to accumulate
-							# a train of expose events, then handle it when complete:
-							#
-							fun accumulate_graphics_expose_events   boxes   ({ box, count=>0, ... }:  et::x::Graphics_Expose_Record)				# Note currying.
-								=>
-								{   me.pending_reply_queue   :=   handle_expose_event_train  (seqn,  box ! boxes,  *me.pending_reply_queue);	# Sequence complete -- pass boxes to client code.
-								    #
-								    graphics_expose_event_accumulator :=   NULL;										# Done with this expose event sequence.
-								};
-
-							    accumulate_graphics_expose_events   boxes   ({ box,           ... }:  et::x::Graphics_Expose_Record)				# Sequence not complete -- continue accumulation.
-								=>
-								{
-								    graphics_expose_event_accumulator :=   THE (accumulate_graphics_expose_events (box ! boxes));					# Note partial application of curried fn.
-								};
-							end;
-						    end;
-						};
-
-
-					0u14 => {   # NoExpose event:
-						    #
-						    seqn = get_seq_n ();
-						    me.last_seqn_read := seqn;
-
-						    me.pending_reply_queue :=   handle_expose_event_train (seqn, [], *me.pending_reply_queue);
-						};
-
-
-					_    => {   # Other event packets:
-						    #
-						    seqn = get_seq_n ();
-						    me.last_seqn_read := seqn;
-
-						    imports.xpacket_sink.put_value { code, packet };
-
-						    me.pending_reply_queue :=  handle_event_message (seqn, *me.pending_reply_queue);
-						};
-				    esac;
-				};
-
-			    # Handle requests from clients
-			    # (app threads on our side):
-			    # 
-			    fun do_xevent_to_window_pleas  [] =>    ();
+			fun get_winfo  window_id
+			    =
+			    case (xm::get (*me.wid_to_winfo, window_id))
 				#
-				do_xevent_to_window_pleas  pleas
-				    =>
-				    {   apply  do_clientplea  pleas;
-					#	
-				#       put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
-				    };
-			    end;
+				THE winfo =>    winfo;
+				NULL      =>    {   log::fatal .{ "window_id not found -- do_plea (plea::GET_WINDOW_SITE in xevent-to-window-ximp.pkg"; };
+						    raise exception FAIL "";						# Should not get here.
+						};
+			    esac;
+				    
+
+			fun do_plea (PLEA_NOTE_NEW_TOPWINDOW  (window_id, window_site, xevent_sink))			# Log a new top-level window.
+				=>
+				me.wid_to_winfo
+				    :=
+				    xm::set (
+					*me.wid_to_winfo,
+					window_id,
+					WINDOW_INFO
+					  {
+					    window_id,
+					    xevent_sink,
+					    route       =>  xwp::ENVELOPE_ROUTE_END  window_id,
+					    parent_info =>  NULL,
+					    children    =>  REF [],
+					    lock        =>  REF FALSE,
+					    site	=>  REF (xg::site_to_box window_site)
+					  }
+				      );
+
+			    do_plea (PLEA_GET_WINDOW_SITE (window_id, reply_oneshot))
+				=>
+				{   (get_winfo window_id) ->  WINDOW_INFO { site, ... };
+				    #
+				    put_in_oneshot (reply_oneshot,  *site);
+				};
+
 			end;
+
+			#
+			fun note_new_subwindow (parent_window_id, child_window_id, box)
+			    =
+			    {   parent_info =  get_winfo  parent_window_id;
+				#
+				parent_info ->  WINDOW_INFO { route, xevent_sink, children, lock, ... };
+				#
+				fun extend_route (xwp::ENVELOPE_ROUTE_END window_id)      =>  xwp::ENVELOPE_ROUTE (window_id, xwp::ENVELOPE_ROUTE_END child_window_id);
+				    extend_route (xwp::ENVELOPE_ROUTE (window_id, route)) =>  xwp::ENVELOPE_ROUTE (window_id, extend_route route);
+				end;
+
+				child_route =  extend_route  route;
+
+
+				child_info
+				    =
+				    WINDOW_INFO
+				      {
+					window_id   =>  child_window_id,
+					route       =>  child_route,
+					site        =>  REF box,
+					parent_info =>  THE parent_info,
+					children    =>  REF [],
+					lock        =>  REF *lock,
+					#
+					xevent_sink
+				      };
+
+				children :=  child_info ! *children;
+
+				me.wid_to_winfo :=  xm::set (*me.wid_to_winfo, child_window_id, child_info);
+			    };
+
+			#
+			fun note_site_change (window_id, box)
+			    =
+			    {   (get_winfo window_id) ->  WINDOW_INFO { site, ... };
+				#
+				site := box;
+			    };
+
+			#
+			fun route_xevent_per_window_info (xevent, WINDOW_INFO { route, xevent_sink, ... } )
+			    = 
+			    xevent_sink (route, xevent);
+
+			#
+			fun route_xevent_to_window_id (xevent, window_id)
+			    =
+			    route_xevent_per_window_info  (xevent,  get_winfo window_id);
+
+			#
+			fun do_xevent  xevent
+			    =
+			    case (pick_xevent_action  xevent)
+				#
+				SEND_TO_WINDOW  window_id
+				    =>
+				    route_xevent_to_window_id (xevent, window_id);
+
+				NOTE_SITE_CHANGE_AND_SEND_TO_WINDOW (window_id, box)
+				    =>
+				    {   note_site_change (window_id, box);			# Window has changed size and/or position.
+					#
+					route_xevent_to_window_id (xevent, window_id);
+				    };
+
+				NOTE_NEW_WINDOW { parent_window_id, created_window_id, box }
+				    =>
+				    {   note_new_subwindow (parent_window_id, created_window_id, box);
+					#
+					route_xevent_to_window_id (xevent, parent_window_id);
+				    };
+
+				NOTE_WINDOW_DESTRUCTION  window_id
+				    =>
+				    case (xm::get_and_drop (*me.wid_to_winfo, window_id))
+					#
+					(new_wid_to_winfo, THE (window_info as WINDOW_INFO { parent_info => THE (WINDOW_INFO { children, ... } ), ... } ))
+					    =>
+					    {   me.wid_to_winfo :=  new_wid_to_winfo;
+						#
+						children :=   remove_child  *children;
+
+						route_xevent_per_window_info (xevent, window_info);
+					    }
+					    where
+						fun remove_child ((window_info' as WINDOW_INFO { window_id => window_id', ... } ) ! rest)
+							=>
+							if (xt::same_xid (window_id', window_id))  			        rest  ;
+							else                          		  (window_info' ! (remove_child rest));
+							fi;
+
+						    remove_child []
+							=>
+							{   log::fatal .{ "Missing child -- do_xevent/NOTE_WINDOW_DESTRUCTION in xevent-to-window-ximp.pkg"; };
+							    raise exception FAIL "";	# Shouldn't get here.
+							};
+						end;
+					    end;
+
+
+					(new_wid_to_winfo, THE window_info)
+					    =>
+					    {   me.wid_to_winfo :=  new_wid_to_winfo;
+						#
+						route_xevent_per_window_info (xevent, window_info);
+					    };
+
+					(new_wid_to_winfo, NULL)
+					    =>
+					    {   log::fatal .{ "Missing window -- do_xevent/NOTE_WINDOW_DESTRUCTION in xevent-to-window-ximp.pkg"; };
+						raise exception FAIL "";	# Shouldn't get here.
+					    };
+				    esac;
+
+				SEND_TO_KEYMAP_IMP
+				    =>
+				    {   log::fatal .{  "Unexpected SEND_TO_KEYMAP_IMP do_xevent in xevent-to-window-ximp.pkg]";  };
+					raise exception FAIL "";
+				    };
+
+				SEND_TO_WINDOW_PROPERTY_IMP  =>  imports.window_property_ximp_xevent_sink.put_value  xevent;
+				SEND_TO_SELECTION_IMP        =>  imports.selection_ximp_xevent_sink.put_value        xevent;
+
+				IGNORE => ();
+
+				SEND_TO_ALL_WINDOWS
+				    =>
+				    apply' (xm::vals_list  *me.wid_to_winfo)
+				           .{ route_xevent_per_window_info (xevent, #window_info); };
+			    esac;											# fun do_xevent
 		    end;												# fun loop
 	    end;													# fun run
 	
 	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate     =  make_mailslot  ()	:  Configstate;
+	    {   configstate =  make_mailslot  ()	:  Configstate;
 		#
-		xpacket_sink    =  { put_value };
+		xevent_sink =  { put_value };
 
-		xevent_to_window_port =  { send_xrequest,
-				    send_xrequest_and_read_reply,
-				    send_xrequest_and_return_completion_mailop,
-				    send_xrequest_and_handle_exposures,
-				    flush_xsocket,
-				    take_xerror,
-				    take_xerror'
-				  };
+		xevent_to_window_port
+		  =
+		  { note_new_topwindow,
+		    get_window_site,
+		    given_window_id_pass_site
+                  };
+
 
 		to             =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { xpacket_sink, xevent_to_window_port }));			# Return value from make_xevent_to_window_ximp().
+		put_in_oneshot (reply_oneshot, (configstate, { xevent_sink, xevent_to_window_port }));			# Return value from make_xevent_to_window_ximp().
 
 		(take_from_mailslot  configstate)									# Input args from configure_xevent_to_window_imp().
 		    ->
-		    { me, imports, run_gun', end_gun' };
+		    { me, imports, run_gun', end_gun', display };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		graphics_expose_event_accumulator = REF NULL;
-
-		run { me, xpacket_q, xevent_to_window_q, xerror_q, imports, to, end_gun', graphics_expose_event_accumulator };	# Will not return.
+		run { me, client_q, xevent_q, imports, to, end_gun', display };						# Will not return.
 	    }
 	    where
-		xpacket_q    =  make_mailqueue (get_current_microthread())	:  Xpacket_Q;
-		xevent_to_window_q  =  make_mailqueue (get_current_microthread())	:  Xevent_To_Window_Q;
-		xerror_q     =  make_mailqueue (get_current_microthread())	:  Xerror_Q;
+		client_q =  make_mailqueue (get_current_microthread())	:  Client_Q;
+		xevent_q =  make_mailqueue (get_current_microthread())	:  Xevent_Q;
 
-		# Reply handling in the Client-thread context.
-		#
-		# Most processing happens in our own microthread,
-		# but any client-relevant exception
-		# needs to be raised in the context of the
-		# calling client thread.  That is our job here:
-		#
-		fun unwrap_reply  REPLY_LOST     =>  raise exception LOST_REPLY;
-		    unwrap_reply (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
-		    unwrap_reply (REPLY s)       =>  s;
-		end;
-		#
-		fun send_xrequest  (s: v1u::Vector)
+		fun note_new_topwindow
+			(arg: (xt::Window_Id, xg::Window_Site, (xwp::Envelope_Route, et::x::Event) -> Void))		# External entrypoint.
 		    =
-		    {
-			put_in_mailqueue (xevent_to_window_q, PLEA s);
-		    };
+		    put_in_mailqueue (client_q, PLEA_NOTE_NEW_TOPWINDOW arg);
 
-		# This is a workhorse call,
-		# request-with-single-reply:
-		# 
-		fun send_xrequest_and_read_reply  (s: v1u::Vector)
+		fun get_window_site  (id: xt::Window_Id)								# External entrypoint.
 		    =
-		    {   reply_oneshot = make_oneshot_maildrop ();
+		    {   reply_oneshot = make_oneshot_maildrop ()
+				      :	     Oneshot_Maildrop( xg::Box );
 			#
-			put_in_mailqueue (xevent_to_window_q, PLEA_REPLY (s, reply_oneshot));
+			put_in_mailqueue (client_q, PLEA_GET_WINDOW_SITE (id, reply_oneshot));
 
-			get_from_oneshot'  reply_oneshot
-			    ==>
-			    unwrap_reply;
+			get_from_oneshot  reply_oneshot;
 		    };
-
-		# Generate a request to the server and
-		# check on its successful completion. 
-		#
-		# The only uses of this I find are:
-		#
-		#     property::change_property  in
-		#         src/lib/x-kit/xclient/src/iccc/window-property.pkg
-		#
-		#     font_imp::open_font  in
-		#         src/lib/x-kit/xclient/src/window/font-imp.pkg
-		#     
-		# In both cases the idea is to wait for
-		# successful completion of the op before
-		# continuing.
-		#
-		fun send_xrequest_and_return_completion_mailop  (s: v1u::Vector)
+		fun given_window_id_pass_site										# External entrypoint.
+			(id:		xt::Window_Id)
+			(replyqueue:	Replyqueue(Void))
+			(reply_handler: xg::Box -> Void)
 		    =
-		    {   reply_oneshot1 =  make_oneshot_maildrop ();
-			reply_oneshot2 =  make_oneshot_maildrop ();								# Nobody will read this...?
-
-			put_in_mailqueue (xevent_to_window_q, PLEA_AND_CHECK (s, reply_oneshot1));
-			put_in_mailqueue (xevent_to_window_q, PLEA_REPLY (value_to_wire::request_get_input_focus, reply_oneshot2));	# Presumably somehow flushes the preceding command through.
-
-			# Construct and return a mailop which caller can
-			#     block_until_mailop_fires
-			# on to await completion of the requested operation:
+		    {   reply_oneshot =  make_oneshot_maildrop()
+				      :	      Oneshot_Maildrop( xg::Box );
 			#
-			get_from_oneshot' reply_oneshot1
-			    ==>
-			    fn (REPLY_ERROR s) =>  raise exception ERROR_REPLY (w2v::decode_error s);
-			       _               =>  ();
-			    end;
+			put_in_mailqueue  (client_q,  PLEA_GET_WINDOW_SITE (id, reply_oneshot));
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
-
-		# This is directly used exactly once,
-		# by draw_imp::flush_outbuf, and ultimately
-		# used twice, by DOP_COPY_AREA and DOP_COPY_PLANE
-		# in draw_imp:
-		#
-		fun send_xrequest_and_handle_exposures  (s, sync_v)
-		    =
-		    {
-			put_in_mailqueue (xevent_to_window_q, PLEA_EXPOSURES (s, sync_v));
-		    };
-
-
-		fun flush_xsocket  (signalf: Void -> Void)
-		    =
-		    {
-			put_in_mailqueue (xevent_to_window_q, PLEA_FLUSH signalf);
-		    };
-
-		take_xerror  =   fn () = take_from_mailqueue  xerror_q;
-		take_xerror' =           take_from_mailqueue' xerror_q;
 
 		#
-		fun put_value (xpacket: xps::Xpacket)									# External entrypoint. inbuf-ximp calls this to pass us a packet from xserver.
+		fun put_value (xevent: et::x::Event)									# External entrypoint.
 		    =	
-		    put_in_mailqueue  (xpacket_q, XPLEA_NOTE_XPACKET xpacket);
+		    put_in_mailqueue  (xevent_q, xevent);
 	    end;
 
         ##########################################################################################
@@ -818,14 +602,15 @@ herein
 	#
 	fun make_xevent_to_window_ximp_state ()										# External entrypoint.
 	  =
-	  { last_seqn_read	=>  REF 0u0,
-	    last_seqn_sent	=>  REF 0u0,
-	    pending_reply_queue	=>  REF { front =>  [],
-				           rear =>  []
-				        }
+	  { wid_to_winfo =>  REF xm::empty:   	Ref (xm::Map( Window_Info ) ),						# "wid_to_winfo" == "window id to window info map"
+	    #			
+	    wid_to_pleas =>  REF xm::empty:	Ref (xm::Map( List(Client_Plea) ) ),					# "wid_to_pleas" == "window id to window pleas map"
+
+	    wid_to_1shot =>  REF xm::empty:	Ref (xm::Map( Oneshot_Maildrop(Void) ) )				# "wid_to_1shot" == "window id to oneshot map"
 	  };
+
 	#
-	fun make_xevent_to_window_ximp  (name: String)										# External entrypoint.
+	fun make_xevent_to_window_ximp  (name: String)									# External entrypoint.
 	    =
 	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
 		#
@@ -835,16 +620,17 @@ herein
 	    };
 	#
 	#
-	fun configure_xevent_to_window_ximp											# External entrypoint.
+	fun configure_xevent_to_window_ximp										# External entrypoint.
 	      (
 		configstate:	Configstate,
 		me:		Xevent_To_Window_Ximp_State,
 		imports:	Imports,
 		run_gun':	Run_Gun,
-		end_gun':	End_Gun
+		end_gun':	End_Gun,
+		display:	dy::Xdisplay
 	      )
 	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
+	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', display });
 
     };						# package xevent_to_window_ximp
 end;
