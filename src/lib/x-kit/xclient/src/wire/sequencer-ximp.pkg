@@ -50,8 +50,8 @@ stipulate
     package xtr =  xlogger;					# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
 
     package xew =  xerror_well;					# xerror_well					is from   src/lib/x-kit/xclient/src/wire/xerror-well.pkg
-    package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.api
-    package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.api
+    package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.pkg
+    package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.pkg
     package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
@@ -75,13 +75,14 @@ herein
 	# Client pleas to sequencer:
 	#
 	Client_Plea						# 'Plea_Mail' in xsocket.pkg
-	  = PLEA             v1u::Vector
-	  | PLEA_REPLY      (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
-	  | PLEA_AND_CHECK  (v1u::Vector, Oneshot_Maildrop(Reply_Mail))
-	  | PLEA_EXPOSURES  (v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
-	  | PLEA_FLUSH      (Void -> Void)							# signal_fn arg will be called when all preceding commands have been written to socket.
+	  = PLEA_SEND_BYTEVECTOR	 v1u::Vector
+	  | PLEA_SEND_BYTEVECTORS  List( v1u::Vector )
+	  | PLEA_REPLY		(v1u::Vector, Oneshot_Maildrop(Reply_Mail))
+	  | PLEA_AND_CHECK	(v1u::Vector, Oneshot_Maildrop(Reply_Mail))
+	  | PLEA_EXPOSURES	(v1u::Vector, Oneshot_Maildrop (Void -> List(xg::Box) ))
+	  | PLEA_FLUSH		(Void -> Void)							# signal_fn arg will be called when all preceding commands have been written to socket.
 #	  = PLEA_QUIT
-#	  | PLEA_REPLIES    (v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
+#	  | PLEA_REPLIES	(v1u::Vector, Mailslot(Reply_Mail), (v1u::Vector -> Int))
 
 
 	# Sequencer replies to client requests:
@@ -531,18 +532,25 @@ herein
 #				};
 #
 			    #
-			    fun do_clientplea (PLEA_REPLY     request) =>  send_request_reply     request;
-				do_clientplea (PLEA_AND_CHECK request) =>  send_request_and_check request;
-				do_clientplea (PLEA_EXPOSURES request) =>  send_request_exposures request;
-				do_clientplea (PLEA_FLUSH     signalf) =>  send_flush             signalf;
+			    fun do_clientplea (PLEA_REPLY	request) =>  send_request_reply     request;
+				do_clientplea (PLEA_AND_CHECK	request) =>  send_request_and_check request;
+				do_clientplea (PLEA_EXPOSURES	request) =>  send_request_exposures request;
+				do_clientplea (PLEA_FLUSH	signalf) =>  send_flush             signalf;
 
-#				do_clientplea (PLEA_REPLIES   request) =>  send_request_replies   request;
+#				do_clientplea (PLEA_REPLIES	request) =>  send_request_replies   request;
 #				#
-				do_clientplea (PLEA request)
+				do_clientplea (PLEA_SEND_BYTEVECTOR	request)
 				    =>
 				    {   imports.outbuf_port.put_value  request;
 					#
 					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
+				    };
+
+				do_clientplea (PLEA_SEND_BYTEVECTORS	requests)
+				    =>
+				    {   imports.outbuf_port.put_values  requests;
+					#
+					me.last_seqn_sent := *me.last_seqn_sent + (unt::from_int (list::length requests));
 				    };
 			    end;
 
@@ -550,19 +558,12 @@ herein
 			    fun do_xpacket_plea (XPLEA_NOTE_XPACKET (xpacket as { code: v1u::Element,  packet: v1u::Vector }))
 				=
 				{
-				    # NOTE: this doesn't work if there are 2**17
-				    # outgoing messages between replies/events.
-				    #
-				    # We need to track (last_seqn_sent - last_seqn_read),
-				    # and if it gets bigger than some reasonable size,
-				    # generate a synchronization (i.e., get_input_focus message).	XXX BUGGO FIXME
-
-				    fun get_seq_n ()
+				    fun get_seq_n ()											# Get sequence number for packet. Low 16 bits are in the packet, the rest we fill in.
 					=
 					{   short_seq_n =   un::from_large_unt (pack_big_endian_unt16::get_vec (packet, 1));
 					    #
 					    seqn' = un::bitwise_or
-						      ( un::bitwise_and (*me.last_seqn_read, un::bitwise_not 0uxffff),
+						      ( un::bitwise_and (*me.last_seqn_read, un::bitwise_not 0uxffff),			# FFFF mask because X protocol reply packets contain only low 16 bits of the full sequence number.
 							short_seq_n
 						      );
 
@@ -570,6 +571,17 @@ herein
 					      ??  seqn' + 0ux10000		#  NOTE: we should check for (seqn' + 0x10000) > lastReqOut    XXX BUGGO FIXME
 					      ::  seqn';
 					};
+					#
+					# "NOTE: above logic doesn't work if there are 2**17
+					#  outgoing messages between replies/events.
+					#
+					# "We need to track (last_seqn_sent - last_seqn_read),
+					#  and if it gets bigger than some reasonable size,
+					#  generate a synchronization (i.e., get_input_focus message)."
+					#			-- John H Reppy
+					#
+					# But is there any reason to not just truncate these numbers to 16 bits?  -- 2013-07-11 CrT
+
 
 				    case code
 					#
@@ -629,7 +641,7 @@ herein
 							#
 							fun accumulate_graphics_expose_events   boxes   ({ box, count=>0, ... }:  et::x::Graphics_Expose_Record)				# Note currying.
 								=>
-								{   me.pending_reply_queue   :=   handle_expose_event_train  (seqn,  box ! boxes,  *me.pending_reply_queue);	# Sequence complete -- pass boxes to client code.
+								{   me.pending_reply_queue   :=   handle_expose_event_train  (seqn,  box ! boxes,  *me.pending_reply_queue);			# Sequence complete -- pass boxes to client code.
 								    #
 								    graphics_expose_event_accumulator :=   NULL;										# Done with this expose event sequence.
 								};
@@ -688,6 +700,7 @@ herein
 		xpacket_sink    =  { put_value };
 
 		sequencer_port  = { send_xrequest,
+				    send_xrequests,
 				    send_xrequest_and_read_reply,
 				    send_xrequest_and_pass_reply,
 				    send_xrequest_and_return_completion_mailop,
@@ -736,10 +749,16 @@ herein
 			    ();
 			};
 		#
-		fun send_xrequest  (s: v1u::Vector)									# External entrypoint.
+		fun send_xrequest  (bytevector: v1u::Vector)								# External entrypoint.
 		    =
 		    {
-			put_in_mailqueue (client_q, PLEA s);
+			put_in_mailqueue (client_q, PLEA_SEND_BYTEVECTOR bytevector);
+		    };
+		#
+		fun send_xrequests (bytevectors: List(v1u::Vector))							# External entrypoint.
+		    =
+		    {
+			put_in_mailqueue (client_q, PLEA_SEND_BYTEVECTORS bytevectors);
 		    };
 
 		# This is a workhorse call,
