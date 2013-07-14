@@ -58,7 +58,8 @@ stipulate
     package xwp =  xevent_to_window_port;			# xevent_to_window_port				is from   src/lib/x-kit/xclient/src/window/xevent-to-window-port.pkg
     package pg  =  pen_guts;					# pen_guts					is from   src/lib/x-kit/xclient/src/window/pen-guts.pkg
     package dp  =  draw_port;					# draw_port					is from   src/lib/x-kit/xclient/src/wire/draw-port.pkg
-    package pp  =  pen_port;					# pen_port					is from   src/lib/x-kit/xclient/src/window/pen-port.pkg
+    package pcp =  pen_cache_port;				# pen_cache_port				is from   src/lib/x-kit/xclient/src/window/pen-cache-port.pkg
+
     package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
@@ -91,10 +92,12 @@ herein
 
 	Draw_Ximp_State				# Opaque wrapper for all nonephemeral mutable state maintained by ximp.
 	    =
-	    Void;
+	    {
+		topwindow_is_mapped:	Ref(Bool)						# If it is not, we can discard all draw commands.
+	    };
 
 	Imports   = {										# Ports we use which are exported by other imps.
-		      pen_port:			pp::Pen_Port,					#
+		      pen_cache_port:		pcp::Pen_Cache_Port,				#
 		      xevent_to_window_port:	xwp::Xevent_To_Window_Port			# 
 		    };
 
@@ -102,11 +105,12 @@ herein
 				   me:		Draw_Ximp_State,
 				   run_gun':	Run_Gun,
 				   end_gun':	End_Gun,
-				   socket:      xok::Xsocket
+				   xsocket:     xok::Xsocket
 				 }
 			      );
 
-	Client_Q = Mailqueue( p::Client_Plea );
+	Client_Q =  Mailqueue( p::Client_Plea		);
+	Map_Q    =  Mailqueue( wme::s::Mapped_State	);
 
 	Exports	  = {													# Ports we export for use by other imps.
 		      window_map_event_sink:	wme::Window_Map_Event_Sink,						# Tells us when our window is un/mapped (hidden/revealed).
@@ -115,14 +119,115 @@ herein
 
 
 
-	
+	(|)  =  unt::bitwise_or;
+	(<<) =  unt::(<<);
+
+
+	# Officially Mythryl does not have pointer equality,
+	# but we do it here anyway for speed.  Naughty! :-)
+	#
+	fun pen_eq
+	    ( a:  pg::Pen,
+	      b:  pg::Pen
+	    )
+	    =
+	    {   ((unsafe::cast a): Int)
+		==
+		((unsafe::cast b): Int);
+	    };
+
+	# Bitmasks for the various components of a pen.
+	# These should track the slot numbers given in PenValues.
+
+	pen_function	= (0u1 << 0u0);
+	pen_plane_mask	= (0u1 << 0u1);
+
+	pen_foreground	= (0u1 << 0u2);
+	pen_background	= (0u1 << 0u3);
+
+	pen_line_width	= (0u1 << 0u4);
+	pen_line_style	= (0u1 << 0u5);
+
+	pen_cap_style	= (0u1 << 0u6);
+	pen_join_style	= (0u1 << 0u7);
+
+	pen_fill_style	= (0u1 << 0u8);
+	pen_fill_rule	= (0u1 << 0u9); 
+
+	pen_tile		= (0u1 << 0u10);
+	pen_stipple		= (0u1 << 0u11);
+
+	pen_tile_stip_origin= (0u1 << 0u12);
+	pen_subwindow_mode	= (0u1 << 0u13);
+
+	pen_clip_origin	= (0u1 << 0u14);
+	pen_clip_mask	= (0u1 << 0u15);
+
+	pen_dash_offset	= (0u1 << 0u16);
+	pen_dash_list	= (0u1 << 0u17);
+
+	pen_arc_mode	= (0u1 << 0u18);
+	pen_exposures	= 0u0; #  (0u1 << 0u19) 
+
+	stipulate
+	    standard_pen_components				# The standard pen components used by most ops.
+		#
+		= pen_function
+		| pen_plane_mask
+		| pen_subwindow_mode
+		| pen_clip_origin
+		| pen_clip_mask
+		| pen_foreground
+		| pen_background
+		| pen_tile
+		| pen_stipple
+		| pen_tile_stip_origin
+		;
+
+	    standard_linedrawing_pen_components		# The pen components used by line-drawing operations.
+		#
+		=  standard_pen_components
+		| pen_line_width
+		| pen_line_style
+		| pen_cap_style
+		| pen_join_style
+		| pen_fill_style
+		| pen_dash_offset
+		| pen_dash_list
+		;
+	herein
+
+	    fun pen_vals_used (dp::x::POLY_POINT    _)	=>  standard_pen_components;
+		pen_vals_used (dp::x::COPY_PMAREA   _)	=>  standard_pen_components;
+		pen_vals_used (dp::x::COPY_PMPLANE  _)	=>  standard_pen_components;
+		pen_vals_used (dp::x::PUT_IMAGE     _)	=>  standard_pen_components;
+		pen_vals_used (dp::x::IMAGE_TEXT8   _)	=>  standard_pen_components;
+		#
+		pen_vals_used (dp::x::POLY_TEXT8    _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (dp::x::FILL_POLY     _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (dp::x::POLY_FILL_BOX _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (dp::x::POLY_FILL_ARC _)	=> (standard_pen_components | pen_fill_style);
+		#
+		pen_vals_used (dp::x::COPY_AREA     _)	=>  standard_pen_components | pen_exposures;
+		pen_vals_used (dp::x::COPY_PLANE    _)	=>  standard_pen_components | pen_exposures;
+		#
+		pen_vals_used (dp::x::POLY_LINE     _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (dp::x::POLY_SEG      _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (dp::x::POLY_BOX      _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (dp::x::POLY_ARC      _)	=>  standard_linedrawing_pen_components;
+		#
+		pen_vals_used (dp::x::CLEAR_AREA    _)	=>  0u0;
+	    end;
+	end;
+
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
 		  me:					Draw_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
 		  imports:				Imports,							# Ximps to which we send requests.
 		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
 		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
 		  client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or draw_imp.
-		  socket:				xok::Xsocket
+		  map_q:				Map_Q,								# Notifications that our topwindow has been un/mappsed.
+		  xsocket:				xok::Xsocket
 		}
 	    =
 	    loop ()
@@ -132,7 +237,8 @@ herein
 		    {   do_one_mailop' to [
 			    #
 			    (end_gun'                        ==>  shut_down_draw_imp'),
-			    (take_from_mailqueue' client_q   ==>  do_clientplea)
+			    (take_from_mailqueue' client_q   ==>  do_clientplea),
+			    (take_from_mailqueue' map_q      ==>  do_map_plea)
 			];
 
 			loop ();
@@ -144,250 +250,435 @@ herein
 			#
 
 			stipulate
-			    fun send_draw_op (send_xrequest, send_xrequest_and_handle_exposures)
+			    fun do_destroy_window  (window_id: xt::Window_Id)
 				=
-				fn  (to, gc_id, _, dp::x::POLY_POINT (rel, points))
-					=>
-	    #			    send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel } );	# Replaced by below code.
-					{
-					    # Discovered there's a limit to the number
-					    # of points that can be sent to the X server.
-					    # It's less than 65535, but at least 65400.
-					    # I figure this is close enough:              -- Hue White 2011-11-24
-					    #
-					    x_limit = 65400;
+				{   xok::send_xrequest xsocket (v2w::encode_destroy_window { window_id } );
+				    xok::flush_xsocket xsocket;
+				};
 
-					    send_xrequests points
-					    where
-						fun send_xrequests points
-						    =
-						    if (list::length(points) <= x_limit)
-							#
-							send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel } );
-						    else
-							send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>(list::take_n(points, x_limit)), relative=>rel } );
-							send_xrequests (list::drop_n(points, x_limit));
-						    fi;
-					    end;
-					};
+			    fun	do_destroy_pixmap  (pixmap: xt::Pixmap_Id)
+				=
+				{   xok::send_xrequest xsocket (v2w::encode_free_pixmap { pixmap } );
+				    xok::flush_xsocket xsocket;
+				};
 
-				    (to, gc_id, _, dp::x::POLY_LINE (rel, points))
-					=>
-					send_xrequest (v2w::encode_poly_line { drawable=>to, gc_id, items=>points, relative=>rel } );
 
-				    (to, gc_id, _, dp::x::POLY_SEG lines)
-					=>
-					send_xrequest (v2w::encode_poly_segment { drawable=>to, gc_id, items=>lines } );
+			    fun encode_draw_ops (ops, to, gc_id, cur_fid)						# Convert a list of draw ops to bytevector wire encoding for eventual transmission to X-server.
+				=
+				encode (ops, [])
+				where
+				    fun encode   ([], result)
+					    =>
+					    reverse result;
+	
+					encode  (dp::x::POLY_LINE (rel, points)		! rest,  result)	=>	encode (rest,  v2w::encode_poly_line     { drawable=>to, gc_id, items=>points, relative=>rel }	!  result);
+					encode  (dp::x::POLY_SEG lines 			! rest,  result)	=>	encode (rest,  v2w::encode_poly_segment  { drawable=>to, gc_id, items=>lines }			!  result);
+				        encode  (dp::x::FILL_POLY (shape, rel, points)	! rest,  result)	=>	encode (rest,  v2w::encode_fill_poly     { drawable=>to, gc_id, points, relative=>rel, shape }	!  result);
+				        encode  (dp::x::POLY_BOX boxes			! rest,  result)	=>	encode (rest,  v2w::encode_poly_box	 { drawable=>to, gc_id, items=>boxes }			!  result);
+				        encode  (dp::x::POLY_FILL_BOX boxes		! rest,  result)	=>	encode (rest,  v2w::encode_poly_fill_box { drawable=>to, gc_id, items=>boxes }			!  result);
+				        encode  (dp::x::POLY_ARC arcs			! rest,  result)	=>	encode (rest,  v2w::encode_poly_arc	 { drawable=>to, gc_id, items=>arcs }			!  result);
+				        encode  (dp::x::POLY_FILL_ARC arcs		! rest,  result)	=>	encode (rest,  v2w::encode_poly_fill_arc { drawable=>to, gc_id, items=>arcs }			!  result);
+					encode  (dp::x::CLEAR_AREA box			! rest,  result)	=>	encode (rest,  v2w::encode_clear_area    { window_id=>to, box, exposures => FALSE }		!  result);
 
-				    (to, gc_id, _, dp::x::FILL_POLY (shape, rel, points))
-					=>
-	    #			    send_xrequest (v2w::encode_fill_poly { drawable=>to, gc_id, points, relative=>rel, shape } );
-					{
-					    msg = v2w::encode_fill_poly { drawable=>to, gc_id, points, relative=>rel, shape };
+				        encode  (dp::x::POLY_POINT (rel, points) ! rest,  result)
+					    =>
+#					    encode (rest,  v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel }  !  result);		# Replaced by below code.
+					    {
+						# "Discovered there's a limit to the number
+						#  of points that can be sent to the X server.
+						#  It's less than 65535, but at least 65400.
+						#  I figure this is close enough:"              -- Hue White 2011-11-24
+						#
+						x_limit = 65400;
+						#
+						# Maybe this should be handled in v2w rather than here?
+						# Probably similar limits apply to all the other cases here.
+						# XXX BUGGO FIXME -- 2013-07-12 CrT
 
-					    send_xrequest msg;
-					};
-
-				    (to, gc_id, _, dp::x::POLY_BOX boxes)
-					=>
-					send_xrequest (v2w::encode_poly_box { drawable=>to, gc_id, items=>boxes } );
-
-				    (to, gc_id, _, dp::x::POLY_FILL_BOX boxes)
-					=>
-					send_xrequest (v2w::encode_poly_fill_box { drawable=>to, gc_id, items=>boxes } );
-
-				    (to, gc_id, _, dp::x::POLY_ARC arcs)
-					=>
-					send_xrequest (v2w::encode_poly_arc { drawable=>to, gc_id, items=>arcs } );
-
-				    (to, gc_id, _, dp::x::POLY_FILL_ARC arcs)
-					=>
-					send_xrequest (v2w::encode_poly_fill_arc { drawable=>to, gc_id, items=>arcs } );
-
-				    (to, gc_id, _, dp::x::COPY_AREA (pt, from, box, sync_v))
-					=>
-					{   (xg::box::upperleft_and_size  box)
-						->
-						(p, size);
-
-					    send_xrequest_and_handle_exposures (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt }, sync_v);
-					};
-
-				    (to, gc_id, _, dp::x::COPY_PLANE (pt, from, box, plane, sync_v))
-					=>
-					{   (xg::box::upperleft_and_size  box)
-						->
-						(p, size);
-
-					    send_xrequest_and_handle_exposures (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane }, sync_v);
-					};
-
-				    (to, gc_id, _, dp::x::COPY_PMAREA (pt, from, box))
-					=>
-					{   (xg::box::upperleft_and_size  box)
-						->
-						(p, size);
-
-					    send_xrequest (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt });
-					};
-
-				    (to, gc_id, _, dp::x::COPY_PMPLANE (pt, from, box, plane))
-					=>
-					{   (xg::box::upperleft_and_size  box)
-						->
-						(p, size);
-
-					    send_xrequest (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane });
-					};
-
-				    (to, _, _, dp::x::CLEAR_AREA box)
-					=>
-					send_xrequest (v2w::encode_clear_area { window_id=>to, box, exposures => FALSE } );
-
-				    (to, gc_id, _, dp::x::PUT_IMAGE im)
-					=>
-					send_xrequest
-					    (v2w::encode_put_image
-					      { drawable => to,
-						gc_id,
-						depth  => im.depth,
-						to     => im.to_point,
-						size   => im.size,
-						lpad   => im.lpad,
-						format => im.format,
-						data   => im.data
-					      }
-					    );
-
-				    (to, gc_id, cur_fid, dp::x::POLY_TEXT8 (fid, point, txt_items))
-					=>
-					{   last_fid
-						=
-						f (fid, txt_items)
+						encode (rest,  encode_points (points, [])  @  result)
 						where
-						    fun f (last_fid, [])                   =>  last_fid;
-							f (last_fid, (dp::t::FONT id) ! r) =>  f (id, r);
-							f (last_fid, _ ! r)                =>  f (last_fid, r);
+						    fun encode_points ([], results)
+							    =>
+							    reverse results;
+	
+							encode_points (points, results)
+							    =>
+							    if (list::length(points) <= x_limit)
+								#
+								v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel }  ! results;
+							    else
+								encode_points (list::drop_n(points, x_limit),  v2w::encode_poly_point { drawable=>to, gc_id, items=>(list::take_n(points, x_limit)), relative=>rel }  !  results);
+							    fi;
 						    end;
 						end;
-
-					    txt_items
-						=
-						last_fid == cur_fid
-						?? txt_items
-						:: txt_items @ [dp::t::FONT cur_fid];
-
-					    txt_items
-						=
-						fid == cur_fid
-						?? txt_items
-						:: (dp::t::FONT fid) ! txt_items;
+					    };
 
 
-					    fun split_delta (0, l)
+				        encode  (dp::x::COPY_PMAREA (pt, from, box) ! rest,  result)
+					    =>
+					    {   (xg::box::upperleft_and_size  box)
+						    ->
+						    (p, size);
+
+						encode (rest,  v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt }  !  result);
+					    };
+
+				        encode  (dp::x::COPY_PMPLANE (pt, from, box, plane) ! rest,  result)
+					    =>
+					    {   (xg::box::upperleft_and_size  box)
+						    ->
+						    (p, size);
+
+						encode (rest,  v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane }  !  result);
+					    };
+
+
+				        encode  (dp::x::PUT_IMAGE im ! rest,  result)
+					    =>
+					    {   bytevector =  v2w::encode_put_image
+								  {
+								    drawable => to,
+								    gc_id,
+								    depth  => im.depth,
+								    to     => im.to_point,
+								    size   => im.size,
+								    lpad   => im.lpad,
+								    format => im.format,
+								    data   => im.data
+								  };
+
+						encode (rest,  bytevector ! result);
+					    };
+
+
+				        encode (dp::x::COPY_AREA (pt, from, box) ! rest,  result)
+					    =>
+					    {   (xg::box::upperleft_and_size  box)
+						    ->
+						    (p, size);
+
+					        encode (rest,  v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt }  !  result);
+					    };
+
+					encode (dp::x::COPY_PLANE (pt, from, box, plane) ! rest,  result)
+					    =>
+					    {   (xg::box::upperleft_and_size  box)
+						    ->
+						    (p, size);
+
+						encode (rest,  v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane }  !  result);
+					    };
+
+					encode (dp::x::IMAGE_TEXT8 (_, point, string) ! rest,  result)
+					    =>
+					    encode (rest,  v2w::encode_image_text8 { drawable=>to, gc_id, point, string }  !  result);
+
+				        encode  (dp::x::POLY_TEXT8 (fid, point, txt_items) ! rest,  result)
+					    =>
+					    {   last_fid
+						    =
+						    f (fid, txt_items)
+						    where
+							fun f (last_fid, [])                   =>  last_fid;
+							    f (last_fid, (dp::t::FONT id) ! r) =>  f (id, r);
+							    f (last_fid, _ ! r)                =>  f (last_fid, r);
+							end;
+						    end;
+
+						txt_items
+						    =
+						    last_fid == cur_fid
+						    ?? txt_items
+						    :: txt_items @ [dp::t::FONT cur_fid];
+
+						txt_items
+						    =
+						    fid == cur_fid
+						    ?? txt_items
+						    :: (dp::t::FONT fid) ! txt_items;
+
+
+						fun split_delta (0, l)
+							=>
+							l;
+
+						    split_delta (i, l)
+							=>
+							if (i < -128)
+
+							     split_delta (i+128, -128 ! l);
+							else
+							     i > 127
+							     ?? split_delta (i - 127, 127 ! l)
+							     :: i ! l;
+							fi;
+						end;
+
+
+						# Split a string into legal
+						# lengths for a PolyText8 command 
+						#
+						fun split_text ""
+							=>
+							[];
+
+						    split_text s
+							=>
+							{   n = string::length s;
+
+							    fun split (i, l)
+								=
+								n - i  > 254
+								??  split (i+254,  substring (s, i, 254) ! l)
+								::  list::reverse (substring (s, i, n-i) ! l);
+
+							    n > 254  ??  split (0, [])
+								     ::  [s];
+							};
+						end;
+
+
+						fun split_item (dp::t::FONT id)
+							=>
+							[xt::FONT_ITEM id];
+
+						    split_item (dp::t::TEXT (delta, s))
+							=>
+							case (split_delta (delta, []), split_text s)
+							    #
+							    ([], []) =>   [];
+							    ([], sl) =>   (map (fn s = xt::TEXT_ITEM (0,  s)) sl);
+							    (dl, []) =>   (map (fn n = xt::TEXT_ITEM (n, "")) dl);
+
+							    ([d], s ! sr)
+								=>
+								(xt::TEXT_ITEM (d, s) ! (map (fn s = xt::TEXT_ITEM (0, s)) sr));
+
+							    (d ! dr, s ! sr)
+								=>
+								((map (fn n = xt::TEXT_ITEM (n, "")) dr)
+								 @ (xt::TEXT_ITEM (d, s) ! (map (fn s = xt::TEXT_ITEM (0, s)) sr)));
+							esac;
+
+						end;
+
+						do_items   =    fold_backward
+								    (fn (item, l) =  (split_item item) @ l)
+								    [];
+
+						bytevector =    v2w::encode_poly_text8
+								    {
+								      drawable=>to,
+								      gc_id,
+								      point,
+								      items =>( do_items txt_items)
+								    };
+
+						encode (rest,  bytevector ! result);
+					    };
+				    end;
+				end;
+
+
+			    # Flush a list of drawing commands out to the sequencer.
+			    # This means acquiring actual X-server graphics contexts
+			    # for the operations from graphics_context_cache:
+			    #
+			    fun flush_buf (gc_cache, connection)
+				=
+				flush_buf'
+				where 
+
+				    Gc_Info
+				      = NO_GC
+				      | NO_FONT
+				      | WITH_FONT xt::Font_Id
+				      | SET_FONT  xt::Font_Id
+				      ;
+
+				    alloc_gc		    =   imports.pen_cache_port.allocate_graphics_context;
+				    free_gc		    =   imports.pen_cache_port.free_graphics_context;
+
+				    alloc_gc_with_font	    =   imports.pen_cache_port.allocate_graphics_context_with_font;
+				    alloc_gc_and_set_font   =   imports.pen_cache_port.allocate_graphics_context_and_set_font;
+				    free_gc_and_font	    =   imports.pen_cache_port.free_graphics_context_and_font;
+
+#				    send_dop =  send_draw_op
+#						  ( xok::send_xrequest                       connection,
+#						    xok::send_xrequest_and_handle_exposures  connection
+#						  );
+
+				    # Our first argument is a list of X drawing operations
+				    # to be performed.  For efficiency, we want to avoid
+				    # switching graphics contexts needlessly, so we break our
+				    # argument draw-op list into a sequence of sublists,
+				    # each of which can be performed using a single gc.
+				    # 
+				    fun batch_drawops ([], results)
+					    =>
+					    results;									# No more input -- done. (Why don't we reverse it?)
+
+					batch_drawops
+					    ( draw_ops as (first_op ! _),						# Input drawops list.
+					      results									# Batch accumulator.
+					    )
+					    =>
+					    {   (find_max_prefix (draw_ops, NO_GC, first_op.pen, 0u0, []))
+						    ->
+						    (remaining_draw_ops, gc_usage, pen, mask, max_prefix);
+
+						batch_drawops (remaining_draw_ops, (gc_usage, pen, mask, max_prefix) ! results);
+					    }
+					    where
+						fun gc_usage_of (dp::x::CLEAR_AREA _)                =>   NO_GC;
+						    gc_usage_of (dp::x::POLY_TEXT8  (font_id, _, _)) =>   WITH_FONT font_id;
+						    gc_usage_of (dp::x::IMAGE_TEXT8 (font_id, _, _)) =>   SET_FONT  font_id;
+						    gc_usage_of _                                    =>   NO_FONT;
+						end;
+
+
+						fun extend_mask (m, op)
+						    =
+						    m | (pen_vals_used op);
+
+
+						# We are given a list of X drawing operations to do.
+						# Our job is to find the maximal prefix of this list
+						# which can all use the same graphics context:
+						# 
+						fun find_max_prefix (arg as ([], _, _, _, _))
+							=>
+							arg;
+
+						    find_max_prefix (arg as ( { to, pen, op } ! rest, gc_usage, first_pen, used_mask, prefix))
+							=>
+							if (not (pen_eq (pen, first_pen)))
+							    #
+							    arg;
+							else
+							    case (gc_usage, gc_usage_of op)
+								#
+								(_, NO_GC)
+								    =>
+								    find_max_prefix (rest, gc_usage, first_pen, used_mask,                                (to, op) ! prefix);
+
+								(NO_GC, new_gc_usage)
+								    =>
+								    find_max_prefix (rest, new_gc_usage, first_pen, pen_vals_used op,                     (to, op) ! prefix);
+
+								(_, NO_FONT)
+								    =>
+								    find_max_prefix (rest, gc_usage, first_pen, extend_mask (used_mask, op),              (to, op) ! prefix);
+
+								(SET_FONT font_id, WITH_FONT _)
+								    =>
+								    find_max_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      (to, op) ! prefix);
+
+								(_, WITH_FONT font_id)
+								    =>
+								    find_max_prefix (rest, WITH_FONT font_id, first_pen, extend_mask (used_mask, op),     (to, op) ! prefix);
+
+								(SET_FONT font_id1, SET_FONT font_id2)
+								    =>
+								    if (font_id1 == font_id2)
+									#
+									find_max_prefix (rest, SET_FONT font_id1, first_pen, extend_mask (used_mask, op), (to, op) ! prefix);
+								    else
+									arg;
+								    fi;
+
+								(_, SET_FONT font_id)
+								    =>
+								    find_max_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      (to, op) ! prefix);
+							    esac;
+							fi;
+						end;
+					    end;	
+				    end;						# fun batch_drawops
+
+
+				    fun send_draw_ops (gc, initial_font_id)
+					=
+					draw
+					where 
+					    fun draw [] =>   ();
+						#
+						draw ((to, op) ! r)
 						    =>
-						    l;
-
-						split_delta (i, l)
-						    =>
-						    if (i < -128)
-
-							 split_delta (i+128, -128 ! l);
-						    else
-							 i > 127
-							 ?? split_delta (i - 127, 127 ! l)
-							 :: i ! l;
-						    fi;
-					    end;
-
-
-					    # Split a string into legal
-					    # lengths for a PolyText8 command 
-					    #
-					    fun split_text ""
-						    =>
-						    [];
-
-						split_text s
-						    =>
-						    {   n = string::length s;
-
-							fun split (i, l)
-							    =
-							    n - i  > 254
-							    ??  split (i+254,  substring (s, i, 254) ! l)
-							    ::  list::reverse (substring (s, i, n-i) ! l);
-
-							n > 254  ??  split (0, [])
-								 ::  [s];
+						    {
+# XXX BUGGO FIXME ============================
+#							send_dop (to, gc, initial_font_id, op);
+							draw r;
 						    };
 					    end;
 
+					end;
 
-					    fun split_item (dp::t::FONT id)
-						    =>
-						    [xt::FONT_ITEM id];
 
-						split_item (dp::t::TEXT (delta, s))
-						    =>
-						    case (split_delta (delta, []), split_text s)
-							#
-							([], []) =>   [];
-							([], sl) =>   (map (fn s = xt::TEXT_ITEM (0,  s)) sl);
-							(dl, []) =>   (map (fn n = xt::TEXT_ITEM (n, "")) dl);
+				    xid0 =   xt::xid_from_unt  0u0;
 
-							([d], s ! sr)
-							    =>
-							    (xt::TEXT_ITEM (d, s) ! (map (fn s = xt::TEXT_ITEM (0, s)) sr));
 
-							(d ! dr, s ! sr)
-							    =>
-							    ((map (fn n = xt::TEXT_ITEM (n, "")) dr)
-							     @ (xt::TEXT_ITEM (d, s) ! (map (fn s = xt::TEXT_ITEM (0, s)) sr)));
-						    esac;
+				    fun draw_batch (NO_GC, _, _, ops)
+					    =>
+					    send_draw_ops (xid0, xid0) ops;
 
-					    end;
+					draw_batch (NO_FONT, pen, mask, ops)
+					    =>
+					    {   gc =   alloc_gc { pen, used => mask };
+						#
+						send_draw_ops (gc, xid0) ops;
+						#
+						free_gc gc;
+					    };
 
-					    do_items
-						=
-						fold_backward
-						    (fn (item, l) =  (split_item item) @ l)
-						    [];
+					draw_batch (WITH_FONT font_id, pen, mask, ops)
+					    =>
+					    {   (alloc_gc_with_font { pen, used => mask, font_id })
+						    ->
+						    (gc, init_font_id);
 
-					    send_xrequest
-						(v2w::encode_poly_text8
-						    {
-						      drawable=>to,
-						      gc_id,
-						      point,
-						      items=>(do_items txt_items)
-						    }
-						);
+						#
+						send_draw_ops (gc, init_font_id) ops;
+						#
+						free_gc_and_font gc;
+					    };
+
+					draw_batch (SET_FONT font_id, pen, mask, ops)
+					    =>
+					    {   gc =   alloc_gc_and_set_font { pen, used => mask, font_id };
+						#
+						send_draw_ops (gc, font_id) ops;
+						#
+						free_gc_and_font gc;
+					    };
+				    end;
+
+				    draw_all_batches =  apply  draw_batch;
+
+				    fun flush_buf'  buf
+					=
+					{   draw_all_batches (batch_drawops (buf, []));
+					    #
+					    xok::flush_xsocket connection;
 					};
 
-				    (to, gc_id, _, dp::x::IMAGE_TEXT8(_, point, string))
-					=>
-					send_xrequest (v2w::encode_image_text8 { drawable=>to, gc_id, point, string } );
-				end;
+				end;			# fun flush_buf 
 
 			    fun do_draw_xops	(xid: xt::Xid, pen: pg::Pen, xops: List( dp::x::Op ))
 				=
 				{
+#				    ops_as_bytevectors = encode_draw_ops (ops, to, gc_id, cur_fid);
 				};
 
-			    fun	do_destroy_window (wid: xt::Window_Id)
-				=
-				{
-				};
-
-			    fun	do_destroy_pixmap (pid: xt::Pixmap_Id)
-				=
-				{
-				};
 
 			herein
-			    fun do_clientplea (p::DRAW_XOPS	  (arg as  (xid: xt::Xid,  pen: pg::Pen,  xops: List( dp::x::Op ))))	=>  do_draw_xops		arg;
+			    fun do_map_plea wme::s::TOPWINDOW_IS_NOW_UNMAPPED	=> 	me.topwindow_is_mapped := FALSE;
+			        do_map_plea wme::s::TOPWINDOW_IS_NOW_MAPPED	=> 	me.topwindow_is_mapped := TRUE;
+			        do_map_plea wme::s::FIRST_EXPOSE		=> 	me.topwindow_is_mapped := TRUE;
+			    end;
 
+			    fun do_clientplea (p::DRAW_XOPS	  (arg as  (xid: xt::Xid,  pen: pg::Pen,  xops: List( dp::x::Op ))))	=>  do_draw_xops		arg;
+				#
 				do_clientplea (p::DESTROY_WINDOW  (wid:  xt::Window_Id))						=>  do_destroy_window		wid;
 				do_clientplea (p::DESTROY_PIXMAP  (pid:  xt::Pixmap_Id))						=>  do_destroy_pixmap		pid;
 			    end;
@@ -404,6 +695,7 @@ herein
 				destroy_window,
 				destroy_pixmap
 			      };
+
 		window_map_event_sink =  { put_value };
 
 		to             =  make_replyqueue();
@@ -412,21 +704,28 @@ herein
 
 		(take_from_mailslot  configstate)									# Input args from configure_draw_imp().
 		    ->
-		    { me, imports, run_gun', end_gun', socket };
+		    { me, imports, run_gun', end_gun', xsocket };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
 		graphics_expose_event_accumulator = REF NULL;
 
-		run { me, client_q, imports, to, end_gun', socket };							# Will not return.
+		run { me, client_q, map_q, imports, to, end_gun', xsocket };						# Will not return.
 	    }
 	    where
 		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+		map_q     =  make_mailqueue (get_current_microthread())	:  Map_Q;
+
 
 		###################################################################################
 		# window_map_event_sink
 		#
-		fun put_value (s: wme::s::Mapped_State) = ();
+		fun put_value (s: wme::s::Mapped_State)
+		    =
+		    {
+			put_in_mailqueue (map_q, s);
+		    };
+
 
 		###################################################################################
 		# draw_port
@@ -449,8 +748,6 @@ herein
 		    {
 			put_in_mailqueue (client_q, p::DESTROY_PIXMAP pid);
 		    };	
-
-
 	    end;
 
         ##########################################################################################
@@ -458,7 +755,9 @@ herein
 	#
 	fun make_draw_ximp_state ()											# External entrypoint.
 	  =
-	  ();
+	  {
+	    topwindow_is_mapped => REF FALSE
+	  };
 
 	#
 	fun make_draw_ximp  (name: String)										# External entrypoint.
@@ -478,10 +777,10 @@ herein
 		imports:	Imports,
 		run_gun':	Run_Gun,
 		end_gun':	End_Gun,
-		socket:		xok::Xsocket
+		xsocket:	xok::Xsocket
 	      )
 	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', socket });
+	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', xsocket });
 
     };						# package draw_ximp
 end;
