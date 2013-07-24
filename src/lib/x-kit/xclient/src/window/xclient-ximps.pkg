@@ -1,8 +1,149 @@
 ## xclient-ximps.pkg
 #
-# For the big picture see the imp dataflow diagram in
+# This package has the highest-level responsibility for
+# managing all the state and operations relating to
+# communication with a given X server.
 #
-#     src/lib/x-kit/xclient/src/window/xclient.pkg
+#
+# Architecture
+# ------------
+#
+# Nomenclature:  An 'imp' is a server microthread.
+#                (Like a daemon but smaller!)
+#
+#                A 'ximp' is an X-specific imp. 
+#
+# An xsocket  is built of four  imps.
+# An xsession adds three more   imps to make seven imps total.
+# An xclient  adds two   more   imps to make nine  imps total.
+# An X application adds an unbounded number of additional widget imps.
+#
+# Adapting from the page 8 diagram in
+#     http:://mythryl.org/pub/exene/1991-ml-workshop.pdf
+# our dataflow network for xsession looks like:
+#
+#       ----------------------
+#       |  X server process  |
+#       ----------------------
+#            ^          |
+#            |          v
+#   -------<network socket>------------- network and process boundary.
+#            ^          |xpackets
+#            |xpackets  v                                          ---           ---              ---
+#  --------------- ---------------                                  .             .                .
+#  | outbuf_ximp | | inbuf_ximp  |                                  .             .                .
+#  --------------- ---------------                                  .             .                .
+#        ^             | xpackets                                   .             .                .
+#        | xpackets    v                                            .             .                .
+#  -----------------------------------                              .             .                .
+#  |       sequencer_ximp            |--> (error handler)           ... xsocket   .                .
+#  -----------------------------------                              .   ximps     .                .
+#                ^                  | xpackets                      .             .                .
+#                |                  v                               .             ... xsession     .
+#                |               -------------------------          .             .   ximps        .
+#                |               | decode_xpackets_ximp  |          .             .                .
+#                |               -------------------------          .             .                .
+#                |                  | xevents                      ---            .                .
+#                |                  v                                             .                .
+#                |           -------------------------    ---------------         .                .
+#                |           | xevent_to_window_ximp |--> | keymap_ximp |         .                .
+#                |           -------------------------    ---------------         .                .
+#                |              | xevents  ^                    ^                 .                .... xclient
+#                |              |          |                    |                 .                .    ximps
+#                |              |          |                    |                 .                .
+#                |              |          |                    |                ---               .
+#      ------------------------ |          |                    |                                  .
+#      | encode_xpackets_ximp | |          |                    |                                  .
+#      ------------------------ |          |                    |                                  .
+#                ^              |          |get_window_site     |                                  .
+#                |draw ops etc  | xevents  |note_new_topwindow  |keycode_to_keysym                ---
+#                |              v          |                    v
+# (.................................to/from widget threads......................................)
+#        ^                |	          ^                |	          ^                |	     
+#        |xrequests       | xevents       |xrequests       | xevents      |xrequests       | xevents   
+#        |                v	          |                v	          |                v	     
+#     -------------------------	       -------------------------       -------------------------	             
+#     | xevent_to_widget_ximp |	       | xevent_to_widget_ximp |       | xevent_to_widget_ximp |    ... (all topwindows for app)
+#     -------------------------	       -------------------------       -------------------------	             
+#             /      \		               /      \		               /      \		     
+#            / widget \		              / widget \	              / widget \		             
+#           /   tree   \	             /   tree   \	             /   tree   \	     
+#          /            \	            /            \	            /            \	     
+#         /     ...      \                 /     ...      \                /     ...      \            
+#
+# Dramatis Personae:
+#
+#  o  The sequencer_ximp matches replies to requests.
+#     All traffic to/from the X server goes through it.
+#         Implemented in:  src/lib/x-kit/xclient/src/wire/xsocket.pkg
+#
+#  o  The outbuf_ximp optimizes network usage by
+#     combining multiple requests per network packet.
+#         Implemented in:  src/lib/x-kit/xclient/src/wire/xsocket.pkg
+#
+#  o  The inbuf_ximp breaks the incoming bytestream
+#     into individual replies and forwards them individually
+#     to sequencer_ximp.
+#         Implemented in:  src/lib/x-kit/xclient/src/wire/xsocket.pkg
+#
+#  o  The decode_xpackets_ximp cracks raw wire-format bytestrings into
+#     event_types::x::Event values and combines multiple related Expose
+#     events into a single logical Expose event for ease of downstream
+#     processing.
+#         Implemented in:  src/lib/x-kit/xclient/src/wire/xsocket.pkg
+#
+#  o  The   xevent_to_window_ximp   imp receives all X events
+#     (e.g. keystrokes and mouseclicks) and feeds each one to the
+#     appropriate toplevel window, or more precisely to the
+#     topwindow_to_widget_router   at the root of the widgettree for
+#   ("xevent_to_widget_ximp" might be a better name)
+#     that window, there to trickle down the widgettree to its ultimate
+#     target widget.
+#
+#     To do this, xevent_to_window_ximp
+#     tracks all X windows created by the application,
+#     keyed by their X IDs.  (Toplevel X windows are
+#     registered at creation by the window.pkg functions;
+#     subwindows are registered when their X notify event
+#     comes through.)
+#
+#         Implemented in:  src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router.pkg
+#         See also:        src/lib/x-kit/xclient/src/window/topwindow-to-widget-router.pkg
+#
+#  o  The font_index ...
+#         Implemented in:  src/lib/x-kit/xclient/src/window/font-index.pkg
+#
+#  o  The keymap_ximp ...
+#         Implemented in:  src/lib/x-kit/xclient/src/window/keymap-imp.pkg
+#
+#
+#  o  The encode_xpackets_ximp buffers draw commands and combines
+#     them into subsequences which can share a single
+#     X server graphics context, in order to minimize
+#     the number of graphics context switches required.
+#     It works closely with the pen-to-gcontext-imp.
+#         Implemented in:  src/lib/x-kit/xclient/src/window/draw-imp.pkg
+#
+#  o  We map between the immutable "pens" we provide to the application
+#     programmer and the mutable graphics contexts actually supported by
+#     the X server with the help of pen_cache which tracks available
+#     graphics contexts. Given a pen, we returns a matching graphics context,
+#     using an existing one unchanged if possible, else modifying an
+#     existing one appropropriately.
+#         pen_cache is implemented in:  src/lib/x-kit/xclient/src/window/pen-cache.pkg
+#
+#
+# All mouse and keyboard events flow down through the
+# inbuf, sequencer, decoder and xevent-to-window ximps
+# and thence down through the widget hierarchy
+# associated with the relevant topwindow.
+#
+# Client xserver requests and responses are sent
+# directly to the sequencer imp, with the exception
+# of font requests and responses, which run through
+# the font imp.
+#
+# Keysym translations are handled by keymap_ximp.
 #
 # xclient-ximps wraps up the ximps
 #
@@ -33,20 +174,18 @@ stipulate
 
     package sok =  socket__premicrothread;			# socket__premicrothread			is from   src/lib/std/socket--premicrothread.pkg
 
-    package dp  =  draw_port;					# draw_port					is from   src/lib/x-kit/xclient/src/window/draw-port.pkg
-    package dx  =  draw_ximp;					# draw_ximp					is from   src/lib/x-kit/xclient/src/window/draw-ximp.pkg
+    package exp =  encode_xpackets_port;			# encode_xpackets_port				is from   src/lib/x-kit/xclient/src/window/encode-xpackets-port.pkg
+    package exx =  encode_xpackets_ximp;			# encode_xpackets_ximp				is from   src/lib/x-kit/xclient/src/window/encode-xpackets-ximp.pkg
 
     package kp  =  keymap_port;					# keymap_port					is from   src/lib/x-kit/xclient/src/window/keymap-port.pkg
-    package fp  =  font_port;					# font_port					is from   src/lib/x-kit/xclient/src/window/font-port.pkg
-    package px  =  pen_cache_ximp;				# pen_cache_ximp				is from   src/lib/x-kit/xclient/src/window/pen-cache-ximp.pkg
+    package pc  =  pen_cache;					# pen_cache					is from   src/lib/x-kit/xclient/src/window/pen-cache.pkg
 
     package sex =  xsession_ximps;				# xsession_ximps				is from   src/lib/x-kit/xclient/src/window/xsession-ximps.pkg
 
-    package op  =  outbuf_port;					# outbuf_port					is from   src/lib/x-kit/xclient/src/wire/outbuf-port.pkg
+    package xwp =  xevent_to_window_port;			# xevent_to_window_port				is from   src/lib/x-kit/xclient/src/window/xevent-to-window-port.pkg
     package sp  =  sequencer_port;				# sequencer_port				is from   src/lib/x-kit/xclient/src/wire/sequencer-port.pkg
     package xes =  xevent_sink;					# xevent_sink					is from   src/lib/x-kit/xclient/src/wire/xevent-sink.pkg
     package xew =  xerror_well;					# xerror_well					is from   src/lib/x-kit/xclient/src/wire/xerror-well.pkg
-    package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
     package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
 
@@ -55,13 +194,13 @@ stipulate
     package sx  =  sequencer_ximp;				# sequencer_ximp				is from   src/lib/x-kit/xclient/src/wire/sequencer-ximp.pkg
     package dxx =  decode_xpackets_ximp;			# decode_xpackets_ximp				is from   src/lib/x-kit/xclient/src/wire/decode-xpackets-ximp.pkg
     package dy  =  display;					# display					is from   src/lib/x-kit/xclient/src/wire/display.pkg
-    package xok =  xsocket;			 		# xsocket					is from   src/lib/x-kit/xclient/src/wire/xsocket.pkg
 
 
     # These are purely temporary debug kludges to force these to compile:
     #
-    Pen_Cache_Ximp_Exports =   pen_cache_ximp::Exports;		# pen_cache_ximp				is from   src/lib/x-kit/xclient/src/window/pen-cache-ximp.pkg
-    Draw_Ximp_Exports      =  draw_ximp::Exports;		# draw_ximp					is from   src/lib/x-kit/xclient/src/window/draw-ximp.pkg
+    Pen_Cache			=  pc::Pen_Cache;		# pen_cache					is from   src/lib/x-kit/xclient/src/window/pen-cache.pkg
+    Encode_Xpackets_Ximp_Exports
+	=  encode_xpackets_ximp::Exports;			# encode_xpackets_ximp				is from   src/lib/x-kit/xclient/src/window/encode-xpackets-ximp.pkg
 herein
 
 
@@ -71,37 +210,33 @@ herein
 	# Our state is just the collected
 	# states of our sub-ximps:
 	#
-	Xclient_Ximps_State					# Opaque wrapper for all nonephemeral mutable state maintained by ximps.
+	Xclient_Ximps_State									# Opaque wrapper for all nonephemeral mutable state maintained by ximps.
 	    =
-	    { draw_ximp_state: 			dx::Draw_Ximp_State,
-	      pen_cache_ximp_state:		px::Pen_Cache_Ximp_State,
+	    { encode_xpackets_ximp_state: 	exx::Encode_Xpackets_Ximp_State,
 	      xsession_ximps_state:		sex::Xsession_Ximps_State
 	    };
 
 	Configstate(X)
 	    =
-	    { draw_ximp_configstate: 		dx::Configstate,
-	      pen_cache_ximp_configstate:	px::Configstate,
+	    { encode_xpackets_ximp_configstate: exx::Configstate,
 	      xsession_ximps_configstate:	sex::Configstate(X),
 	      #
-	      draw_ximp_exports: 		dx::Exports,
-	      pen_cache_ximp_exports:		px::Exports,
+	      encode_xpackets_ximp_exports: 	exx::Exports,
 	      xsession_ximps_exports:		sex::Exports
 	    };
 
 	Imports  =  {										# Ports we use, provided by other imps.
-		      outbuf_port:		op::Outbuf_Port,
-		      xevent_sink:		xes::Xevent_Sink,				# 
-		      xpacket_sink:		xps::Xpacket_Sink				# 
+		      window_property_xevent_sink:		xes::Xevent_Sink,		# We'll forward X server PropertyNotify events to this sink.
+		      selection_xevent_sink:		xes::Xevent_Sink		# We'll forward X server SelectionNotify, SelectionRequest and SelectionClear events to this sink.
 		    };
 
 
-	Exports =  {										# Ports we provide for use by other imps.
-		     draw_port:		 dp::Draw_Port,
-		     font_port:		 fp::Font_Port,
-		     keymap_port:	 kp::Keymap_Port,
-		     xerror_well:	xew::Xerror_Well
-		   };
+	Exports =   {										# Ports we provide for use by other imps.
+		      encode_xpackets_port:	exp::Encode_Xpackets_Port,
+		      keymap_port:	 	kp::Keymap_Port,
+		      xevent_to_window_port:	xwp::Xevent_To_Window_Port,			# Provides  note_new_topwindow()  and  get_window_site().
+		      xerror_well:		xew::Xerror_Well
+		    };
 
 
 
@@ -111,57 +246,54 @@ herein
 	#
 	fun make_xclient_ximps_state ()												# External entrypoint.
 	    =
-	    { draw_ximp_state		 =>   dx::make_draw_ximp_state (),
-	      pen_cache_ximp_state	 =>   px::make_pen_cache_ximp_state (),
+	    { encode_xpackets_ximp_state =>   exx::make_encode_xpackets_ximp_state (),
 	      xsession_ximps_state	 =>   sex::make_xsession_ximps_state ()
 	    };
 
 	#
 	fun make_xclient_ximps  (name: String)											# External entrypoint.
 	    =
-	    {   ( dx::make_draw_ximp	  name) ->  (           draw_ximp_configstate,              draw_ximp_exports);
-		( px::make_pen_cache_ximp name) ->  (      pen_cache_ximp_configstate,         pen_cache_ximp_exports);
-		(sex::make_xsession_ximps name) ->  (      xsession_ximps_configstate,         xsession_ximps_exports);
+	    {   (exx::make_encode_xpackets_ximp  name) ->  (encode_xpackets_ximp_configstate,   encode_xpackets_ximp_exports);
+		(sex::make_xsession_ximps        name) ->  (      xsession_ximps_configstate,         xsession_ximps_exports);
 
-		configstate = { draw_ximp_configstate, pen_cache_ximp_configstate, xsession_ximps_configstate,
-				draw_ximp_exports,     pen_cache_ximp_exports,     xsession_ximps_exports
+		configstate = { encode_xpackets_ximp_configstate, xsession_ximps_configstate,
+				encode_xpackets_ximp_exports,     xsession_ximps_exports
 			      }; 
 
-		draw_port   =       draw_ximp_exports.draw_port;
-		font_port   =  xsession_ximps_exports.font_port;
-		keymap_port =  xsession_ximps_exports.keymap_port;
-		xerror_well =  xsession_ximps_exports.xerror_well;
+		encode_xpackets_port	=  encode_xpackets_ximp_exports.encode_xpackets_port;
+		keymap_port		=        xsession_ximps_exports.keymap_port;
+		xerror_well		=        xsession_ximps_exports.xerror_well;
+		xevent_to_window_port	=	 xsession_ximps_exports.xevent_to_window_port;
 
-		(configstate, { draw_port, font_port, keymap_port, xerror_well });
+		(configstate, { encode_xpackets_port, keymap_port, xevent_to_window_port, xerror_well });
 	    };
 	#
 	#
-	fun configure_xclient_ximps											# External entrypoint.
+	fun configure_xclient_ximps												# External entrypoint.
 	      (
-		cs:				Configstate(X),
-		me:				Xclient_Ximps_State,
-		{ outbuf_port,
-		  xpacket_sink,
-		  xevent_sink
-		}:				Imports,								# Carries xevents from decode_xpackets_ximp to xevent_router_ximp.
-		run_gun':			Run_Gun,
-		end_gun':			End_Gun,
-	        display:			dy::Xdisplay,	
-		drawable:			xt::Drawable_Id,
-	        socket:				sok::Socket (X, sok::Stream(sok::Active)),				# Socket to use.
-		xocket:				xok::Xsocket
+		cs:					Configstate(X),
+		me:					Xclient_Ximps_State,
+
+		{ 
+		  window_property_xevent_sink:	xes::Xevent_Sink,							# We'll forward X server PropertyNotify events to this sink.
+		  selection_xevent_sink:		xes::Xevent_Sink							# We'll forward X server SelectionNotify, SelectionRequest and SelectionClear events to this sink.
+		}:					Imports,									# Carries xevents from decode_xpackets_ximp to xevent_router_ximp.
+
+		run_gun':				Run_Gun,
+		end_gun':				End_Gun,
+	        display:				dy::Xdisplay,	
+		drawable:				xt::Drawable_Id,
+	        socket:					sok::Socket (X, sok::Stream(sok::Active))				# Socket to use.
 	      )
 	    =
 	    {   sequencer_port        =  cs.xsession_ximps_exports.sequencer_port;
-		pen_cache_port	      =  cs.pen_cache_ximp_exports.pen_cache_port;
 		xevent_to_window_port =  cs.xsession_ximps_exports.xevent_to_window_port;
-		#
 
-		dx::configure_draw_ximp		(cs.draw_ximp_configstate,	   me.draw_ximp_state,			{ pen_cache_port, xevent_to_window_port	 },	run_gun', end_gun', xocket);
+		display ->   dy::XDISPLAY  { next_xid, ... };
+
+		exx::configure_encode_xpackets_ximp (cs.encode_xpackets_ximp_configstate,	me.encode_xpackets_ximp_state,		{ xevent_to_window_port, sequencer_port				},	run_gun', end_gun', display, drawable );
 		#
-		px::configure_pen_cache_ximp	(cs.pen_cache_ximp_configstate,	   me.pen_cache_ximp_state,		{ sequencer_port			 },	run_gun', end_gun', display, drawable);
-		#
-		sex::configure_xsession_ximps	(cs.xsession_ximps_configstate,	   me.xsession_ximps_state,		{ outbuf_port, xpacket_sink, xevent_sink },	run_gun', end_gun', display, socket);
+		sex::configure_xsession_ximps	    (cs.xsession_ximps_configstate,		me.xsession_ximps_state,		{ window_property_xevent_sink, selection_xevent_sink	},	run_gun', end_gun', display, socket);
 	    };
     };															# package xclient_ximps
 end;
