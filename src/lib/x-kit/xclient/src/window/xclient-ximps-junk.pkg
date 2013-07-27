@@ -53,6 +53,7 @@ stipulate
     package sox =  xsocket_ximps;				# xsocket_ximps					is from   src/lib/x-kit/xclient/src/wire/xsocket-ximps.pkg
     package sex =  xsession_ximps;				# xsession_ximps				is from   src/lib/x-kit/xclient/src/window/xsession-ximps.pkg
     package clx =  xclient_ximps;				# xclient_ximps					is from   src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+    package exp =  encode_xpackets_port;			# encode_xpackets_port				is from   src/lib/x-kit/xclient/src/wire/encode-xpackets-port.pkg
 
     package aut =  authentication;				# authentication				is from   src/lib/x-kit/xclient/src/stuff/authentication.pkg
 
@@ -66,251 +67,218 @@ herein
 	Dummy = Int;
 
 
-	# Handle initial handshake stuff with xserver via a
-	# freshly opened unix- or internet-domain socket,
-	# then build an xsocket threadset layer on top of it
-	# (inbuf_imp, outbuf_imp, sequencer_imp, decode_xpackets_imp): 
-	# 
-	fun say_hello_to_xserver								# This fn copied from src/lib/x-kit/xclient/src/wire/display.pkg
-	      { socket:				is::Stream_Socket(X),
-		xauthentication:		Null_Or( xt::Xauthentication ),
-		canonical_display_name:		String,
-		screen:				Int
+	Screen_Info
+	    =
+	    SCREEN_INFO
+	      {
+		xscreen:    			xdy::Xscreen,				# Xscreen	def in    src/lib/x-kit/xclient/src/wire/xdisplay.pkg
+		per_depth_pen_and_draw_imps:	List( Screen_Pen_And_Draw_Imps ),	# The pen-to-gcontext and draw imps for the supported depths on this screen.
+		rootwindow_pen_and_draw_imps:         Screen_Pen_And_Draw_Imps		# The pen-to-gcontext and draw imps for the root window on this screen.
 	      }
+
+	also
+	Screen_Pen_And_Draw_Imps
 	    =
-	    {
+	    # For each combination of visual and depth
+	    # we allocate a pair of imps, one to draw,
+	    # one to manage graphics contexts.  This
+	    # is forced because X requires that each
+	    # gc and pixmap be associated with a
+	    # particular screen, visual and depth:
+	    #
+	    SCREEN_PEN_AND_DRAW_IMPS {							# The pen-to-gcontext imp and draw_imp
+		#									# for a given depth, visual and screen.
+		depth:			Int,
+		pen_cache:		pc::Pen_Cache,					# The pen-cache         for this depth on this screen.
+		encode_xpackets_port:	exp::Encode_Xpackets_Port			# Rootwindow encode-imp for this depth on this screen.
+	    }
 
-		connect_msg
-		    =
-		    v2w::encode_xserver_connection_request
-		      {
-			minor_version => 0,
-			xauthentication
-		      };
-
-
-		sj::send_vector (socket, connect_msg);
-
-
-
-
-												# exceptions			is from   src/lib/std/exceptions.pkg
-												# large_unt			is from   src/lib/std/large-unt.pkg
-												# pack_big_endian_unt16		is from   src/lib/std/src/pack-big-endian-unt16.pkg
-
-		header = sj::receive_vector (socket, 8)
-                         except
-                             wnx::RUNTIME_EXCEPTION("closed socket", NULL)
-                                 =
-				 # I was getting this error when I failed to supply
-				 # authentication -- you'd think the server would
-				 # return a 0u2 "additional authentication required"
-				 # reply, but apparently not.
-                                 #
-                                 # Anyhow, we can at least generate an error more
-                                 # informative than "I/O to closed socket":      -- 2010-02-28 CrT
-				 #
-				 case xauthentication
-				     #
-                                     NULL => { msg = sprintf "X server %s closed connection without replying, perhaps because we supplied no authentication." canonical_display_name;  log::fatal .{ msg; };  raise exception FAIL msg; };
-                                     _    => { msg = sprintf "X server %s closed connection without replying."                                                canonical_display_name;  log::fatal .{ msg; };  raise exception FAIL msg; };
-                                 esac; 
-
-		len = 4 * large_unt::to_int_x (pack_big_endian_unt16::get_vec (header, 3));	# "4 * ..." because X reports packet lengths in multiples of 32 bits.
-
-		fun get_reply len
-		    =
-		    sj::receive_vector (socket, len);
-
-		fun get_msg reply
-		    =
-		    byte::unpack_string_vector (
-			v8s::make_slice(
-			    reply,
-			    0,
-			    THE (one_byte_unt::to_int_x (w8v::get (header, 1)))
-			)
-		    );
-
-
-		case (w8v::get (header, 0))
-		    #
-		    0u1 =>
-			{
-			    reply =  get_reply  len;
-
-			    xserver_info = w2v::decode_connect_request_reply  (header, reply);
-
-												# trace  .{ i2s::xserver_info_to_string  xserver_info; };
-
-#			    xsocket =  xok::make_xsocket  socket;
-
-			    { socket, xserver_info, canonical_display_name, screen };
-			};
-
-		    0u0 =>
-			{   sok::close  socket;
-			    msg = "X server refused connection: " + get_msg (get_reply len);
-			    log::fatal .{ msg; };
-			    raise exception FAIL msg;
-			};
-
-		    0u2 =>
-			{   sok::close  socket;
-			    msg = "X server demanded additional authentication";
-			    log::fatal .{ msg; };
-			    raise exception FAIL msg;
-			};
-
-		    x   =>
-			{   sok::close  socket;
-			    msg =  sprintf "X server returned unknown reply op %d" (one_byte_unt::to_int x);
-			    log::fatal .{ msg; };
-			    raise exception FAIL msg;
-			};
-		esac; 
+	also
+	Screen										# A screen handle for users.
+	    =
+	    SCREEN  {
+#		xsession:      Xsession,
+		screen_info:   Screen_Info
 	    };
 
-	fun open_internet_domain_socket							# This fn copied from src/lib/x-kit/xclient/src/wire/display.pkg
-	    (
-	      address:  dns::Internet_Address,
-	      port:     Int
-	    )
-	    =
-	    {										# trace .{ sprintf "display.pkg: connect_to_xserver: open_internet_domain_socket: address = \"%s\", port d=%d" (dns::to_string  address) port; };
-
-											# internet_socket__premicrothread	is from   src/lib/std/src/socket/internet-socket--premicrothread.pkg
-		# Invoke the glibc socket() fn via
-		# a few layers of wrapping:
-		# 
-		socket = internet_socket__premicrothread::tcp::make_socket ();
-
-											# trace .{  sprintf "display.pkg: connect_to_xserver: open_internet_domain_socket: socket s='%s'"  (internet_socket__premicrothread::to_string  socket);  };
-
-		sok::connect (socket, internet_socket__premicrothread::to_address (address, port))
-		except
-		    _ = {   msg = "Unable to connect to X server -- connect_to_xserver in src/lib/x-kit/xclient/src/window/xclient-ximps-junk.pkg";
-			    log::fatal .{ msg; };					# Will not return.
-			    raise exception FAIL msg;					# Cannot execute.
-			};
-
-		socket:		is::Stream_Socket(X);
-	    };
-
-	# Crack 'raw_display_name', open
-        # a unix- or internet-domain
-	# socket (as appropriate) and
-	# do the initial handshake with
-	# the X server:
 	#
-	fun connect_to_xserver									# This fn copied from src/lib/x-kit/xclient/src/wire/display.pkg
-            ( raw_display_name: String,								# ":0.0" or "192.168.0.1:0.0" or such, often from unix DISPLAY environment variable.
-              xauthentication:  Null_Or( xt::Xauthentication )					# Ultimately ~/.Xauthority
-            )
+	fun make_screen_info (xscreen as xdy::XSCREEN { root_window_id, root_visual, visuals, ... } )		# Adapted from make_screen_info in   src/lib/x-kit/xclient/src/window/xsession.pkg
 	    =
 	    {
-		# Digest a user-level X server spec
-		# into a form easier to work with:
-		#
-		(cxa::crack_xserver_address  raw_display_name)
-		    ->
-		    { address:                  cxa::Xserver_Address,
-                      canonical_display_name:   String,
-                      screen:	 	        Int
-                    };
-
-#												trace .{ sprintf "display.pkg: connect_to_xserver: address s='%s' screen d=%d canonical_display_name s='%s'" (cxa::to_string address) screen canonical_display_name; };
-
-
-
-		case address
-		    #
-		    cxa::UNIX path
-			=>
-			{
-			    socket =  uds::stream::make_socket ();
-			    #
-			    socket_address = uds::string_to_unix_domain_socket_address  path;
-
-			    sok::connect (socket, socket_address)
-			    except
-				winix::RUNTIME_EXCEPTION (msg, _)
-				    =
-				    {   log::fatal .{ msg; };
-					raise exception FAIL msg;
-				    };
-
-			    say_hello_to_xserver { socket, xauthentication, canonical_display_name, screen };
-			};
-
-		    cxa::INET_ADDRESS (host, port)
-			=>
-			case (dns::from_string  host)
-			    #
-			    THE address =>  {   socket = open_internet_domain_socket (address, port);
-						say_hello_to_xserver { socket, xauthentication, canonical_display_name, screen };
-					    };
-			    NULL        =>  {   msg = "Bad IP address format";
-						log::fatal .{ msg; };
-						raise exception FAIL msg;
-					    };
-			esac;
-
-		    cxa::INET_HOSTNAME (host, port)
-			=>
-			case (dns::get_by_name  host)
-			    #
-			    THE entry =>    {   socket = open_internet_domain_socket (dns::address entry, port);
-						say_hello_to_xserver { socket, xauthentication, canonical_display_name, screen };
-					    };
-			    NULL      =>    {   msg = sprintf "Host '%s' not found" host;
-						log::fatal .{ msg; };
-						raise exception FAIL msg;
-					    };
-			esac;
-		esac;
-	    };				# fun connect_to_xserver
+#		rootwindow_pen_and_draw_imps
+#		    =
+#		    make_screen_pen_and_draw_imps
+#		      (
+#			dy::depth_of_visual  root_visual,
+#			p2g::make_pen_to_gcontext_imp  (xdisplay, root_window_id)
+#		      );
+#
+#		per_depth_pen_and_draw_imps
+#		    =
+#		    make_pen_imps (visuals, [ rootwindow_pen_and_draw_imps ]);
+#
+#		per_depth_pen_and_draw_imps
+#		    =
+#		    make_pen_imps ( [ xt::NO_VISUAL_FOR_THIS_DEPTH 1 ],
+#				    per_depth_pen_and_draw_imps
+#				  );
+#
+#		SCREEN_INFO
+#		  {
+#		    xscreen,
+#		    per_depth_pen_and_draw_imps,
+#		    rootwindow_pen_and_draw_imps
+#		  };
+	    };
+#	    where
+#		fun make_screen_pen_and_draw_imps (depth, pen_imp)
+#		    =
+#		    {   drawimp_mappedstate_slot =  make_mailslot ();
+#
+#			make_thread  "send FIRST_EXPOSE"  .{   put_in_mailslot (drawimp_mappedstate_slot, di::s::FIRST_EXPOSE);   };
+#
+#			SCREEN_PEN_AND_DRAW_IMPS {
+#			    depth,
+#			    pen_imp,
+#			    to_screen_drawimp
+#				=>
+#				di::make_draw_imp
+#				  ( take_from_mailslot'  drawimp_mappedstate_slot,
+#				    pen_imp,
+#				    xsocket
+#				  )
+#			};
+#		    };
+#		#
+#		fun make_pen_imps ([], l)
+#			=>
+#			l;
+#
+#		    make_pen_imps (vd ! r, l)
+#			=>
+#			{
+#			    visual_depth =  dy::depth_of_visual  vd;
+#
+#			    #
+#			    fun make_imps ()
+#				=
+#				{   pixmap_id = next_xid ();
+#
+#				    # Make a pixmap to serve as the
+#				    # witness drawable for the GC server:
+#				    #
+#				    xok::send_xrequest xsocket
+#				      ( value_to_wire::encode_create_pixmap
+#					  { pixmap_id,
+#					    drawable_id =>  root_window_id,
+#					    size        =>  xg::SIZE { wide=>1, high=>1 },
+#					    depth       =>  visual_depth
+#					  }
+#				      );
+#
+#				    make_screen_pen_and_draw_imps
+#					(visual_depth, p2g::make_pen_to_gcontext_imp (xdisplay, pixmap_id));
+#				};
+#
+#			    #
+#			    fun get []
+#				    =>
+#				    make_imps() ! l;
+#
+#				get (SCREEN_PEN_AND_DRAW_IMPS { depth, ... } ! rest)
+#				    =>
+#				    depth == visual_depth
+#				     ??  l
+#				     ::  get rest;
+#			    end;
+#
+#
+#			    make_pen_imps (r, get l);
+#			};
+#		end;
+#	    end;
 
 	fun make_root_window								# External entrypoint
                 (display_or_null:  Null_Or( String ))					# Allow overriding of the DISPLAY environment variable setting.
 	    =
-	    {   (aut::get_xdisplay_string_and_xauthentication  display_or_null)
+	    {	(aut::get_xdisplay_string_and_xauthentication  display_or_null)		# This is from Reppy's oldworld make_root_window in src/lib/x-kit/widget/lib/run-in-x-window.pkg
 		    ->
-		    ( raw_display_name:		String,					# Typically from $DISPLAY environment variable.
+		    ( display_name:		String,					# Typically from $DISPLAY environment variable.
                       xauthentication:  Null_Or(xt::Xauthentication)			# Typically from ~/.Xauthority
                     );
-		    
-		(connect_to_xserver (raw_display_name, xauthentication))
-		  ->
-		  { socket:				is::Stream_Socket(X),
-		    xserver_info:			xt::Xserver_Info,
-		    canonical_display_name:		String,
-		    screen:				Int
-		  };
+											# Here canonical sequence calls make_root_window in src/lib/x-kit/widget/basic/root-window.pkg
+											# which			  calls open_xsession    in src/lib/x-kit/xclient/src/window/xsession.pkg
+											# which                   calls open_xdisplay    in src/lib/x-kit/xclient/src/wire/display.pkg
+		(xdy::open_xdisplay { display_name, xauthentication })
+		    ->
+		    (xdisplay as xdy::XDISPLAY { default_screen, screens, socket, next_xid, ... } );	# Canonical sequence has 'xsocket' not 'socket' here.
+
+		
+		default_screen =    list::nth (screens, default_screen)
+				    except
+					SUBSCRIPT = {   msg = "Bad default_screen value -- make_root_window in xclient-ximps-junk.pkg";
+							log::fatal .{ msg; };		# Doesn't return.
+							raise exception FAIL msg;	# Should never get here.
+						    };
+
+		default_screen ->   xdy::XSCREEN { root_window_id, ... };
 
 		(make_run_gun ()) ->   { run_gun', fire_run_gun };
 		(make_end_gun ()) ->   { end_gun', fire_end_gun };
 
-
 		(clx::make_xclient_ximps_state ()	  ) ->   xclient_ximps_state;
 		(clx::make_xclient_ximps "xclient_ximps"  ) ->  (xclient_ximps_configstate, xclient_ximps_exports);
 
-		window_property_xevent_sink =	{ put_value => 	(fn (event: et::x::Event) = ()) };	# Dummy to 'handle' X server PropertyNotify events.
-		selection_xevent_sink	    =	{ put_value => 	(fn (event: et::x::Event) = ()) };	# Dummy to 'handle' X server SelectionNotify, SelectionRequest and SelectionClear events.
+		window_property_xevent_sink =	{ put_value => 	(fn (event: et::x::Event) = { log::fatal .{ "window_property_xevent_sink called"; }; (); }) };	# Dummy to 'handle' X server PropertyNotify events.
+		selection_xevent_sink	    =	{ put_value => 	(fn (event: et::x::Event) = { log::fatal .{ "selection_xevent_sink called"	; }; (); }) };	# Dummy to 'handle' X server SelectionNotify, SelectionRequest and SelectionClear events.
 
-#		clx::configure_xclient_ximps
-#		  ( xclient_ximps_configstate,
-#		    xclient_ximps_state,
-#		    { 
-#		      window_property_xevent_sink:		xes::Xevent_Sink,		# We'll forward X server PropertyNotify events to this sink.
-#		      selection_xevent_sink:			xes::Xevent_Sink		# We'll forward X server SelectionNotify, SelectionRequest and SelectionClear events to this sink.
-#		    },
-#		    run_gun',
-#		    end_gun',
-#		    dy::Xdisplay,	
-#		    xt::Drawable_Id,
-#		    socket 									# sok::Socket (X, sok::Stream(sok::Active))						# Socket to read.
-#		  );
+		clx::configure_xclient_ximps
+		  (
+		    xclient_ximps_configstate,
+		    xclient_ximps_state,
+		    { 
+		      window_property_xevent_sink,
+		      selection_xevent_sink
+		    },
+		    run_gun',
+		    end_gun',
+		    xdisplay,	
+		    root_window_id,
+		    socket 								# sok::Socket (X, sok::Stream(sok::Active))						# Socket to read.
+		  );
+
+
+
+
+#		xlg::make_thread  "err_handler"  err_handler;
+
+											# Canonical sequence is now back in open_xsession in src/lib/x-kit/xclient/src/window/xsession.pkg
+#		keymap_imp =   ki::make_keymap_imp  xdisplay;
+#		atom_imp   =   ai::make_atom_imp    xdisplay;
+#		(wpi::make_window_property_imp (xdisplay, atom_imp)) -> (to_window_property_imp_slot, window_property_imp);
+#		(si::make_selection_imp  xdisplay)		     -> (to_selection_imp_slot,  selection_imp);
+#		xsocket_to_topwindow_router = s2t::make_xsocket_to_topwindow_router { ... }
+#		screens =  map  make_screen_info  screens;
+#		xsession = XSESSION { ... }  
+											# Canonical sequence is now back in make_root_window in  src/lib/x-kit/widget/basic/root-window.pkg
+#		screen = xc::default_screen_of xsession;				# NB: xsession is part of 'screen':  	fun default_screen_of  (xsession as XSESSION { default_screen_info, ... } ) = SCREEN { xsession, screen_info => default_screen_info };
+
+#		is =  ii::make_image_imp  init_images;
+#		ts =  pxc::make_readonly_pixmap_cache  (screen,  ii::get_image  is);
+#		shade_imp =  si::make_shade_imp  screen;
+#		tilef = pxc::get_ro_pixmap ts;
+#		make_thread "widget_id factory" .{  widget_id_loop 0;  };
+#		ROOT_WINDOW
+#		  { id => REF (), 
+#		    screen, 
+#		    style   =>  wy::empty_style { screen, tilef }, 
+#		    make_tile  =>  tilef,
+#		    make_shade =>  si::get_shades  shade_imp,
+#		    next_widget_id =>  fn () =  take_from_mailslot  widget_id_slot	# Gets used (only) in widget::make_widget, in  src/lib/x-kit/widget/basic/widget.pkg
+#		  };									# Canonical sequence now returns from make_root_window in src/lib/x-kit/widget/basic/root-window.pkg
+#											# to make_root_window in src/lib/x-kit/widget/lib/run-in-x-window.pkg
+#											# to run_in_x_window which passes the ROOT_WINDOW to user do_it() fn.  EOF! :-)
+
 
 
 
