@@ -1,0 +1,248 @@
+## atom-ximp.pkg
+#
+# A Client-side server for atoms.
+#
+# See also:
+#
+#     src/lib/x-kit/xclient/src/iccc/atom.pkg
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+stipulate
+    include threadkit;							# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xt  =  xtypes;						# xtypes		is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+#   package xok =  xsocket;						# xsocket		is from   src/lib/x-kit/xclient/src/wire/xsocket.pkg
+    package w2v =  wire_to_value;					# wire_to_value		is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package v2w =  value_to_wire;					# value_to_wire		is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package aht =  atom_table;						# atom_table		is from   src/lib/x-kit/xclient/src/iccc/atom-table.pkg
+    package xdy =  xdisplay;						# xdisplay		is from   src/lib/x-kit/xclient/src/wire/xdisplay.pkg
+    package sp  =  sequencer_port;					# sequencer_port	is from   src/lib/x-kit/xclient/src/wire/sequencer-port.pkg
+    package ap  =  atom_port;						# atom_port		is from   src/lib/x-kit/xclient/src/iccc/atom-port.pkg
+    package sp  =  sequencer_port;					# sequencer_port	is from   src/lib/x-kit/xclient/src/wire/sequencer-port.pkg
+herein
+
+    package   atom_ximp
+    : (weak)  Atom_Ximp							# Atom_Ximp		is from   src/lib/x-kit/xclient/src/iccc/atom-ximp.api
+    {
+	Atom = xt::Atom;
+
+	Atom_Ximp_State = Void;						# Opaque wrapper for all mutable state maintained by ximp.
+
+	Exports	  = {										# Ports we export for use by other imps.
+		      atom_port:		ap::Atom_Port
+		    };
+
+	Imports   = {										# Ports we use which are exported by other imps.
+		      sequencer_port:		sp::Sequencer_Port
+		    };
+
+	Client_Plea
+	  = PLEA_INTERN  (String, Oneshot_Maildrop(         Atom   ))
+	  | PLEA_LOOKUP  (String, Oneshot_Maildrop( Null_Or(Atom)  ))
+	  | PLEA_NAME    (Atom,   Oneshot_Maildrop(         String ))
+	  ;
+
+	Configstate = Mailslot( { imports:	Imports,
+				  me:		Atom_Ximp_State,
+				  run_gun':	Run_Gun,
+				  end_gun':	End_Gun
+				}
+			      );
+
+	Client_Q    = Mailqueue( Client_Plea );
+
+	fun intern  (sequencer_port:	sp::Sequencer_Port)
+		    #
+		    (arg:		{ name: String,
+					  only_if_exists: Bool
+                            		}
+		    )
+	    =
+	    w2v::decode_intern_atom_reply
+		(block_until_mailop_fires
+#		 ========================				# XXX SUCKO FIXME
+		    (sequencer_port.send_xrequest_and_read_reply
+			(v2w::encode_intern_atom  arg)
+		)   );
+
+
+
+
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:					Atom_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		  imports:				Imports,							# Ximps to which we send requests.
+		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		  client_q:				Client_Q							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		}
+	    =
+	    loop ()
+	    where
+		atom_table =  aht::make_hashtable  { size_hint => 32,  not_found_exception => FAIL "AtomTable" };
+		insert     =  aht::set atom_table;
+		find       =  aht::find atom_table;
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                        ==>  shut_down_atom_ximp'),
+			    (take_from_mailqueue' client_q   ==>  do_client_plea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_atom_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+			#
+
+			stipulate
+			    #
+
+			herein
+			    fun do_client_plea (PLEA_INTERN (id, reply_1shot))
+				    =>
+				    put_in_oneshot (reply_1shot, intern imports.sequencer_port { name => id, only_if_exists => FALSE } );
+
+				do_client_plea (PLEA_LOOKUP (id, reply_1shot))
+				    =>
+				    case (intern imports.sequencer_port { name => id, only_if_exists => TRUE } )
+					#
+					(xt::XATOM 0u0) =>   put_in_oneshot (reply_1shot, NULL    );
+					atom            =>   put_in_oneshot (reply_1shot, THE atom);
+				    esac;
+
+				do_client_plea (PLEA_NAME (atom, reply_1shot))
+				    =>
+				    put_in_oneshot (reply_1shot, name)
+				    where 
+
+					name =  w2v::decode_get_atom_name_reply (
+						    block_until_mailop_fires (
+#                                                   ========================                                XXX SUCKO FIXME
+							imports.sequencer_port.send_xrequest_and_read_reply  (
+							    v2w::encode_get_atom_name { atom }
+							)
+						    )
+						);
+				   end;
+			    end;
+			end;
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configstate     =  make_mailslot  ()	:  Configstate;
+		#
+		atom_port  =  { make_atom,
+				find_atom,
+				atom_to_string
+			      };
+
+		to             =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (configstate, { atom_port }));						# Return value from make_atom_ximp().
+
+		(take_from_mailslot  configstate)									# Input args from configure_sequencer_imp().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run { me, client_q, imports, to, end_gun' };								# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun make_atom  atom_name
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,  PLEA_INTERN (atom_name, reply_1shot));
+
+			get_from_oneshot  reply_1shot;
+		    };
+
+		fun find_atom  atom_name
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,  PLEA_LOOKUP (atom_name, reply_1shot));
+
+			get_from_oneshot  reply_1shot;
+		    };
+
+		fun atom_to_string  atom
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,  PLEA_NAME (atom, reply_1shot));
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_atom_ximp_state ()											# External entrypoint.
+	  =
+	  ();
+
+	#
+	fun make_atom_ximp  (name: String)										# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
+		#
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+
+		get_from_oneshot  reply_oneshot;
+	    };
+	#
+	#
+	fun configure_atom_ximp												# External entrypoint.
+	      (
+		configstate:	Configstate,
+		me:		Atom_Ximp_State,
+		imports:	Imports,
+		run_gun':	Run_Gun,
+		end_gun':	End_Gun
+	      )
+	    =
+	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
+
+
+
+
+    };					#  atom_imp 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.
