@@ -1,0 +1,227 @@
+## image-imp.pkg
+#
+# This provides a name to x-kit image imp.  
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+
+
+
+###                 "Programming is one of the most difficult branches of applied mathematics;
+###                  the poorer mathematicians had better remain pure mathematicians."
+###
+###                                                      -- E.J. Dijkstra
+
+
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package qk  =  quark;				# quark			is from   src/lib/x-kit/style/quark.pkg
+    package xc  =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    package ip  =  image_port;				# image_port		is from   src/lib/x-kit/widget/lib/image-port.pkg
+#    package sp  =  sequencer_port;			# sequencer_port	is from   src/lib/x-kit/xclient/src/wire/sequencer-port.pkg
+herein
+
+    package   image_ximp
+    : (weak)  Image_Ximp				# Image_Ximp		is from   src/lib/x-kit/widget/lib/image-ximp.api
+    {
+	package qht
+	    =
+	    typelocked_hashtable_g (
+		Hash_Key   =   qk::Quark;
+		same_key   =   qk::same;
+		hash_value =   qk::hash;
+	    );
+
+	Image_Table =   qht::Hashtable( xc::Cs_Pixmap );
+
+	Exports	  = {										# Ports we export for use by other imps.
+		      image_port:		ip::Image_Port					# Requests from widget/application code.
+		    };
+
+	Imports   = {										# Ports we use which are exported by other imps.
+		    };
+
+	Image_Ximp_State									# Opaque wrapper for all mutable state maintained by ximp.
+	  =
+	  {
+	    image_table:  Image_Table
+	  };
+
+	Configstate = Mailslot( {  imports:	Imports,
+				   me:		Image_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun
+				 }
+			      );
+
+	exception BAD_NAME;
+
+	Client_Plea
+          #
+	  = GET_IMAGE  (qk::Quark, Oneshot_Maildrop( Null_Or( xc::Cs_Pixmap ) ) )
+	  | ADD_IMAGE  (qk::Quark, xc::Cs_Pixmap)
+	  ;
+
+	Client_Q    = Mailqueue( Client_Plea  );
+
+
+							    # typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
+
+
+	exception NOT_FOUND;
+
+
+
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:					Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		  imports:				Imports,							# Ximps to which we send requests.
+		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		  client_q:				Client_Q							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		}
+	    =
+	    loop ()
+	    where
+		image_ins  =  qht::set   me.image_table;
+		image_find =  qht::find  me.image_table;
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    end_gun'                       ==>  shut_down_image_ximp',
+			    take_from_mailqueue' client_q  ==>  do_client_plea
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_image_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+
+
+	
+			fun do_client_plea (GET_IMAGE (n, reply_1shot))
+				=>
+				case (image_find n)
+				    #
+				    NULL  =>  put_in_oneshot (reply_1shot, NULL);
+				    THE i =>  put_in_oneshot (reply_1shot, THE i);
+				esac;
+
+			    do_client_plea (ADD_IMAGE (q, i))
+				=>
+				case (image_find q)
+				    #
+				    NULL  =>    {   image_ins (q, i);   };
+				    #
+				    THE _ =>    {   msg = "Attempt to register already-present image -- image-ximp.pkg";
+						    log::fatal .{ msg; };
+						    raise exception FAIL msg;
+						};
+				esac;
+			end;
+
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configstate     =  make_mailslot  ()	:  Configstate;
+		#
+		image_port  = {
+				add_image,
+				get_image
+			      };
+
+		to             =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (configstate, { image_port }));						# Return value from make_image_ximp().
+
+		(take_from_mailslot  configstate)									# Input args from configure_image_ximp().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run { me, client_q, imports, to, end_gun' };								# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun add_image  (name: qk::Quark,  image: xc::Cs_Pixmap)
+		    =
+		    put_in_mailqueue (client_q, ADD_IMAGE (name, image));
+
+		fun get_image  (name: qk::Quark)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop ():  Oneshot_Maildrop( Null_Or(xc::Cs_Pixmap) );
+			#
+			put_in_mailqueue (client_q, GET_IMAGE (name, reply_1shot));
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_image_ximp_state ()
+	    =
+	    {
+	      image_table =>    qht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+	    };
+
+	fun make_image_ximp  (name: String)										# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
+		#
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+
+		get_from_oneshot  reply_oneshot;
+	    };
+
+
+	fun configure_image_ximp											# External entrypoint.
+	      (
+		configstate:	Configstate,
+		me:		Image_Ximp_State,
+		imports:	Imports,
+		run_gun':	Run_Gun,
+		end_gun':	End_Gun
+	      )
+	    =
+	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
+    };
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.

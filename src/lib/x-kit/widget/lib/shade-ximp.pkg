@@ -1,0 +1,308 @@
+## shade-ximp.pkg
+#
+# Publish the current trio of color shades
+# (light/base/dark) to be used for drawing
+# 3-D widgets etc.
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+###                   "The idea of a formal design discipline is often rejected
+###                    on account of vague cultural/philosophical condemnations
+###                    such as ``stifling creativity'';  this is more pronounced
+###                    in the Anglo-Saxon world where a romantic vision of
+###                    ``the humanities'' in fact idealizes technical incompetence."
+###
+###                                                -- E.J. Dijkstra
+
+
+stipulate
+    include threadkit;						# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xc  =  xclient;					# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    package pms =  standard_clientside_pixmaps;			# standard_clientside_pixmaps	is from   src/lib/x-kit/widget/lib/standard-clientside-pixmaps.pkg
+    package shp =  shade_port;					# shade_port			is from   src/lib/x-kit/widget/lib/shade-port.pkg
+herein
+
+    package   shade_ximp
+    : (weak)  Shade_Ximp					# Shade_Ximp			is from   src/lib/x-kit/widget/lib/shade-ximp.api
+    {
+
+
+	Exports	  = {						# Ports we export for use by other imps.
+		      shade_port:	shp::Shade_Port		# Requests from widget/application code.
+		    };
+
+	Imports   = {						# Ports we use which are exported by other imps.
+		    };
+
+
+	exception BAD_SHADE;
+
+	Client_Plea =   GET_SHADES  (xc::Rgb,   Oneshot_Maildrop( Null_Or( shp::Shades )));
+
+	Client_Q    =   Mailqueue( Client_Plea  );
+
+
+
+								# typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
+	package rgb
+	    =
+	    typelocked_hashtable_g (
+
+		Hash_Key = xc::Rgb;
+
+		fun same_key (k1:  Hash_Key, k2)
+		    =
+		    xc::same_rgb (k1, k2);
+
+		fun hash_value (rgb: xc::Rgb)
+		    =
+		    {   (xc::rgb_to_unts rgb)
+			    ->
+			    (red, green, blue);
+
+			red + green + blue;
+		    };
+	    );
+
+	Rgb_Table = rgb::Hashtable( shp::Shades );
+
+	Shade_Ximp_State												# Opaque wrapper for all mutable state maintained by ximp.
+	    =
+	    {
+	      rgb_table:  Rgb_Table
+	    };
+
+	Configstate = Mailslot( {  imports:	Imports,
+				   me:		Shade_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun,
+				   screen:	xc::Screen
+				 }
+			      );
+	fun monochrome screen
+	    = 
+	    xc::display_class_of_screen screen == xc::STATIC_GRAY       and 
+	    xc::depth_of_screen         screen == 1;
+
+	exception NOT_FOUND;
+
+
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:					Shade_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		  imports:				Imports,							# Ximps to which we send requests.
+		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to .{ ... }   syntax read well.
+		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		  client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  screen:				xc::Screen
+		}
+	    =
+	    loop ()
+	    where
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    end_gun'                       ==>  shut_down_shade_ximp',
+			    take_from_mailqueue' client_q  ==>  do_client_plea
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_shade_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+
+
+			rgb_ins  =  rgb::set    me.rgb_table;
+			rgb_find =  rgb::find   me.rgb_table;
+
+			max_i = 0u65535;
+
+			fun lighten v c = unt::min (max_i, (v*c) / 0u100) except _ = max_i;
+			fun darken  v c = unt::min (max_i, (v*c) / 0u100) except _ = max_i;
+
+			lighten =  lighten 0u140;
+			darken  =  darken  0u060;
+
+			fun color (r, g, b)
+			    = 
+			    xc::get_color (xc::CMS_RGB { red=>r, green=>g, blue=>b } );
+
+			fun make_p c
+			    =
+			    xc::make_pen [xc::p::FOREGROUND (xc::rgb8_from_rgb c) ];
+
+			fun make_p' t
+			    =
+			    xc::make_pen [ xc::p::FOREGROUND  xc::rgb8_black,
+					   xc::p::BACKGROUND  xc::rgb8_white,
+					   xc::p::STIPPLE t,
+					   xc::p::FILL_STYLE_OPAQUE_STIPPLED
+					 ];
+
+			fun bw_shade (c, rgb)
+			    =
+			    {   lgray = xc::make_readonly_pixmap_from_clientside_pixmap  screen  pms::light_gray;
+				dgray = xc::make_readonly_pixmap_from_clientside_pixmap  screen  pms::dark_gray;
+
+				my (lt, dk)
+				    =
+				    xc::same_rgb (c, xc::white)
+				      ?? (lgray, dgray)
+				      :: (dgray, lgray);
+
+				s = { light => make_p' lt, base => make_p c, dark => make_p' dk };
+
+				rgb_ins (rgb, s);
+
+				THE s;
+			    }
+			    except _ = NULL;
+
+			fun gray_shade (c, rgb)
+			    =
+			    {
+				lgray =  xc::get_color (xc::CMS_NAME "gray87");
+				dgray =  xc::get_color (xc::CMS_NAME "gray44");
+
+				my (lt, dk)
+				    =
+				    xc::same_rgb (c, xc::white)
+				     ?? (lgray, dgray)
+				     :: (dgray, lgray);
+
+				s = { light => make_p lt, base => make_p c, dark => make_p dk };
+
+				rgb_ins (rgb, s);
+				THE s;
+			    }
+			    except
+				_ = bw_shade (c, rgb);
+
+			fun color_shade (c, rgb)
+			    =
+			    {   (xc::rgb_to_unts rgb)
+				    ->
+				    (red, blue, green);
+
+				fun shade ()
+				    =
+				    {   lt = color (lighten red, lighten green, lighten blue);
+					dk = color (darken red, darken green, darken blue);
+					s = { light => make_p lt, base => make_p c, dark => make_p dk };
+
+					rgb_ins (rgb, s);
+					THE s;
+				    }
+				    except _ = NULL;
+
+				if (xc::same_rgb (c, xc::white)
+				or  xc::same_rgb (c, xc::black)
+				)
+				     gray_shade (c, rgb);
+				else shade ();
+				fi;
+			    };
+
+			alloc_shade =   monochrome screen   ??   bw_shade   ::   color_shade;
+	
+			fun do_client_plea (GET_SHADES (rgb, reply_1shot))
+			    =
+			    case (rgb_find rgb)
+				#
+				NULL =>  put_in_oneshot (reply_1shot, alloc_shade (rgb, rgb));
+				s    =>  put_in_oneshot (reply_1shot, s);
+			    esac;
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   configstate     =  make_mailslot  ()	:  Configstate;
+		#
+		shade_port  = {
+				get_shades
+			      };
+
+		to =  make_replyqueue ();
+
+		put_in_oneshot (reply_oneshot, (configstate, { shade_port }));						# Return value from make_image_ximp().
+
+		(take_from_mailslot  configstate)									# Input args from configure_image_ximp().
+		    ->
+		    { me, imports, run_gun', end_gun', screen };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run { me, client_q, imports, to, end_gun', screen };							# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun get_shades  (rgb: xc::Rgb)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop ():  Oneshot_Maildrop( Null_Or(shp::Shades) );
+			#
+			put_in_mailqueue (client_q, GET_SHADES (rgb, reply_1shot));
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+
+        ##########################################################################################
+	# External entrypoints
+	#
+	fun make_shade_ximp_state ()
+	    =
+	    {
+	     rgb_table =>    rgb::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+	    };
+
+	fun make_shade_ximp  (name: String)										# External entrypoint.
+	    =
+	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
+		#
+		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+
+		get_from_oneshot  reply_oneshot;
+	    };
+
+
+	fun configure_shade_ximp											# External entrypoint.
+	      (
+		configstate:	Configstate,
+		me:		Shade_Ximp_State,
+		imports:	Imports,
+		run_gun':	Run_Gun,
+		end_gun':	End_Gun,
+		screen:		xc::Screen
+	      )
+	    =
+	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', screen });
+
+    };
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
