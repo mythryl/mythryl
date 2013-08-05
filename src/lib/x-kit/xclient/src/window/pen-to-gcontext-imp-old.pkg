@@ -1,0 +1,1031 @@
+## pen-to-gcontext-imp-old.pkg
+#
+# The graphics context cache imp, which maps
+# the immutable pens we present to the
+# Mythryl programmer onto the the mutable
+# graphics contexts provided by the X-server.
+#
+# Nomenclature:
+#   Throughout this file, "gc" == "graphics context".
+#
+# The basic idea is that we have a relatively large
+# number of client-side immutable "pens" -- see
+#     src/lib/x-kit/xclient/src/window/pen-old.pkg
+#     src/lib/x-kit/xclient/src/window/pen-guts.api
+#     src/lib/x-kit/xclient/src/window/pen-guts.pkg
+# -- which must be mapped to a smaller number of
+# mutable gcs on the X server.  (Working with immutable
+# pens simplifies the programmer's model by eliminating
+# the shared mutable state of the gcs from it.)
+#
+# A given X drawing operation uses only a subset of the
+# traits of a pen/gc, so we can assign to that draw op's
+# pen any gc matching on the traits actually used.
+#
+# We manage this by treating our set of gcs as a
+# cache, tracking the hit ratio to manage cache
+# size, and reassigning the least-recently-used
+# gc when no match to a pen can be found.
+#
+# For speed, we track pen and gc traits as bitmaps
+# and search for matches using bitmap operations.
+#
+# This package gets used by:
+#     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+#     src/lib/x-kit/xclient/src/window/draw-imp-old.pkg
+#
+# Our allocate* and free* functions are however called
+# only from the latter; we are essentially supporting
+# infrastructure for draw-imp.
+#
+# The system will have only one pen_to_gcontext_imp,
+# but it may be used by many draw_imp clients.  (This
+# is forced by the the X architecture's requirement that
+# each graphics context etc may be used only on one visual;
+# currently we anyhow allocate a separate draw_imp for every
+# toplevel window.)
+#
+# Consquently we must deal with resource contention between
+# multiple draw_imp instances concurrently trying to use gcs.
+#
+# We handle this by having draw_imps explicitly allocate and
+# free the gcs they use.  This is reasonably reliable because
+# it happens only in draw_batch() in the pattern
+#     
+#   {   gc =   alloc_gc { pen, used => mask };
+#	draw_ops (gc, xid0) ops;
+#	free_gc gc;
+#   };
+#     
+# We then maintain in each In_Use_Gc record an explicit
+# 'refcount' field counting the number of draw_imp clients
+# which currently have that gc allocated;  we cannot
+# rewrite fields in such a gc until the refcount returns
+# to zero.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+# TODO:
+#  support fonts	XXX BUGGO FIXME
+
+
+
+###           "Men who say it cannot be done should not
+###            interrupt those who are doing it."
+###
+###                            -- Chinsese proverb
+
+
+
+stipulate
+    include threadkit;							# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package dy  =  display_old;						# display_old			is from   src/lib/x-kit/xclient/src/wire/display-old.pkg
+    package xg  =  xgeometry;						# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    package xt  =  xtypes;						# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package pg  =  pen_guts;						# pen_guts			is from   src/lib/x-kit/xclient/src/window/pen-guts.pkg
+    package v2w =  value_to_wire;					# value_to_wire			is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package xok =  xsocket_old;						# xsocket_old			is from   src/lib/x-kit/xclient/src/wire/xsocket-old.pkg
+    package xtr =  xlogger;						# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xlogger::log_if xlogger::graphics_context_logging  0;	# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    package   pen_to_gcontext_imp_old
+    : (weak)  Pen_To_Gcontext_Imp_Old					# Pen_To_Gcontext_Imp_Old	is from   src/lib/x-kit/xclient/src/window/pen-to-gcontext-imp-old.api
+    {
+
+	stipulate
+
+	    gc_slot_count = 23;
+	    font_gcslot   = 14;						# The slot in a GC for the font.
+
+	    clip_origin_penslot = 14;					# The slot in a pen for the clip origin.
+	    clip_mask_penslot   = 15;					# The slot in a pen for the clip mask.
+	    dash_offset_penslot = 16;					# The slot in a pen for the dash offset.
+	    dashlist_penslot    = 17;					# The slot in a pen for the dash list.
+
+	    # GC request/reply messages.				# "GC" == "graphics context" throughout this file.
+	    #
+	    # There are two basic requests: acquire and release a GC.
+	    # When acquiring a GC, one supplies a pen
+	    # and bit-vector telling which fields are
+	    # used by the drawing operation.
+	    #
+	    # For text drawing, there are two
+	    # forms of acquire request:
+	    #
+	    #     ACQUIRE_GC_WITH_FONT specifies that
+	    #         the font field is needed; the reply will be
+	    #         REPLY_GC_WITH_FONT and will specify the
+	    #         current value of the GC's font.  It is the
+	    #         drawing operation's (presumably a DrawText)
+	    #         responsibility to restore the font.
+	    #
+	    #     ACQUIRE_GC_AND_SET_FONT request requires
+	    #         that the GC have the requested font and
+	    #         will generate a normal REPLY_GC reply.
+	    #
+	    Plea_Mail     = ACQUIRE_GC               { pen: pg::Pen,   used: Unt                         }
+			  | ACQUIRE_GC_WITH_FONT     { pen: pg::Pen,   used: Unt,   font_id: xt::Font_Id }
+			  | ACQUIRE_GC_AND_SET_FONT  { pen: pg::Pen,   used: Unt,   font_id: xt::Font_Id }
+			  #
+			  | RELEASE_GC           xt::Graphics_Context_Id
+			  | RELEASE_GC_AND_FONT  xt::Graphics_Context_Id
+			  ;
+
+	    Reply_Mail    = REPLY_GC             xt::Graphics_Context_Id
+			  | REPLY_GC_WITH_FONT  (xt::Graphics_Context_Id, xt::Font_Id)
+			  ;
+
+	    # A given graphics context may have
+	    # no associated font.  If it does have
+	    # an associated font, that font may be
+	    # in use or unused:
+	    #
+	    Font_Status   = NO_FONT					# No font has been set yet in this GC.
+			  | UNUSED_FONT  xt::Font_Id			# There is a font set, but it is not currently being used. 
+			  | IN_USE_FONT (xt::Font_Id, Int)		# In-use font plus current number of users.
+			  ;
+
+	    Free_Gc =     FREE_GC   { gc_id: xt::Graphics_Context_Id,	# 29-bit integer X id for X-server graphics context.
+				      desc:  pg::Pen,			# A descriptor of the values of the GC.
+				      font:  Font_Status	    	# The current font (if any).
+				    };
+
+	    In_Use_Gc =  IN_USE_GC  { gc_id: xt::Graphics_Context_Id,	# 29-bit integer X id for X-server graphics context.
+				      desc:  pg::Pen,			# A descriptor of the values of the GC.
+				      font:  Ref( Font_Status ),	# The current font (if any).
+				      used:  Ref( Unt ),		# A bit-mask telling which components of the GC are being used.
+				      refcount:  Ref( Int )		# The number of draw_imp clients using the GC, including those using the font. 
+				    };
+
+	    #  +DEBUG 
+
+	    fun font_sts2s (NO_FONT)            =>  "NoFont";
+		font_sts2s (UNUSED_FONT f)      =>  string::cat ["UNUSED_FONT(", xt::xid_to_string f, ")"];
+		font_sts2s (IN_USE_FONT (f, n)) =>  string::cat [ "IN_USE_FONT(", xt::xid_to_string f, ", ", int::to_string n, ")" ];
+	    end;
+
+	    fun in_use_gc_to_string (IN_USE_GC { gc_id, desc, font, used, refcount } )
+		=
+		string::cat
+                  [
+		    "IN_USE_GC { gc_id=", xt::xid_to_string gc_id, ", font=", font_sts2s *font,
+		    ", refcount=", int::to_string *refcount, "}"
+		  ];
+
+	    #  -DEBUG 
+
+	    (|)  = unt::bitwise_or;
+	    (&)  = unt::bitwise_and;
+	    (>>) = unt::(>>);
+	    (<<) = unt::(<<);
+
+	    infix my | & << >> ;
+
+      /* +DEBUG 
+	    fun mask2str nbits m = number_string::padLeft '0' nbits (unt::fmt number_string::BIN m)
+	    penMask2str = mask2str PenRep::numPenSlots
+	    gcMask2str = mask2str numGCSlots
+       -DEBUG */
+
+	    # Search a list of in-use GCs for
+	    # given gc_id and remove if free.
+	    #
+	    # We return NULL if gc did not become free,
+	    # otherwise the new	FREE_GC plus the input
+	    # list with it removed:	
+	    #
+	    fun find_in_use_gc (our_gc_id, font_used, in_use_gcs)
+		=
+		find  in_use_gcs
+		where
+		    fun find [] =>   xgripe::impossible "[pen_to_gcontext_imp: lost in-use graphics context]";
+			#
+			find ((x as IN_USE_GC { gc_id, ... } ) ! rest)
+			    =>
+			    if (gc_id != our_gc_id)
+				#	
+				case (find rest)
+				    #
+				    THE (free_gcs, l) =>  THE (free_gcs, x ! l);
+				    NULL              =>  NULL;
+				esac;
+			    else
+				case (font_used, x)
+				    #
+				    (FALSE, IN_USE_GC { refcount => REF 1, desc, font, ... })
+					=>
+					THE (FREE_GC { gc_id, desc, font => *font }, rest);		# Removing last reference makes GC free.
+
+				    (TRUE,  IN_USE_GC { refcount => REF 1, desc, font => REF (IN_USE_FONT (f, 1)), ... })
+					=>
+					THE (FREE_GC { gc_id, desc, font => UNUSED_FONT f }, rest);	# Ditto plus marking font as unused.
+
+				    (FALSE, IN_USE_GC { refcount as REF n, ... })
+					=>
+					{   refcount := n - 1;
+					    NULL;
+					};
+
+				    (TRUE,  IN_USE_GC { refcount as REF n, font as REF (IN_USE_FONT (f, 1)), ... })
+					=>
+					{   refcount := n - 1;
+					    font := (UNUSED_FONT f);
+					    NULL;
+					};
+
+				    (TRUE,  IN_USE_GC { refcount as REF n, font as REF (IN_USE_FONT (f, nf)), ... })
+					=>
+					{   refcount := n - 1;
+					    font := IN_USE_FONT (f, nf - 1);
+					    NULL;
+					};
+
+				    (_, gc)
+					=>
+					xgripe::impossible (string::cat [
+					    "[Pen_Imp::findUsedGC: bogus in-use GC; font_used = ",
+					    bool::to_string font_used, ", gc = ", in_use_gc_to_string gc, "]"
+					]);
+				esac;
+			    fi;
+		    end;
+		end;
+
+	    my (penslot_to_gcmask, penslot_to_gcslot)
+		=
+		{
+		    l = [
+			  [0],		#  pen-slot 0:  function 
+			  [1],		#  pen-slot 1:  plane mask 
+			  [2],		#  pen-slot 2:  foreground 
+			  [3],		#  pen-slot 3:  background 
+			  [4],		#  pen-slot 4:  line-width 
+			  [5],		#  pen-slot 5:  line-style 
+			  [6],		#  pen-slot 6:  cap-style 
+			  [7],		#  pen-slot 7:  join-style 
+			  [8],		#  pen-slot 8:  fill-style 
+			  [9],		#  pen-slot 9:  fill-rule 
+			  [10],		#  pen-slot 10: tile 
+			  [11],		#  pen-slot 11: stipple 
+			  [12, 13],	#  pen-slot 12: tile/stipple origin 
+			  [15],		#  pen-slot 13: subwindow mode 
+			  [17, 18],	#  pen-slot 14: clipping origin 
+			  [19],		#  pen-slot 15: clipping mask 
+			  [20],		#  pen-slot 16: dash offset 
+			  [21],		#  pen-slot 17: dash list 
+			  [22]		#  pen-slot 18: arc mode 
+			];
+
+		    # Convert  [12, 13] to an unt
+		    # with bits 12, 13 set to 1, etc:
+		    #
+		    fun bitmask []      =>  0u0;
+			bitmask (i ! r) =>  (0u1 << unt::from_int i) | (bitmask r);
+		    end;
+
+		    (vector::from_list (map bitmask l), vector::from_list (map head l));
+		};
+
+	    fun pen_mask_to_gcmask  pen_mask
+		=
+		loop (pen_mask, 0, 0u0)
+		where 
+		    fun loop (0u0, _, m)
+			    =>
+			    m;
+
+			loop (mask, i, m)
+			    =>
+			    (mask & 0u1)  == 0u0
+				##
+				??  loop (mask >> 0u1, i+1, m)
+				::  loop (mask >> 0u1, i+1, m | vector::get (penslot_to_gcmask, i));
+		    end;
+		end;
+
+	herein
+
+	    Pen_To_Gcontext_Imp
+		=
+		PEN_TO_GCONTEXT_IMP
+		  {
+		    plea_slot:  Mailslot( Plea_Mail  ),
+		    reply_slot: Mailslot( Reply_Mail )
+		  };
+
+	    # Create the graphics context imp
+	    # for the given screen:
+	    #
+	    fun make_pen_to_gcontext_imp (dy::XDISPLAY { xsocket, next_xid, ... }, drawable)
+		=
+		{   plea_slot  =   make_mailslot ();
+		    reply_slot =   make_mailslot ();
+
+		    min_hit_rate = 80;				# We want at least 80% of GC requests to be matched.
+
+		    fun hit_rate (hits, misses)
+			=
+			{   total = hits + misses;
+			    #
+			    if (total == 0)   100;
+			    else              int::quot((100 * hits), total);
+			    fi;
+			};
+
+		    send_xrequest = xok::send_xrequest  xsocket;
+
+		    # Map the values of a pen to an X-server
+		    # GC initialization rw_vector.
+		    #
+		    # "dst_mask" specifies which values
+		    # in the pen are to be mapped.
+		    #
+		    # Assume that all values are non-default:
+		    # we copy fields from the screen's
+		    # default GC for those.
+		    #
+		    fun pen_to_gcvals (pg::PEN { traits, ... }, dst_mask, font)
+			=
+			{   gc_vals =  rw_vector::make_rw_vector (gc_slot_count, NULL);
+			    #
+			    fun update_int (i, v) =  rw_vector::set (gc_vals, i, THE (unt::from_int v));
+			    fun update_unt (i, v) =  rw_vector::set (gc_vals, i, THE                v );
+
+			    fun init_val (i, pg::IS_WIRE v)
+				    =>
+				    update_unt (vector::get (penslot_to_gcslot, i), v);
+
+				init_val (i, pg::IS_POINT (xg::POINT { col, row } ))
+				    =>
+				    {   j = vector::get (penslot_to_gcslot, i);
+					#
+					update_int (j,   col);
+					update_int (j+1, row);
+				    };
+
+				init_val (i, pg::IS_PIXMAP xid)
+				    =>
+				    update_unt (vector::get (penslot_to_gcslot, i), xt::xid_to_unt xid);
+
+				init_val _
+				    =>
+				    ();
+			    end;
+
+			    fun init_vals (0u0, _)
+				    =>
+				    ();
+
+				init_vals (m, i)
+				    =>
+				    {   if ((m & 0u1) != 0u0)
+					    #
+					    init_val (i, vector::get (traits, i));
+					fi;
+
+					init_vals (m >> 0u1, i+1);
+				    };
+			    end;
+
+			    case font
+				#
+				THE font_id =>  update_unt (font_gcslot, xt::xid_to_unt font_id);
+				NULL        =>  ();
+			    esac;
+
+			    init_vals (dst_mask, 0);
+
+
+			    { vals => xt::VALUE_LIST gc_vals,
+			      #
+			      clip_boxes
+				  =>
+				  if ((dst_mask & (0u1 << unt::from_int clip_mask_penslot)) == 0u0)
+				      #	
+				      NULL;
+				  else
+				      case (vector::get (traits, clip_mask_penslot))
+					  #
+					  pg::IS_BOXES boxes
+					      =>
+					      (THE (vector::get (traits, clip_origin_penslot), boxes));
+
+					  _ => NULL;
+				      esac;
+				  fi,
+
+			      dashes => if ((dst_mask & (0u1 << unt::from_int dashlist_penslot)) == 0u0)
+					    #
+					    NULL;
+					else
+					    case (vector::get (traits, dashlist_penslot))
+						#
+						 pg::IS_DASHES dashes
+						     =>
+						     THE (vector::get (traits, dash_offset_penslot), dashes);
+
+						 _ => NULL;
+					    esac;
+				       fi
+			      };
+			};				# fun pen_to_gcvals 
+
+
+		    fun set_dashes (_, NULL)
+			    =>
+			    ();
+
+			set_dashes (gc_id, THE (pg::IS_WIRE offset, dashes))
+			    =>
+			    send_xrequest (v2w::encode_set_dashes { gc_id, dashes, dash_offset => unt::to_int_x offset });
+
+			set_dashes (gc_id, THE(_, dashes))
+			    =>
+			    send_xrequest (v2w::encode_set_dashes { gc_id, dashes, dash_offset => 0 });
+		    end;
+
+
+		    fun set_clip_boxes (_, NULL)
+			    =>
+			    ();
+
+			set_clip_boxes (gc_id, THE (pg::IS_POINT pt, (order, boxes)))
+			    =>
+			    send_xrequest (v2w::encode_set_clip_boxes { gc_id, boxes, clip_origin => pt, ordering => order });
+
+			set_clip_boxes (gc_id, THE(_, (order, boxes)))
+			    =>
+			    send_xrequest (v2w::encode_set_clip_boxes { gc_id, clip_origin => xg::point::zero, ordering => order, boxes });
+		    end;
+
+
+		    # Set the font of a GC:
+		    #
+		    fun set_font  (gc_id,  font_id)
+			=
+			{   vals = rw_vector::make_rw_vector (gc_slot_count, NULL);
+			    #
+			    rw_vector::set (vals, font_gcslot, THE (xt::xid_to_unt font_id));
+
+			    send_xrequest (v2w::encode_change_gc { gc_id, vals => xt::VALUE_LIST vals } );
+			};
+
+
+		    # Create a new X-server GC.
+		    # It is in-use by definition:
+		    #
+		    fun make_gc { pen as pg::PEN { bitmask, ... }, used_mask, font }
+			=
+			{   (pen_to_gcvals (pen, bitmask, font))
+				->
+				{ vals, dashes, clip_boxes };
+
+			    gc_id =  next_xid ();
+
+			    send_xrequest (v2w::encode_create_gc { gc_id, drawable, vals } );
+
+			    set_dashes (gc_id, dashes);
+			    set_clip_boxes (gc_id, clip_boxes);
+
+			    IN_USE_GC { gc_id,
+					desc =>  pen,
+					#
+					font =>  REF case font    NULL => NO_FONT;  (THE f) => IN_USE_FONT (f, 1); esac,
+					used =>  REF used_mask,
+					#
+					refcount => REF 1
+				      };
+			  };
+
+		    (make_gc { pen => pg::default_pen, used_mask => 0ux7FFFFF, font => NULL })
+			->
+		        default_gc as IN_USE_GC { gc_id => default_gcid, ... };
+
+		    # Update an X-server GC so that
+		    # it agrees with the given pen
+		    # on the used values:
+		    #
+		    fun change_gc
+			(
+			  FREE_GC { gc_id, font=>cur_font, ... },
+                          pen as pg::PEN { bitmask, ... },
+			  used_mask,
+                          new_font
+			)
+			=
+			{   non_default_mask =  bitmask & used_mask;
+			    #
+			    default_mask = (unt::bitwise_not bitmask) & used_mask;
+
+			    my (different_font, font)
+				=
+				case (cur_font, new_font)
+				    #
+				    (_,                    NULL        ) =>  (FALSE, NO_FONT);
+				    (NO_FONT,              THE font_id ) =>  (TRUE, IN_USE_FONT (font_id, 1));
+				    (UNUSED_FONT font_id1, THE font_id2) =>  ((font_id1 != font_id2), IN_USE_FONT (font_id2, 1));
+				    (IN_USE_FONT _,        _           ) =>  xgripe::impossible "[Pen_Imp: used font in free_gcs gc]";
+				esac;
+
+			    if (default_mask != 0u0)
+				#	
+				send_xrequest (
+				    v2w::encode_copy_gc
+					{  from =>  default_gcid,
+					   to   =>  gc_id,
+					   mask =>  xt::VALUE_MASK (pen_mask_to_gcmask  default_mask)
+					}
+				);
+			    fi;
+
+			    if (non_default_mask != 0u0
+			    or  different_font)
+
+				(pen_to_gcvals (pen, bitmask, new_font))
+				    ->
+				    { vals, dashes, clip_boxes };
+
+				send_xrequest (v2w::encode_change_gc { gc_id, vals } );
+				set_dashes (gc_id, dashes);
+				set_clip_boxes (gc_id, clip_boxes);
+			    fi;
+
+			    IN_USE_GC { gc_id,
+					desc     =>  pen,
+					font     =>  REF font,
+					used     =>  REF used_mask,
+					refcount =>  REF 1
+				      };
+			};
+
+
+		    # Search a list of in-use GCs for
+		    # one that matches the given pen:
+		    #
+		    fun match_in_use_gc (pen, used_mask, font, in_use_gcs)
+			=
+			f in_use_gcs
+			where
+
+			    # NOTE: there may be used components in pen that are not used in arg, but that
+			    # are defined differently.  We could still use arg, but we'll have to update it.
+			    # The test for an approx. match would be:
+			    #		    if (pg::pen_match (m & used_mask, pen, desc)
+			    #
+			    match
+				=
+				case font
+				    #
+				    NULL =>	(fn (IN_USE_GC { desc, ... } )
+						    =
+						    pg::pen_match (used_mask, pen, desc)
+						);
+
+				    THE f =>    match
+						where
+						    fun match (IN_USE_GC { desc, font => REF (IN_USE_FONT (f', _)), ... } )
+							    =>
+							    (    f == f'
+							    and  pg::pen_match (used_mask, pen, desc)
+							    );
+
+							match (IN_USE_GC { desc, ... } )
+							    =>
+							    pg::pen_match (used_mask, pen, desc);
+						    end;
+						end;
+				esac;
+
+
+			    fun f [] =>   NULL;
+				#
+				f (arg ! r)
+				    =>
+				    if (match arg)
+					#
+					arg ->  IN_USE_GC { refcount, used, ... };
+					#
+					refcount := *refcount + 1;
+					used := (*used | used_mask);
+					THE arg;
+				    else
+					f r;
+				    fi;
+			    end;
+			end;
+
+		    # Search the list of free graphics contexts for a match.
+		    #
+		    # If none is found, then take the last one and
+		    # modify it to work.  If the list is empty,
+		    # then create a new graphics context.
+		    #
+		    fun match_free_gc (hit, miss, pen, used_mask, font, free_gcs)
+			=
+			f (free_gcs, [])
+			where
+
+			    # Reverse first arg and prepend it to second arg:
+			    #
+			    fun reverse_and_prepend ([],    l) =>  l;
+				reverse_and_prepend (x ! r, l) =>  reverse_and_prepend (r, x ! l);
+			    end;
+
+			    my (match, make_used)
+				=
+				case font
+				    #
+				    NULL =>	    (match, make_used)
+						    where
+							fun match (FREE_GC { desc, ... } )
+							    =
+							    pg::pen_match (used_mask, pen, desc);
+
+							fun make_used (FREE_GC { gc_id, desc, font } )
+							    =
+							    IN_USE_GC
+							      { gc_id,
+								desc,
+								font     =>  REF font,
+								used     =>  REF used_mask,
+								refcount =>  REF 1
+							      };
+						    end;
+
+				    THE font_id =>  (match, make_used)
+						    where
+							fun match (FREE_GC { desc, font => NO_FONT, ... } )
+								=>
+								FALSE;
+
+							    match (FREE_GC { desc, font => UNUSED_FONT f, ... } )
+								=>
+								f == font_id
+								and
+								pg::pen_match (used_mask, pen, desc);
+
+							    match (FREE_GC { font => (IN_USE_FONT _), ... } )
+								=>
+								xgripe::impossible "[Pen_Imp: used font in avail gc]";
+							end;
+
+							fun make_used (FREE_GC { gc_id, desc, ... } )
+							    =
+							    IN_USE_GC {
+								gc_id,
+								desc,
+								font     =>  REF (IN_USE_FONT (font_id, 1)),
+								used     =>  REF used_mask,
+								refcount =>  REF 1
+							    };
+						    end;
+				esac;
+
+
+			    fun f ([], l) =>   (make_gc { pen, used_mask, font }, 0, 0, reverse_and_prepend (l, []));
+				#
+				f ([last as FREE_GC _ ], l)
+				    =>
+				    if (match last)
+					#
+					(make_used last, hit+1, miss, reverse_and_prepend (l, []));
+
+				    elif (hit_rate (hit, miss) < min_hit_rate)
+					    #
+					(make_gc { pen, used_mask, font }, 0, 0, reverse_and_prepend (l, [last]));
+				    else
+					(change_gc (last, pen, used_mask, font), hit, miss+1, reverse_and_prepend (l, []));
+				    fi;
+
+				f (x ! r, l)
+				    =>
+				    if (match x)    (make_used x, hit+1, miss, reverse_and_prepend (l, r));
+				    else	    f (r, x ! l);
+				    fi;
+			    end;
+			end;
+
+		    # This is the imp's outer loop.  As usual,
+		    # the parameters constitute our state vector;
+		    # We update our state vector just by calling
+		    # ourself in tail-recursive fashion.
+		    #
+		    # Our four arguments together constitute our
+		    # gc cache state:
+                    #
+                    #     'hit' and 'miss' track our cache hit ratio.
+		    #          We use this information to manage the
+		    #          cache size, which is to say, the number
+		    #          of server-side graphics contexts used.
+		    #
+		    #     'free_gcs' is our freelist of gcs available
+		    #          for assignment to any pen.
+		    #
+		    #     'in_use_gcs' is our list of gcs currently in use.
+		    #           
+		    fun imp_loop
+			( hit:         Int,
+			  miss:        Int,
+			  in_use_gcs:  List( In_Use_Gc ),
+			  free_gcs:    List( Free_Gc )
+			)
+			=
+			case (take_from_mailslot  plea_slot)
+			    #
+			    ACQUIRE_GC { pen, used=>used_mask }
+				=>
+				case (match_in_use_gc (pen, used_mask, NULL, in_use_gcs))
+				    #
+				    THE (IN_USE_GC { gc_id, ... } )
+					=>
+					{   put_in_mailslot (reply_slot, REPLY_GC gc_id);
+					    #
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    NULL
+					=>
+					{   (match_free_gc (hit, miss, pen, used_mask, NULL, free_gcs))
+						->
+						(x as IN_USE_GC { gc_id, ... }, h, m, a);
+
+					    put_in_mailslot (reply_slot, REPLY_GC gc_id);
+
+					    imp_loop (h, m, x ! in_use_gcs, a);
+					};
+				esac;
+
+			    ACQUIRE_GC_WITH_FONT { pen, used=>used_mask, font_id=>f_id }
+				=>
+				case (match_in_use_gc (pen, used_mask, NULL, in_use_gcs))
+				    #
+				    THE (IN_USE_GC { gc_id, font as (REF NO_FONT), ... } )
+					=>
+					{   set_font (gc_id, f_id);
+					    #
+					    font := IN_USE_FONT (f_id, 1);
+
+					    put_in_mailslot (reply_slot, REPLY_GC_WITH_FONT (gc_id, f_id));
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    THE (IN_USE_GC { gc_id, font as (REF (UNUSED_FONT f)), ... } )
+					=>
+					{   if (f != f_id)
+						  set_font (gc_id, f_id);
+						  font := IN_USE_FONT (f_id, 1);
+					    else  font := IN_USE_FONT (f_id, 1);
+					    fi;
+
+					    put_in_mailslot (reply_slot, REPLY_GC_WITH_FONT (gc_id, f_id));
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    THE (IN_USE_GC { gc_id, font as (REF (IN_USE_FONT (f, n))), ... } )
+					=>
+					{   font := IN_USE_FONT (f, n+1);
+					    #
+					    put_in_mailslot (reply_slot, REPLY_GC_WITH_FONT (gc_id, f));
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    NULL
+					=>
+					{   (match_free_gc (hit, miss, pen, used_mask, THE f_id, free_gcs))
+						->
+						(x as IN_USE_GC { gc_id, ... }, h, m, a);
+
+					    put_in_mailslot (reply_slot, REPLY_GC_WITH_FONT (gc_id, f_id));
+
+					    imp_loop (h, m, x ! in_use_gcs, a);
+					};
+				esac;
+
+			    ACQUIRE_GC_AND_SET_FONT { pen, used=>used_mask, font_id=>f_id }
+				=>
+				case (match_in_use_gc (pen, used_mask, THE f_id, in_use_gcs))
+				    #
+				    THE (IN_USE_GC { gc_id, font as (REF NO_FONT), ... } )
+					=>
+					{   set_font (gc_id, f_id);
+					    #
+					    font := IN_USE_FONT (f_id, 1);
+
+					    put_in_mailslot (reply_slot, REPLY_GC gc_id);
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    THE (IN_USE_GC { gc_id, font as (REF (UNUSED_FONT f)), ... } )
+					=>
+					{   if (f != f_id)
+						set_font (gc_id, f_id);
+					    fi;
+
+					    font := IN_USE_FONT (f_id, 1);
+
+					    put_in_mailslot (reply_slot, REPLY_GC gc_id);
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    THE (IN_USE_GC { gc_id, font as (REF (IN_USE_FONT (f, n))), ... } )
+					=>
+					{   font := IN_USE_FONT (f, n+1);		#  NOTE: f = fId! 
+					    #
+					    put_in_mailslot (reply_slot, REPLY_GC gc_id);
+
+					    imp_loop (hit+1, miss, in_use_gcs, free_gcs);
+					};
+
+				    NULL =>
+				        {   (match_free_gc (hit, miss, pen, used_mask, THE f_id, free_gcs))
+						->
+						(x as IN_USE_GC { gc_id, ... }, h, m, a);
+
+					    put_in_mailslot (reply_slot, REPLY_GC gc_id);
+
+					    imp_loop (h, m, x ! in_use_gcs, a);
+				        };
+				esac;
+
+			    RELEASE_GC id
+				=>
+				case (find_in_use_gc (id, FALSE, in_use_gcs))
+				    #
+				    THE (x, l) =>  imp_loop (hit, miss, l, x !      free_gcs);
+				    NULL       =>  imp_loop (hit, miss, in_use_gcs, free_gcs);
+				esac;
+
+			    RELEASE_GC_AND_FONT id
+				=>
+				case (find_in_use_gc (id, TRUE, in_use_gcs))
+				    #
+				    THE (x, l) =>  imp_loop (hit, miss, l, x !      free_gcs);
+				    NULL       =>  imp_loop (hit, miss, in_use_gcs, free_gcs);
+				esac;
+			esac;
+
+
+
+		    xtr::make_thread  "pen_imp"  .{
+			#
+			imp_loop (0, 0, [default_gc], []);
+		    };
+
+		    PEN_TO_GCONTEXT_IMP { plea_slot, reply_slot };
+
+		};					# fun make_pen_to_gcontext_imp 
+
+	    fun acquire_fn msg_kind (PEN_TO_GCONTEXT_IMP { plea_slot, reply_slot })  arg
+		=
+		{   put_in_mailslot (plea_slot, msg_kind arg);
+
+		    case (take_from_mailslot  reply_slot)
+			#
+			REPLY_GC id =>  id;
+			_           =>  xgripe::impossible "[Pen_Imp::acquireFn: bad reply]";
+		    esac;
+		};
+
+	    allocate_graphics_context = acquire_fn ACQUIRE_GC;
+	    allocate_graphics_context_and_set_font = acquire_fn ACQUIRE_GC_AND_SET_FONT;
+
+	    fun allocate_graphics_context_with_font (PEN_TO_GCONTEXT_IMP { plea_slot, reply_slot })  arg
+		=
+		{   put_in_mailslot  (plea_slot, ACQUIRE_GC_WITH_FONT arg);
+		    #
+		    case (take_from_mailslot  reply_slot)
+			#
+			REPLY_GC_WITH_FONT arg
+			    =>
+			    arg;
+
+			_   =>
+			    xgripe::impossible "[pen_to_gcontext_imp::allocate_graphics_context_with_find: bad reply]";
+		    esac;
+		};
+
+
+	    fun free_graphics_context (PEN_TO_GCONTEXT_IMP { plea_slot, ... })  gc_id
+		=
+		put_in_mailslot  (plea_slot, RELEASE_GC gc_id);
+
+
+	    fun free_graphics_context_and_font
+		    #
+		    (PEN_TO_GCONTEXT_IMP { plea_slot, ... })
+		    #
+		    arg
+		=
+		#
+		put_in_mailslot  (plea_slot,  RELEASE_GC_AND_FONT arg);
+
+
+	    #  +DEBUG 
+	    stipulate
+		fun pr (s, gc)
+		    =
+		    trace .{
+			cat [ get_thread's_id_as_string (get_current_microthread()), " ", s, ": gc = ",
+			      xt::xid_to_string gc
+			    ];
+		    };
+	    herein
+		allocate_graphics_context
+		    =
+		    (fn a =
+                    (fn arg
+                        =
+                        {   gc = allocate_graphics_context  a  arg;
+                            pr("allocate_graphics_context", gc);
+                            gc;
+                        }
+                    ));
+
+		allocate_graphics_context_and_set_font
+                    =
+                    (fn a =
+		    (fn arg
+                        =
+                        {   gc = allocate_graphics_context_and_set_font  a  arg;
+			    #
+			    pr("allocate_graphics_context_and_set_font", gc);
+
+                            gc;
+                        }
+                    ));
+
+		allocate_graphics_context_with_font
+                    =
+                    (fn a =
+		    (fn arg
+                        =
+                        {   (allocate_graphics_context_with_font  a  arg)
+				->
+				result as (gc, _);
+
+			    pr("allocate_graphics_context_with_font", gc);
+
+                            result;
+                        }
+                    ));
+
+		free_graphics_context
+		    =
+		    (fn a =
+                    (fn gc
+			=
+			{   pr("free_graphics_context", gc);
+			    #
+                            free_graphics_context  a  gc;
+                        }
+                    ));
+
+		free_graphics_context_and_font
+                    =
+                    (fn a =
+		    (fn gc
+                        =
+                        {   pr("free_graphics_context_and_font", gc);
+			    #
+                            free_graphics_context_and_font  a  gc;
+                        }
+                    ));
+	    end;
+	    #  -DEBUG 
+
+	end;	# stipulate
+    };		# package pen_to_gcontext_imp
+end;		# stipulate
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+## released per terms of SMLNJ-COPYRIGHT.
