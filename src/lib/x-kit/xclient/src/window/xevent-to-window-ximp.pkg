@@ -69,10 +69,17 @@ herein
     package   xevent_to_window_ximp
     : (weak)  Xevent_To_Window_Ximp				# Xevent_To_Window_Ximp				is from   src/lib/x-kit/xclient/src/wire/xevent-to-window-ximp.api
     {
+	Envelope_Route
+	  = ENVELOPE_ROUTE_END  xt::Window_Id
+	  | ENVELOPE_ROUTE     (xt::Window_Id, Envelope_Route)
+	  ;
+
 	Client_Plea
-	  = PLEA_NOTE_NEW_TOPWINDOW            (xt::Window_Id, xg::Window_Site, (xwp::Envelope_Route, event_types::x::Event) -> Void)
+	  = PLEA_NOTE_NEW_TOPWINDOW				(xt::Window_Id, xg::Window_Site, (xwp::Envelope_Route, event_types::x::Event) -> Void)
 	  #
-	  | PLEA_GET_WINDOW_SITE               (xt::Window_Id, Oneshot_Maildrop( xg::Box ))
+	  | PLEA_GET_WINDOW_SITE				(xt::Window_Id, Oneshot_Maildrop( xg::Box ))
+	  | PLEA_GET_''SEEN_FIRST_EXPOSE''_ONESHOT_OF		(xt::Window_Id, Oneshot_Maildrop( Oneshot_Maildrop(Void) ))
+	  | PLEA_GET_''GUI_STARTUP_COMPLETE''_ONESHOT_OF	(		Oneshot_Maildrop( Oneshot_Maildrop(Void) ))
 	  ;
 
 	Client_Q =  Mailqueue( Client_Plea  );
@@ -89,6 +96,9 @@ herein
 		children:	Ref( List(Window_Info) ),
 		lock:		Ref( Bool ),
 		site:		Ref( xg::Box ),
+		#
+		seen_first_expose:		Ref( Bool ),			# We set this TRUE on first EXPOSE event.
+		seen_first_expose_oneshot:	Oneshot_Maildrop(Void),		# We set this      on first EXPOSE event.
 		#
 		xevent_sink:   (xwp::Envelope_Route, et::x::Event) -> Void	# Where to send events headed for this window.
 	      };
@@ -346,6 +356,21 @@ herein
 			loop ();
 		    }	
 		    where
+			gui_startup_complete_oneshot
+			    = 	
+			    make_oneshot_maildrop ():  Oneshot_Maildrop( Void );
+				#
+				# This maildrop exists to give application threads
+				# something to wait on before presuming that the
+				# GUI widgettree windows, threads etc are ready for action.
+				#
+				# Currently we set this when we first
+				# get an EXPOSE X event from the X server.		
+				#
+				# ===============
+				# XXX SUCKO FIXME  I'm hoping we can eliminate this with the new startup protocol. --CrT 2013-08-11
+				# ===============
+
 			fun shut_down_xevent_to_window_imp' ()
 			    =
 			    thread_exit { success => TRUE };								# Will not return.	
@@ -364,22 +389,45 @@ herein
 
 			fun do_plea (PLEA_NOTE_NEW_TOPWINDOW  (window_id, window_site, xevent_sink))			# Log a new top-level window.
 				=>
-				me.wid_to_winfo
-				    :=
-				    xm::set (
-					*me.wid_to_winfo,
-					window_id,
-					WINDOW_INFO
-					  {
+				{
+# I have the following in the oldworld, I'm not
+# implementing that here partly out of laziness
+# but mostly out of revulsion -- there must be
+# something less awful.
+#
+#					# Handle any prematurely-registered oneshot.
+#					# I'm not sure a topwindow will ever get an
+#					# EXPOSE event, so this may be pointless:
+#					#
+#					oneshot =   {   oneshot =  get_from_oneshot_map  window_id;
+#							drop_from_oneshot_map  window_id;
+#							THE oneshot;
+#						    }	
+#						    except
+#							lib_base::NOT_FOUND
+#							    =
+#							    NULL;
+
+				    me.wid_to_winfo
+					:=
+					xm::set (
+					    *me.wid_to_winfo,
 					    window_id,
-					    xevent_sink,
-					    route       =>  xwp::ENVELOPE_ROUTE_END  window_id,
-					    parent_info =>  NULL,
-					    children    =>  REF [],
-					    lock        =>  REF FALSE,
-					    site	=>  REF (xg::site_to_box window_site)
-					  }
-				      );
+					    WINDOW_INFO
+					      {
+						window_id,
+						xevent_sink,
+						route       =>  xwp::ENVELOPE_ROUTE_END  window_id,
+						parent_info =>  NULL,
+						children    =>  REF [],
+						lock        =>  REF FALSE,
+						site	=>  REF (xg::site_to_box window_site),
+						#
+						seen_first_expose	  => REF( FALSE ),
+						seen_first_expose_oneshot => (make_oneshot_maildrop ())
+					      }
+					  );
+				};
 
 			    do_plea (PLEA_GET_WINDOW_SITE (window_id, reply_oneshot))
 				=>
@@ -388,6 +436,16 @@ herein
 				    put_in_oneshot (reply_oneshot,  *site);
 				};
 
+			    do_plea (PLEA_GET_''SEEN_FIRST_EXPOSE''_ONESHOT_OF (window_id, reply_oneshot))
+				=>
+				{   (get_winfo window_id) ->  WINDOW_INFO { seen_first_expose_oneshot, ... };
+				    #
+				    put_in_oneshot (reply_oneshot, seen_first_expose_oneshot);
+				};
+
+			    do_plea (PLEA_GET_''GUI_STARTUP_COMPLETE''_ONESHOT_OF reply_oneshot)
+				=>
+				put_in_oneshot (reply_oneshot, gui_startup_complete_oneshot);
 			end;
 
 			#
@@ -415,7 +473,10 @@ herein
 					children    =>  REF [],
 					lock        =>  REF *lock,
 					#
-					xevent_sink
+					xevent_sink,
+					#
+					seen_first_expose	  => REF( FALSE ),
+					seen_first_expose_oneshot => (make_oneshot_maildrop ())
 				      };
 
 				children :=  child_info ! *children;
@@ -535,7 +596,9 @@ herein
 		  =
 		  { note_new_topwindow,
 		    get_window_site,
-		    given_window_id_pass_site
+		    given_window_id_pass_site,
+		    get_''seen_first_expose''_oneshot_of,
+		    get_''gui_startup_complete''_oneshot_of
                   };
 
 
@@ -560,6 +623,28 @@ herein
 		    =
 		    put_in_mailqueue (client_q, PLEA_NOTE_NEW_TOPWINDOW arg);
 
+		fun get_''seen_first_expose''_oneshot_of  (id: xt::Window_Id)
+		    =
+		    {   reply_oneshot = make_oneshot_maildrop ()
+				      :	     Oneshot_Maildrop( Oneshot_Maildrop(Void) );
+			#
+			put_in_mailqueue (client_q, PLEA_GET_''SEEN_FIRST_EXPOSE''_ONESHOT_OF (id, reply_oneshot));
+
+			get_from_oneshot  reply_oneshot;
+		    };
+
+		fun get_''gui_startup_complete''_oneshot_of  ()
+		    =
+		    {   reply_oneshot = make_oneshot_maildrop ()
+				      :	     Oneshot_Maildrop( Oneshot_Maildrop(Void) );
+			#
+			put_in_mailqueue (client_q, PLEA_GET_''GUI_STARTUP_COMPLETE''_ONESHOT_OF reply_oneshot);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+
+
+
 		fun get_window_site  (id: xt::Window_Id)								# External entrypoint.
 		    =
 		    {   reply_oneshot = make_oneshot_maildrop ()
@@ -569,6 +654,7 @@ herein
 
 			get_from_oneshot  reply_oneshot;
 		    };
+
 		fun given_window_id_pass_site										# External entrypoint.
 			(id:		xt::Window_Id)
 			(replyqueue:	Replyqueue)
@@ -581,6 +667,7 @@ herein
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
+
 
 		#
 		fun put_value (xevent: et::x::Event)									# External entrypoint.
