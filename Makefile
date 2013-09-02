@@ -590,6 +590,19 @@ MAKELIB_FILE_HIERARCHY.INFO~:
 #	  src/lib/hash-consing/hash-cons.lib \
 
 
+# A teeny laborsaving hack:  When a compile breaks sometimes
+# we're left with 
+#     bin/mythryl-yacc.old
+#     bin/mythryl-lex.old
+# but no
+#     bin/mythryl-yacc
+#     bin/mythryl-lex
+# so we need to reconstitute the latter before we can continue:
+#
+new:
+	cp bin/mythryl-yacc.old bin/mythryl-yacc
+	cp bin/mythryl-lex.old  bin/mythryl-lex
+
 ppless:
 	@-find . -type f -name '*.PRETTY_PRINT' -print | xargs rm -rf
 
@@ -805,7 +818,7 @@ api-reference:
 # will function as expected even if someone creates a
 # file by that name:
 #
-.PHONY: love bookpost nobook book testdoc check-glue-maker rmgnu \
+.PHONY: new love bookpost nobook book testdoc check-glue-maker rmgnu \
         rm-gnu-autotools-output rest-unfrozen dist-clean clean   \
         somewhat-clean ppless comments gnu bootstrap             \
         gnu-autotools-output nil help all c-stuff id_only        \
