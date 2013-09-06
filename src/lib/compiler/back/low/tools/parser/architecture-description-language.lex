@@ -52,7 +52,7 @@ Source_Position = Int;
 
 Semantic_Value = tokens::Semantic_Value;
     #
-    # Semantic_Value is a uniontype including one constructor
+    # Semantic_Value is a sumtype including one constructor
     # for every grammar terminal listed in the %term declaration in
     #     src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar
     #     src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar.pkg	
@@ -213,7 +213,7 @@ symbols     = hashtable::make_hashtable (hash_string::hash_string, (==)) { size_
 my _ = apply (hashtable::set keywords) 
 ( NIL       @@
  ("_",wild) @@
- ("uniontype", uniontype) @@
+ ("sumtype", sumtype) @@
  ("type", type_t) @@
  ("end", end_t) @@
  ("fun", fun_t) @@
