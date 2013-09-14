@@ -85,7 +85,7 @@ static char*   domain_name   (int domain) {
     }
 }
 
-static char*   type_name   (int type)    {
+static char*   name_of_type   (int type)    {
     //         =========
     //
     static char buf[128];
@@ -163,7 +163,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
     int type     =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     int protocol =  GET_TUPLE_SLOT_AS_INT( arg, 2 );				// Last use of 'arg'.
 
-										if (0)	log_if( "socket.c/top: domain d=%d (%s) type d=%d (%s) protocol d=%d\n", domain, domain_name(domain), type, type_name(type), protocol );
+										if (0)	log_if( "socket.c/top: domain d=%d (%s) type d=%d (%s) protocol d=%d\n", domain, domain_name(domain), type, name_of_type(type), protocol );
     errno = 0;
 
     RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
