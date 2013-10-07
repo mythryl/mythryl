@@ -150,7 +150,7 @@
     //
     // You can check this on Linux by doing
     //
-    //     grep . /sys/devices/system/cpu/cpu0/cache/index*/* | more
+    //     grep . /sys/out/system/cpu/cpu0/cache/index*/* | more
     //
     // and looking at 'coherency_line_size'.
     //
