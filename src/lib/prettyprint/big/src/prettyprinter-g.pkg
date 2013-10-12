@@ -113,116 +113,117 @@ herein
 		  Void;
     }
     {
-	default_box_width =   60;						# There is currently no way to change box widths.
-	max_box_nesting   = 1000;						# Purely to catch prettyprint infinite recursions. 
+	default_target_box_width =   60;					# This can be overridden via DEFAULT_TARGET_BOX_WIDTH.
+	max_box_nesting          = 1000;					# Purely to catch prettyprint infinite recursions. 
 
 	Prettyprinter_Output_Stream  =  out::Prettyprinter_Output_Stream;	# Handles device-specific aspects (e.g. selecting bold/bright/green/... text) of writing to ansi terminal, plain ascii stream, html stream or whatever.
 	Textstyle      =  ss::Textstyle;					# Text attributes like color, underline, blink etc.
 	Styled_String  =  ss::Styled_String;					# A Styled_String contains a String plus whatever Textstyle information is required to render it in HTML or on an ansi terminal or whatever.
 
-	Indentstyle = BOX_RELATIVE     Int					# Indent relative to enclosing box.
-		    | CURSOR_RELATIVE  Int					# Indent relative to where box starts on current line.      
-		    ;
+	Left_Margin_Is								# How should we compute the left margin for a box?
+	  = BOX_RELATIVE     Int						# Indent left margin relative to left margin of containing box.
+	  | CURSOR_RELATIVE  Int						# Indent left margin relative to start of box.
+	  ;
 
-	default_indentstyle =  BOX_RELATIVE 4;
+	default_left_margin_is =  BOX_RELATIVE 4;
 
-	Prettyprinter_Args							# Futureproofing -- we can add more cases here in future as needed.
-	  #
-	  =	DEFAULT_BOX_WIDTH	Int
-	  |	DEFAULT_INDENTSTYLE	Indentstyle
+	Prettyprinter_Args							# Futureproofing -- args which code clients can pass to us to customize the prettyprinter.
+	  #									# We can add more cases here in future as needed, without breaking backward compatibility.
+	  =	DEFAULT_TARGET_BOX_WIDTH	Int
+	  |	DEFAULT_LEFT_MARGIN_IS	Left_Margin_Is
 	  ;
 
 	Prettyprint_Token
 	    #
-	    = TEXT { string: String,
-		     length: Int
-		   }
-										#  Raw text.  This includes styled_strings.  The 
-										#  width and textstyle information is taken 
-										#  care of when they are inserted in queue. 
-
-	    | NONBREAKABLE_SPACES  Int						#  Some number of non-breakable spaces 
+	    = NONBREAKABLE_SPACES  Int						#  Some number of non-breakable spaces 
 	    | PUSH_TEXTSTYLE  Textstyle
 	    | POP_TEXTSTYLE
 	    | NEWLINE
 	    | CONTROL  (Prettyprinter_Output_Stream -> Void)			# Device control operation. This provides an escape for ejecting a page or selecting a pen or any other unanticipated stuff.
 	    | BOX Box
-	    | LINE (List Prettyprint_Token)
+
 	    | BREAK   { wrap:		Ref Bool,
 			spaces:		Int,
 			indent_on_wrap:	Int
 		      }
 
+	    | TEXT { string: String,						#  Raw text.  This includes styled_strings.  The 
+		     length: Int						#  width and textstyle information is taken 
+		   }								#  care of when they are inserted in queue. 
+
+				
+			
+
 
 	also
 	Wrap_Policy
 	    #
-	    = NONE							# All on one line -- break never rendered as newline.
-	    | ALL							# One line each -- every break rendered as newline.
-	    | ALL_OR_NONE						# NONE if it fits, else ALL.
-	    | AS_NEEDED							# Normal wordwrap:  break rendered as newline only when necessary.
+	    = NONE								# All on one line -- break never rendered as newline.
+	    | ALL								# One line each -- every break rendered as newline.
+	    | ALL_OR_NONE							# NONE if it fits, else ALL.
+	    | AS_NEEDED								# Normal wordwrap:  break rendered as newline only when necessary.
 
 	withtype
-	Box = { indentstyle:		Indentstyle,
-		box_width:		Int,				# We try to fit box contents into this width.
+	Box = { left_margin_is:		Left_Margin_Is,				# The left margin for the box is computed by adding an int to either the cursor or the previous left margin.
+		target_width:		Int,					# We try to fit box contents into this width. We can break only where allowed (possibly nowhere), so we cannot guarantee success.
+		actual_width:		Ref Int,				# Length of contents if newline free, else length of first line.
 		wrap_policy:		Wrap_Policy,
-		id:			Int,				# Unique id number per box.  Only used for debugging/display.
+		id:			Int,					# Unique id number per box.  Only used for debugging/display.
 		#
-		length_of_first_line:   Ref Int,			# Length of contents if newline free, else length of first line.
-		length_of_final_line:   Ref Int,			# Length of contents if newline free, else length of last line (zero if box contents end with newline)
-		has_newlines:		Ref Bool,			# TRUE iff there's a NEWLINE somewhere inside.
-		contents:		Ref List Prettyprint_Token
+		is_multiline:		Ref Bool,				# TRUE iff there's a NEWLINE somewhere inside.
+		contents:		Ref List Prettyprint_Token,		# This is empty until box is closed, after that it == reverse (*reversed_contents).
+		reversed_contents:	Ref List Prettyprint_Token		# We accumulate tokens in this while constructing box, by successively prepending them.
 	      };
 
 
 
-									# We build up a prettyprint expression as a tree
-									# of nested_boxes until we are flushed, at which
-									# point we actually format and print it.
-									#
-									# At any given time, the currently open box is 'box',
-									# the one enclosing it is first in the nested_boxes
-									# list, and the root of the box tree is last in the
-									# nested_boxes list.  (Keeping the top of the stack
-									# in a separate variable lets us communicate to the
-									# type system that we always have at least one box
-									# on the stack, and thus avoid a lot of spurious
-									# checks for stack-empty.)
-									#
-									# We don't actually use the textstyle_stack
-									# for anything in this module -- it is
-									# purely an opaque-to-us customer
-									# convenience:
+										# We build up a prettyprint expression as a tree
+										# of nested_boxes until we are flushed, at which
+										# point we actually format and print it.
+										#
+										# At any given time, the currently open box is 'box',
+										# the one enclosing it is first in the nested_boxes
+										# list, and the root of the box tree is last in the
+										# nested_boxes list.  (Keeping the top of the stack
+										# in a separate variable lets us communicate to the
+										# type system that we always have at least one box
+										# on the stack, and thus avoid a lot of spurious
+										# checks for stack-empty.)
+										#
+										# We don't actually use the textstyle_stack
+										# for anything in this module -- it is
+										# purely an opaque-to-us customer
+										# convenience:
 
 
 	Prettyprinter
 	  =
 	  {
-	    output_stream:		Prettyprinter_Output_Stream,	# Where to send formatted output.
-	    output_stream_is_closed:	Ref( Bool ),			# TRUE iff the stream is closed. 
+	    output_stream:		Prettyprinter_Output_Stream,		# Where to send formatted output.
+	    output_stream_is_closed:	Ref( Bool ),				# TRUE iff the stream is closed. 
 
 	    box:			Ref Box,
 	    nested_boxes:		Ref (List(Box)),
-	    box_nesting:		Ref Int,			# Current depth of 'nested_boxes'. Used only to catch infinite loops.
+	    box_nesting:		Ref Int,				# Current depth of 'nested_boxes'. Used only to catch infinite loops.
 
 	    next_box_id:		Ref Int,
 
 	    textstyle_stack:		Ref( List(Textstyle) ),
 
-	    default_box_width:		Int,
-	    default_indentstyle:	Indentstyle
+	    default_target_box_width:	Int,
+	    default_left_margin_is:	Left_Margin_Is
 	};
-	Pp = Prettyprinter;						# For when the brevity bug bites.
+	Pp = Prettyprinter;							# For when the brevity bug bites.
 
 
 
-	exception  PRETTYPRINT_MAX_DEPTH_EXCEEDED;			# Raised when above is exceeded;
+	exception  PRETTYPRINT_MAX_DEPTH_EXCEEDED;				# Raised when above is exceeded;
 
 
 
 	# *** DEBUGGING FUNCTIONS ***
 
-	package f = sfprintf;						# sfprintf	is from   src/lib/src/sfprintf.pkg
+	package f = sfprintf;							# sfprintf	is from   src/lib/src/sfprintf.pkg
 
 	fun wrap_policy_to_string NONE        =>  "NONE";
 	    wrap_policy_to_string ALL         =>  "ALL";
@@ -231,14 +232,14 @@ herein
 	end;
 
 
-	fun indentstyle_to_string (BOX_RELATIVE    n) =>  cat ["(BOX_RELATIVE ",    int::to_string n, ")"];
-	    indentstyle_to_string (CURSOR_RELATIVE n) =>  cat ["(CURSOR_RELATIVE ", int::to_string n, ")"];
+	fun left_margin_is_to_string (BOX_RELATIVE    n) =>  cat ["(BOX_RELATIVE ",    int::to_string n, ")"];
+	    left_margin_is_to_string (CURSOR_RELATIVE n) =>  cat ["(CURSOR_RELATIVE ", int::to_string n, ")"];
 	end;
 
 
 
 
-	fun dump (out_stream, pp:Pp)					# Prettyprint out_stream contents for debugging.
+	fun dump (out_stream, pp:Pp)						# Prettyprint out_stream contents for debugging.
 	    =
 	    {   print  "BEGIN\n";
 		#
@@ -275,9 +276,9 @@ herein
 		    print (f::sprintf' format items);
 
 
-    #	    fun format_box_stack_element_to_string (wrap_policy, box_indent, box_width)
+    #	    fun format_box_stack_element_to_string (wrap_policy, box_indent, target_width)
     #		=
-    #		f::sprintf'   "(%s, %d, %d)"   [f::STR (wrap_policy_to_string  wrap_policy), f::INT box_indent, f::INT box_width];
+    #		f::sprintf'   "(%s, %d, %d)"   [f::STR (wrap_policy_to_string  wrap_policy), f::INT box_indent, f::INT target_width];
 
 
 		fun print_list format_element []
@@ -299,28 +300,29 @@ herein
 			);
 		end;
 
-		fun print_box   (box as { id, indentstyle, box_width, length_of_first_line, length_of_final_line, has_newlines, wrap_policy, contents })   prefix
+		fun print_box   (box: Box)   prefix
 		    =
 		    {   print (prefix + "Box");
-			print ("   id = "			+ (int::to_string id));
-			print ("   indentstyle = "		+ (indentstyle_to_string indentstyle));
-			print ("   box_width = "		+ (int::to_string box_width));
-			print ("   length_of_first_line = " + (int::to_string *length_of_first_line));
-			print ("   length_of_final_line = " + (int::to_string *length_of_final_line));
-			print ("   has_newlines = "		+ (*has_newlines ?? "TRUE" :: "FALSE"));
-			print ("   wrap_policy = "		+ (wrap_policy_to_string  wrap_policy));
-			print ("   contents len = "		+ (int::to_string (list::length *contents)));
+			print ("   id = "			+ (int::to_string           box.id));
+			print ("   left_margin_is = "		+ (left_margin_is_to_string box.left_margin_is));
+			print ("   target_width = "		+ (int::to_string           box.target_width));
+			print ("   actual_width = "		+ (int::to_string          *box.actual_width));
+			print ("   is_multiline = "		+ (bool::to_string         *box.is_multiline));
+			print ("   wrap_policy = "		+ (wrap_policy_to_string    box.wrap_policy));
+			#
+			print ("   reversed_contents len = "	+ (int::to_string (list::length *box.reversed_contents)));
+			print ("   contents len = "		+ (int::to_string (list::length *box.contents)));
 			print  ":\n";
 
-			print_styled_strings  *contents  (prefix + "    ")
+			print_tokens  *box.contents  (prefix + "    ")
 			where
-			    fun print_styled_strings [] _
+			    fun print_tokens [] _
 				    =>
 				    ();
 
-				print_styled_strings  (styled_string ! rest)  prefix
+				print_tokens  (token ! rest)  prefix
 				    =>
-				    {   case styled_string
+				    {   case token
 					    #
 					    TEXT { string, length }
 						=>
@@ -330,35 +332,30 @@ herein
 						=>
 						print (prefix + "NONBREAKABLE_SPACES " + (int::to_string int) + "\n");
 
-					    BREAK  { wrap,   spaces,   indent_on_wrap }
+					    BREAK break
 						=>
 						{   print (prefix + "BREAK");
-						    print ("   wrap = "    + (*wrap ?? "TRUE" :: "FALSE"));
-						    print ("   spaces = "  + (int::to_string spaces));
-						    print ("   indent_on_wrap = "  + (int::to_string indent_on_wrap));
+						    print ("   wrap           = "  + (bool::to_string *break.wrap));
+						    print ("   spaces         = "  + (int::to_string   break.spaces));
+						    print ("   indent_on_wrap = "  + (int::to_string   break.indent_on_wrap));
 						    print  "\n";
 						};
 
 					    PUSH_TEXTSTYLE _ => print (prefix + "PUSH_TEXTSTYLE ...\n");
 					    POP_TEXTSTYLE    => print (prefix + "POP_TEXTSTYLE\n");
+
 					    NEWLINE      => print (prefix + "NEWLINE\n");
 					    CONTROL _    => print (prefix + "CONTROL ...\n");
 
 					    BOX box      => {   print (prefix + "BOX:\n");
 								print_box  box  (prefix + "    "); 
 							    };
-
-					    LINE styled_strings  => {   print (prefix + "LINE");
-								print ("   length = "  + (int::to_string (list::length styled_strings)));
-								print  ":\n";
-								print_styled_strings  styled_strings  (prefix + "    "); 
-							    };
 					esac;
 
-					print_styled_strings  rest  prefix;
+					print_tokens  rest  prefix;
 				    };
-			    end;				# fun print_styled_strings
-			end;				# where
+			    end;				# fun print_tokens
+			end;					# where
 		    };
 
 	    end;
@@ -373,103 +370,33 @@ herein
 			    # together won't produce integer overflow.
 
 
-	# Output functions 
-	fun write_newline (pp:Pp   ) =  out::newline pp.output_stream;
-	fun write         (pp:Pp, s) =  out::string (pp.output_stream, s);
-
-
-
-	fun blanks (_,     0) =>   ();
-	    blanks (pp:Pp, n) =>   out::space (pp.output_stream, n);
-	end;
-
-
-	fun current_textstyle (pp:Pp as { textstyle_stack => REF (textstyle ! _),    ... } ) =>  textstyle;						# Current textstyle is the top entry on the textstyle stack,
+	fun current_textstyle (pp:Pp as { textstyle_stack => REF (textstyle ! _),    ... } ) =>  textstyle;					# Current textstyle is the top entry on the textstyle stack,
 	    current_textstyle (pp:Pp as { textstyle_stack => REF [], output_stream,  ... } ) =>  out::default_textstyle output_stream;		# or else the default textstyle if the stack is empty:
 	end;
 
 
 
-	# Break up the 'contents' list of tokens in a box
-	# into LINEs terminated by NEWLINE tokens
-	# (except perhaps for the last):
-
-	fun make_lines  (pp:Pp)   (box as { contents, id,  wrap_policy, has_newlines, box_width, indentstyle, length_of_first_line, length_of_final_line })
-	    =
-	    {   box_lines = make_lines'  (
-				*contents,
-				[],			# tokens
-				[]			# lines
-			    );
-		box.contents :=   box_lines;  
-	    }
-	    where
-		fun make_lines'  ([],  tokens,  lines)
-			=>
-			reverse (LINE (reverse tokens) ! lines);
-
-		    make_lines'  (token ! rest,  tokens,  lines)
-			=>
-			case token
-			    #
-			    NEWLINE =>  {
-					    tokens =   reverse (token ! tokens);
-					    make_lines'  (rest,  /*styled_strings=*/ [],   LINE tokens ! lines);
-					};
-
-			    BOX box =>  {   box_contents
-						=
-						make_lines'  (
-						    *box.contents,
-						    [],			# token accumulator
-						    []			# line  accumulator
-						);
-
-					    box.contents     :=   box_contents;
-
-					    make_lines'  (
-						rest,
-						token ! tokens,
-						lines
-					    );
-					};
-
-			    LINE _ =>   {   print "Internal error: LINE in make_lines' input?!\n";
-					    dump (fil::stdout, pp);
-#						raise exception FAIL "Internal error: LINE in make_lines' input";
-					    make_lines'  (rest,  tokens,  lines);
-					};
-
-			    _   =>      {
-					    make_lines'  (rest,  token ! tokens,  lines);
-					};
-			esac;
-		end; 
-	    end
 
 
-
-	# Given the list of tokens in a LINE,
+	# Given the list of tokens in a BOX,
 	# wrap either all BREAKs or none of them.
 	#
 	# Any embedded boxes have already been
 	# wrap_box()'d, so they have valid values
-	# of length_of_first_line, length_of_final_line and has_newlines.
+	# for actual_width and is_multiline.
 	#
-
-	also
-	fun wrap_all_or_none  (
-		box_width,		# Current box width
-		tokens,			# List of tokens in current line.
-		column,			# Current column, relative to box left margin
-		wrap_policy		# One of ALL, NONE, ALL_OR_NONE
+	fun wrap_box_contents_all_or_none  (
+		target_width,				# Target width for this box.
+		tokens,					# List of tokens in this box.
+		wrap_policy				# Which BREAKs should we wrap?  One of ALL, NONE, ALL_OR_NONE.
 	    )
 	    =
 	    {
-		line_has_newlines    =  REF FALSE;
-		length_of_first_line =  REF -1;
+		box_is_multiline    =  REF FALSE;
+		actual_width	    =  REF 0;
+		column		    =  0;		# Current column, relative to box left margin
 		#
-		wrap_them		# Should we change all BREAKs to newlines, or none or them?
+		wrap_them				# Should we change all BREAKs to newlines, or none or them?
 		    =
 		    case wrap_policy
 			#
@@ -487,10 +414,10 @@ herein
 					    total_length (((NONBREAKABLE_SPACES   n            ) ! rest), result) =>   total_length (rest, result +  n     );
 					    total_length (((BREAK               { spaces, ... }) ! rest), result) =>   total_length (rest, result +  spaces);
 
-					    total_length (((BOX { length_of_first_line, has_newlines, ... }) ! rest), result)
+					    total_length (((BOX box) ! rest), result)
 						=>
-						if *has_newlines too_long;
-						else		 total_length (rest, result + *length_of_first_line);
+						if *box.is_multiline too_long;
+						else		     total_length (rest, result + *box.actual_width);
 						fi;
 
 					    total_length ((_ ! rest), result)
@@ -499,10 +426,10 @@ herein
 					end;
 				    end;
 
-				unwrapped_length  >  box_width;
+				unwrapped_length  >  target_width;
 			    };
 
-			AS_NEEDED => raise exception FAIL "wrap_all_or_none: wrap_policy == AS_NEEDED!?";
+			AS_NEEDED => raise exception FAIL "wrap_box_contents_all_or_none: wrap_policy == AS_NEEDED!?";
 		    esac;
 
 
@@ -512,47 +439,48 @@ herein
 			=>
 			case token
 			    #
-			    BREAK  { wrap, spaces, indent_on_wrap, ... }
+			    BREAK break
 				=>
 				if wrap_them
 				    #
-				    if   (*length_of_first_line == -1   )   length_of_first_line := column;   fi;
-				    wrap := TRUE;
-				    line_has_newlines := TRUE;
-				    per_token  (rest, indent_on_wrap);
+				    if (*actual_width < column)   actual_width := column;   fi;
+				    break.wrap := TRUE;
+				    box_is_multiline := TRUE;
+				    per_token  (rest, break.indent_on_wrap);
 				else
-				    per_token  (rest, column + spaces);
+				    per_token  (rest, column + break.spaces);
 				fi;
 
-			    NEWLINE =>  {   if   (*length_of_first_line == -1)   length_of_first_line := column;   fi;
-					    line_has_newlines := TRUE;
+			    NEWLINE =>  {   if (*actual_width < column)   actual_width := column;   fi;
+					    box_is_multiline := TRUE;
 					    per_token  (rest, 0);
 					};
 
-			    TEXT { length, ... }  =>   per_token  (rest, column + length        );
+			    TEXT text		  =>   per_token  (rest, column + text.length   );
 			    NONBREAKABLE_SPACES n =>   per_token  (rest, column + n             );
 			    PUSH_TEXTSTYLE _      =>   per_token  (rest, column                 );
 			    POP_TEXTSTYLE         =>   per_token  (rest, column                 );
 			    CONTROL _             =>   per_token  (rest, column                 );
 
-			    BOX { length_of_final_line, indentstyle, ... }
-				=>
-				case indentstyle
-				    #
-				    BOX_RELATIVE    i =>    per_token  (rest, *length_of_final_line + i         );
-				    CURSOR_RELATIVE i =>    per_token  (rest, *length_of_final_line + i + column);
-				esac;
-
-			    LINE _  =>  raise exception FAIL "per_token: LINE within line?!";
+			    BOX box     =>  {   if(*actual_width <  column + *box.actual_width)
+						    actual_width := column + *box.actual_width;
+						fi;
+						if *box.is_multiline
+						    box_is_multiline :=  TRUE;
+						    per_token( rest, column );							# Debatable, but I think the Least Surprise thing to do is leave the cursor below a multiline box on a new line, indented same as box.
+						else
+						    per_token (rest, column + *box.actual_width);
+						fi;
+					    };
 			esac;
 		end;							# fun per_token
 
 		column =   per_token (tokens, column);
 
-		if (*length_of_first_line == -1)   length_of_first_line := column;   fi;
+		if (*actual_width < column)   actual_width := column;   fi;
 
-		(*length_of_first_line, column, *line_has_newlines);
-	    }								# fun wrap_all_or_none
+		(*actual_width, *box_is_multiline);
+	    }								# fun wrap_box_contents_all_or_none
 
 
 	# Here we implement a conventional word-wrap
@@ -561,365 +489,237 @@ herein
 	# exceeding our assigned box width.
 
 	also
-	fun wrap_as_needed  (box_width, tokens, column)
+	fun wrap_box_contents_as_needed  (target_width, tokens)
 	    =
-	    {
-		line_has_newlines = REF FALSE;
-		length_of_first_line = REF -1;
+	    {	column =   per_token (tokens, /*column=*/0);
+		#
+		if (*actual_width < column)   actual_width := column;   fi;
 
+		(*actual_width, *box_is_multiline);
+	    }
+	    where
+		box_is_multiline = REF FALSE;
+		actual_width	 = REF 0;
 
-
-		# To decide whether to wrap a line at a break point,
-		# we must compute whether this is our last chance to
-		# avoid exceeding our allowed box width, which involves
-		# computing the text length from this BREAK to the
-		# next BREAK or NEWLINE (or end of token list).
-		# That's our job here:
-
-		fun forced_follow_on  tokens
+		fun forced_followon_fits_in (tokens, space_left_on_line)				# Decide if tokens from here to next break/newline will fit in remaining space on line.
 		    =
-		    forced_follow_on'  (tokens, 0)
+		    fits_in  (tokens, 0)
 		    where 
-			fun forced_follow_on'  ([], column)
-				=>
-				column;
+			fun fits_in' (tokens, column)							# Early-out check: Stop iterating as soon as we know we don't fit.
+			    =
+			    if (column > space_left_on_line)   FALSE;
+			    else                               fits_in (tokens, column);
+			    fi
 
-			    forced_follow_on'  (token ! rest,  column)
+			also
+			fun fits_in  ([], column) =>   (column <= space_left_on_line);
+			    #
+			    fits_in  (token ! rest,  column)
 				=>
 				case token
-				    #
-				    TEXT { length, ... }
-					=>
-					forced_follow_on'  (rest,  column + length);
+				    TEXT text			=>	fits_in'  (rest,  column + text.length);
+				    NONBREAKABLE_SPACES n	=>	fits_in'  (rest,  column + n);
+				    PUSH_TEXTSTYLE _		=>	fits_in'  (rest,  column);
+				    POP_TEXTSTYLE		=>	fits_in'  (rest,  column);
+				    CONTROL _			=>	fits_in'  (rest,  column);
+				   (NEWLINE | BREAK _ )		=>	column <= space_left_on_line;
 
-				    NONBREAKABLE_SPACES n
-					=>
-					forced_follow_on'  (rest,  column + n);
-
-				    (PUSH_TEXTSTYLE _ | POP_TEXTSTYLE | CONTROL _)
-					=>
-					forced_follow_on'  (rest,  column);
-
-				    (NEWLINE | BREAK _)
-					=>
-					column;
-
-				    BOX { length_of_first_line, has_newlines, ... }
-					=>
-					# If a box contains newlines, then 'length_of_first_line'
-					# is the length of its first line, and we've
-					# reached the end of our forced follow-on,
-					# otherwise 'length_of_first_line' is the total box
-					# length, and we need to keep on iterating:
-
-					if *has_newlines
-					    #
-					    column + *length_of_first_line;
-					else
-					    forced_follow_on'  (rest,  column + *length_of_first_line);
-					fi;
-
-				    LINE _ =>   {   /*raise exception FAIL*/ print "Internal error: forced_follow_on token is a LINE?!\n";
-						    column;
-						};
+				    BOX box =>  if *box.is_multiline	FALSE;							# Multiline boxes by definition don't fit on one line. :-)
+						else			fits_in'  (rest,  column + *box.actual_width);		# Monoline box, so first line == whole box.
+						fi;
 				esac;
-			end;			# fun forced_follow_on'
-		end;				# fun forced_follow_on
+			end;			# fun fits_in
+		end;				# fun forced_followon_fits_in
 
 
-		# Scan the tokens in a LINE setting
-		# BREAKs to wrap as appropriate.
-
-		fun per_token  ([], column)
-			=>
-			column;
-
+		fun per_token  ([], column) =>   column;									# Scan the tokens in a LINE setting BREAKs to wrap as appropriate.
+		    #
 		    per_token  (token ! rest,   column)
 			=>
 			case token
-			    #
-			    (PUSH_TEXTSTYLE _
-			    | POP_TEXTSTYLE
-			    | CONTROL _)          =>   per_token( rest,   column          );
-			    TEXT { length, ... }  =>   per_token( rest,   column + length );
-			    NONBREAKABLE_SPACES n =>   per_token( rest,   column + n      );
+			    PUSH_TEXTSTYLE _	  =>   per_token (rest,   column	      );
+			    POP_TEXTSTYLE	  =>   per_token (rest,   column              );
+			    CONTROL _		  =>   per_token (rest,   column              );
+			    TEXT text             =>   per_token (rest,   column + text.length);
+			    NONBREAKABLE_SPACES n =>   per_token (rest,   column + n          );
 
-			    NEWLINE
-				=>
-				{   line_has_newlines :=  TRUE;
-				    per_token( rest, /*column=*/ 0 );
-				};
+			    NEWLINE     =>  {   if (*actual_width < column)   actual_width := column;   fi;
+						box_is_multiline :=  TRUE;
+						per_token( rest, /*column=*/ 0 );
+					    };
 
-			    BREAK  { wrap, spaces, indent_on_wrap }
-				=>
-				{
-				    # If next BREAK or NEWLINE
-				    # would be beyond right margin
-				    # of box, then we need to wrap:
-
-				    if (column  +  spaces  +  forced_follow_on rest  >  box_width)
-					#
-					if   (*length_of_first_line == -1   )   length_of_first_line := column;   fi;
-					wrap := TRUE;
-					line_has_newlines :=  TRUE;
-					per_token( rest, /*column=*/ indent_on_wrap);
-				    else
-					per_token( rest,   column + spaces );
-				    fi;
-				};
-
-			    BOX (box as { id, length_of_first_line, indentstyle, length_of_final_line, ... })
-				=>
-				{   column =    case indentstyle
+			    BREAK break =>  {   space_left_on_line =  (column  +  break.spaces) - target_width;
+						#													
+						if (forced_followon_fits_in (rest, space_left_on_line))				# Is next BREAK or NEWLINE beyond right margin of box?
 						    #
-						    BOX_RELATIVE    i =>   *length_of_final_line + i;
-						    CURSOR_RELATIVE i =>   *length_of_final_line + i + column;
-						esac;
+						    per_token (rest,   column + break.spaces);					# No, treat BREAK as spaces.
+						else
+						    if (*actual_width < column)   actual_width := column;   fi;			# Yes, treat BREAK as newline.
+						    break.wrap := TRUE;
+						    box_is_multiline :=  TRUE;
+						    per_token (rest, /*column=*/ break.indent_on_wrap);
+						fi;
+					    };
 
-				    per_token (rest, column);
-				};
-
-			    LINE _ =>   {   /*raise exception FAIL*/ print "Internal error: wrap_all_or_none token is a LINE?!\n";
-					    per_token( rest,   column );
-					};
+			    BOX box     =>  {   if(*actual_width <  column + *box.actual_width)
+						    actual_width := column + *box.actual_width;
+						fi;
+						if *box.is_multiline
+						    box_is_multiline :=  TRUE;
+						    per_token( rest, column );							# Debatable, but I think the Least Surprise thing to do is leave the cursor below a multiline box on a new line, indented same as box.
+						else
+						    per_token (rest, column + *box.actual_width);
+						fi;
+					    };
 			esac;
-
 		end;		# fun per_token
+	    end			# fun wrap_box_contents_as_needed
 
-		column =   per_token (tokens, column);
-
-		if   (*length_of_first_line == -1)   length_of_first_line := column;   fi;
-
-		(*length_of_first_line, column, *line_has_newlines);
-	    }											# fun wrap_as_needed
 
 	also
-	fun wrap_line  (box_width, tokens, column, wrap_policy)
-	    =
-	    case wrap_policy
-		#
-		AS_NEEDED  =>  wrap_as_needed   (box_width, tokens, column );
-		_          =>  wrap_all_or_none (box_width, tokens, column, wrap_policy );
-	    esac
-
-	also
-	fun wrap_box {
-		box as { id, indentstyle, box_width, length_of_first_line, length_of_final_line, has_newlines, wrap_policy, contents },
-		column
-	    }
+	fun wrap_box   (box: Box)
 	    =
 	    {   # Start by recursively wrapping all sub-boxes
 		# of this box.  When this is done, we know for
-		# each subbox whether it contains newlines (which
-		# may be either NEWLINEs or BREAKs which wrapped)
-		# and also the lengths of its first and last lines:
+		# each subbox its width and whether it is multiline.
 		#
-		{	per_line *contents
-		    where
-			fun per_line  ((LINE tokens) ! rest)
-				=>
-				{    per_token tokens;
-				     per_line  rest;
-				};
-			    per_line  (_ ! rest) =>   raise exception FAIL "wrap_subboxes_lines: Non-LINE arg?!";
-			    per_line        []   =>   ();
-			end
-
-			also
-			fun per_token  ((BOX box) ! rest)
-				=>
-				{   wrap_box { box, column => 0};
-				    per_token  rest;
-				};
-			    per_token (_ ! rest) =>   per_token  rest;
-			    per_token       []   =>   ();
-			end;
+		apply per_token *box.contents
+		where
+		    fun per_token  (BOX box) =>   wrap_box box;
+			per_token _          =>   ();
 		    end;
-		};
+		end;
 
 		# With the wrap decisions for our sub-boxes all
 		# made, we now have enough information in hand
 		# to make those decisions for our own box:
 
-		per_line  (*contents, /*column=*/0, /*first_line=*/ TRUE)
-		where
-		    fun per_line ([], column, first_line)
-			    =>
-			    ();
+		case box.wrap_policy
+		    #
+		    AS_NEEDED  =>  wrap_box_contents_as_needed   (box.target_width, *box.contents );
+		    _          =>  wrap_box_contents_all_or_none (box.target_width, *box.contents, box.wrap_policy );
+		esac
+		    ->
+		    (actual_box_width, is_multiline);
 
-			per_line (line ! rest,  column, first_line)
-			    =>
-			    {   case line
-				    #
-				    LINE tokens
-					=>
-					{   (wrap_line (box_width, tokens, column, wrap_policy ))
-						->
-						(initial_line_length, last_line_length, line_has_newlines);
-
-					    if first_line      length_of_first_line :=  initial_line_length;   fi;
-
-					    length_of_final_line :=  last_line_length;		# Gets overwritten unless this -is- the last LINE.
-					    has_newlines :=  (*has_newlines or line_has_newlines);
-					};
-
-				    _   =>  {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
-						();
-					    };
-				esac;
-
-				per_line (rest,  column, /*first_line=*/ FALSE);
-			    };
-		    end;
-		end;
-	    }						# fun wrap_box
+		box.actual_width	 :=  actual_box_width;
+		box.is_multiline	 :=  (*box.is_multiline or is_multiline);
+	    }															# fun wrap_box
 
 
 	also
-	fun print_lines (
+	fun print_box (
 		box,
-		column,		# 0-based column relative to output_stream (not box!) left margin
+		column,		# 0-based column relative to absolute (not box!) left margin
 		left_margin,	# Left margin of current box.
 		pp:Pp
 	    )
 	    =
-	    {   box ->   { indentstyle, box_width, wrap_policy, contents, ... };
-		#
-		left_margin =   case indentstyle
+	    {   left_margin =   case box.left_margin_is
 				    #
 				    BOX_RELATIVE    i =>   left_margin + i;
 				    CURSOR_RELATIVE i =>   column      + i;
 				esac;
 
-		per_line (*contents, column)
-		where
-		    fun per_token ([], column)
-			    =>
-			    column;
+		column =  per_token (*box.contents, column);
 
-			per_token  (token ! rest, column)
-			    =>
-			    case token
-				#
-				TEXT { length, string }
-				    =>
-				    {   write (pp, string);
-					per_token( rest, column + length );
-				    };
+		if *box.is_multiline												# I'm probably going to regret this (because forced unrequested newlines
+		    out::newline pp.output_stream;										# usually suck) but at the moment it seems like the least evil. The obvious
+		    out::spaces (pp.output_stream, column);									# alternative is end at some random indent per length of last line in the box.
+		fi;														# In the case of an 'align' box, seems like we want a newline at the end iff it is
+																# multiline, but there's no easy syntax for that and if there were most users most
+		column;														# of the time would forget to use it. Forced newline seems like Least Surprise solution.
+	    }															# If you change this, be sure to make corresponding changes in the the BOX cases 
+	    where														# in wrap_box_contents_as_needed() and wrap_box_contents_all_or_none().          
+		fun per_token  (token ! rest, column)
+			=>
+			case token
+			    #
+			    TEXT text
+				=>
+				{   out::string (pp.output_stream, text.string);
+				    per_token( rest, column + text.length );
+				};
 
-				NONBREAKABLE_SPACES n
-				    =>
-				    {   blanks (pp, n);
-					per_token( rest, column + n );
-				    };
+			    NONBREAKABLE_SPACES n
+				=>
+				{   out::spaces (pp.output_stream, n);
+				    per_token (rest, column + n);
+				};
 
-				BREAK { wrap, spaces, indent_on_wrap }
-				    =>
-				    if *wrap
+			    BREAK break
+				=>
+				if *break.wrap
+				    #
+				    column = left_margin + break.indent_on_wrap;
+				    out::newline pp.output_stream;
+				    out::spaces (pp.output_stream, column);
+				    per_token (rest, column);
+				else
+				    out::spaces (pp.output_stream, break.spaces);
+				    per_token (rest, column + break.spaces);
+				fi;
 
-					 column = left_margin + indent_on_wrap;
-					 write_newline pp;
-					 blanks (pp, column);
-					 per_token( rest, column );
-				    else
-					 blanks  (pp, spaces);
-					 per_token( rest, column + spaces );
-				    fi;
+			    NEWLINE
+				=>
+				{   column = left_margin;
+				    out::newline pp.output_stream;
+				    out::spaces (pp.output_stream, column);
+				    per_token (rest, column);
+				};
 
-				NEWLINE
-				    =>
-				    {   column = left_margin;
-					write_newline pp;
-					blanks (pp, column);
-					per_token( rest, column );
-				    };
+			    BOX box
+				=>
+				{   column =  print_box (box, column, left_margin, pp);
+				    per_token (rest, column);
+				};
 
+			    PUSH_TEXTSTYLE textstyle
+				=>
+				{   out::push_textstyle (pp.output_stream, textstyle);
+				    per_token (rest, column);
+				};
 
-				BOX box
-				    =>
-				    {   column =  print_lines (box, column, left_margin, pp);
-					per_token( rest, column );
-				    };
+			    POP_TEXTSTYLE
+				=>
+				{   out::pop_textstyle  pp.output_stream;
+				    per_token (rest, column);
+				};
 
+			    CONTROL control_fn
+				=>
+				{   control_fn  pp.output_stream;
+				    per_token (rest, column);
+				};
 
-				PUSH_TEXTSTYLE textstyle
-				    =>
-				    {   out::push_textstyle (pp.output_stream, textstyle);
-					per_token( rest, column );
-				    };
+			esac;
 
-
-				POP_TEXTSTYLE
-				    =>
-				    {   out::pop_textstyle  pp.output_stream;
-					per_token( rest, column );
-				    };
-
-
-				CONTROL control_fn
-				    =>
-				    {   control_fn  pp.output_stream;
-					per_token( rest, column );
-				    };
-
-				LINE _ =>   {   /*raise exception FAIL*/ print "Internal error: per_token encountered LINE within LINE token list\n";
-						per_token( rest, column );
-					    };
-			    esac;
-		    end;				# fun per_token
-
-		    fun per_line  ([], column)
-			    =>
-			    column;
-
-			per_line  (line ! rest, column)
-			    =>
-			    case line
-				#
-				LINE tokens
-				    =>
-				    {   column =  per_token  (tokens, column);
-					per_line  (rest, column);
-				    };
-
-				_   =>
-				    {   /*raise exception FAIL*/ print "Internal error: per_line arg wasn't a LINE\n";
-					per_line  (rest, column);
-				    };
-			    esac;
-		    end;
-		end;
-	    };				# fun print_lines
+		    per_token ([], column) =>   column;
+		end;													# fun per_token
+	    end;
 
 
 
 
 	# Here's the heart of the module.
-	# We prettyprint in four passes:
+	# We prettyprint in three passes:
 	# 1) Build up the box tree -- complete by the time we get here.
-	# 2) Break the contents of each box up into
-	#    NEWLINE-delimited lines, and precompute box lengths:   make_lines
-	# 3) Decide which breaks to wrap (change to newlines):      wrap_box
-	# 4) Print the result out:                                  print_lines
+	# 2) Decide which breaks to wrap (change to newlines):      wrap_box
+	# 3) Print the result out:                                  print_box
 
 	fun prettyprint_box (pp:Pp, box)
 	    =
-	    {   make_lines   pp   box;
-		wrap_box        { box,   column => 0};
-		print_lines     (box,   /*column=*/ 0,   /*left_margin=*/    0,   pp);
+	    {   wrap_box            box;
+		print_box          (box,   /*column=*/ 0,   /*left_margin=*/    0,   pp);
 	    };
 
 
 
 
-	#  Add a token to the contents of currently-open box:
 
-	fun add_token (pp:Pp as { box => REF box, ... }, token)
+	fun add_token (pp:Pp as { box => REF box, ... }, token)									# Add a token to the reversed_contents of currently-open box.
 	    =
-	    {   box -> { contents, ... };
-		#
-		contents :=   token ! *contents;
-	    };
+	    box.reversed_contents :=   token ! *box.reversed_contents;
 
 
 	fun add_string (pp:Pp, string, length)
@@ -928,85 +728,72 @@ herein
 
 
 
-	fun prettyprint_open_box (pp:Pp, indentstyle, wrap_policy)
+	fun prettyprint_open_box (pp:Pp, left_margin_is, wrap_policy)
 	    =
 	    {   id = *pp.next_box_id;
 		#
 		pp.next_box_id := id + 1;
 
-		new_box							# Set up empty record for new box.
+		new_box														# Set up empty record for new box.
 		    =
-		    { indentstyle,
+		    { left_margin_is,
 		      wrap_policy,
-		      box_width            =>  pp.default_box_width,
+		      target_width         =>  pp.default_target_box_width,
 		      id,
 
-		      has_newlines         =>  REF FALSE,
-		      length_of_first_line =>  REF 0,
-		      length_of_final_line =>  REF 0,
-		      contents             =>  REF []
+		      is_multiline         =>  REF FALSE,
+		      actual_width	   =>  REF 0,
+		      contents             =>  REF [],
+		      reversed_contents    =>  REF []
 		    };
 
 
-		# Add new child box to contents
+		# Add new child box to reversed_contents
 		# of previously open box: 
-		{   (*pp.box) ->   { contents, ... }; 
+		{   (*pp.box) ->   { reversed_contents, ... }; 
 		    #
-		    contents	:=   BOX new_box  !  *contents;
+		    reversed_contents	:=   BOX new_box  !  *reversed_contents;
 		}; 
 
-		pp.nested_boxes	:=   *pp.box ! *pp.nested_boxes;	# Push currently open box on stack.
-		pp.box_nesting	:=   *pp.box_nesting + 1;		# Remember new stack depth.
-		pp.box		:=   new_box;				# Establish new (empty) currently-open box. 
+		pp.nested_boxes	:=   *pp.box ! *pp.nested_boxes;		# Push currently open box on stack.
+		pp.box_nesting	:=   *pp.box_nesting + 1;			# Remember new stack depth.
+		pp.box		:=   new_box;					# Establish new (empty) currently-open box. 
 
 
-		if (*pp.box_nesting > max_box_nesting)			# Catch prettyprint infinite loops.
+		if (*pp.box_nesting > max_box_nesting)				# Catch prettyprint infinite loops.
 		     raise exception     PRETTYPRINT_MAX_DEPTH_EXCEEDED;
 		fi;
 	    };
 
 
 
-	fun finalize_and_pop_current_box (pp:Pp as {  nested_boxes as REF [], ... } )
+	fun finalize_and_pop_current_box  (pp:Pp  as  { box => REF box,  nested_boxes as REF (topbox ! rest), ... })
+		=>
+		{   box.contents :=   reverse *box.reversed_contents;		# We've accumulated the box contents in reverse order; this produces the contents in their proper order.
+		    #
+		    pp.box          :=   topbox;				# These three pop the box stack.
+		    nested_boxes    :=   rest;
+		    pp.box_nesting  :=   *pp.box_nesting - 1;
+		};
+
+	    finalize_and_pop_current_box (pp:Pp as {  nested_boxes as REF [], ... } )
 		=>
 		{   /*raise exception FAIL*/ print "User error: Attempted to close nonexistent box!";
 		    ();
 		};
-
-	    finalize_and_pop_current_box (pp:Pp as { nested_boxes as REF (topbox ! rest),
-					    box as REF { contents, ... },
-					    box_nesting,
-					    ...
-					  }
-		)
-		=>
-		{   # We've accumulated the box contents
-		    # in reverse order.  Now that we're
-		    # done accumulating stuff for this
-		    # box, put the contents in their
-		    # proper order:
-
-		    contents     :=   reverse *contents;
-
-
-		    # Pop box stack:
-		    box          :=   topbox;
-		    nested_boxes :=   rest;
-		    box_nesting  :=   *box_nesting - 1;
-		};
 	end;
 
 
-	fun prettyprint_break  (pp:Pp as { box as REF { contents, ... }, ... },  { spaces, indent_on_wrap } )
+	fun prettyprint_break  (pp:Pp as { box => REF { reversed_contents, ... }, ... },  { spaces, indent_on_wrap } )
 	    =
-	    contents :=   (BREAK { spaces,  indent_on_wrap,  wrap => REF FALSE } )
-			  !
-			  *contents;
+	    reversed_contents :=  (BREAK { spaces,  indent_on_wrap,  wrap => REF FALSE } )
+				  !
+				  *reversed_contents;
 
 
-	fun prettyprint_newline (pp:Pp as { box as REF { contents, ... }, ... })
+	fun prettyprint_newline (pp:Pp as { box => REF { reversed_contents, ... }, ... })
 	    =
-	    contents :=   NEWLINE ! *contents;
+	    reversed_contents :=   NEWLINE ! *reversed_contents;
 
 
 	fun prettyprint_flush (pp:Pp as { box, nested_boxes, output_stream, next_box_id, ... }, with_newline)
@@ -1019,9 +806,9 @@ herein
 			    #
 			    [] =>						# NB: To avoid special cases, we always leave one box on the stack.
 				{
-				    (*box) ->    { contents, length_of_first_line, length_of_final_line, has_newlines, ... };
+				    (*box) ->    { contents, reversed_contents, actual_width, is_multiline, ... };
 
-				    contents :=   reverse *contents;		# Box contents accumulate in reverse order.
+				    contents :=   reverse *reversed_contents;	# Box contents accumulate in reverse order.
 										# Normally we correct for this by reversing
 										# the contents list when we close a box, but
 										# the root box never gets closed, so we have
@@ -1031,10 +818,10 @@ herein
 				    prettyprint_box (pp, *box);			# Prettyprint outermost box.
 										# This is where all the actual formatting work gets done.
 
-				    contents		 :=  [];		# Clear out the prettyprint stuff, so
-				    length_of_first_line :=  0;			# we don't wind up printing it again. 
-				    length_of_final_line :=  0;
-				    has_newlines	 :=  FALSE;
+				    contents		 :=  [];		# Clear out the prettyprint stuff so
+				    reversed_contents	 :=  [];		# we don't wind up printing it again. 
+				    actual_width	 :=  0;			# 
+				    is_multiline	 :=  FALSE;
 				    next_box_id		 :=  1;
 				};
 
@@ -1046,7 +833,7 @@ herein
 			esac; 
 		end;
 
-		if with_newline      write_newline  pp;   fi;
+		if with_newline      out::newline pp.output_stream;   fi;
 
 		out::flush output_stream;
 	    };
@@ -1058,37 +845,37 @@ herein
 	    =
 	    {	# Set up default values of all optional parameters:
 		#
-		default_box_width   = REF default_box_width;
-		default_indentstyle = REF default_indentstyle;
+		default_target_box_width =  REF default_target_box_width;
+		default_left_margin_is   =  REF default_left_margin_is;
 
 		# Let any supplied optional arguments override the above defaults:
 		#
 		apply note_optional_arg args
 		where
-		    fun note_optional_arg (DEFAULT_BOX_WIDTH   i) =>  default_box_width   := i;
-			note_optional_arg (DEFAULT_INDENTSTYLE i) =>  default_indentstyle := i;
+		    fun note_optional_arg (DEFAULT_TARGET_BOX_WIDTH i) =>  default_target_box_width := i;
+			note_optional_arg (DEFAULT_LEFT_MARGIN_IS   i) =>  default_left_margin_is   := i;
 		    end;
 		end;
 
 		# Construct actual prettyprinter record to return:
 		#
-		  { output_stream           =>  d,
-		    output_stream_is_closed =>  REF FALSE,
+		  { output_stream            =>  d,
+		    output_stream_is_closed  =>  REF FALSE,
 		    #
-		    default_box_width	    =>  *default_box_width,
-		    default_indentstyle	    =>  *default_indentstyle,
-		    textstyle_stack	    =>  REF [],
-		    box_nesting		    =>  REF 0,
-		    next_box_id		    =>  REF 1,
-		    nested_boxes	    =>  REF [],
-		    box			    =>  REF   { indentstyle		=>   BOX_RELATIVE 0,
-							box_width		=>  *default_box_width,
+		    default_target_box_width =>  *default_target_box_width,
+		    default_left_margin_is   =>  *default_left_margin_is,
+		    textstyle_stack	     =>  REF [],
+		    box_nesting		     =>  REF 0,
+		    next_box_id		     =>  REF 1,
+		    nested_boxes	     =>  REF [],
+		    box			     =>  REF  { left_margin_is		=>   BOX_RELATIVE 0,
+							target_width		=>  *default_target_box_width,
 							wrap_policy		=>   AS_NEEDED,
 							id			=>       0,
-							length_of_first_line	=>   REF 0,
-							length_of_final_line	=>   REF 0,
-							has_newlines		=>   REF FALSE,
-							contents		=>   REF []
+							actual_width		=>   REF 0,
+							is_multiline		=>   REF FALSE,
+							contents		=>   REF [],
+							reversed_contents	=>   REF []
 						      }
 		  };	
 
