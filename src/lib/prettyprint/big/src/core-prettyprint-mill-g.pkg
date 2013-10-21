@@ -153,6 +153,10 @@ stipulate
 #   package pmt =  prettyprint_mill_types;					# prettyprint-mill_types						is from   src/lib/prettyprint/big/src/prettyprint-mill-types.pkg
 herein
 
+    # This generic is invoked (only) from
+    #
+    #     src/lib/prettyprint/big/src/base-prettyprint-mill-g.pkg
+    #
     generic package   core_prettyprint_mill_g   (				# 
 	#             =======================
 	#									# "tt" == "traitful text"
@@ -161,16 +165,50 @@ herein
 										# out will be something like html_prettyprint_output_stream		   from   src/lib/prettyprint/big/src/out/html-prettyprint-output-stream.pkg
 	sharing tt::Texttraits == out::Texttraits;
     )
-    : (weak)
-    api {
-	include Core_Prettyprint_Mill;						# Core_Prettyprint_Mill							is from   src/lib/prettyprint/big/src/core-prettyprint-mill.api
-
-	dump:  (fil::Output_Stream, Prettyprint_Mill)
-		  ->
-		  Void;
-    }
+#    : (weak)
+#    api {
+#	include Core_Prettyprint_Mill;						# Core_Prettyprint_Mill							is from   src/lib/prettyprint/big/src/core-prettyprint-mill.api
+#
+#	prettyprint_prettyprint_mill
+#	    :
+#	    (fil::Output_Stream,  Prettyprint_Mill)
+#	    ->
+#	    Void;
+#										# This api is commented out because at the moment I don't see a way
+#	prettyprint_open_box							# to use it export prettyprint_open_box, since it depends on
+#	    (Prettyprint_Mill, :Pp, left_margin_is, format)			# Left_Margin_Is and Break_Policy which come from pmt.  (Yes, we could move them out of pmt.)
+#    }
     {
-	package pmt =  core_prettyprint_mill_types_g(  package out = out;  );
+	too_long =  8888;   # A box-length value picked to be large
+			    # enough to not fit in any plausible box,
+			    # but small enough that adding a few
+			    # together won't produce integer overflow.
+
+	package pmt								# Our core datastructures are parameterized over 'out' and 'tt',	
+	    =									#
+	    core_prettyprint_mill_types_g (					# core_prettyprint_mill_types_g	is from   src/lib/prettyprint/big/src/core-prettyprint-mill-types-g.pkg
+		#
+		package out = out;						# package out			is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+		package tt  = tt;						# traitless_text		is from   src/lib/prettyprint/big/src/traitless-text.pkg
+	    );
+
+	package dbg								# Our datastructure prettyprinter depends on our datastructures. 
+	    =
+	    core_prettyprint_mill_debug_g (					# core_prettyprint_mill_debug_g	is from   src/lib/prettyprint/big/src/core-prettyprint-mill-types-g.pkg
+		#
+		package pmt = pmt;
+	    );
+
+	package box								# 
+	    =
+	    core_prettyprint_mill_box_formatting_policies_g (			# core_prettyprint_mill_box_formatting_policies_g	is from   src/lib/prettyprint/big/src/core-prettyprint-mill-box-formatting-policies-g.pkg
+		#
+		package pmt = pmt;
+		package dbg = dbg;
+		too_long = too_long;
+	    );
+
+	prettyprint_prettyprint_mill =  dbg::prettyprint_prettyprint_mill;
 
 	default_tabstops_are_every =    2;					# This can be overridden via TABSTOPS_ARE_EVERY.
 	default_target_box_width   =  100;					# This can be overridden via DEFAULT_TARGET_BOX_WIDTH.
@@ -201,511 +239,37 @@ herein
 										# convenience:
 
 
-	Prettyprint_Mill
-	  =
-	  {
-	    output_stream:		Prettyprint_Output_Stream,		# Where to send formatted output.
-	    output_stream_is_closed:	Ref( Bool ),				# TRUE iff the stream is closed. 
-
-	    box:			Ref pmt::Box,
-	    nested_boxes:		Ref (List(pmt::Box)),
-	    box_nesting:		Ref Int,				# Current depth of 'nested_boxes'. Used only to catch infinite loops.
-
-	    next_box_id:		Ref Int,
-
-	    texttraits_stack:		Ref( List(Texttraits) ),
-
-	    tabstops_are_every:		Int,					# Usually 2 chars, set in multiples of 2 for a mostly tab-every-four system with occasional 'half-tab' settings.
-	    default_target_box_width:	Int,
-	    default_left_margin_is:	pmt::Left_Margin_Is,
-	    do_delayed_newline_indent:	Ref(Bool)				# Multiple nested boxes closing tends to produce lots of newline-indentblanks sequences in a row, which manifest as a
-	};									# sequence of unexpected blank lines. Ugly! This var lets us collapse each such sequence into a single newline-indentblanks.
-	Pp = Prettyprint_Mill;							# For when the brevity bug bites.
+	Prettyprint_Mill = pmt::Prettyprint_Mill;				# Export for code clients.
+	Pp               = pmt::Prettyprint_Mill;				# For when the brevity bug bites.
 
 
 
-
-
-
-	fun nblanks n
-	    =
-	    string::cat (map (fn _ = " ") (1 .. n));
-
-
-	fun tab1 (column, tabstop)			# We are at (zero-based) 'column' and tabstops are set
-	    =						# every 'tabstop' chars. To move to the next tabstop, 
-	    if (tabstop > 0)				# how many blanks (1 .. tabstop) do we need to emit?
-		tabstop - (column % tabstop);
-	    else
-		0;					# We use tabstop==0 to mean "nop -- do nothing".
-	    fi;
-
-	fun tab0 (column, tabstop)			# We are at (zero-based) 'column' and tabstops are set
-	    =						# every 'tabstop' chars. To leave cursor at a tabstop, 
-	    {   blanks = tab1 (column, tabstop);	# how many blanks (0 .. tabstop-1) do we need to emit?
-		#
-		if (blanks==tabstop)   0;
-		else		       blanks;
-		fi;
-	    };
-
-	fun breaklen (column', r: { tab0: Int, tab: Int, text: String }, pp:Pp)			# Compute length of break when not wrapped.
-	    =
-	    {   column = column' + tab0 (column', r.tab0 * pp.tabstops_are_every);
-		column = column  + tab1 (column,  r.tab  * pp.tabstops_are_every);
-	        column = column  + string::length r.text ;
-		column - column';
-	    };
-
-
-	# *** DEBUGGING FUNCTIONS ***
-
-	package f = sfprintf;							# sfprintf	is from   src/lib/src/sfprintf.pkg
-
-	fun box_format_to_string pmt::NONE        =>  "NONE";
-	    box_format_to_string pmt::ALL         =>  "ALL";
-	    box_format_to_string pmt::ALL_OR_NONE =>  "ALL_OR_NONE";
-	    box_format_to_string pmt::AS_NEEDED   =>  "AS_NEEDED";
-	end;
-
-
-	fun left_margin_is_to_string (pmt::BOX_RELATIVE    n) =>  cat ["(BOX_RELATIVE ",    int::to_string n, ")"];
-	    left_margin_is_to_string (pmt::CURSOR_RELATIVE n) =>  cat ["(CURSOR_RELATIVE ", int::to_string n, ")"];
-	end;
-
-
-
-
-	fun dump (out_stream, pp:Pp)						# Prettyprint out_stream contents for debugging.
-	    =
-	    {   print  "BEGIN\n";
-		#
-		printf' (
-		    "box_nesting = %3d\n",
-		    [   f::INT *pp.box_nesting
-		    ]
-		);
-
-		print   "Expression:\n";
-
-		case *pp.nested_boxes
-		    #
-		    [] => print_box *pp.box "";
-		    x  => case (reverse x)
-			      #
-			      bot ! rest => print_box bot "";
-			      _          => raise exception FAIL "impossible";
-			  esac;
-		esac;
-
-		print "\n";
-
-		print  ("END\n");
-	    }
-	    where
-		fun print string
-		    =
-		    fil::write (out_stream, string);
-
-
-		fun printf' (format, items)
-		    =
-		    print (f::sprintf' format items);
-
-
-    #	    fun format_box_stack_element_to_string (box_format, box_indent, target_width)
-    #		=
-    #		f::sprintf'   "(%s, %d, %d)"   [f::STR (box_format_to_string  box_format), f::INT box_indent, f::INT target_width];
-
-
-		fun print_list format_element []
-			=>
-			print "[]";
-
-		    print_list format_element my_list
-			=>
-			print (
-			    l2s::list_to_string'
-				#
-				{ first     => "[\n    ",
-				  last      => "]",
-				  between   => "\n    ",
-				  to_string => format_element
-				}
-				#
-				my_list
-			);
-		end;
-
-		fun print_box   (box: pmt::Box)   prefix
-		    =
-		    {   print (prefix + "Box");
-			print ("   id = "			+ (int::to_string           box.id));
-			print ("   left_margin_is = "		+ (left_margin_is_to_string box.left_margin_is));
-			print ("   target_width = "		+ (int::to_string           box.target_width));
-			print ("   actual_width = "		+ (int::to_string          *box.actual_width));
-			print ("   is_multiline = "		+ (bool::to_string         *box.is_multiline));
-			print ("   box_format = "		+ (box_format_to_string    box.box_format));
-			#
-			print ("   reversed_contents len = "	+ (int::to_string (list::length *box.reversed_contents)));
-			print ("   contents len = "		+ (int::to_string (list::length *box.contents)));
-			print  ":\n";
-
-			print_tokens  *box.contents  (prefix + "    ")
-			where
-			    fun print_tokens [] _
-				    =>
-				    ();
-
-				print_tokens  (token ! rest)  prefix
-				    =>
-				    {   case token
-					    #
-					    pmt::TEXT { string, length }
-						=>
-						print (prefix + "TEXT (" + (int::to_string length) + ") '" + string + "'\n");
-
-					    pmt::ENDTXT { string, length }
-						=>
-						print (prefix + "ENDTXT (" + (int::to_string length) + ") '" + string + "'\n");
-
-					    pmt::TAB  int
-						=>
-						print (prefix + "TAB" + (int::to_string int) + "\n");
-
-					    pmt::BREAK break
-						=>
-						{   print  (prefix + "BREAK {");
-						    print  (" wrap="  + (bool::to_string *break.wrap));
-						    printf  " ifnotwrap => { tab0 => %d, tab => %d, text => \"%s\" },"  break.ifnotwrap.tab0  break.ifnotwrap.tab  break.ifnotwrap.text;
-						    printf  " ifwrap    => { tab0 => %d, tab => %d, text => \"%s\" }"     break.ifwrap.tab0     break.ifwrap.tab     break.ifwrap.text;
-						    print  " }\n";
-						};
-
-					    pmt::PUSH_TEXTTRAITS _ => print (prefix + "PUSH_TEXTTRAITS ...\n");
-					    pmt::POP_TEXTTRAITS    => print (prefix + "POP_TEXTTRAITS\n");
-
-					    pmt::NEWLINE      => print (prefix + "NEWLINE\n");
-					    pmt::CONTROL _    => print (prefix + "CONTROL ...\n");
-
-					    pmt::BOX box      => {   print (prefix + "BOX:\n");
-								print_box  box  (prefix + "    "); 
-							    };
-					esac;
-
-					print_tokens  rest  prefix;
-				    };
-			    end;				# fun print_tokens
-			end;					# where
-		    };
-
-	    end;
 
 
 
 	# *** UTILITY FUNCTIONS ***
-
-	too_long =  8888;   # A box-length value picked to be large
-			    # enough to not fit in any plausible box,
-			    # but small enough that adding a few
-			    # together won't produce integer overflow.
 
 
 	fun current_texttraits (pp:Pp as { texttraits_stack => REF (texttraits ! _),    ... } ) =>  texttraits;						# Current texttraits are the top entry on the textstyle stack,
 	    current_texttraits (pp:Pp as { texttraits_stack => REF [], output_stream,  ... } ) =>  out::default_texttraits output_stream;		# or else the default texttraits if the stack is empty:
 	end;
 
-fun token_to_string t
-    =
-    case t
-	pmt::TEXT t		=>	sprintf "TEXT \"%s\"" t.string;
-	pmt::ENDTXT t		=>	sprintf "ENDTXT \"%s\"" t.string;
-	pmt::TAB n		=>	sprintf "TAB %d" n;
-	pmt::PUSH_TEXTTRAITS _	=>	"PUSH_TEXTTRAITS";
-	pmt::POP_TEXTTRAITS	=>	"POP_TEXTTRAITS";
-	pmt::CONTROL _		=>	"CONTROL";
-	pmt::NEWLINE		=>	"NEWLINE";
-	pmt::BREAK break	=>	sprintf "BREAK { ifnotwrap => { tab0=>%d, tab=>%d, text=>\"%s\" }, ifwrap => { tab0=>%d, tab=>%d, text=>\"%s\" }, wrap=>%B }" break.ifnotwrap.tab0 break.ifnotwrap.tab break.ifnotwrap.text break.ifwrap.tab0 break.ifwrap.tab break.ifwrap.text  *break.wrap;
-	pmt::BOX box 		=>      sprintf "BOX#%d{%d%s}" box.id *box.actual_width (*box.is_multiline ?? "M" :: "");
-    esac;
+	nblanks  =  box::nblanks;
+	tab1     =  box::tab1;
+	tab0     =  box::tab0;
+	breaklen =  box::breaklen;
 
-fun tokens_to_string ts
-    =
-    string::join'   "[ "   ", "   " ]"   (map token_to_string ts);
+	my     wrap_box_contents_all_or_none
+        = box::wrap_box_contents_all_or_none;
 
+	my     wrap_box_contents_as_needed
+        = box::wrap_box_contents_as_needed;
 
-	fun count_breaks []                    =>  0;
-	    count_breaks (pmt::BREAK _ ! rest) =>  1  +  count_breaks rest;
-	    count_breaks (           _ ! rest) =>  0  +  count_breaks rest;
-	end;
-	
+	horizontal   =  { name => "vertical",     code => wrap_box_contents_all_or_none	pmt::NONE		}:  pmt::Box_Format;
+	vertical     =  { name => "horizontal",   code => wrap_box_contents_all_or_none	pmt::ALL		}:  pmt::Box_Format;
+	normal       =  { name => "normal",       code => wrap_box_contents_all_or_none	pmt::ALL_OR_NONE	}:  pmt::Box_Format;
+	ragged_right =  { name => "ragged_right", code => wrap_box_contents_as_needed				}:  pmt::Box_Format;
 
-	# Given the list of tokens in a BOX,
-	# wrap either all BREAKs or none of them.
-	#
-	# Any embedded boxes have already been
-	# wrap_box()'d, so they have valid values
-	# for actual_width and is_multiline.
-	#
-	fun wrap_box_contents_all_or_none  (
-		target_width,				# Target width for this box.
-		tokens,					# List of tokens in this box.
-		box_format,				# Which BREAKs should we wrap?  One of ALL, NONE, ALL_OR_NONE.
-		pp:Pp
-	    )
-	    =
-	    {
-if *log::debugging
-printf "target_width d=%d, %d tokens: %s    -- wrap_box_contents_all_or_none/TOP in prettyprint-mill-g.pkg\n" target_width (list::length tokens) (tokens_to_string tokens);
-fi;
-		box_is_multiline    =  REF FALSE;
-		actual_width	    =  REF 0;
-		column		    =  0;		# Current column, relative to box left margin
-		#
-		wrap_them				# Should we change all BREAKs to newlines, or none or them?
-		    =
-		    case box_format
-			#
-			pmt::ALL  =>  TRUE;
-			pmt::NONE =>  FALSE;
-
-			pmt::ALL_OR_NONE
-			    =>
-			    {   unwrapped_length
-				    =
-				    total_length (tokens, 0)
-				    where
-					fun total_length ([], result) => result;
-					    #
-					    total_length (((pmt::TEXT    { length, ... }) ! rest), result) =>   total_length (rest, result +  length		       );
-					    total_length (((pmt::ENDTXT  { length, ... }) ! rest), result) =>   total_length (rest, result +  length		       );
-					    total_length (((pmt::TAB       i            ) ! rest), result) =>   total_length (rest, result +  tab1(result,i)	       );
-					    total_length (((pmt::BREAK     break	   ) ! rest), result) =>   total_length (rest, result +  breaklen(result,break.ifnotwrap,pp));
-
-					    total_length ([ pmt::BOX box ], result)
-						=>
-						case box.left_margin_is
-						    #
-						    pmt::CURSOR_RELATIVE _ =>   result + *box.actual_width;		# Multiline is potentially OK when it is last in line and a cbox.
-						    pmt::BOX_RELATIVE    _ =>   too_long;
-						esac;
-
-					    total_length (((pmt::BOX box) ! rest), result)
-						=>
-						if *box.is_multiline too_long;
-						else		     total_length (rest, result + *box.actual_width);
-						fi;
-
-					    total_length ((_ ! rest), result)
-						=>
-						total_length (rest, result);
-					end;
-				    end;
-
-if *log::debugging
-if (unwrapped_length  >  target_width)
-printf "target_width d=%d, %d tokens: %s: WE WILL WRAP YOU!    -- wrap_box_contents_all_or_none/TOP in prettyprint-mill-g.pkg\n" target_width (list::length tokens) (tokens_to_string tokens);
-fi;
-fi;
-				unwrapped_length  >  target_width;
-			    };
-
-			pmt::AS_NEEDED => raise exception FAIL "wrap_box_contents_all_or_none: box_format == AS_NEEDED!?";
-		    esac;
-
-
-		fun per_token ([], column) =>   column;
-		    #
-		    per_token (tokens as token ! rest, column)
-			=>
-			case token
-			    #
-			    pmt::BREAK break
-				=>
-				if (column <= breaklen(0,break.ifwrap,pp)  and  count_breaks tokens == 1)
-				    #
-				    per_token  (rest, column + breaklen(column,break.ifnotwrap,pp));			# Wrapping won't move us leftward anyhow, so don't even consider it.
-
-				elif wrap_them
-				    #
-if *log::debugging
-printf "WRAPPING at column %d indent after wrap d=%d -- wrap_box_contents_all_or_none in prettyprint-mill-g.pkg\n" column (breaklen(0,break.ifwrap,pp));
-fi;
-				    if (*actual_width < column)   actual_width := column;   fi;
-				    break.wrap := TRUE;
-				    box_is_multiline := TRUE;
-				    per_token  (rest, breaklen(0,break.ifwrap,pp));
-				else
-				    per_token  (rest, column + breaklen(column,break.ifnotwrap,pp));
-				fi;
-
-			    pmt::NEWLINE =>  {   if (*actual_width < column)   actual_width := column;   fi;
-					    box_is_multiline := TRUE;
-					    per_token  (rest, 0);
-					};
-
-			    pmt::TEXT   text		  =>   per_token  (rest, column + text.length   );
-			    pmt::ENDTXT text		  =>   per_token  (rest, column + text.length   );
-			    pmt::TAB                 n =>   per_token  (rest, column + tab1(column,n));
-			    pmt::PUSH_TEXTTRAITS _     =>   per_token  (rest, column                 );
-			    pmt::POP_TEXTTRAITS        =>   per_token  (rest, column                 );
-			    pmt::CONTROL _             =>   per_token  (rest, column                 );
-
-			    pmt::BOX box     =>  {   if(*actual_width <  column + *box.actual_width)
-						    actual_width := column + *box.actual_width;
-						fi;
-						if *box.is_multiline
-						    box_is_multiline :=  TRUE;
-						    per_token( rest, 0 );
-						else
-						    per_token (rest, column + *box.actual_width);
-						fi;
-					    };
-			esac;
-		end;							# fun per_token
-
-		column =   per_token (tokens, column);
-
-		if (*actual_width < column)   actual_width := column;   fi;
-
-		(*actual_width, *box_is_multiline);
-	    }								# fun wrap_box_contents_all_or_none
-
-
-	# Here we implement a conventional word-wrap
-	# style algorithm where we wrap a line at
-	# a BREAK iff it is our last chance to avoid
-	# exceeding our assigned box width.
-
-	also
-	fun wrap_box_contents_as_needed  (target_width, tokens, pp:Pp)
-	    =
-	    {	column =   per_token (tokens, /*column=*/0);
-		#
-		if (*actual_width < column)   actual_width := column;   fi;
-
-		(*actual_width, *box_is_multiline);
-	    }
-	    where
-if *log::debugging
-printf "target_width d=%d, %d tokens    -- wrap_box_contents_as_needed in prettyprint-mill-g.pkg\n" target_width (list::length tokens);
-fi;
-		box_is_multiline = REF FALSE;
-		actual_width	 = REF 0;
-
-		fun forced_followon_fits_in' (tokens, space_left_on_line)				# Decide if tokens from here to next break/newline will fit in remaining space on line.
-		    =
-		    fits_in'  (tokens, 0)
-		    where 
-			fun fits_in' (tokens, column)							# Early-out check: Stop iterating as soon as we know we don't fit.
-			    =
-{
-if *log::debugging
-printf "forced_followon_fits_in (column=%d, %d tokens: %s\n" column (list::length tokens) (tokens_to_string tokens);
-fi;
-			    if (column > space_left_on_line)   FALSE;
-			    else                               fits_in (tokens, column);
-			    fi
-;}
-			also
-			fun fits_in  ([], column) =>   (column <= space_left_on_line);
-			    #
-			    fits_in  ([ pmt::BOX { left_margin_is => pmt::CURSOR_RELATIVE _, is_multiline => REF TRUE, actual_width => REF width, ... } ],  column)
-				=>
-				(column + width) <= space_left_on_line;								# Multiline box is ok when CURSOR_RELATIVE and last in line.
-
-			    fits_in  (token ! rest,  column)
-				=>
-				case token
-				    #
-				    pmt::TEXT   text			=>	fits_in'  (rest, column + text.length	);
-				    pmt::ENDTXT text			=>	fits_in'  (rest, column + text.length	);
-				    pmt::TAB n				=>	fits_in'  (rest, column + tab1(column,n));
-				    pmt::PUSH_TEXTTRAITS _		=>	fits_in'  (rest, column			);
-				    pmt::POP_TEXTTRAITS			=>	fits_in'  (rest, column			);
-				    pmt::CONTROL _			=>	fits_in'  (rest, column			);
-				   (pmt::NEWLINE | pmt::BREAK _ )	=>	column <= space_left_on_line;
-
-				    pmt::BOX box =>  if *box.is_multiline	FALSE;							# Multiline boxes by definition don't fit on one line. :-)
-						     else			fits_in'  (rest,  column + *box.actual_width);		# Monoline box, so first line == whole box.
-						     fi;
-				esac;
-			end;			# fun fits_in
-		end;				# fun forced_followon_fits_in
-fun forced_followon_fits_in (tokens, space_left_on_line)
-=
-{
-if *log::debugging
-    printf "\nforced_followon_fits_in (space_left_on_line %d, %d tokens: %s)/TOP\n" space_left_on_line  (list::length tokens) (tokens_to_string tokens);
-fi;
-    result = forced_followon_fits_in' (tokens, space_left_on_line);
-if *log::debugging
-    printf "forced_followon_fits_in (space_left_on_line %d, %d tokens: %s) returning %B\n\n"  space_left_on_line (list::length tokens) (tokens_to_string tokens) result;
-fi;
-    result;
-};
-
-
-		fun per_token  ([], column) =>   column;									# Scan the tokens in a LINE setting BREAKs to wrap as appropriate.
-		    #
-		    per_token  (token ! rest,   column)
-			=>
-{
-if *log::debugging
-printf "per_token/TOP column d=%d   %d tokens = %s)   -- wrap_box_contents_as_needed() in prettyprint-mill-g.pkg\n" column (list::length (token ! rest)) (tokens_to_string (token ! rest));
-fi;
-			case token
-			    pmt::PUSH_TEXTTRAITS _	=>   per_token (rest,   column			);
-			    pmt::POP_TEXTTRAITS		=>   per_token (rest,   column			);
-			    pmt::CONTROL _		=>   per_token (rest,   column			);
-			    pmt::TEXT   text		=>   per_token (rest,   column + text.length		);
-			    pmt::ENDTXT text		=>   per_token (rest,   column + text.length		);
-			    pmt::TAB n			=>   per_token (rest,   column + tab1(column,n)	);			# This isn't quite right because 'column' is box-relative but tabstops should be absolute.
-																# We format boxes innermost first, so at present there's no way to know our absolute column at this point.
-																# We mostly keep boxes tab-aligned, which should hide this problem most of the time.
-																# Should we be pessimistic and do 	per_token (rest,   column + n	);    ?
-			    pmt::NEWLINE     =>  {   if (*actual_width < column)   actual_width := column;   fi;
-						box_is_multiline :=  TRUE;
-						per_token( rest, /*column=*/ 0 );
-					    };
-
-			    pmt::BREAK break =>  {   space_left_on_line =  target_width - (column  +  breaklen(column,break.ifnotwrap,pp));
-						#													
-						if (column <= breaklen(0,break.ifwrap,pp))
-						    #
-						    per_token (rest,   column + breaklen(column,break.ifnotwrap,pp));		# Wrapping won't move us left anyhow, so no point in considering it.
-
-						elif (forced_followon_fits_in (rest, space_left_on_line))			# Is next BREAK or NEWLINE beyond right margin of box?
-						    #
-						    per_token (rest,   column + breaklen(column,break.ifnotwrap,pp));		# No, treat BREAK as spaces.
-						else
-if *log::debugging
-printf "WRAPPING at column %d indent-after-wrap d=%d   target_width %d break.ifnotwrap.text '%s' space_left_on_line %d -- wrap_box_contents_as_needed in prettyprint-mill-g.pkg\n" column (breaklen(0,break.ifwrap,pp)) target_width break.ifnotwrap.text space_left_on_line;
-fi;
-						    if (*actual_width < column)   actual_width := column;   fi;			# Yes, treat BREAK as newline.
-						    break.wrap := TRUE;
-						    box_is_multiline :=  TRUE;
-						    per_token (rest, /*column=*/ breaklen(0,break.ifwrap,pp));
-						fi;
-					    };
-
-			    pmt::BOX box     =>  {   if(*actual_width <  column + *box.actual_width)
-						    actual_width := column + *box.actual_width;
-						fi;
-						if *box.is_multiline
-						    box_is_multiline :=  TRUE;
-						    per_token( rest, 0 );							# Return to left margin after each multiline box.  This does the best job of decoupling
-						else										# events inside and outside a box, making for simple predictable behavior.
-						    per_token (rest, column + *box.actual_width);
-						fi;
-					    };
-			esac;
-};
-		end;		# fun per_token
-	    end			# fun wrap_box_contents_as_needed
-
-
-	also
 	fun wrap_box   (box: pmt::Box, pp:Pp)
 	    =
 	    {   # Start by recursively wrapping all sub-boxes
@@ -723,13 +287,15 @@ fi;
 		# made, we now have enough information in hand
 		# to make those decisions for our own box:
 
-		case box.box_format
-		    #
-		    pmt::AS_NEEDED  =>  wrap_box_contents_as_needed   (box.target_width, *box.contents,                 pp );
-		    _               =>  wrap_box_contents_all_or_none (box.target_width, *box.contents, box.box_format, pp );
-		esac
-		    ->
-		    (actual_box_width, is_multiline);
+		stipulate
+		    target_width	=   box.target_width;
+		    box_contents	=  *box.contents;
+		    tabstops_are_every	=   pp.tabstops_are_every;
+		herein
+		    (box.format.code { target_width, box_contents, tabstops_are_every })
+			->
+			{ actual_box_width, is_multiline };
+		end;
 
 		box.actual_width	 :=  actual_box_width;
 		box.is_multiline	 :=  (*box.is_multiline or is_multiline);
@@ -801,9 +367,9 @@ fi;
 		    =
 		    case (box.left_margin_is, *box.is_multiline)
 			#
-			(_		       ,  FALSE) =>	(left_margin', column');						# We're not a multiline box, leave left margin unchanged.
+			(_		       ,  FALSE) =>	(left_margin', column');					# We're not a multiline box, leave left margin unchanged.
 			(pmt::BOX_RELATIVE    i,  TRUE ) =>  move_to_left_margin (left_margin' + i,          column');		# We're a multiline box, set new left margin relative to left margin of enclosing box.
-			(pmt::CURSOR_RELATIVE i,  TRUE ) =>	move_to_left_margin (column' + tab0(column',i), column');		# We're a multiline box, set new left margin relative to cursor, tabbing over for consistent positioning on page.
+			(pmt::CURSOR_RELATIVE i,  TRUE ) =>	move_to_left_margin (column' + tab0(column',i), column');	# We're a multiline box, set new left margin relative to cursor, tabbing over for consistent positioning on page.
 		    esac;
 
 		
@@ -811,7 +377,7 @@ fi;
 			=>
 {
 if *log::debugging
-printf "print_box: print_tokens (column %d  tokens %s)\n"  column  (tokens_to_string (token ! rest));
+printf "print_box: print_tokens (column %d  tokens %s)\n"  column  (dbg::tokens_to_string (token ! rest));
 fi;
 			case token
 			    #
@@ -845,7 +411,7 @@ fi;
 				{
 				    if *break.wrap
 					#
-					column = left_margin + breaklen(left_margin,break.ifwrap,pp);
+					column = left_margin + breaklen(left_margin,break.ifwrap,pp.tabstops_are_every);
 					pp.do_delayed_newline_indent := TRUE;
 					print_tokens (rest, column);
 					#
@@ -938,7 +504,7 @@ fi;
 
 
 
-	fun prettyprint_open_box (pp:Pp, left_margin_is, box_format)
+	fun prettyprint_open_box (pp:Pp, left_margin_is, format)
 	    =
 	    {   id = *pp.next_box_id;
 		#
@@ -947,14 +513,21 @@ fi;
 		new_box														# Set up empty record for new box.
 		    =
 		    { left_margin_is,
-		      box_format,
-		      target_width         =>  pp.default_target_box_width,
+		      target_width         =>   pp.default_target_box_width,
 		      id,
 
-		      is_multiline         =>  REF FALSE,
-		      actual_width	   =>  REF 0,
-		      contents             =>  REF [],
-		      reversed_contents    =>  REF []
+		      is_multiline         =>   REF FALSE,
+		      actual_width	   =>   REF 0,
+		      contents             =>   REF [],
+		      reversed_contents    =>   REF [],
+
+		      format	   =>   case format
+						    #
+						    pmt::NONE		=>  horizontal;
+						    pmt::ALL		=>  vertical;
+						    pmt::ALL_OR_NONE	=>  normal;
+						    pmt::AS_NEEDED	=>  ragged_right;
+						esac
 		    };
 
 
@@ -997,9 +570,9 @@ fi;
 	fun prettyprint_break  (pp:Pp as { box => REF { reversed_contents, ... }, ... },  { spaces, indent_on_wrap } )
 	    =
 	    reversed_contents :=  (pmt::BREAK { wrap      =>  REF FALSE,
-					   ifnotwrap =>  { tab0 => 0, tab => 0, text => nblanks spaces },
-                                           ifwrap    =>  { tab0 => 0, tab => 0, text => nblanks indent_on_wrap }
-                                         }
+						ifnotwrap =>  { tab0 => 0, tab => 0, text => nblanks spaces },
+						ifwrap    =>  { tab0 => 0, tab => 0, text => nblanks indent_on_wrap }
+					      }
                                   )
 				  !
 				  *reversed_contents;
@@ -1032,7 +605,7 @@ fi;
 if *log::debugging
     printf "\nStart of call to prettyprint_box on outermost box -- prettyprint_flush in prettyprint-mill-g.pkg\n";
     printf "Printing state of prettyprinter -- prettyprint_flush in prettyprint-mill-g.pkg\n";
-    dump(fil::stdout, pp);
+    dbg::prettyprint_prettyprint_mill (fil::stdout, pp);
     printf "Calling prettyprint_box on outermost box -- prettyprint_flush in prettyprint-mill-g.pkg\n";
 fi;
 				    prettyprint_box (pp, *box);			# Prettyprint outermost box.
@@ -1064,7 +637,7 @@ fi;
 
 	# *** EXPORTED FUNCTIONS ***
 
-	fun make_prettyprint_mill prettyprint_output_stream args
+	fun make_prettyprint_mill  prettyprint_output_stream  args
 	    =
 	    {	# Set up default values of all optional parameters:
 		#
@@ -1098,12 +671,12 @@ fi;
 		    nested_boxes	     =>  REF [],
 		    box			     =>  REF  { left_margin_is		=>   pmt::BOX_RELATIVE 0,
 							target_width		=>  *default_target_box_width,
-							box_format		=>   pmt::AS_NEEDED,
 							id			=>       0,
 							actual_width		=>   REF 0,
 							is_multiline		=>   REF FALSE,
 							contents		=>   REF [],
-							reversed_contents	=>   REF []
+							reversed_contents	=>   REF [],
+							format		=>   normal
 						      }
 		  };
 	    };
@@ -1128,46 +701,6 @@ fi;
 	    pp.output_stream;
 
 
-	fun begin_horizontal_4box			prettyprinter		=  prettyprint_open_box (prettyprinter,  pmt::BOX_RELATIVE 4,  pmt::NONE);
-	fun begin_vertical_4box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 4), pmt::ALL);
-	fun begin_align_4box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 4), pmt::ALL_OR_NONE);
-	fun begin_wrap_4box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 4), pmt::AS_NEEDED);
-
-	fun begin_horizontal_0box			prettyprinter		=  prettyprint_open_box (prettyprinter,  pmt::BOX_RELATIVE 0,  pmt::NONE);
-	fun begin_vertical_0box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 0), pmt::ALL);
-	fun begin_align_0box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 0), pmt::ALL_OR_NONE);
-	fun begin_wrap_0box				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::BOX_RELATIVE 0), pmt::AS_NEEDED);
-
-	fun begin_horizontal_cbox			prettyprinter		=  prettyprint_open_box (prettyprinter,  pmt::CURSOR_RELATIVE 4,  pmt::NONE);
-	fun begin_vertical_cbox				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::CURSOR_RELATIVE 4), pmt::ALL);
-	fun begin_align_cbox				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::CURSOR_RELATIVE 4), pmt::ALL_OR_NONE);
-	fun begin_wrap_cbox				prettyprinter		=  prettyprint_open_box (prettyprinter, (pmt::CURSOR_RELATIVE 4), pmt::AS_NEEDED);
-
-	fun begin_indented_horizontal_box		prettyprinter indent	=  prettyprint_open_box (prettyprinter, indent, pmt::NONE);
-	fun begin_indented_vertical_box			prettyprinter indent	=  prettyprint_open_box (prettyprinter, indent, pmt::ALL);
-	fun begin_indented_align_box			prettyprinter indent	=  prettyprint_open_box (prettyprinter, indent, pmt::ALL_OR_NONE);
-	fun begin_indented_wrap_box			prettyprinter indent	=  prettyprint_open_box (prettyprinter, indent, pmt::AS_NEEDED);
-
-	fun end_box   prettyprinter 
-	    =
-	    finalize_and_pop_current_box   prettyprinter;
-
-	fun horizontal_4box			prettyprinter thunk =   { begin_horizontal_4box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun vertical_4box    			prettyprinter thunk =   { begin_vertical_4box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun align_4box				prettyprinter thunk =   { begin_align_4box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun wrap_4box				prettyprinter thunk =   { begin_wrap_4box			prettyprinter;   thunk();   end_box prettyprinter; };
-
-	fun horizontal_0box			prettyprinter thunk =   { begin_horizontal_0box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun vertical_0box    			prettyprinter thunk =   { begin_vertical_0box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun align_0box				prettyprinter thunk =   { begin_align_0box			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun wrap_0box				prettyprinter thunk =   { begin_wrap_0box			prettyprinter;   thunk();   end_box prettyprinter; };
-
-	fun horizontal_cbox			prettyprinter thunk =   { begin_horizontal_cbox			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun vertical_cbox    			prettyprinter thunk =   { begin_vertical_cbox			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun align_cbox				prettyprinter thunk =   { begin_align_cbox			prettyprinter;   thunk();   end_box prettyprinter; };
-	fun wrap_cbox				prettyprinter thunk =   { begin_wrap_cbox			prettyprinter;   thunk();   end_box prettyprinter; };
-
-
 	fun traitful_text (pp:Pp) traitful_text
 	    =
 	    {   traitful_text_texttraits =  tt::texttraits traitful_text;
@@ -1182,15 +715,6 @@ fi;
 		fi;
 	    };
 
-
-	fun text pp s
-	    =
-	    add_text (pp, s, size s);
-
-
-	fun endtxt pp s
-	    =
-	    add_endtxt (pp, s, size s);
 
 
 	fun push_texttraits (pp:Pp, texttraits)
@@ -1223,16 +747,6 @@ fi;
 	    esac;
 
 
-	fun break               pp arg =  prettyprint_break (pp, arg);
-	fun space               pp n   =  break pp { spaces => n, indent_on_wrap => 0 };
-	fun cut                 pp     =  break pp { spaces => 0, indent_on_wrap => 0 };
-	fun newline             pp     =  prettyprint_newline pp;
-	fun nonbreakable_spaces pp n   =  text pp (nblanks n);
-	fun tab                 pp n   =  add_token (pp, pmt::TAB                 n );
-
-	fun control pp control_fn
-	    =
-	    add_token (pp, pmt::CONTROL control_fn);
     };
 end;
 
