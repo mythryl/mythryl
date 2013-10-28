@@ -33,7 +33,7 @@ fun add_string (charlist, s: String)
 fun make_string charlist
     =
     cat (reverse *charlist)
-    before
+    then
         charlist := [];
 
 

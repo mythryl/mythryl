@@ -93,7 +93,7 @@ tyvar="'"{idchars}*;
 qualid ={id}"::";
 %%
 <initial>"/*"[*=#-]* => (add yytext; yybegin comment; comment_level := 1;
-		    continue() before yybegin initial);
+		    continue() then yybegin initial);
 <aaa>"/*"[*=#-]*	=> (yybegin emptycomment; comment_level := 1; continue());
 <aaa>"#"{eol}     => (inc lineno; continue());
 <aaa>"# "	        => (yybegin linecomment;  continue());
@@ -102,7 +102,7 @@ qualid ={id}"::";
 <aaa>\#\#	        => (yybegin linecomment;  continue());
 
 <code>"/*"[*=#-]* => (add yytext; yybegin comment; comment_level := 1;
-		    continue() before yybegin code);
+		    continue() then yybegin code);
 <initial>[^%\013\n]+ => (add yytext; continue());
 <initial>"%%"	 => (yybegin aaa; header (cat (reverse *text),*lineno,*lineno));
 <initial,code,comment,fff,emptycomment>{eol}  => (add yytext; inc lineno; continue());
@@ -133,7 +133,7 @@ qualid ={id}"::";
 <aaa>"|"		=> (bar(*lineno,*lineno));
 <aaa>{id}		=> (id ((yytext,*lineno),*lineno,*lineno));
 <aaa>"("		=> (pcount := 1; actionstart := *lineno;
-		    text := NIL; yybegin code; continue() before yybegin aaa);
+		    text := NIL; yybegin code; continue() then yybegin aaa);
 <aaa>.		=> (unknown(yytext,*lineno,*lineno));
 <code>"("	=> (inc pcount; add yytext; continue());
 <code>")"	=> (dec pcount;

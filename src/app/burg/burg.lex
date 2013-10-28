@@ -84,7 +84,7 @@ fun eof ()
 
 		t::ppercent(reverse(*raw),*line_num,*line_num);
 	     }
-	     before {  raw := [];
+	     then {  raw := [];
 		       reached_eop := TRUE;
 		    };
 	fi;
@@ -111,7 +111,7 @@ line			= .*;
 			    if (*percent_count == 2 )
 			         yybegin postlude; continue();
 			    else t::ppercent(reverse(*raw), *line_num, *line_num)
-				 before raw := [];
+				 then raw := [];
                             fi
                            );
                            

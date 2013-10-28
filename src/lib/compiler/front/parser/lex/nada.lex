@@ -96,7 +96,7 @@ fun add_char (charlist, c: Char)
 fun make_string charlist
     =
     cat (reverse *charlist)
-    before
+    then
         charlist := NIL;
 
 

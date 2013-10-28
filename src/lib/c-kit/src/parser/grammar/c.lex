@@ -62,7 +62,7 @@ eof = fn ({ comment_nesting_depth,err_warn,line_number_db,stringstart,charlist}:
 	     };
 
 fun add_string (charlist,s: String) = charlist := s ! *charlist;
-fun make_string charlist = (implode(reverse *charlist) before charlist := NIL);
+fun make_string charlist = (implode(reverse *charlist) then charlist := NIL);
 
 fun make_hex_int (s,a,b,err_warn: Err_Warn)
     =

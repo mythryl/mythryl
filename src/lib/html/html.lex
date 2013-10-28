@@ -46,7 +46,7 @@ fun add_str s
 fun get_str ()
     =
     string::cat (list::reverse *buffer)
-    before
+    then
         buffer := [];
 
 %%

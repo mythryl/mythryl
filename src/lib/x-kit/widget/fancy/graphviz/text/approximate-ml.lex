@@ -34,7 +34,7 @@ char_list = REF ([]:  List( String ));
 fun make_string ()
     =
     cat (reverse *char_list)
-    before
+    then
         char_list := [];
 
 col   =  REF 0;
@@ -97,7 +97,7 @@ fun dump_stk kind
 	space := 0;
 
 	reverse (tok ! *result_stk)
-        before
+        then
             result_stk := [];
     };
 

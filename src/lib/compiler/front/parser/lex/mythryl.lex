@@ -78,7 +78,7 @@ fun add_char (stringlist, c: Char)
 fun make_string stringlist
     =
     cat (reverse *stringlist)
-    before
+    then
         stringlist := NIL;
 
 							# hash_string		is from   src/lib/src/hash-string.pkg
