@@ -23,19 +23,23 @@ herein
 	#            =============================
 	#
 	package out:    Prettyprint_Output_Stream;					# Prettyprint_Output_Stream						is from   src/lib/prettyprint/big/src/out/prettyprint-output-stream.api
-	package tt:	Traitful_Text;							# Traitful_Text								is from   src/lib/prettyprint/big/src/traitful-text.api
     )
     : (weak)	Core_Prettyprint_Mill_Types						# Core_Prettyprint_Mill_Types						is from   src/lib/prettyprint/big/src/core-prettyprint-mill-types.api
     {
 	package out = out;
-	package tt  = tt;
 
 	Left_Margin_Is									# How should we compute the left margin for a box?
 	  = BOX_RELATIVE	{ spaces: Int, tab_to: Int, tabstops_are_every: Int }	# Indent left margin relative to left margin of containing box.
 	  | CURSOR_RELATIVE	{ spaces: Int, tab_to: Int, tabstops_are_every: Int }	# Set left margin by tabbing from cursor, where tabstops are every 'Int' chars.
 	  ;
 
-	Prettyprint_Token
+	Indent
+	  = NODENT									# Leave left margin unchanged.
+	  | INDENT									# Move  left margin to right.
+	  | EXDENT									# Move  left margin to left.
+	  ;
+
+	Phase1_Token
 	    #
 	    = NEWLINE
 	    | BOX Box
@@ -46,33 +50,31 @@ herein
 
 	    | BREAK Break
 
-									# "LIT" == "LITERAL (text)" -- text printed exactly as presented, without interpretation.
-	    | LIT     { string: String,					#  Raw text.  This includes styled_strings.  The 
-			length: Int					#  width and texttraits information is taken 
-		      }							#  care of when they are inserted in queue. 
-
-	    | ENDLIT  { string: String,					#  Basically a special hack so semicolons can appear
-			length: Int					#  at the end of a preceding box instead of getting
-		      }							#  a line of their own, which usually we don't want.
+	    | SPACES Int
+											# "LIT" == "LITERAL (text)" -- text printed exactly as presented, without interpretation.
+	    | LIT     String								# Raw text.  This includes traitful_text.  The width and texttraits information is taken care of when they are inserted into output stream.
+	    | ENDLIT  String								# A special hack so that (e.g.) semicolons can appear at the end of a preceding box instead of getting a line of their own, which usually we don't want.
 
 	    | PUSH_TEXTTRAITS  out::Texttraits
 	    | POP_TEXTTRAITS
-	    | CONTROL      (out::Prettyprint_Output_Stream -> Void)	# Device control operation. This provides an escape for ejecting a page or selecting a pen or any other unanticipated stuff.
+	    | CONTROL      (out::Prettyprint_Output_Stream -> Void)			# Device control operation. This provides an escape for ejecting a page or selecting a pen or any other unanticipated stuff.
 
 
 
 
 
 	withtype
-	Break =   { wrap:	Ref Bool,				# This controls whether we take the 'ifwrap' or 'ifnotwrap' action.
+	Break =   { wrap:	Ref Bool,						# This controls whether we take the 'ifwrap' or 'ifnotwrap' action.
 		    #
-		    ifnotwrap:	{ spaces:		Int,		# Start by printing this many spaces.
-				  tabstops_are_every:	Int,		# 0 == nop, n > 0 means tabs are set every n columns.
-				  tab_to:		Int		# Print blanks until  (column % tabstops_are_every) == tab_to.  This may result in zero blanks printing.
+		    indent_on_wrap:			Indent,				# If indent_on_wrap==INDENT and *wrap, we indent left margin for rest of box. NODENT==nop, EXDENT==exdent instead of indent.
+
+		    ifnotwrap:	{ spaces:		Int,				# Start by printing this many spaces.
+				  tabstops_are_every:	Int,				# 0 == nop, n > 0 means tabs are set every n columns.
+				  tab_to:		Int				# Print blanks until  (column % tabstops_are_every) == tab_to.  This may result in zero blanks printing.
 				},	
-		    ifwrap:	{ spaces:		Int,		# Start by printing this many spaces.
-				  tabstops_are_every:	Int,		# 0 == nop, n > 0 means tabs are set every n columns.
-				  tab_to:		Int		# Print blanks until  (column % tabstops_are_every) == tab_to.  This may result in zero blanks printing.
+		    ifwrap:	{ spaces:		Int,				# Start by printing this many spaces.
+				  tabstops_are_every:	Int,				# 0 == nop, n > 0 means tabs are set every n columns.
+				  tab_to:		Int				# Print blanks until  (column % tabstops_are_every) == tab_to.  This may result in zero blanks printing.
 				}
 		  }
 
@@ -80,7 +82,7 @@ herein
 	Box_Format    = { name:	String,
 			  #
 			  code:	{ target_width:		Int,
-				  box_contents:		List Prettyprint_Token
+				  box_contents:		List Phase1_Token
 				}
 				->
 				{ actual_box_width:	Int,
@@ -89,44 +91,58 @@ herein
 			}
 
 	also
-	Box = { left_margin_is:		Left_Margin_Is,				# The left margin for the box is computed by adding an int to either the cursor or the previous left margin.
-		target_width:		Int,					# We try to fit box contents into this width. We can break only where allowed (possibly nowhere), so we cannot guarantee success.
-		actual_width:		Ref Int,				# Length of contents if newline free, else length of first line.
+	Box = { left_margin_is:		Left_Margin_Is,					# The left margin for the box is computed by adding an int to either the cursor or the previous left margin.
+		target_width:		Int,						# We try to fit box contents into this width. We can break only where allowed (possibly nowhere), so we cannot guarantee success.
+		actual_width:		Ref Int,					# Length of contents if newline free, else length of first line.
 		#
-		id:			Int,					# Unique id number per box.  Only used for debugging/display.
-		rulename:		Ref(String),				# Name of rule generating box, set via   pp.rulename "T1"   defaulting to "". Used only for debugging/display.
+		id:			Int,						# Unique id number per box.  Only used for debugging/display.
+		rulename:		Ref(String),					# Name of rule generating box, set via   pp.rulename "T1"   defaulting to "". Used only for debugging/display.
 		#
-		is_multiline:		Ref Bool,				# TRUE iff there's a NEWLINE somewhere inside.
-		contents:		Ref List Prettyprint_Token,		# This is empty until box is closed, after that it == reverse (*reversed_contents).
-		reversed_contents:	Ref List Prettyprint_Token,		# We accumulate tokens in this while constructing box, by successively prepending them.
+		is_multiline:		Ref Bool,					# TRUE iff there's a NEWLINE somewhere inside.
+		contents:		Ref List Phase1_Token,				# This is empty until box is closed, after that it == reverse (*reversed_contents).
+		reversed_contents:	Ref List Phase1_Token,				# We accumulate tokens in this while constructing box, by successively prepending them.
 		#
 		format:		Box_Format
 	      };
 
-	Prettyprint_Mill_Configuration_Args					# Futureproofing -- args which code clients can pass to us to customize the prettyprinter.
-	  #									# We can add more cases here in future as needed, without breaking backward compatibility.
+	Prettyprint_Mill_Configuration_Args						# Futureproofing -- args which code clients can pass to us to customize the prettyprinter.
+	  #										# We can add more cases here in future as needed, without breaking backward compatibility.
 	  = DEFAULT_TARGET_BOX_WIDTH	Int
 	  | DEFAULT_LEFT_MARGIN_IS	Left_Margin_Is
 	  | DEFAULT_BOX_FORMAT		Box_Format
-	  | TABSTOPS_ARE_EVERY		Int					# Usually 4.
+	  | TABSTOPS_ARE_EVERY		Int						# Usually 4.
 	  ;
 
 	Prettyprint_Mill
 	  =
 	  {
-	    output_stream:		out::Prettyprint_Output_Stream,		# Where to send formatted output.
-	    output_stream_is_closed:	Ref( Bool ),				# TRUE iff the stream is closed. 
+	    output_stream:		out::Prettyprint_Output_Stream,			# Where to send formatted output.
+	    output_stream_is_closed:	Ref( Bool ),					# TRUE iff the stream is closed. 
 
 	    box:			Ref Box,
 	    nested_boxes:		Ref (List(Box)),
-	    box_nesting:		Ref Int,				# Current depth of 'nested_boxes'. Used only to catch infinite loops.
+	    box_nesting:		Ref Int,					# Current depth of 'nested_boxes'. Used only to catch infinite loops.
 
 	    next_box_id:		Ref Int,
 
-	    texttraits_stack:		Ref( List(tt::Texttraits) ),
+	    texttraits_stack:		Ref( List(out::Texttraits) )
+	};
 
-	    do_delayed_newline_indent:	Ref(Bool)				# Multiple nested boxes closing tends to produce lots of newline-indentblanks sequences in a row, which manifest as a
-	};									# sequence of unexpected blank lines. Ugly! This var lets us collapse each such sequence into a single newline-indentblanks.
+
+	package b {
+	    #
+	    Phase2_Token								# Same as Phase1_Token except without BOX, TAB or BREAK.
+		#
+		= NEWLINE
+		| SPACES Int
+		| LIT    String
+		| ENDLIT String
+		| PUSH_TEXTTRAITS  out::Texttraits
+		| POP_TEXTTRAITS
+		| CONTROL      (out::Prettyprint_Output_Stream -> Void)
+		;
+	};
+
     };
 end;
 
