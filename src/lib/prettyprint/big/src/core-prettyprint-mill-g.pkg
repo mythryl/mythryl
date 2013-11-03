@@ -272,6 +272,7 @@ herein
 	ragged_right =  { name => "ragged_right", code => wrap_box_contents_as_needed				}:  typ::Box_Format;
 
 
+	fun die msg  =  { log::fatal msg;  raise exception FAIL msg; };	
 
 
 
@@ -327,11 +328,13 @@ herein
 
 		fun expand_out_boxes_breaks_and_tabs (box: typ::Box)												# On this pass we eliminate BOX, TAB and BREAK tokens, expanding them into simpler tokens.
 		    =
-		    {   expand_out_boxes_breaks_and_tabs' { box, column => 0, left_margin => 0 };
+		    {   expand_out_boxes_breaks_and_tabs'  {  box,  loc => { left_margin => 0, column => 0, pending_spaces => 0 }  };
 			#
 			reverse *tokens;
 		    }
 		    where
+	
+
 			tokens = REF ([]: List(typ::b::Phase2_Token));
 			#
 			fun nl    () =  tokens :=  typ::b::NEWLINE             ! *tokens;
@@ -342,141 +345,135 @@ herein
 			fun ctl    c =  tokens :=  typ::b::CONTROL c           ! *tokens;
 			fun spaces n =  tokens :=  typ::b::SPACES  n           ! *tokens;
 
-			fun move_to_left_margin  left_margin
-			    =
-			    {   nl ();
-				spaces left_margin;
+			# Track left margin and which column the cursor is in.
+			# We defer issuing blanks so as to make it possible to
+			# (sometimes) implement the 'exdent' operator (moving
+			# cursor left) by reducing the count of pending spaces:
+			#
+			Loc = { left_margin:	Int,
+				column:		Int,
+				pending_spaces:	Int
+			      };
 
-				left_margin;
-			    };
+			fun move_to_left_margin  { loc as { left_margin => _, column, pending_spaces }:	Loc,		# Move from this location
+						   left_margin:						Int		# to this new left margin.
+						 }
+			    =
+			    if (column <= left_margin)	{		{  left_margin,  column,       pending_spaces => left_margin - column	};	};
+			    else			{  nl ();	{  left_margin,  column => 0,  pending_spaces => left_margin		};	};
+			    fi;
+
+
+
 
 			fun expand_out_boxes_breaks_and_tabs' {
 				box:		typ::Box,
-				column:		Int,		# 0-based column relative to absolute (not box!) left margin. This is where cursor actually is as a result of stuff printed to output stream.
-				left_margin:	Int		# Left margin of box containing 'box'.
+				loc:		Loc
 			    }
 			    =
 			    {
-				left_margin															# Compute left_margin of our box, move to it if we are a multi-line box.
-				    =
-				    if (not *box.is_multiline)
-					#
-					left_margin;														# We're not a multiline box, leave left margin unchanged.
-				    else
-					case box.left_margin_is
+				loc ->  { left_margin => left_margin', column, pending_spaces };
+
+				loc =   if (not *box.is_multiline)
 					    #
-					    (typ::BOX_RELATIVE    r) => {   move_to_left_margin ( left_margin + breaklen(left_margin, r) ); };			# We're a multiline box, set new left margin relative to left margin of enclosing box.
-					    (typ::CURSOR_RELATIVE r) => {   move_to_left_margin ( column      + breaklen(column,      r) ); };			# We're a multiline box, set new left margin relative to cursor, tabbing over for consistent positioning on page.
-					esac;
-				    fi;
-																				if print_box_debug_info
-																				    #
-																				    lit (string::cat [ "[", *box.rulename, ".", (int::to_string box.id), "[" ]);
-																				    spaces 1;
-																				fi;
+					    loc;																# We're not a multiline box, leave left margin unchanged.
+					else
+					    case box.left_margin_is
+						#
+						(typ::BOX_RELATIVE    r) =>   move_to_left_margin { loc, left_margin => left_margin' + breaklen (left_margin', r) };		# We're a multiline box, set new left margin relative to left margin of enclosing box.
+						(typ::CURSOR_RELATIVE r) =>   move_to_left_margin { loc, left_margin => column       + breaklen (column,       r) };		# We're a multiline box, set new left margin relative to cursor, tabbing over for consistent positioning on page.
+					    esac;
+					fi;
+																						if print_box_debug_info
+																						    #
+																						    lit (string::cat [ "[", *box.rulename, ".", (int::to_string box.id), "[" ]);
+																						    spaces 1;
+																						fi;
 
-				column =  do_tokens (*box.contents, left_margin, column);									# <============= Where everything happens.
+				loc =  do_tokens  {  loc,  rest => *box.contents  };												# <============= Where everything happens.
 
-																				if print_box_debug_info
-																				    #
-																				    spaces 1;
-																				    lit (string::cat [ "]", *box.rulename, ".", (int::to_string box.id), "]" ]);
-																				fi;
+																						if print_box_debug_info
+																						    #
+																						    spaces 1;
+																						    lit (string::cat [ "]", *box.rulename, ".", (int::to_string box.id), "]" ]);
+																						fi;
 
-				column;
+				loc =  move_to_left_margin  {  loc,  left_margin => left_margin'  };										# Return to left_margin' of enclosing box.
+				loc;
 			    }
 
 			also
-			fun do_tokens  (token ! rest, left_margin, column)
+			fun do_tokens  {  rest => token ! rest,  loc  }
 				=>
-				case token
-				    #
-				    typ::SPACES i
-					=>
-					{   column = column + i;
-					    spaces i;
-					    do_tokens( rest, left_margin, column );
-					};
-
-				    typ::LIT s
-					=>
-					{   column = column + string::length s;
-					    lit s;
-					    do_tokens( rest, left_margin, column );
-					};
-
-				    typ::ENDLIT s
-					=>
-					{   column = column + string::length s;
-					    endlit s;
-					    do_tokens( rest, left_margin, column );
-					};
-
-				    typ::TAB t
-					=>
-					{   i = breaklen (column, t);
-					    column = column + i;	
-					    spaces i;
-					    do_tokens (rest, left_margin, column);
-					};
-
-				    typ::BREAK b
-					=>
-					{   if *b.wrap
-						#
-						column =  left_margin + breaklen (left_margin, b.ifwrap);
-
-						case b.indent_on_wrap   typ::INDENT =>  do_tokens (rest, column, left_margin + (column - left_margin));		# Indent left_margin to column.
-									typ::NODENT =>  do_tokens (rest, column, left_margin);
-								        typ::EXDENT =>  do_tokens (rest, column, left_margin - (column - left_margin));		# Like indent, but move left_margin opposite direction (same distance).
-						esac;
-						
-						#
-					    else
-						t  = breaklen (column, b.ifnotwrap);
-						if (t  > 0)   spaces t;   fi;
-						column = column + t;
-						#
-						do_tokens (rest, left_margin, column);
-					    fi;
-					};
-
-				    typ::NEWLINE
-					=>
-					{   column = left_margin;
-					    nl();
-					    spaces column;
-					    do_tokens (rest, left_margin, column);
-					};
-
-				    typ::BOX box
-					=>
-					{   column = expand_out_boxes_breaks_and_tabs' { box, column, left_margin };
+				{   fun update_loc ({ left_margin, column, pending_spaces }: Loc,  token: typ::Phase1_Token)
+					=
+					case token
 					    #
-					    do_tokens (rest, left_margin, column);
-					};
+					    typ::SPACES i		=>	{				{ left_margin, column,							pending_spaces => pending_spaces + i					};	};
+					    typ::LIT s			=>	{ spaces pending_spaces;   	{ left_margin, column => column + pending_spaces + string::length s,	pending_spaces => 0							};	};
+					    typ::ENDLIT s		=> 	{ spaces pending_spaces;	{ left_margin, column => column + pending_spaces + string::length s,	pending_spaces => 0							};	};
+					    typ::TAB t			=>	{ 				{ left_margin, column,							pending_spaces => pending_spaces + breaklen(column + pending_spaces, t) };	};
+					    typ::NEWLINE		=>	{ 				{ left_margin, column => 0,						pending_spaces => left_margin						};	};
+					    typ::PUSH_TEXTTRAITS _	=>	{				loc;																			};
+					    typ::POP_TEXTTRAITS 	=>	{				loc;																			};
+					    typ::CONTROL _	 	=>	{				loc;																			};
+					    #
+					    typ::BREAK _		=>	{			die "BREAK not supported by update_loc()";	};				# Our caller is expected to handle this one.
+					    typ::BOX   _		=>	{			die   "BOX not supported by update_loc()";	};				# Our caller is expected to handle this one.
+					esac;
 
-				    typ::PUSH_TEXTTRAITS texttraits
-					=>
-					{   push texttraits;
-					    do_tokens (rest, left_margin, column);
-					};
+				    case token
+					#
+					typ::SPACES _		=>	{   loc = update_loc (loc, token);				do_tokens { rest, loc};		};
+					typ::TAB _		=>	{   loc = update_loc (loc, token);				do_tokens { rest, loc};		};
+					typ::NEWLINE		=>	{   loc = update_loc (loc, token);				do_tokens { rest, loc};		};
+					typ::LIT    s		=>	{   loc = update_loc (loc, token);		lit s;		do_tokens { rest, loc};		};
+					typ::ENDLIT s 		=>	{   loc = update_loc (loc, token);	     endlit s;		do_tokens { rest, loc};		};
+					typ::PUSH_TEXTTRAITS t	=>	{					       push t;		do_tokens { rest, loc};		};
+					typ::POP_TEXTTRAITS	=>	{						pop ();		do_tokens { rest, loc};		};
+					typ::CONTROL c		=>	{						ctl c;		do_tokens { rest, loc};		};
 
-				    typ::POP_TEXTTRAITS
-					=>
-					{   pop();
-					    do_tokens (rest, left_margin, column);
-					};
+					typ::BOX box
+					    =>
+					    {   loc =  expand_out_boxes_breaks_and_tabs' { box, loc };
+						#
+						do_tokens { rest, loc };
+					    };
 
-				    typ::CONTROL control_fn
-					=>
-					{   ctl  control_fn;
-					    do_tokens (rest, left_margin, column);
-					};
+					typ::BREAK b													# Prettyprinting is all about break handling, so this is the complex case.
+					    =>
+					    {   if *b.wrap
+						    #
+						    blen   =  breaklen (loc.left_margin, b.ifwrap);
 
-				esac;
+						    my (left_margin, column)										# Figure new left margin and new virtual cursor location.
+							=
+							case b.indent_on_wrap   typ::NODENT =>  (loc.left_margin,	 loc.left_margin + blen);
+										typ::INDENT =>  (loc.left_margin + blen, loc.left_margin + blen);	# Indent left_margin to column.
+										typ::EXDENT =>  (loc.left_margin - blen, loc.left_margin - blen);	# Like indent, but move left_margin opposite direction (same distance).
+							esac;
 
-			    do_tokens ([], column, left_margin) =>   column;
+						    loc =   if (column > loc.column)
+								#
+								{  left_margin,  column => loc.column,  pending_spaces => column - loc.column  };	# No need for a newline, can just update pending_spaces.
+							    else
+								nl();											# Do newline.
+								{  left_margin,  column => 0,           pending_spaces => column		   };	# Remember new actual ('column') and virtual (column+pending_spaces) cursor locations.
+							    fi;
+
+						    do_tokens { rest, loc };
+						else
+						    loc -> {  left_margin,  column,  pending_spaces };
+						    #
+						    loc =  {  left_margin,  column,  pending_spaces => pending_spaces + breaklen (column+pending_spaces, b.ifnotwrap) };
+
+						    do_tokens { rest, loc };
+						fi;
+					    };
+				    esac;
+				};
+
+			    do_tokens { rest => [], loc } =>   loc;
 			end;													# fun do_tokens
 		    end;
 
