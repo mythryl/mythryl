@@ -110,7 +110,8 @@
 #    the familiar word-wrap algorithm:  A break produces a newline
 #    iff this is required to keep the line length within width limits.
 #
-## 2007-09-10 CrT: Completely rewritten.  Twice. ;-)
+# 2007-09-10 CrT: Completely rewritten.  Twice. ;-)
+# 2012-11-02 CrT: Completely rewritten yet again  - twice!
 #
 # Design goals:
 #
@@ -284,9 +285,21 @@ herein
 	    =
 	    {   decide_which_breaks_to_wrap       (box, pp);
 		#
-		tokens = expand_out_boxes_breaks_and_tabs  box;													# This pass eliminates BOX, BREAK and TAB tokens, expanding them into simpler tokens.
+		tokens =  expand_out_boxes_breaks_and_tabs	box;				# This pass eliminates BOX, BREAK and TAB tokens, expanding them into simpler tokens.
 
-		write_tokens_to_output_stream  tokens;
+		tokens =  expand_out_endlit_tokens		tokens;				# This pass moves ENDLIT tokens to their final destination and turns them into plain LIT tokens.
+
+		tokens =  combine_neighboring_tokens   		tokens;				# This pass combines adjacent LIT and SPACES tokens.
+
+		lines  =  group_tokens_into_lines		tokens;				# This pass eliminates    NEWLINE tokens, converting from list-of-tokens to list-of-lists-of-tokens representation.
+
+												# This pass combines  XXXXXX
+		lines  =  combine_nonoverlapping_lines		lines;				#                            YYYYYY
+												# into                XXXXXX YYYYYY
+
+		tokens =  flatten_lines_back_to_tokens		lines;				# This pass re-introduces NEWLINE tokens, converting back to list-of-tokens representation.
+
+		write_tokens_to_output_stream			tokens;
 	    }
             where
 		print_box_debug_info
@@ -477,7 +490,127 @@ herein
 			end;													# fun do_tokens
 		    end;
 
-		fun write_tokens_to_output_stream  (tokens:   List( typ::b::Phase2_Token ))
+		fun expand_out_endlit_tokens  (tokens:   List( typ::b::Phase2_Token ))						# Move each typ::b::ENDLIT to immediately after the preceding type::b::LIT and convert it to a typ::c::LIT.
+		    =
+		    migrate_endlits (reverse tokens, [], [])
+		    where
+			fun migrate_endlits (token ! rest, movedlits, result)
+				=>
+				case token
+				    #
+				    typ::b::SPACES i		=>	migrate_endlits  (rest,  		   movedlits,  typ::c::SPACES i				! result  );
+				    typ::b::ENDLIT s		=>	migrate_endlits  (rest,	   typ::c::LIT s ! movedlits,						  result  );
+				    typ::b::NEWLINE		=>	migrate_endlits  (rest,                    movedlits,  typ::c::NEWLINE     			! result  );
+				    typ::b::PUSH_TEXTTRAITS t	=>	migrate_endlits  (rest,			   movedlits,  typ::c::PUSH_TEXTTRAITS t		! result  );
+				    typ::b::POP_TEXTTRAITS	=>	migrate_endlits  (rest,			   movedlits,  typ::c::POP_TEXTTRAITS			! result  );
+				    typ::b::CONTROL control_fn	=>	migrate_endlits  (rest,			   movedlits,  typ::c::CONTROL control_fn		! result  );
+				    typ::b::LIT s		=>	migrate_endlits  (rest,			          [],  typ::c::LIT s ! 		     (movedlits @ result) );
+				esac;
+
+			    migrate_endlits ([], movedlits, result)
+				=>
+				movedlits @ result;
+			end;
+		    end;
+
+		fun combine_neighboring_tokens  (tokens:   List( typ::c::Phase3_Token ))												# A little peephole optimization pass.
+		    =
+		    combine (tokens, [])
+		    where
+			fun combine (typ::c::SPACES i		!  typ::c::SPACES j		!  rest,  result) =>   combine (typ::c::SPACES (i + j) ! rest,	        result);	# Combine adjacent SPACES  tokens.
+			    combine (typ::c::LIT    s		!  typ::c::LIT    t		!  rest,  result) =>   combine (typ::c::LIT    (s + t) ! rest,	        result);	# Combine adjacent LIT     tokens.
+			    combine (typ::c::NEWLINE		!  typ::c::NEWLINE		!  rest,  result) =>   combine (typ::c::NEWLINE        ! rest,	        result);	# Combine adjacent NEWLINE tokens (== drop extra newlines). This might be a mistake, but extra newlines are a common problem.
+			    combine (typ::c::SPACES i 		!  typ::c::NEWLINE		!  rest,  result) =>   combine (typ::c::NEWLINE	       ! rest, 	        result);	# Drop trailing spaces.
+			    combine (typ::c::PUSH_TEXTTRAITS _	!  typ::c::POP_TEXTTRAITS	!  rest,  result) =>   combine (			 rest, 	        result);	# Drop useless push/pop pairs.
+			    combine (token        			                        !  rest,  result) =>   combine (		         rest,  token ! result);	# Nothing to see here, move along.
+			    #
+			    combine ([], result) =>  (reverse result);															# Done!  Restore tokens to original order and return.
+			end;
+		    end;
+
+		fun group_tokens_into_lines  (tokens:   List( typ::c::Phase3_Token ))
+		    =
+		    group (tokens, [], [])
+		    where
+			fun group (typ::c::SPACES i		 ! rest,  line, lines) =>   group (rest, typ::d::SPACES i          ! line,			lines);
+			    group (typ::c::LIT    s		 ! rest,  line, lines) =>   group (rest, typ::d::LIT    s          ! line,			lines);
+			    group (typ::c::NEWLINE		 ! rest,  line, lines) =>   group (rest, 			       [],	 reverse line ! lines);
+			    #
+			    group (typ::c::PUSH_TEXTTRAITS t	 ! rest,  line, lines) =>   group (rest, typ::d::PUSH_TEXTTRAITS t ! line,			lines);
+			    group (typ::c::POP_TEXTTRAITS 	 ! rest,  line, lines) =>   group (rest, typ::d::POP_TEXTTRAITS    ! line,			lines);
+			    group (typ::c::CONTROL f		 ! rest,  line, lines) =>   group (rest, typ::d::CONTROL f	   ! line,			lines);
+			    #
+			    group ([], line, lines) =>   reverse (reverse line ! lines);
+			end;
+		    end;
+
+		fun flatten_lines_back_to_tokens  (lines:   List( List( typ::d::Phase4_Token ) ) )
+		    =
+		    flatten (lines, [])
+		    where
+			fun convert (typ::d::SPACES i		 ! rest,  result) =>   convert  (rest,  typ::c::SPACES i          ! result);
+			    convert (typ::d::LIT    s		 ! rest,  result) =>   convert  (rest,  typ::c::LIT    s          ! result);
+			    #
+			    convert (typ::d::PUSH_TEXTTRAITS t	 ! rest,  result) =>   convert  (rest,  typ::c::PUSH_TEXTTRAITS t ! result);
+			    convert (typ::d::POP_TEXTTRAITS 	 ! rest,  result) =>   convert  (rest,  typ::c::POP_TEXTTRAITS    ! result);
+			    convert (typ::d::CONTROL f		 ! rest,  result) =>   convert  (rest,  typ::c::CONTROL f	  ! result);
+			    #
+			    convert ([], result) =>   typ::c::NEWLINE ! result;
+			end;
+
+			fun flatten (line ! rest, result) =>  flatten  (rest,  convert (line, result) );
+			    flatten (         [], result) =>  reverse result;
+			end;
+		    end;
+
+		fun combine_nonoverlapping_lines  (lines:   List( List( typ::d::Phase4_Token ) ) )								# The idea here is to combine lines like
+		    =																		#           xxxxx
+		    combine (lines, [])																#                 yyyyyyy
+		    where																	# into      xxxxx yyyyyyy
+																				# So we're looking for  line_length(line1) < leading_blanks(line2)
+																				# Note that combine_neighboring_tokens() will have combined consecutive
+																				# SPACES and dropped trailing  SPACES, so things are simple:
+
+			fun line_length (tokens:   List( typ::d::Phase4_Token ))										# A little utility fn to sum the lengths of the tokens in a list.
+			    =
+			    len (tokens, 0)
+			    where
+				fun len (typ::d::SPACES i		 ! rest,  len_so_far) =>   len (rest, len_so_far + i			);
+				    len (typ::d::LIT    s		 ! rest,  len_so_far) =>   len (rest, len_so_far + string::length(s)	);
+				    len (other				 ! rest,  len_so_far) =>   len (rest, len_so_far			);
+				    #
+				    len ([],					  len_so_far) =>   len_so_far;
+				end;
+			    end;
+
+			fun combine (line1 ! line2 ! rest,  result)
+				=>
+				case line2
+				    #
+				    (typ::d::SPACES leading_blanks_on_line2  !  rest_of_line2)
+					=>
+					{   length_of_line1 =   line_length line1;
+					    #
+					    if (line_length(line1) < leading_blanks_on_line2)
+						#														# Paydirt!
+						shortened_line2 =   typ::d::SPACES (leading_blanks_on_line2 - length_of_line1)  !  rest_of_line2;		# YYYYYYY stripped of some leading blanks.
+						combined_line   =   line1 @ shortened_line2;									# XXXXXXX YYYYYYY.
+						combine (combined_line ! rest,   result);									# Push combined line back on input to allow it to possibly be further combined.
+					    else
+						combine (line2 ! rest,  line1 ! result);
+					    fi;
+					};
+				    _   =>      combine (line2 ! rest,  line1 ! result);
+				esac;
+
+			    combine (line ! rest,         result)
+			=>  combine (       rest,  line ! result);
+
+			    combine ([], result) =>   reverse result;
+			end;
+		    end;
+
+		fun write_tokens_to_output_stream  (tokens:   List( typ::c::Phase3_Token ))
 		    =
 		    apply write_token tokens
 		    where
@@ -485,13 +618,13 @@ herein
 			    =
 			    case token
 				#
-				typ::b::SPACES i		=>	out::put_string      (pp.output_stream, nblanks i);
-				typ::b::LIT s			=>	out::put_string      (pp.output_stream, s);
-				typ::b::ENDLIT s		=>	out::put_string      (pp.output_stream, s);
-				typ::b::NEWLINE			=>	out::put_string      (pp.output_stream,  "\n");
-				typ::b::PUSH_TEXTTRAITS t	=>	out::push_texttraits (pp.output_stream, t);
-				typ::b::POP_TEXTTRAITS		=>	out::pop_texttraits   pp.output_stream;
-				typ::b::CONTROL control_fn	=>	control_fn            pp.output_stream;
+				typ::c::SPACES i		=>	out::put_string      (pp.output_stream, nblanks i);
+				typ::c::LIT s			=>	out::put_string      (pp.output_stream, s);
+				typ::c::NEWLINE			=>	out::put_string      (pp.output_stream,  "\n");
+				#
+				typ::c::PUSH_TEXTTRAITS t	=>	out::push_texttraits (pp.output_stream, t);
+				typ::c::POP_TEXTTRAITS		=>	out::pop_texttraits   pp.output_stream;
+				typ::c::CONTROL control_fn	=>	control_fn            pp.output_stream;
 			    esac;
 		    end;
             end;														# fun prettyprint_box
