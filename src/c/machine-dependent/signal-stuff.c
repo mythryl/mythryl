@@ -70,7 +70,7 @@ Val   make_mythryl_signal_handler_arg   (			// Called only from handle-interproc
     //
     // where
     //     The first  argument is  the signal id 		// For example SIGALRM,
-    //     the second argument is  the signal count		// I.e., number of times signal has been recieved since last handled.
+    //     the second argument is  the signal count		// I.e., number of times signal has been received since last handled.
     //     the third  argument is  the resumption fate.
     //
     // The return type is X because the Mythryl
