@@ -201,7 +201,7 @@ stipulate
 
             f 0
             except
-                (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) =  ();
+                INDEX_OUT_OF_BOUNDS =  ();
         };
 herein
     entry_to_action =   fn 0 => ACCEPT;
