@@ -91,7 +91,7 @@ GLUE_DEPENDENCIES :=
 ###################################################################################
 
 nil:
-	@echo "Do \"make help\" for help"
+	@echo "Do \"make help\" for help."
 
 help:
 	@echo
