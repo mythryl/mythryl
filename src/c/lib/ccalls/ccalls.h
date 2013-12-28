@@ -45,7 +45,7 @@ extern void   set_visible_task   (Task* visible_task);
 
 
 /* COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+ * Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
  * released per terms of SMLNJ-COPYRIGHT.
  */
 

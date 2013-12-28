@@ -93,6 +93,6 @@ CFUNC("toUnixAddr","toUnixAddr",	_lib7_Sock_string_to_unix_domain_socket_address
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 // released per terms of SMLNJ-COPYRIGHT.
 

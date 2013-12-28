@@ -518,7 +518,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Vunt bytes_needed)   {
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

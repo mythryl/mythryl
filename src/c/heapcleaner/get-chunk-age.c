@@ -51,6 +51,6 @@ int   get_chunk_age   (Val chunk) {
 
 
 // COPYRIGHT (c) 1993 AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 // released per terms of SMLNJ-COPYRIGHT.
 

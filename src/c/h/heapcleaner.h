@@ -23,7 +23,7 @@ Unt8*		codechunk_comment_string_for_program_counter	(Vunt pc);				// codechunk_c
 
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 // released per terms of SMLNJ-COPYRIGHT.
 
 

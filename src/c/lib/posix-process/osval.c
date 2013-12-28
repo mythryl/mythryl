@@ -52,7 +52,7 @@ Val   _lib7_P_Process_osval   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-// Commented out 2013-03-19 CrT because it seems to always return "not defined" anyhow
+// Commented out 2014-03-19 CrT because it seems to always return "not defined" anyhow
 // and for the moment I just want a fn which returns a trivial value.
 //    name_val_t* resultt =  _lib7_posix_nv_binary_search (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 
@@ -68,6 +68,6 @@ return TAGGED_INT_FROM_C_INT(0);
 
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
-// Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 // released per terms of SMLNJ-COPYRIGHT.
 

@@ -37,7 +37,7 @@ CFUNC("convert_c_value_to_mythryl","convert_c_value_to_mythryl",	lib7_datumCtoML
 
 
 /* COPYRIGHT (c) 1994 AT&T Bell Laboratories.
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2013,
+ * Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
  * released per terms of SMLNJ-COPYRIGHT.
  */
 
