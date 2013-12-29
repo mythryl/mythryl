@@ -1,6 +1,6 @@
 // get-quire-from-win32.c
 //
-// A simple memory module built on top of vmem alloc/free.
+// A simple memory module built on top of vmem allot/free.
 // This is currently win32 specific.
 
 // 'quire' (pronounced like choir) designates a multipage ram region

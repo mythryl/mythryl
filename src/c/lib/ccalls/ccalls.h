@@ -26,7 +26,7 @@
 #include <string.h>
 
 extern Vunt *checked_memalign(int n,int align);
-#define checked_alloc(n) checked_memalign((n),(1))
+#define checked_allot(n) checked_memalign((n),(1))
 
 extern Vunt mk_C_function(Task *task,
 			    Val f,

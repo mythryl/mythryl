@@ -23,7 +23,7 @@
 //================================
 // Nomenclature:
 //    We use "make" for functions which both allocate and initialize ram.
-//    We use "alloc" for functions which allocate uninitialized ram.
+//    We use "allot" for functions which allocate uninitialized ram.
 
 #ifndef ASM_TO_C_REQUEST_CODES_H
 #define ASM_TO_C_REQUEST_CODES_H

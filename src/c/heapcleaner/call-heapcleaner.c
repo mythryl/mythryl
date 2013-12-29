@@ -170,7 +170,7 @@ ramlog_printf("#%d call_heapcleaner/AAA\n", syscalls_seen );
 	    //
 	    Hostthread* hostthread =  hostthread_table__global[ j ];
 	    Task*    task    =  hostthread->task;
-														HOSTTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+														HOSTTHREAD_LOG_IF ("task[%d] allot/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (hostthread->mode != HOSTTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
@@ -371,7 +371,7 @@ ramlog_printf("#%d call_heapcleaner_with_extra_roots/AAA\n", syscalls_seen );
 	    hostthread = hostthread_table__global[ j ];
 
 	    task    = hostthread->task;
-														HOSTTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+														HOSTTHREAD_LOG_IF ("task[%d] allot/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (hostthread->mode != HOSTTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.

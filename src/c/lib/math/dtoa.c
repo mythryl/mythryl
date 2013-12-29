@@ -2006,9 +2006,9 @@ quorem
 
  static char *
 #ifdef KR_headers
-rv_alloc(i) int i;
+rv_allot(i) int i;
 #else
-rv_alloc(int i)
+rv_allot(int i)
 #endif
 {
 	int j, k, *r;
@@ -2029,14 +2029,14 @@ rv_alloc(int i)
 
  static char *
 #ifdef KR_headers
-nrv_alloc(s, rve, n) char *s, **rve; int n;
+nrv_allot(s, rve, n) char *s, **rve; int n;
 #else
-nrv_alloc(char *s, char **rve, int n)
+nrv_allot(char *s, char **rve, int n)
 #endif
 {
 	char *rv, *t;
 
-	t = rv = rv_alloc(n);
+	t = rv = rv_allot(n);
 	while(*t = *s++) t++;
 	if (rve)
 		*rve = t;
@@ -2179,9 +2179,9 @@ dtoa
 		*decpt = 9999;
 #ifdef IEEE_Arith
 		if (!word1(d) && !(word0(d) & 0xfffff))
-			return nrv_alloc("Infinity", rve, 8);
+			return nrv_allot("Infinity", rve, 8);
 #endif
-		return nrv_alloc("NaN", rve, 3);
+		return nrv_allot("NaN", rve, 3);
 		}
 #endif
 #ifdef IBM
@@ -2189,7 +2189,7 @@ dtoa
 #endif
 	if (!d) {
 		*decpt = 1;
-		return nrv_alloc("0", rve, 1);
+		return nrv_allot("0", rve, 1);
 		}
 
 	b = d2b(d, &be, &bbits);
@@ -2309,7 +2309,7 @@ dtoa
 			if (i <= 0)
 				i = 1;
 		}
-	s = s0 = rv_alloc(i);
+	s = s0 = rv_allot(i);
 
 	if (ilim >= 0 && ilim <= Quick_max && try_quick) {
 

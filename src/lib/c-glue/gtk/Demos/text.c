@@ -92,7 +92,7 @@ int main( int argc,
   color.red = 0xffff;
   color.green = 0;
   color.blue = 0;
-  if (!gdk_color_alloc(cmap, &color)) {
+  if (!gdk_color_allot(cmap, &color)) {
     g_error("couldn't allocate color");
   }
 

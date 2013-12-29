@@ -137,7 +137,7 @@ Vunt*   checked_memalign   (int n, int align)   {
 	align = sizeof(Vunt);
     }
 
-    if ((p = (Vunt *)MALLOC(n)) == NULL)   die("couldn't alloc memory for C call\n");
+    if ((p = (Vunt *)MALLOC(n)) == NULL)   die("couldn't allot memory for C call\n");
 
     ASSERT(((Vunt)p & (Vunt)(align-1)) != 0);
 
@@ -178,7 +178,7 @@ static Val   double_CtoLib7   (Task* task, double g)   {
     return result;
 }
 
-/* Pointers to storage alloc'd by the interface:
+/* Pointers to storage allot'd by the interface:
 */
 typedef struct ptr_desc {
     //
@@ -205,7 +205,7 @@ static int pointerlist_len()
     
 static void keep_ptr(Vunt *p)
 {
-    Pointerlist *q = (Pointerlist *) checked_alloc(sizeof(Pointerlist));
+    Pointerlist *q = (Pointerlist *) checked_allot(sizeof(Pointerlist));
 
 #ifdef DEBUG_C_CALLS
     debug_say("keeping ptr %x, |pointerlist|=%d\n", p, pointerlist_len());
@@ -331,7 +331,7 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 
 	if (need_to_call_heapcleaner(task,bytes + ONE_K_BINARY)) {
 	    //
-	    die( "space_check: Cannot alloc Mythryl space for Mythryl-to-C conversion.\n" );
+	    die( "space_check: Cannot allot Mythryl space for Mythryl-to-C conversion.\n" );
         }
     }
 }
@@ -728,7 +728,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Vunt** p,  Val datum
 	        //
 		next_arg = nextdatum(this_arg);
 		len = next_arg - this_arg;
-		argtypes[i] = (char *)checked_alloc(len+1);  /* len plus null */
+		argtypes[i] = (char *)checked_allot(len+1);  /* len plus null */
 		strncpy(argtypes[i],this_arg,len);
 		argtypes[i][len] = '\0';
 		this_arg = next_arg;
@@ -742,7 +742,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Vunt** p,  Val datum
 	    //
 	    next_arg = nextdatum(this_arg);
 	    len = next_arg - this_arg;
-	    rettype = (char*) checked_alloc( len+1 );		// Len plus null
+	    rettype = (char*) checked_allot( len+1 );		// Len plus null
 	    strncpy(rettype,this_arg,len);
 	    rettype[len] = '\0';
 
@@ -839,7 +839,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Vunt** p,  Val datum
 	        debug_say("convert_mythryl_value_to_c: string \"%s\"\n",s);
 	    #endif
 
-	    r = (char*) checked_alloc( strlen(s)+1 );
+	    r = (char*) checked_allot( strlen(s)+1 );
 	    strcpy(r,s);
 	    keep_ptr((Vunt*) r);
 	    *(*p)++ =  (Vunt) r;
@@ -993,7 +993,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 	return result
     }
 
-    // Return (result,list of pointers to alloc'd C chunks):
+    // Return (result,list of pointers to allot'd C chunks):
     //
     space_check( task,pointerlist_space(),&dummy_root__local );
 
@@ -1415,7 +1415,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 
 	} else {
 
-	    // Return (result,list of pointers to alloc'd C chunks):
+	    // Return (result,list of pointers to allot'd C chunks):
             //
 	    #ifdef DEBUG_C_CALLS
 		debug_say("lib7_c_call: returning list of caddrs\n");
