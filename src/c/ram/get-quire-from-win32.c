@@ -41,15 +41,15 @@ struct quire {
     Vunt	mapSizeB;		// size of the mapped region containing the chunk.
 };
 
-static void* alloc_vmem();
+static void* allot_vmem();
 static void  free_vmem(void *);
 
-#define ALLOC_HEAPCHUNK()	alloc_vmem( sizeof( Quire ) )
+#define ALLOC_HEAPCHUNK()	allot_vmem( sizeof( Quire ) )
 #define RETURN_QUIRE_TO_OS		free_vmem
 
 #include "get-quire-from-os-stuff.c"
 
-static void*   alloc_vmem   (int nb)   {
+static void*   allot_vmem   (int nb)   {
     // 
     // Allocate some virtual memory.
     //
@@ -80,7 +80,7 @@ static Status   map_quire   (Quire* chunk,  Vunt szb) {
     Vunt offset;
     Vunt addr;
 
-    if ((addr = (Vunt) alloc_vmem(szb+BOOK_BYTESIZE)) == NULL) {
+    if ((addr = (Vunt) allot_vmem(szb+BOOK_BYTESIZE)) == NULL) {
         return FALSE;
     }
 

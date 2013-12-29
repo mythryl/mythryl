@@ -79,7 +79,7 @@ static Val   do_allocate_codechunk   (Task* task,  Val arg) {
     // Note: Generating the name string within the code chunk
     //       is the code generator's responsibility.
     //
-    // This fn gets bound to 'alloc_code' in:
+    // This fn gets bound to 'allot_code' in:
     //
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
 

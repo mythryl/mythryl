@@ -64,7 +64,7 @@ Quire*   obtain_quire_from_os   (Vunt bytesize) {
     //    src/c/heapcleaner/heapcleaner-initialization.c
     //    src/c/heapcleaner/hugechunk.c
 
-    Vunt alloc_bytesize;
+    Vunt allot_bytesize;
 
     Quire*	chunk;
 
@@ -75,7 +75,7 @@ Quire*   obtain_quire_from_os   (Vunt bytesize) {
 	return NULL;
     }
 
-    alloc_bytesize
+    allot_bytesize
 	=
         (bytesize <= BOOK_BYTESIZE)
 	    ?
@@ -86,13 +86,13 @@ Quire*   obtain_quire_from_os   (Vunt bytesize) {
 									// map_quire	def in   src/c/ram/get-quire-from-win32.c
 									// map_quire	def in   src/c/ram/get-quire-from-mmap.c
 									// map_quire	def in   src/c/ram/get-quire-from-mach.c
-    if (!map_quire (chunk, alloc_bytesize)) {
+    if (!map_quire (chunk, allot_bytesize)) {
 	//
 	RETURN_QUIRE_TO_OS( chunk );
 	return NULL;
     }
 
-    VMSizeB += alloc_bytesize;
+    VMSizeB += allot_bytesize;
 
     return chunk;
 }
