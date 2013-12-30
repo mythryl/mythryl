@@ -67,7 +67,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     // We cannot reference anything on the Mythryl
     // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
     // because garbage collection might be moving
-    // it around, so allocate C space in which to do the read:
+    // it around, so allot C space in which to do the read:
     //
     Mythryl_Heap_Value_Buffer  vec_buf;
     //

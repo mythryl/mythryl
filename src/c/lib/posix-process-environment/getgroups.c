@@ -101,7 +101,7 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	if (errno != EINVAL)   return RAISE_SYSERR__MAY_HEAPCLEAN(task, -1, NULL);
 
         // Find out how many groups there
-        // are and allocate enough space:
+        // are and allot enough space:
         //
 	RELEASE_MYTHRYL_HEAP( task->hostthread, __func__, NULL );
 	    //

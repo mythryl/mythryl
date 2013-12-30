@@ -824,7 +824,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
     // distribution of the agegroup buffers per policy.
     //
     // In some cases we may be able to re-use a saved buffer
-    // from a previous heapcleaning; otherwise we must allocate
+    // from a previous heapcleaning; otherwise we must allot
     // new ram to hold the to-space buffers.   We're usually
     // allocating megabytes of space, so we do not use malloc(),
     // but rather obtain_quire_from_os() -- see
@@ -851,7 +851,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 										// have enough free space to accept that many bytes from it.
 
     Vunt  min_bytesize_for_sib[       MAX_PLAIN_SIBS ];				// Minimum bytesize for each sib buffer:  If we cannot get this much we will groan and die.
-										// Usually we will allocate more than this;  this is our emergency fallback position if we
+										// Usually we will allot more than this;  this is our emergency fallback position if we
 										// Cannot get as much ram from the host OS as we really want.
 
     // Initialize bytes_of_seniorchunks_in_next_younger_agegroup[].
@@ -942,7 +942,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 
 	// Compute the space requirements for this agegroup,
 	// make the old to-space into from-space, and
-	// allocate a new to-space.
+	// allot a new to-space.
 	//
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	    //	
@@ -1051,10 +1051,10 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 
 	if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {							// set_up_tospace_sib_buffers_for_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
-	    // We were unable to allocate sufficient RAM from the OS. (?!)
-            // Try to allocate the minimum size:
+	    // We were unable to allot sufficient RAM from the OS. (?!)
+            // Try to allot the minimum size:
 
-	    say_error( "Unable to allocate to-space for agegroup %d; trying smaller size\n", age+1 );
+	    say_error( "Unable to allot to-space for agegroup %d; trying smaller size\n", age+1 );
 
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {
 		//
@@ -1065,7 +1065,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 
 	    if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {
 		//
-		die("Unable to allocate minimum size sib buffers for agegroup\n");				// Let's be more specific here! XXX BUGGO FIXME.
+		die("Unable to allot minimum size sib buffers for agegroup\n");				// Let's be more specific here! XXX BUGGO FIXME.
 	    }
 	}
 

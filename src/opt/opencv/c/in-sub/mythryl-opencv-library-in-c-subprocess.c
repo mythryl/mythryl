@@ -251,7 +251,7 @@ make_trie_node (void)
         (Trie_Node*)
         malloc(   sizeof( Trie_Node )   );
 
-    if (!result) {  sprintf( text_buf, "make_trie_node: Couln't allocate node." ); moan_and_die(); }
+    if (!result) {  sprintf( text_buf, "make_trie_node: Couln't allot node." ); moan_and_die(); }
 
     for (int i = 256; i --> 0; ) {
 	//

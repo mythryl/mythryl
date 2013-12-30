@@ -49,7 +49,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 	if (((hostthread_table__global[i] = MALLOC_CHUNK(Hostthread)) == NULL)
 	||  ((task = MALLOC_CHUNK(Task)) == NULL)
 	){
-	    die ("runtime-state.c: unable to allocate hostthread_table__global entry");
+	    die ("runtime-state.c: unable to allot hostthread_table__global entry");
 	}
 
 	hostthread_table__global[i]->task =  task;

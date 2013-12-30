@@ -25,7 +25,7 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     //
     // Mythryl type:   String -> Internet_Address
     //
-    // Given a path, allocate a UNIX-domain socket address.
+    // Given a path, allot a UNIX-domain socket address.
     //
     // This fn gets bound to   string_to_unix_domain_socket_address'   in:
     //

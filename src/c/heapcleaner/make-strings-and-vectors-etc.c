@@ -251,7 +251,7 @@ void   shrink_fresh_wordslots_vector   (Task* task,  Val v,  int new_length_in_w
     // 
     // Shrink a freshly allocated vector with word-size slots.
     // This is used by the input routines that must pessimistically
-    // pre-allocate space for more input than actually gets read:
+    // pre-allot space for more input than actually gets read:
     //     src/c/lib/socket/recvfrom.c
     //     src/c/lib/posix-io/read.c
 
@@ -488,7 +488,7 @@ Val   allocate_headerless_rw_vector__may_heapclean   (Task* task,  int len,  Boo
 
 	    clean_check: ;						// Hostthread support jumps to here to recheck for heapcleaning.
 
-	    // If the agegroup1 sib we want to allocate in
+	    // If the agegroup1 sib we want to allot in
 	    // has not been created or does not have enough
 	    // free space, we'll have to call the heapcleaner
 	    // to establish it:
@@ -682,7 +682,7 @@ Val   make_system_constant__may_heapclean   (Task* task,  Sysconsts* table,  int
     //===================================
     // 
     // Find the system constant with the given id
-    // in table, and allocate a pair to represent it.
+    // in table, and allot a pair to represent it.
     //
     // If the constant is not present then
     // return the pair (~1, "<UNKNOWN>").

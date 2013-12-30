@@ -216,7 +216,7 @@ static Val do_mutex_make   (Task* task,  Val arg)   {
     //
 										ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
 
-    // We allocate the mutex on the C heap rather
+    // We allot the mutex on the C heap rather
     // than the Mythryl heap because having the
     // garbage collector moving mutexes around in
     // memory seems like a really, really bad idea:				// In particular, the Linux implementation contains linklist pointers.
@@ -298,7 +298,7 @@ static Val   do_barrier_make   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-    // We allocate the barrier on the C heap
+    // We allot the barrier on the C heap
     // rather than the Mythryl heap because
     // having the garbage collector moving condvars
     // around in memory seems like a really, really
@@ -364,7 +364,7 @@ static Val   do_condvar_make   (Task* task,  Val arg)   {
     //       ===============
     //
 									    ENTER_MYTHRYL_CALLABLE_C_FN(__func__);
-    // We allocate the condvar_struct on the C
+    // We allot the condvar_struct on the C
     // heap rather than the Mythryl heap because
     // having the garbage collector moving condvars
     // around in memory seems like a really, really

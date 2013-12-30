@@ -79,7 +79,7 @@ Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char **argv) {
     Heapcleaner_Args* params;
 
     if ((params = MALLOC_CHUNK(Heapcleaner_Args)) == NULL) {
-	die("unable to allocate heap_params");
+	die("unable to allot heap_params");
     }
 
     // We use 0 or "-1" to signify that
@@ -223,7 +223,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 		    book2sibid_bytesize
 	       );
 
-	if (quire == NULL) 	   die ("Unable to allocate ram region for book_to_sibid__global");
+	if (quire == NULL) 	   die ("Unable to allot ram region for book_to_sibid__global");
 
 	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_QUIRE( quire );
 
@@ -394,7 +394,7 @@ void   set_up_heap   (			// Create and initialize the heap.
                 BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_HOSTTHREADS) );
 	}
 
-	if (set_up_tospace_sib_buffers_for_agegroup( heap->agegroup[0] ) == FALSE)	    die ("unable to allocate initial agegroup 1 buffer\n");
+	if (set_up_tospace_sib_buffers_for_agegroup( heap->agegroup[0] ) == FALSE)	    die ("unable to allot initial agegroup 1 buffer\n");
 
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //

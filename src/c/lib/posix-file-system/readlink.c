@@ -50,7 +50,7 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     // fills the given buffer as much as possible, without nul-termination,
     // and returns the number of bytes copied. If the buffer is not large
     // enough, the return value will be at least the buffer size. In that
-    // case, we find out how big the link really is, allocate a buffer to
+    // case, we find out how big the link really is, allot a buffer to
     // hold it, and redo the readlink.
     //
     // Note that the above semantics are not those of POSIX, which requires
@@ -107,7 +107,7 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 
     // Buffer not big enough.
 
-    // Determine how big the link text is and allocate a buffer.
+    // Determine how big the link text is and allot a buffer.
 
     {   char* c_path
 	    = 

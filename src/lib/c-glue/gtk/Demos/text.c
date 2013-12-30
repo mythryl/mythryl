@@ -87,13 +87,13 @@ int main( int argc,
 		    GTK_FILL, GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
   gtk_widget_show (vscrollbar);
 
-  /* Get the system color map and allocate the color red */
+  /* Get the system color map and allot the color red */
   cmap = gdk_colormap_get_system();
   color.red = 0xffff;
   color.green = 0;
   color.blue = 0;
   if (!gdk_color_allot(cmap, &color)) {
-    g_error("couldn't allocate color");
+    g_error("couldn't allot color");
   }
 
   /* Load a fixed font */

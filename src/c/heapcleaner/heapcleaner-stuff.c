@@ -50,7 +50,7 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 
     } else if ((quire = obtain_quire_from_os( total_bytes )) == NULL) {
 	//
-	// Eventually we should try to allocate the agegroup
+	// Eventually we should try to allot the agegroup
 	//as separate chunks instead of failing.			XXX SUCKO FIXME
 	//
 	return FALSE;

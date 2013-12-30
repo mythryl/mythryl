@@ -174,7 +174,7 @@
 #define stdfate			ESI				// Needs to match   stdfate		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 #define stdarg			EBP				// Needs to match   stdarg		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
-#define heap_allocation_pointer	EDI				// We allocate ram just by advancing this pointer.  We use this very heavily -- every 10 instructions or so.
+#define heap_allocation_pointer	EDI				// We allot ram just by advancing this pointer.  We use this very heavily -- every 10 instructions or so.
 								// Needs to match   heap_allocation_pointer  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 #define stackptr		ESP				// Needs to match   stackptr		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg

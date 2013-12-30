@@ -127,7 +127,7 @@
 //     It is ok if they are proxies for actual C-level mutexes,
 //     so long as Mythryl-level semantics stay clean and natural.
 //
-//   o We cannot (trivially) allocate C mutexes structs
+//   o We cannot (trivially) allot C mutexes structs
 //     on the Mythryl heap because the Linux mutex struct
 //     includes pointers, and is thus position-dependent,
 //     whereas Mythryl heap values typically move around.
@@ -164,7 +164,7 @@
 //   o We keep this vector's length a power of two, so as to
 //     facilitate circular traversal via simple masking.
 //
-//   o We keep unused vector slots set to NULL, and allocate
+//   o We keep unused vector slots set to NULL, and allot
 //     mutexes by simply rotating a clock-hand circularly around
 //     the vector looking for NULL slots.
 //
@@ -238,7 +238,7 @@ static void   double_size_of_mutex_vector__need_mutex   (void)   {	// Caller MUS
 static Mutex*   make_mutex_record   (void) {
     //          =================
     //
-    Mutex* mutex =   (Mutex*)  malloc( sizeof( Mutex ) );	if (!mutex)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_mutex_record: Unable to allocate mutex record");
+    Mutex* mutex =   (Mutex*)  malloc( sizeof( Mutex ) );	if (!mutex)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_mutex_record: Unable to allot mutex record");
 
     char* err =  initialize_mutex( mutex );			if (err)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_mutex_record: %s", err);
 
@@ -387,7 +387,7 @@ static void   double_size_of_condvar_vector__need_mutex   (void)   {			// Caller
 static Condvar*   make_condvar_record   (void) {
     //            ===================
     //
-    Condvar* condvar =   (Condvar*)  malloc( sizeof( Condvar ) );	if (!condvar)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_condvar_record: Unable to allocate condvar record");
+    Condvar* condvar =   (Condvar*)  malloc( sizeof( Condvar ) );	if (!condvar)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_condvar_record: Unable to allot condvar record");
 
     char* err =  initialize_condvar( condvar );				if (err)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_condvar_record: %s", err);
 
@@ -586,7 +586,7 @@ static void   double_size_of_barrier_vector__need_mutex   (void)   {			// Caller
 static Barrierx*  make_barrier_record   (void) {
     //            ===================
     //
-    Barrierx* barrier =   (Barrierx*)  malloc( sizeof( Barrierx ) );	if (!barrier)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_barrier_record: Unable to allocate barrier record");
+    Barrierx* barrier =   (Barrierx*)  malloc( sizeof( Barrierx ) );	if (!barrier)  die("src/c/hostthread/hostthread-on-posix-threads.c: allocate_barrier_record: Unable to allot barrier record");
 
     barrier->is_set   = FALSE;
 
@@ -892,7 +892,7 @@ char*    pth__pthread_join   (Task* task, Val arg) {						// http://pubs.opengro
     // vector/list, rather than simple indexing. (Or a binary lookup if
     // we started having huge numbers of live Hostthreads, say.)
     //
-    // For the moment I only intend to allocate a small number of Hostthreads
+    // For the moment I only intend to allot a small number of Hostthreads
     // at startup and then stick with them for the length of the run, so
     // I'm going to punt on this problem for the time being. -- 2011-12-05 CrT
     //////////////////////////////////////////////////////////////////////////////
@@ -948,7 +948,7 @@ void   pth__start_up   (void)   {
     // Start-of-the-world initialization stuff.
     // We get called very early by   do_start_of_world_stuff   in   src/c/main/runtime-main.c
     //
-    // We could allocate our static global mutexes here
+    // We could allot our static global mutexes here
     // if necessary, but we don't need to because the
     // posix-threads API allows us to just statically
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
@@ -1565,7 +1565,7 @@ void   recover_mythryl_heap   (Hostthread* hostthread,  const char* fn_name) {
 //
 //   1) Most heap allocation is done in agegroup zero;
 //      by giving each hostthread its own independent
-//      agegroup zero, each can allocate at full speed
+//      agegroup zero, each can allot at full speed
 //      without locking overhead.
 //
 //      Allocation is also done directly into later heap

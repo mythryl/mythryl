@@ -93,14 +93,14 @@ Hugechunk*   allocate_hugechunk_quire   (
 
     } while (npages != old_npages);
 
-    quire =  obtain_quire_from_os(  quire_bytesize  );						if (!quire) die( "Unable to allocate hugechunk quire.");
+    quire =  obtain_quire_from_os(  quire_bytesize  );						if (!quire) die( "Unable to allot hugechunk quire.");
 
     Hugechunk_Quire*
 	//
         hq = (Hugechunk_Quire*) BASE_ADDRESS_OF_QUIRE( quire );					// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
 
 
-    Hugechunk* chunk = MALLOC_CHUNK( Hugechunk );						if (!chunk)	 die( "Unable to allocate hugechunk descriptor.");
+    Hugechunk* chunk = MALLOC_CHUNK( Hugechunk );						if (!chunk)	 die( "Unable to allot hugechunk descriptor.");
 
 
     // Initialize the hugechunk record:
@@ -181,7 +181,7 @@ Hugechunk*   allocate_hugechunk   (
 
     if (dp == header) {
 	//
-        // No free chunk fits, so allocate a new quire:
+        // No free chunk fits, so allot a new quire:
 	//
 	dp = allocate_hugechunk_quire( heap, total_bytesize );
 

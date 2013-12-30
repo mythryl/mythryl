@@ -159,7 +159,7 @@ allocate_script_buffer   ( int bytesize ) {
 
     if (!text_for_compiler_buffer) {
 	//
-        fprintf( stderr, "%s: Unable to allocate %d bytes for script buffer: %s\n", our_name, bytesize, strerror( errno ) );
+        fprintf( stderr, "%s: Unable to allot %d bytes for script buffer: %s\n", our_name, bytesize, strerror( errno ) );
         exit(1);
     }
 

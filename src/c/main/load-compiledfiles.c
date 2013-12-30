@@ -211,7 +211,7 @@ void   load_compiled_files__may_heapclean   (
 
     if (! (filename_buf = MALLOC( max_boot_path_len ))) {		// This space is ultimately wasted.	XXX SUCKO FIXME
 	//
-	die ("unable to allocate space for boot file names");
+	die ("unable to allot space for boot file names");
     }
 
     // Load all requested compiled_files into the heap:
@@ -409,12 +409,12 @@ static Val   read_in_compiled_file_list__may_heapclean   (
 
 	if (!(name_buf = MALLOC( max_boot_path_len ))) {
 	    //
-	    die ("unable to allocate space for .compiled file filenames");
+	    die ("unable to allot space for .compiled file filenames");
         }
 
 //	if (!(file_names = MALLOC( max_num_boot_files * sizeof(char*) ))) {
 //	    //
-//	    die ("Unable to allocate space for compiledfiles-to-load name table");
+//	    die ("Unable to allot space for compiledfiles-to-load name table");
 //        }
 
         // Read in the file names, converting them to
@@ -936,7 +936,7 @@ static void   load_compiled_file__may_heapclean   (
         =
         header.number_of_imported_picklehashes + 1;
 
-    // Make sure we have enough free heap space to allocate 
+    // Make sure we have enough free heap space to allot 
     // our 'import record' vector of imported values:
     //
     if (need_to_call_heapcleaner (task, REC_BYTESIZE(imports_record_slot_count))) {

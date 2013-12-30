@@ -276,7 +276,7 @@ struct task {
     Hostthread* hostthread;						// The Hostthread on which it is running. If you CHANGE THE OFFSET of this field you'll probably need to change
 									//     hostthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
     Val*	heap_allocation_buffer;					// The agegroup0 buffer.
-    Val*	heap_allocation_pointer;				// We allocate heap memory just by advancing this pointer.
+    Val*	heap_allocation_pointer;				// We allot heap memory just by advancing this pointer.
     Val*	heap_allocation_limit;					// We heapclean when heap_allocation_pointer reaches this point.  Must be at least MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER short of true buffer end.
     Vunt	heap_allocation_buffer_bytesize;			// Phystical size.
     //
@@ -741,7 +741,7 @@ extern Val*  pth__extra_heapcleaner_roots__global [];
 // We use our "mutex" locks to perform mutual exclusion,
 // ensuring consistency of shared mutable datastructures
 // by ensuring that at most one hostthread at a time is
-// updating that datastructure.  Typically we allocate
+// updating that datastructure.  Typically we allot
 // one such mutex for each major shared mutable datastructure,
 // which persists for as long as that datastructure.
 //
@@ -771,7 +771,7 @@ extern Vunt	pth__condvar_make    (void);
 extern char*   pth__condvar_init		(Task* task, Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //
     // Prepare the condition variable for use.
-    // This may allocate resources or such internally.
+    // This may allot resources or such internally.
     // Caveats:
     //
     //  o Behavior is undefined if pth__condvar_init()
@@ -842,7 +842,7 @@ extern char*    pth__barrier_init 	(Task* task, Vunt barrier_id, int threads);	/
     //
     // Tell the barrier how many threads must be
     // present at it before they can pass. This
-    // may allocate resources or such internally.
+    // may allot resources or such internally.
     // Caveats:
     //
     //  o Behavior is undefined if pth__barrier_init()

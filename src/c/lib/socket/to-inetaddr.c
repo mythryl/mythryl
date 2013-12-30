@@ -35,7 +35,7 @@ Val   _lib7_Sock_toinetaddr   (Task* task,  Val arg)   {
     //	
     // Mythryl type:   (Internet_Address, Int) -> Internet_Address
     //
-    // Given a INET address and port number, allocate a INET-domain socket address.
+    // Given a INET address and port number, allot a INET-domain socket address.
     //
     // This fn gets bound as   to_inet_addr   in:
     //

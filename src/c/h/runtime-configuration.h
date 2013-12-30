@@ -49,7 +49,7 @@
     //     than letting it page to and from disk.
     //
     // Clearly, for very small buffers it is better to just retain them.
-    // Equally, for very large buffers it is better to return and re-allocate them.
+    // Equally, for very large buffers it is better to return and re-allot them.
     // So the question is just at what buffer size we should change policies.
     // The DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS value here
     // controls this policy; setting it to '2' will result in buffers of 100MB
@@ -77,12 +77,12 @@
 #define MAX_SZ1(NSZ)	(6*(NSZ))								// What is '6' here??   -- 2011-12-19 CrT  This is used (only) in   src/c/heapcleaner/heapcleaner-initialization.c
 
 
-#define CODECHUNK_ALLOCATION_AGEGROUP	2							// Agegroup in which to allocate code chunks.
+#define CODECHUNK_ALLOCATION_AGEGROUP	2							// Agegroup in which to allot code chunks.
 
 #define MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS	512						// I believe we need to have MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS * WORD_BYTESIZE < MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER
     //												// -- maybe something stronger than that.  -- 2011-12-20 CrT
     // Size-in-words of a "small chunk."
-    // The C allocation routines allocate
+    // The C allocation routines allot
     // small chunks in agegroup0,
     // while large chunks are allocated in
     // agegroup 1.

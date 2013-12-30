@@ -170,8 +170,8 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
     //
     // bytecode_vector is a Mythryl-heap vector datachunk cast to Unt8*.
     //
-    // NOTE: We allocate all of the chunks in agegroup 1,
-    // but allocate the vector of literals in agegroup0.
+    // NOTE: We allot all of the chunks in agegroup 1,
+    // but allot the vector of literals in agegroup0.
     //
     // We get called at the C level in
     //
@@ -321,7 +321,7 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 	    break;
 
 	case MAKE_ASCII_STRING:												// More generally, vector of byte-size values.
-	    {														// We allocate a vector and also the silly separate vector-header,
+	    {														// We allot a vector and also the silly separate vector-header,
 															// so total space consumption is two tagwords, indirection pointer, plus the bytevector contents proper.
 		int len_in_bytes = GET32(bytecode_vector,pc);		pc += 4;					// 64-bit issue.
 
@@ -367,7 +367,7 @@ Val   make_package_literals_via_bytecode_interpreter__may_heapclean   (Task* tas
 	    break;
 
 	  case MAKE_VECTOR:												// Make n-slot vector, fill it by popping last N values from stack.
-	    {														// We allocate the vector and also the silly separate vector-header,
+	    {														// We allot the vector and also the silly separate vector-header,
 															// so total space consumption is two tagwords, indirection pointer, plus the bytevector contents proper.
 
 		int len_in_slots = GET32(bytecode_vector,pc);	pc += 4;						// 64-bit issue.

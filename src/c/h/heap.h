@@ -78,7 +78,7 @@ typedef   struct agegroup          Agegroup;						// Defined below.
 // between all hostthreads.
 //
 struct heap {
-    Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
+    Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allot the individual per-task agegroup0 buffers.
     Vunt		agegroup0_master_buffer_bytesize;				// Size-in-bytes of the agegroup0_buffers master buffer.
 
     Quire*		quire;								// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
@@ -167,7 +167,7 @@ struct sib {
     Sibid		id;					// The to-space version of this sib's identifier.
 
     struct tospace {
-	Val*		first_free;				// The next word to allocate in this sib's to-space.
+	Val*		first_free;				// The next word to allot in this sib's to-space.
 	//
 	Val*	        start;					// Base address of to-space.
 	Vunt		bytesize;				// Size of to-space.
@@ -372,7 +372,7 @@ struct hugechunk_quire {
     int	 free_pages;						// Number of free pages.
     int	 age_of_youngest_live_chunk_in_quire;			// Minimum age over all live hugechunks in region.
     //
-    Quire*		quire;					// Quire (multipage ram region) from which we allocate.
+    Quire*		quire;					// Quire (multipage ram region) from which we allot.
     Hugechunk_Quire*	next;					// Next heapchunk_quire in linklist.
     Hugechunk*		hugechunk_page_to_hugechunk[1];		// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
 };

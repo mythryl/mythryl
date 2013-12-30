@@ -574,7 +574,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
     // Flip additional agegroups from
     // oldest_agegroup_being_cleaned__local+1 .. gen.
     //
-    // We allocate a to-space that is the
+    // We allot a to-space that is the
     // same size as the existing from-space.
 
     Heap* heap = task->heap;
@@ -604,7 +604,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
                          - (Vunt) sib->fromspace.start;
 
 		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
-		if (s == RO_CONSCELL_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
+		if (s == RO_CONSCELL_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allot extra space for it.
 
 		sib->tospace.bytesize =  BOOKROUNDED_BYTESIZE( new_size );
 	    }
@@ -613,7 +613,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 
 	if (set_up_tospace_sib_buffers_for_agegroup(g) == FALSE) {
 	    //
-	    die ("unable to allocate to-space for agegroup %d\n", age+1);
+	    die ("unable to allot to-space for agegroup %d\n", age+1);
 	}
 
         // Initialize the repair lists:

@@ -458,7 +458,7 @@ static Val   allocate_heap_ram_for_pickle   (Task*  task,  Vunt  bytesize) {
     int	  size_in_words =  BYTES_TO_WORDS( bytesize );
     Val	  tagword   =  MAKE_TAGWORD( size_in_words, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG );
 
-    // We probably should allocate space in the hugechunk region for these chunks.	XXX BUGGO FIXME
+    // We probably should allot space in the hugechunk region for these chunks.	XXX BUGGO FIXME
     //
     if (bytesize >= agegroup0_buffer_size_in_bytes(task)-(8*ONE_K_BINARY))   die ("Pickling %d bytes not supported -- increase agegroup0 buffer size.", bytesize);	// XXX BUGGO FIXME
 
