@@ -48,20 +48,24 @@
 # Specific tasks performed in this file include:
 #
 #  o  Convert fun bodies from linear-sequence-of-instructions
-#     form to tree form -- this lets us later use the Sethi-Ullman
-#     algorithm to re-linearize in such a way as to minimize
-#     register pressure, basically by, for each binary math op,
-#     computing the more complex operand first -- see
+#     form to tree form, by entering each codetemp definition
+#     into the appropriate one of
+#         codetemp_to_tcf_int_expression__hashtable
+#         codetemp_to_tcf_float_expression__hashtable
+#     and then retrieving those tree fragments as we encounter
+#     later parts of the expression. (nextcode-form necessarily
+#     computes expressions from the leafs upward, so we will
+#     always encounter the leafs of each subexpression before
+#     the root.
+#        This treeification lets us later use the Sethi-Ullman
+#     algorithm to re-linearize the code in such a way as to
+#     minimize register pressure, basically by, for each binary
+#     math op, computing the more complex operand first -- see
 #         src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
 #     We also use Sethi-Ullman in:
 #         src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
 #     The tophalf has a (broken, unused) version in:
 #         src/lib/compiler/back/top/lambdacode/generalized-sethi-ullman-reordering.pkg
-#
-#
-#  o  Compile Tagged_Int arithmetic operations down into sequences
-#     of vanilla 32-bit integer operations.  (See fun tagged_*...)
-#
 #
 #  o  Generate code to log all boxed updates to heap_changelog.
 #     The heap_changelog is essentially a list of CONS cells
@@ -71,19 +75,15 @@
 #     heapcleaning ("garbage collection") is impossible without
 #     this information. (See calls to log_boxed_update_to_heap_changelog.)
 #
+#  o  Expand abstract slot accesses into concrete sequence of
+#     ram-read instructions.  In more detail:
 #
-#  o  The Nextcode distinction between signed and unsigned
-#     operands goes away in Treecode, so the un/signed-agnostic
-#     Nextcode binary operators get replaced by Treecode binary
-#     operators which are explicitly signed or unsigned. (See
-#     to_tcf_unsigned_compare and friends.)
-#
-#
-#  o  We try to pack closures into registers, but some won't fit,
+#     We try to pack closures into registers, but some won't fit,
 #     so in general a closure can be a heap record.  In fact, we
 #     share parts of some closures, so a complete closure can be
-#     a tree of heap records. (Technically, a "lattice" of heap
-#     records, since we have node sharing.)
+#     a depth-two tree of heap records. A related set of closures
+#     is then technically a depth-two "lattice", since each leaf
+#     may be referenced by multiple root records.
 #
 #     Nextcode refers to closure slots abstractly, suppressing
 #     the lattice structure, but Treecode knows nothing about our
@@ -93,6 +93,20 @@
 #     fetches from the right record offsets to return the desired value.
 #     Closures are read-only so we don't have to handle slot writes.
 #     (Search for VIA_SLOT.)
+#
+#
+#  o  Compile Tagged_Int arithmetic operations down into sequences
+#     of vanilla 32-bit integer operations.  (See fun tagged_*...)
+#
+#
+#
+#  o  The Nextcode distinction between signed and unsigned
+#     operands goes away in Treecode, so the un/signed-agnostic
+#     Nextcode binary operators get replaced by Treecode binary
+#     operators which are explicitly signed or unsigned. (See
+#     to_tcf_unsigned_compare and friends.)
+#
+#
 #
 #
 # Our compiletime generic invocation is from
@@ -869,8 +883,8 @@ herein
 			    #############################################################
 			    # Per-cccomponent tables 
 
-			    exception REGISTER_MAP;
-			    exception REGISTER_MAPF;
+			    exception   INT_REGISTER_MAP;
+			    exception FLOAT_REGISTER_MAP;
 			    exception GEN_TABLE;
 
 
@@ -892,13 +906,13 @@ herein
 
 			    codetemp_to_tcf_float_expression__hashtable
 				#
-				= iht::make_hashtable  { size_hint => 2,  not_found_exception => REGISTER_MAPF }
+				= iht::make_hashtable  { size_hint => 2,  not_found_exception => FLOAT_REGISTER_MAP }
 				: iht::Hashtable( tcf::Float_Expression );
 
 
 			    codetemp_to_tcf_int_expression__hashtable
 				#
-				=  iht::make_hashtable  { size_hint => 32,  not_found_exception => REGISTER_MAP }
+				=  iht::make_hashtable  { size_hint => 32,  not_found_exception => INT_REGISTER_MAP }
 				:  iht::Hashtable( tcf::Int_Expression );
 
 
@@ -909,9 +923,44 @@ herein
 				=
 				set_int_def_for_codetemp (codetemp, tcf::CODETEMP_INFO (int_bitsize, r));
 
-			    set_float_def_for_codetemp
+
+# PRODUCTION VERSION:
+#			    set_float_def_for_codetemp
+#				=
+#				iht::set  codetemp_to_tcf_float_expression__hashtable;
+# TEMPORARY DEBUG VERSION:
+			    fun set_float_def_for_codetemp (arg as (x, t))
 				=
-				iht::set codetemp_to_tcf_float_expression__hashtable;
+				{
+if *log::debugging
+    printf "set_float_def_for_codetemp (%d, ...)\n" x;
+fi;
+				    iht::set  codetemp_to_tcf_float_expression__hashtable  arg;
+				};
+
+
+			    # The following function looks up
+			    # the Treecode expression associated
+			    # with a floating point value expression:
+			    #
+#			    get_tcf_float_expression_for_codetemp
+#				=
+#				iht::get   codetemp_to_tcf_float_expression__hashtable;
+
+			    fun get_tcf_float_expression_for_codetemp x
+				=
+				{
+if *log::debugging
+    printf "get_tcp_float_expression_for_codetemp %d\n" x;
+fi;
+				    iht::get   codetemp_to_tcf_float_expression__hashtable  x;
+				};
+
+			    #
+			    fun def_for_float_codetemp (ncf::CODETEMP v) =>   get_tcf_float_expression_for_codetemp v;
+				def_for_float_codetemp _                 =>   error "def_for_float_codetemp";
+			    end;
+
 
 
 			    # To do Sethi-Ullman register-use minimization  -- see
@@ -1167,18 +1216,6 @@ herein
 				def_for_int_codetemp' _ =>   error "def_for_int_codetemp'";
 			    end;
 
-
-			    # The following function looks up
-			    # the Treecode expression associated
-			    # with a floating point value expression:
-			    #
-			    get_tcf_float_expression_for_codetemp
-				=
-				iht::get   codetemp_to_tcf_float_expression__hashtable;
-			    #
-			    fun def_for_float_codetemp (ncf::CODETEMP v) =>   get_tcf_float_expression_for_codetemp v;
-				def_for_float_codetemp _                 =>   error "def_for_float_codetemp";
-			    end;
 
 			    # On entry to a function the args are in
 			    # standardized registers. The function-body
@@ -3784,7 +3821,7 @@ herein
 				# ncf::ARITH
 				########	
 
-				translate_nextcode_ops_to_treecode											# Arity==1 tagged-int ops.
+				translate_nextcode_ops_to_treecode																# Arity==1 tagged-int ops.
 				    ( ncf::ARITH { op   =>  ncf::p::ARITH { kind_and_size=>ncf::p::INT 31, op=>ncf::p::NEGATE },
 						   args =>  [v],
 						   to_temp,
@@ -3799,7 +3836,7 @@ herein
 					define_and_load_tagged_int (to_temp, sub_or_trap (int_bitsize, int 2, def_for_int_codetemp v), next, 0);
 				    };
 
-				translate_nextcode_ops_to_treecode											# Arity==2 tagged-int ops.
+				translate_nextcode_ops_to_treecode																# Arity==2 tagged-int ops.
 				    (
 				      ncf::ARITH { op   =>  ncf::p::ARITH { kind_and_size=>ncf::p::INT 31, op },
 						   args =>  [v, w],
