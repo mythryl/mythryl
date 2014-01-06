@@ -22,8 +22,13 @@ herein
 	tupleexp:  List( ds::Deep_Expression ) -> ds::Deep_Expression;
 	tuplepat:  List( ds::Case_Pattern    ) -> ds::Case_Pattern;
 
-	clone_core_declaration:				ds::Declaration -> ds::Declaration;
-	core_declaration_contains_overloaded_variable:	ds::Declaration -> Bool;
+	# These three fns support type_core_language_declaration () in
+	#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+	# Keeping them here reduces clutter there.  See Note[1] for additional overview.
+	#
+	clone_core_declaration:					ds::Declaration -> ds::Declaration;
+	core_declaration_contains_overloaded_variable:		ds::Declaration -> Bool;
+	replace_overloaded_variables_in_core_declaration:	ds::Declaration -> List(vac::Variable) -> ds::Declaration;	# The List() holds one replacement PLAIN_VARIABLE for each OVERLOADED_VARIABLE in the first arg.
     }
     {
 	void_expression = ds::RECORD_IN_EXPRESSION [];
@@ -254,6 +259,8 @@ herein
 		    =
 		    (map do_case_rule case_rules, do_typoid typoid)
 
+# I think case_pattern can be dropped, but lets get this working first
+# and then verify that experimentally before dropping it.
 		also
 		fun do_case_pattern p
 		    =
@@ -300,6 +307,8 @@ herein
 
 	    end;
 
+
+
 	fun core_declaration_contains_overloaded_variable (d: ds::Declaration)
 	    =
 	    do_declaration d
@@ -331,7 +340,7 @@ herein
 			ds::INCLUDE_DECLARATIONS             _			=>	FALSE;
 			ds::FIXITY_DECLARATION               _			=>	FALSE;
 			ds::LOCAL_DECLARATIONS              (d1, d2)		=>	{ do_declaration d1  or  do_declaration d2; };
-			ds::OVERLOADED_VARIABLE_DECLARATION variable		=>	TRUE;
+			ds::OVERLOADED_VARIABLE_DECLARATION variable		=>	FALSE;
 			ds::SUMTYPE_DECLARATIONS  { sumtypes, with_types }	=>	FALSE;
 
 			ds::ABSTRACT_TYPE_DECLARATION _				=>	FALSE;
@@ -401,10 +410,241 @@ herein
 			_ 			   => FALSE;
 		    esac;
 	    end;
+
+
+
+	fun replace_overloaded_variables_in_core_declaration  (d: ds::Declaration)  (variables: List(vac::Variable))		# The List() holds one replacement PLAIN_VARIABLE for each OVERLOADED_VARIABLE in the first arg.
+	    =
+	    do_declaration d
+	    where
+		stipulate
+		    vars = REF variables;
+		herein
+		    fun nextvar ()
+			= 
+			case *vars
+			    #
+			    (v ! vs)	=>  {   vars := vs;
+						v;
+					    };
+			    []		=>  raise exception FAIL "Not enough variables! -- replace_overloaded_variables_in_core_declaration in deep-syntax-junk.pkg";
+			esac;
+
+		    fun checkvars ()
+			= 
+			case *vars
+			    #
+			    (v ! vs)	=>  raise exception FAIL "Too many variables! -- replace_overloaded_variables_in_core_declaration in deep-syntax-junk.pkg";
+			    []		=>  ();
+			esac;
+		end;
+		
+		fun do_declaration d
+		    =
+		    case d
+			#
+			ds::EXCEPTION_DECLARATIONS           named_exceptions	=>	ds::EXCEPTION_DECLARATIONS		(map  do_named_exception		named_exceptions	);
+			ds::RECURSIVE_VALUE_DECLARATIONS     named_values	=>	ds::RECURSIVE_VALUE_DECLARATIONS	(map  do_recursive_value_declaration	named_values		);
+			ds::VALUE_DECLARATIONS               named_values	=>	ds::VALUE_DECLARATIONS			(map  do_named_value			named_values		);
+			ds::TYPE_DECLARATIONS                _			=>	d;
+			ds::SEQUENTIAL_DECLARATIONS	     declarations	=>	ds::SEQUENTIAL_DECLARATIONS		(map  do_declaration			declarations		);
+			ds::PACKAGE_DECLARATIONS             _			=>	d;
+			ds::GENERIC_DECLARATIONS             _			=>	d;
+			ds::API_DECLARATIONS                 _			=>	d;
+			ds::GENERIC_API_DECLARATIONS         _			=>	d;
+			ds::INCLUDE_DECLARATIONS             _			=>	d;
+			ds::FIXITY_DECLARATION               _			=>	d;
+			ds::LOCAL_DECLARATIONS              (d1, d2)		=>	ds::LOCAL_DECLARATIONS 			(do_declaration d1, do_declaration d2);
+			ds::OVERLOADED_VARIABLE_DECLARATION _			=>	d;
+			ds::SUMTYPE_DECLARATIONS	     _			=>	d;
+
+			ds::ABSTRACT_TYPE_DECLARATION { abstract_types, with_types, body }
+			    =>
+			    ds::ABSTRACT_TYPE_DECLARATION 
+			      {
+				abstract_types,
+				with_types,
+				body		=>      do_declaration  body
+			      };	
+
+			ds::SOURCE_CODE_REGION_FOR_DECLARATION   (declaration, source_code_region)
+			    =>
+			    ds::SOURCE_CODE_REGION_FOR_DECLARATION  (do_declaration declaration, source_code_region);
+		    esac
+
+
+		also
+		fun do_deep_expression e
+		    =
+		    case e
+			#
+			ds::VARIABLE_IN_EXPRESSION 	{ var => REF v, typescheme_args }	   =>   ds::VARIABLE_IN_EXPRESSION { var => REF (do_variable v), typescheme_args };
+			ds::VALCON_IN_EXPRESSION	{ valcon, typescheme_args } 		   =>   e;
+			ds::INT_CONSTANT_IN_EXPRESSION  (i, typoid)				   =>   e;
+			ds::UNT_CONSTANT_IN_EXPRESSION  (u, typoid)				   =>   e;
+			ds::FLOAT_CONSTANT_IN_EXPRESSION 	_				   =>   e;
+			ds::STRING_CONSTANT_IN_EXPRESSION	_				   =>   e;
+			ds::CHAR_CONSTANT_IN_EXPRESSION         _				   =>   e;
+			ds::RECORD_IN_EXPRESSION        fields					   =>   ds::RECORD_IN_EXPRESSION (map (fn (numbered_label, deep_expression) = (numbered_label, do_deep_expression deep_expression)) fields);
+			ds::RECORD_SELECTOR_EXPRESSION         (numbered_label, deep_expression)   =>	ds::RECORD_SELECTOR_EXPRESSION                                        (numbered_label, do_deep_expression deep_expression);
+			ds::VECTOR_IN_EXPRESSION               (deep_expressions, typoid)	   =>   ds::VECTOR_IN_EXPRESSION (map do_deep_expression deep_expressions, typoid);
+			ds::ABSTRACTION_PACKING_EXPRESSION     (deep_expression,  typoid, types)   =>   ds::ABSTRACTION_PACKING_EXPRESSION (do_deep_expression deep_expression, typoid, types);
+			ds::APPLY_EXPRESSION                   { operator, operand }		   =>   ds::APPLY_EXPRESSION { operator => do_deep_expression operator, operand => do_deep_expression operand };
+			ds::EXCEPT_EXPRESSION                  (deep_expression, fnrules)	   =>   ds::EXCEPT_EXPRESSION (do_deep_expression deep_expression, do_fnrules fnrules);
+			ds::RAISE_EXPRESSION                   (deep_expression, typoid)           =>   ds::RAISE_EXPRESSION  (do_deep_expression deep_expression, typoid);
+			ds::CASE_EXPRESSION                    (deep_expression, case_rules, b)    =>   ds::CASE_EXPRESSION   (do_deep_expression deep_expression, map do_case_rule case_rules, b);
+			ds::OR_EXPRESSION		       (deep_expression, deep_expression2) =>   ds::OR_EXPRESSION     (do_deep_expression deep_expression, do_deep_expression deep_expression2);
+			ds::AND_EXPRESSION		       (deep_expression, deep_expression2) =>   ds::AND_EXPRESSION    (do_deep_expression deep_expression, do_deep_expression deep_expression2);
+			ds::FN_EXPRESSION                      fnrules				   =>   ds::FN_EXPRESSION     (do_fnrules fnrules);
+			ds::SEQUENTIAL_EXPRESSIONS             deep_expressions			   =>   ds::SEQUENTIAL_EXPRESSIONS   (map do_deep_expression  deep_expressions);
+			ds::LET_EXPRESSION                     (declaration, deep_expression)	   =>   ds::LET_EXPRESSION    (do_declaration declaration, do_deep_expression deep_expression);
+			ds::TYPE_CONSTRAINT_EXPRESSION         (deep_expression, typoid)           =>   ds::TYPE_CONSTRAINT_EXPRESSION   (do_deep_expression deep_expression, typoid);
+			ds::WHILE_EXPRESSION                   { test, expression }		   =>   ds::WHILE_EXPRESSION  { test => do_deep_expression test, expression => do_deep_expression expression };
+			ds::IF_EXPRESSION  { test_case, then_case, else_case }			   =>   ds::IF_EXPRESSION  { test_case => do_deep_expression test_case, then_case => do_deep_expression then_case, else_case => do_deep_expression else_case };
+			ds::SOURCE_CODE_REGION_FOR_EXPRESSION (deep_expression,source_code_region) =>   ds::SOURCE_CODE_REGION_FOR_EXPRESSION (do_deep_expression deep_expression, source_code_region);
+		    esac
+
+
+		also
+		fun do_named_exception e
+		    =
+		    case e
+			ds::NAMED_EXCEPTION { exception_constructor, exception_typoid, name_string }
+			    =>
+			    ds::NAMED_EXCEPTION   { exception_constructor,
+						    exception_typoid,
+						    name_string		  =>  do_deep_expression name_string
+						  };
+
+			ds::DUPLICATE_NAMED_EXCEPTION { exception_constructor, equal_to }
+			    =>
+			    e;
+		    esac
+
+		also
+		fun do_recursive_value_declaration 
+			(ds::NAMED_RECURSIVE_VALUE
+			  { variable,
+			    expression,
+			    raw_typevars,
+			    generalized_typevars,
+			    null_or_type
+			  })
+		    =
+		    ds::NAMED_RECURSIVE_VALUE
+		      { variable => do_variable variable,
+			expression => do_deep_expression expression,
+			raw_typevars,
+			generalized_typevars,
+			null_or_type
+		      }
+
+		also
+		fun do_named_value
+		      (ds::VALUE_NAMING
+			  {
+			    pattern,
+			    expression,
+			    raw_typevars,
+			    generalized_typevars
+			  })
+		    =
+		    ds::VALUE_NAMING
+		      {
+			pattern,
+		        expression => do_deep_expression expression,
+			raw_typevars,
+			generalized_typevars
+		      }
+
+		also
+		fun do_fnrules (case_rules, typoid)
+		    =
+		    (map do_case_rule case_rules, typoid)
+
+
+		also
+		fun do_case_rule (ds::CASE_RULE (case_pattern, deep_expression))
+		    =
+		    ds::CASE_RULE (case_pattern, do_deep_expression deep_expression)
+
+		also
+		fun do_variable v
+		    =
+		    case v
+			vac::OVERLOADED_VARIABLE _	=>  nextvar();
+			vac::PLAIN_VARIABLE      _      =>  v;
+			vac::ERROR_VARIABLE		=>  v;
+		    esac;
+	    end;
     };
 end;
 
 
+##########################################################################
+# Note[1]
+#
+# The idea is to implement variable overloading via multiple passes:
+#
+#  1) Propagate types so as to be able to select
+#     the right variant of each overloaded variable.
+#
+#  2) Replace each overloaded variable the selected variant.
+#
+#  3) Do a complete fresh type propagation pass so as
+#     to get the precise same effect as though each
+#     overloaded variable had never been there.
+#
+# This strategy was arrived at by wasting a lot of time
+# trying to make the original simple one-pass/backpatching
+# approach work.  There seem to be just too many odd side-effects
+# of type substitution and too much need to propagate type
+# information resulting from overloaded-variable-substitution
+# for a simpler, naive approach to work.
+#
+# In a clean-slate redesign I think I would factor out the mutable
+# state from the rest of the deep syntax tree so as to make it
+# trivial to revert changes.
+#     That is, mutable elements in the tree would be replaced by
+# small ints which would be looked up in a red-black tree.  (The
+# red-black tree probably needs to return different types to
+# different callers;  the existing symbol table logic shows how to
+# handle this.)
+#     All mutations would then be updates to the red-black tree;
+# reversion to a given state of the syntax tree would require only saving
+# the value of the redblack tree at that point, along with the deep syntax
+# tree proper if it gets rewritten.
+#     This would, for example, clean up the kludgey soft_unify stuff
+# in   src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+# by eliminating the need to undo tree changes one by one, and thus
+# eliminate the need for soft_unify() to duplicate the logic in regular
+# unify().
+#     Similarly
+# 	clone_core_declaration
+#	core_declaration_contains_overloaded_variable
+#	replace_overloaded_variables_in_core_declaration
+# in this file could all be discarded.
+#						-- CrT 2014-01-05
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
 ## (C) 2001 Lucent Technologies, Bell Labs
 ## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
 ## released per terms of SMLNJ-COPYRIGHT.
+
