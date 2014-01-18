@@ -7,14 +7,14 @@
 # In this package we accept a deep-syntax Declaration
 # and return that declaration rewritten to be fully typed,
 # using the unification-based Hindley-Milner type-inference
-# algorithm to propagate type information around.
+# algorithm to propagate type information leaf-to-root.
 #
 # We also resolve overloaded literals and variables.			# Overloaded literals include for example  1   which might be a byte-length int, a tagged int or a word-length int.
 # This process is sort of a bag hung on the side of the
 # language design;  it is not well specified and does not
 # fit in very well.  Still, it is a real convenience --
 # Ocaml lacks it and as a result must have (for example)
-# a separate multiply op for every numeric type.
+# a separate multiply op for every numeric type (ick!).
 
 
 # Compiled by:
@@ -37,10 +37,10 @@ herein
 
     api Type_Core_Language_Declaration {
 	#
-	type_core_language_declaration
+	type_core_language_declaration					# SIDE-EFFECTS:  Sets tdt::TYPEVAR_REF.ref_typevar (in unify_typoids)   and   vac::PLAIN_VARIABLE.vartypoid_ref (in generalize_*).
 	    :
-	    { symbolmapstack:		syx::Symbolmapstack,
-	      declaration:		ds::Declaration,		# The original declaration -- our primary input.  We do not modify this.
+	    { declaration:		ds::Declaration,		# The original declaration -- our primary input.  (?)
+	      symbolmapstack:		syx::Symbolmapstack,
 
 	      outside_all_lets:		Bool,
 
@@ -91,13 +91,13 @@ herein
     #     src/lib/compiler/front/semantic/types/type-core-language-declaration.pkg
     #
     generic package   type_core_language_declaration_g   (
-	#             ============================
+	#             ================================
 
-		 inlining_data_says_it_is_pure:  id::Inlining_Data -> Bool;				# pure_info			from   src/lib/compiler/front/semantic/basics/inlining-junk.pkg
-		 inlining_data_to_my_type:       id::Inlining_Data -> Null_Or( tdt::Typoid );		# inlining_data_to_my_type	from   src/lib/compiler/front/semantic/modules/generics-expansion-junk-parameter.pkg
+		 inlining_data_says_it_is_pure:  id::Inlining_Data -> Bool;							# pure_info				from   src/lib/compiler/front/semantic/basics/inlining-junk.pkg
+		 inlining_data_to_my_type:       id::Inlining_Data -> Null_Or( tdt::Typoid );					# inlining_data_to_my_type		from   src/lib/compiler/front/semantic/modules/generics-expansion-junk-parameter.pkg
 	    )
 
-    : (weak) Type_Core_Language_Declaration									# Type_Core_Language_Declaration	is from   src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+    : (weak) Type_Core_Language_Declaration											# Type_Core_Language_Declaration	is from   src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
     {
 	stipulate
 	    #
@@ -106,131 +106,131 @@ herein
 
 	    -->  =   mtt::(-->);
 
-	    # The following is support for tracking the
-	    # lexical context in which type variables
-	    # appear.  We are interested in whether
-	    # type variables are free or bound and also
-	    # whether we are inside some let/stipulate
-	    # construct or at top level.
-	    #
-	    # The two critical things we track are:
-	    #
-	    #
-	    # outside_all_lets:
-	    #
-	    #     TRUE iff we are not lexicallly			# NB: A 'stipulate' statement is a 'let'
-	    #     within the scope of any "let"				# construct, also { ... } code blocks and
-	    #     construct.						# 'if'-statement 'then' and 'else' clauses.
-	    #
-	    #     We need this because (for example)
-	    #     it is an error not to generalize			# Generalization is discussed below.
-	    #     a type variable a top level but
-	    #     it is ok not to generalize one in
-	    #     a 'let' due to the "value restriction".
-	    #
-	    #
-	    # fn_nesting:
-	    #
-	    #     This is the number of fun/fn				# 'lambdas', in fp jargon.
-	    #     definitions lexically enclosing us.
-	    #     This numbering starts at 0.
-	    #     
-	    #     We need this to support type agnosticism -- "polymorphism".
-	    #     
-	    #     Mythryl (and ML generally) implement
-	    #     what is sometimes called "let-polymorphism",
-	    #     in which (canonically) functions defined
-	    #     in 'let' constructs have their type variables
-	    #     'generalized' to allow them to match different
-	    #     types in different invocations.  For example
-	    #         {
-	    #             ...
-	    #             fun swap (a, b) = (b, a);
-	    #             ...
-	    #             p0 = swap ( 1 ,  2 );
-	    #             p1 = swap ('1', '2');
-	    #             p2 = swap ("1", "2");
-	    #             ...
-	    #         };
-	    #     
-	    #     Here swap() is operating indifferently		# "Don't-care polymorphism" and
-	    #     upon pairs of ints, chars and strings.		# "parametric polymorphism" are two
-	    #     							# more names for this kind of
-	    #     Making this typecheck requires a special		# typeagnosticism.
-	    #     kludge.  Here's how it works:
-	    #     
-	    #       o Instead of assigning 'swap' a normal		# In fp jargon this is called a "type scheme".
-	    #	      type, we assign it a "typescheme"			# We represent them using TYPESCHEME records and
-	    #         (template) for a type, with holes			# we represent the 'holes' with TYPESCHEME_ARG,
-	    #	      where all the type variables should be.		# both from    src/lib/compiler/front/typer-stuff/types/types.pkg
-	    #     
-	    #       o Each time we come to a call to 'swap'		# This copy-and-complete is implemented by
-	    #         we generate a fresh type for it by		#     tyj::instantiate_if_typescheme()
-	    #	      making a copy of the typescheme and			# from
-	    #	      filling in all the holes with fresh		#     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
-	    #	      type variables.					#
-	    #     
-	    #     This way type inference is free to deduce
-	    #     a different type for each call to 'swap'.
-	    #     
-	    #     We refer to the process of replacing a
-	    #     type by such a type template as
-	    #     "type generalization".
-	    #
-	    #     We implement this below, in
-	    #
-	    #         generalize_pattern()
-	    #         generalize_type()
-	    #
-	    #     However when doing such type variable
-	    #     generalization we must NOT generalize
-	    #     any type variables inherited from			# For a more extended discussion
-	    #     enclosing scopes because the inherited		# see Benjamin C Pierce's
-	    #     type variables encode important type			# "Types and Programming Languages" 
-	    #     constraints which will be lost if we			# Chapter 22, in particular  
-	    #     generalize them, allowing incorrect			# page 333 rule 3.
-	    #     code to typecheck.	
-	    #
-	    #     We implement this restriction by
-	    #
-	    #      1) Tracking our current fn nesting level
-	    #         as we do syntactic dagwalks.
-	    #
-	    #      2) Tagging every type variable with
-	    #         the outermost fn nesting level
-	    #         mentioning it.  (We refine this
-	    #	  during the type unification pass.)
-	    #
-	    #      3) Generalizing only those variables
-	    #	  defined at a deeper nesting level
-	    #	  than our current dagwalk fn nesting
-	    #         level, which is to say variables
-	    #	  introduced by 'let' constructs
-	    #	  nested within the current fun/fn
-	    #	  (if any), rather than inherited from
-	    #	  scopes outside the 'let'.
-	    #
-	    #     Free type variables not declared by the user
-	    #     are in general given a lexical nesting depth
-	    #     of 'infinity', represented by an arbitrary		# E.g.:   tyj::make_meta_typevar_and_type  tdt::infinity;
-	    #     integer larger than any expected real lexical
-	    #     nesting depth.
-	    #
-	    #     USER_TYPEVAR typevars
-	    #     are created with fn_nesting == infinity;		# By  make_user_typevar()  in  src/lib/compiler/front/typer-stuff/types/type-junk.pkg 
-	    #     this nesting depth can be reduced
-	    #     via unification.
-	    #
-	    #     When we instantiate a typeagnostic
-	    #     type body we set all the META
-	    #     variables to fn_nesting == "infinity".		# "infinity" being a kilomyriad, which
-	    #								# is to say 10000000. See types.pkg. :-)
-	    #
-	    #
-	    # 8/18/92:
-	    #     Cleaned up syntax_treewalk_lexical_context
-	    #     "state machine" some and fixed bug #612.
-	    #
+																# The following is support for tracking the
+																# lexical context in which type variables
+																# appear.  We are interested in whether
+																# type variables are free or bound and also
+																# whether we are inside some let/stipulate
+																# construct or at top level.
+																#
+																# The two critical things we track are:
+																#
+																#
+																# outside_all_lets:
+																#
+																#     TRUE iff we are not lexicallly			# NB: A 'stipulate' statement is a 'let'
+																#     within the scope of any "let"				# construct, also { ... } code blocks and
+																#     construct.						# 'if'-statement 'then' and 'else' clauses.
+																#
+																#     We need this because (for example)
+																#     it is an error not to generalize			# Generalization is discussed below.
+																#     a type variable a top level but
+																#     it is ok not to generalize one in
+																#     a 'let' due to the "value restriction".
+																#
+																#
+																# fn_nesting:
+																#
+																#     This is the number of fun/fn				# 'lambdas', in fp jargon.
+																#     definitions lexically enclosing us.
+																#     This numbering starts at 0.
+																#     
+																#     We need this to support type agnosticism -- "polymorphism".
+																#     
+																#     Mythryl (and ML generally) implement
+																#     what is sometimes called "let-polymorphism",
+																#     in which (canonically) functions defined
+																#     in 'let' constructs have their type variables
+																#     'generalized' to allow them to match different
+																#     types in different invocations.  For example
+																#         {
+																#             ...
+																#             fun swap (a, b) = (b, a);
+																#             ...
+																#             p0 = swap ( 1 ,  2 );
+																#             p1 = swap ('1', '2');
+																#             p2 = swap ("1", "2");
+																#             ...
+																#         };
+																#     
+																#     Here swap() is operating indifferently		# "Don't-care polymorphism" and
+																#     upon pairs of ints, chars and strings.		# "parametric polymorphism" are two
+																#     							# more names for this kind of
+																#     Making this typecheck requires a special		# typeagnosticism.
+																#     kludge.  Here's how it works:
+																#     
+																#       o Instead of assigning 'swap' a normal		# In fp jargon this is called a "type scheme".
+																#	  type, we assign it a "typescheme"		# We represent them using TYPESCHEME records and
+																#         (template) for a type, with holes		# we represent the 'holes' with TYPESCHEME_ARG,
+																#	  where all the type variables should be.	# both from    src/lib/compiler/front/typer-stuff/types/types.pkg
+																#     
+																#       o Each time we come to a call to 'swap'		# This copy-and-complete is implemented by
+																#         we generate a fresh type for it by		#     tyj::instantiate_if_typescheme()
+																#	  making a copy of the typescheme and		# from
+																#	  filling in all the holes with fresh		#     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+																#	  type variables.				#
+																#     
+																#     This way type inference is free to deduce
+																#     a different type for each call to 'swap'.
+																#     
+																#     We refer to the process of replacing a
+																#     type by such a type template as
+																#     "type generalization".
+																#
+																#     We implement this below, in
+																#
+																#         generalize_pattern()
+																#         generalize_type()
+																#
+																#     However when doing such type variable
+																#     generalization we must NOT generalize
+																#     any type variables inherited from			# For a more extended discussion
+																#     enclosing scopes because the inherited		# see Benjamin C Pierce's
+																#     type variables encode important type		# "Types and Programming Languages" 
+																#     constraints which will be lost if we		# Chapter 22, in particular  
+																#     generalize them, allowing incorrect		# page 333 rule 3.
+																#     code to typecheck.	
+																#
+																#     We implement this restriction by
+																#
+																#      1) Tracking our current fn nesting level
+																#         as we do syntactic dagwalks.
+																#
+																#      2) Tagging every type variable with
+																#         the outermost fn nesting level
+																#         mentioning it.  (We refine this
+																#	  during the type unification pass.)
+																#
+																#      3) Generalizing only those variables
+																#	  defined at a deeper nesting level
+																#	  than our current dagwalk fn nesting
+																#         level, which is to say variables
+																#	  introduced by 'let' constructs
+																#	  nested within the current fun/fn
+																#	  (if any), rather than inherited from
+																#	  scopes outside the 'let'.
+																#
+																#     Free type variables not declared by the user
+																#     are in general given a lexical nesting depth
+																#     of 'infinity', represented by an arbitrary		# E.g.:   tyj::make_meta_typevar_and_type  tdt::infinity;
+																#     integer larger than any expected real lexical
+																#     nesting depth.
+																#
+																#     USER_TYPEVAR typevars
+																#     are created with fn_nesting == infinity;		# By  make_user_typevar()  in  src/lib/compiler/front/typer-stuff/types/type-junk.pkg 
+																#     this nesting depth can be reduced
+																#     via unification.
+																#
+																#     When we instantiate a typeagnostic
+																#     type body we set all the META
+																#     variables to fn_nesting == "infinity".		# "infinity" being a kilomyriad, which
+																#								# is to say 10000000. See types.pkg. :-)
+																#
+																#
+																# 8/18/92:
+																#     Cleaned up syntax_treewalk_lexical_context
+																#     "state machine" some and fixed bug #612.
+																#
 
 	    Syntax_Treewalk_Lexical_Context
 		=
@@ -343,34 +343,34 @@ internals   =   log::debugging;
 
 
 
-	    # Here is the heart of the compiler's type inference engine.
-	    #
-	    # This is also where we implement type agnosticism
-	    # by generalizing USER_TYPEVAR and META_TYPEVAR
-	    # types to TYPESCHEME_ARG types whenever permitted
-	    # by the "value restriction" as implemented by is_value() in
-	    #
-	    #     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
-	    #
-	    # We get called from two spots in type_declaration'() in
-	    #
-	    #     src/lib/compiler/front/typer/main/type-package-language-g.pkg
-	    #
-	    # We delegate actual type unification to unify_typoids() in
-	    #
-	    #     src/lib/compiler/front/typer/types/unify-typoids.pkg
-	    #
-	    # A light overview of Hindley-Milner type inference may be found here:
-	    #     http://en.wikipedia.org/wiki/Type_inference
-	    #
-	    # A more detailed treatment may be found in the
-	    #     Types and Programming Languages
-	    # text by Benjamin C Pierce, chapter 22.
-	    #
+																# Here is the heart of the compiler's type inference engine.
+																#
+																# This is also where we implement type agnosticism
+																# by generalizing USER_TYPEVAR and META_TYPEVAR
+																# types to TYPESCHEME_ARG types whenever permitted
+																# by the "value restriction" as implemented by is_value() in
+																#
+																#     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+																#
+																# We get called from two spots in type_declaration'() in
+																#
+																#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+																#
+																# We delegate actual type unification to unify_typoids() in
+																#
+																#     src/lib/compiler/front/typer/types/unify-typoids.pkg
+																#
+																# A light overview of Hindley-Milner type inference may be found here:
+																#     http://en.wikipedia.org/wiki/Type_inference
+																#
+																# A more detailed treatment may be found in the
+																#     Types and Programming Languages
+																# text by Benjamin C Pierce, chapter 22.
+																#
 	    fun type_core_language_declaration											# External entrypoint. (The only one in this file.)
-		{
+		{														# SIDE-EFFECTS:  Sets tdt::TYPEVAR_REF.ref_typevar (in unify_typoids)   and   vac::PLAIN_VARIABLE.vartypoid_ref (in generalize_*).
 		  declaration:         ds::Declaration,
-		  symbolmapstack:      Symbolmapstack,
+		  symbolmapstack:      Symbolmapstack,										# symbolmapstack is needed only for debug printouts, not for core algorithmic purposes.
 		  #
 		  outside_all_lets:    Bool,
 		  error_function:      Error_Function,
@@ -385,7 +385,8 @@ internals   =   log::debugging;
 			THE _ =>
 			    {
 																if_debugging_say "\ntype_core_language_declaration: NEWCODE is set.\n";
-				# here is the code we will phase in shortly.
+				# This is the old code we will phase out shortly:
+				#
 				if (not (dsj::core_declaration_contains_overloaded_variable  declaration))
 
 																if_debugging_say "\ntype_core_language_declaration: NEWCODE is set but declaration does NOT contain an overloaded variable.\n";
@@ -402,8 +403,8 @@ internals   =   log::debugging;
 					    source_code_region,
 					    []
 					);
-																if_debugging_unparse_declaration     ("\ntype_core_language_declaration [type-core-language-declaration-g.pkg]: XYZZY pre-overload-resolution declaration unparse     is:\n",  declaration);
-																if_debugging_prettyprint_declaration ("\ntype_core_language_declaration [type-core-language-declaration-g.pkg]: XYZZY pre-overload-resolution declaration prettyprint is:\n", (declaration,100));
+																if_debugging_unparse_declaration     ("\ntype_core_language_declaration [type-core-language-declaration-g.pkg]: XYZZ pre-overload-resolution declaration unparse is:\n",  declaration);
+																if_debugging_prettyprint_declaration ("\ntype_core_language_declaration [type-core-language-declaration-g.pkg]: XYZZ pre-overload-resolution declaration pyprint is:\n", (declaration,100));
 
 																if_debugging_say ("\ntype_core_language_declaration: calling resolve_all_overloaded_literals  ... [type-core-language-declaration-g.pkg]\n");
 				    r1 =  resolve_all_overloaded_literals (); 							if_debugging_say ("\ntype_core_language_declaration: calling resolve_all_overloaded_variables ... [type-core-language-declaration-g.pkg]\n");
@@ -420,6 +421,7 @@ internals   =   log::debugging;
 
 				    declaration;
 				else
+				    # This is the new code we will phase in shortly:
 																if_debugging_say "\ntype_core_language_declaration: NEWCODE is set and declaration DOES contain an overloaded variable.\n";
 				    # When overloaded variables are present, we do a couple of passes
 				    # to replace them all with the appropriate variants, then proceed
@@ -441,7 +443,7 @@ internals   =   log::debugging;
 
 	# HERE BE MAGIC -- we need to extract the list of resolved overloaded variables.
 	#			    resolved_overloaded_variables = []: List(vac::Variable);
-				    resolved_overloaded_variables =  resolve_all_overloaded_variables  symbolmapstack:   List(vac::Variable);
+				    resolved_overloaded_variables =  resolve_all_overloaded_variables  symbolmapstack:   List(vac::Variable);		# symbolmapstack is needed only for debug printout etc.
 
 				    declaration'										# Now we plug in the appropriate overloaded-variable variants for each overloaded variable in the original declaration tree.
 					=
@@ -524,12 +526,10 @@ internals   =   log::debugging;
 			= 
 			(fn stream
 			    =
-			    fn d
-				=
-				uds::unparse_declaration
-					(symbolmapstack, NULL)
-					stream
-					(d, *print_depth)
+			    fn d =  uds::unparse_declaration
+					    (symbolmapstack, NULL)
+					    stream
+					    (d, *print_depth)
 			);
 		    #
 /* */		    fun if_debugging_unparse_declaration (msg, declaration)
@@ -621,7 +621,7 @@ internals   =   log::debugging;
 		    # arguments of consequence;  the rest
 		    # are just diagnostic printing support:
 		    #
-		    fun unify_typoids_and_handle_errors
+		    fun unify_typoids_and_handle_errors										# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 			  {
 			    typoid1, name1,			# typoid1: tdt::Typoid,   name1:  String
 			    typoid2, name2,			# typoid2: tdt::Typoid,   name2:  String
@@ -642,7 +642,7 @@ internals   =   log::debugging;
 																#                                   \ unify_typoids_and_handle_errors: calling unify_typoids name1 %s name2 %s message %s\n" name1 name2 m;
 																#                        fi;
 
-			    uyt::unify_typoids
+			    uyt::unify_typoids											# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 			      (
 				name1, name2,
 				typoid1, typoid2,
@@ -709,7 +709,7 @@ internals   =   log::debugging;
 																#
 																# Our first argument below is the most important;
 																# it is from a ds::VARIABLE_IN_PATTERN.
-																# The critical part of it is the 'var_type' ref:
+																# The critical part of it is the 'vartypoid_ref' ref:
 																# we will overwrite it with a generalized
 																# version of itself -- a
 																#     tdt::TYPESCHEME_TYPOID { ... }
@@ -719,15 +719,15 @@ internals   =   log::debugging;
 																# We get called frome exactly one place,
 																# in generalize_pattern'() in generalize_pattern(). 
 																#
-		    fun generalize_type
+		    fun generalize_type												# SIDE-EFFECT:  Sets vac::PLAIN_VARIABLE.vartypoid_ref
 			    (
-			      vac::PLAIN_VARIABLE { var_type, path, ... }:   vac::Variable,
+			      vac::PLAIN_VARIABLE { vartypoid_ref, path, ... }:	vac::Variable,
 			      user_typevar_refs:				List( tdt::Typevar_Ref ),			# *NAMED_VALUE.typevars -- X, Y, Z ... from a function clause pattern or such.
 
-			      syntax_treewalk_lexical_context:                 Syntax_Treewalk_Lexical_Context,
-			      generalize:                                      Bool,						# Result of tyj::is_value() -- TRUE iff the "value restriction" permits generalizing this type.
-			      source_code_region:                              ds::Source_Code_Region,
-			      callstack:                                       List(String)					# Debug support.
+			      syntax_treewalk_lexical_context:			Syntax_Treewalk_Lexical_Context,
+			      generalize:					Bool,						# Result of tyj::is_value() -- TRUE iff the "value restriction" permits generalizing this type.
+			      source_code_region:				ds::Source_Code_Region,
+			      callstack:					List(String)					# Debug support.
 			    )
 			    : List( tdt::Typevar_Ref )										# These will actually always be tdt::META_TYPEVAR or tdt::USER_TYPEVAR.
 			    =>
@@ -754,64 +754,60 @@ internals   =   log::debugging;
 				# used to resolve ungeneralizable free
 				# type variables in typechecking::generalize_type:
 				#
-				make_dummy =  {   syntax_treewalk_lexical_context.outside_all_lets  
-						      ??
-						      make_dummytype_generator()
-						      ::
-						      make_dummy';		# Shouldn't be called.
-					      }
-					      where
-						  #
-						  fun make_dummy' ()
-						      =
-						      mtt::void_typoid;
+				make_dummy =    {   syntax_treewalk_lexical_context.outside_all_lets  
+							??
+							make_dummytype_generator()
+							::
+							make_dummy';		# Shouldn't be called.
+						}
+						where
+						    #
+						    fun make_dummy' ()
+							=
+							mtt::void_typoid;
 
-																	      # stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
-						  fun make_dummytype_generator ()   :   Void -> tdt::Typoid
-						      =
-						      {   count = REF 0;
-							  #
-							  fun next ()
-							      =
-							      {   count := *count + 1;
-								  *count;
-							      };
-							  #
-							  fun next_type ()
-							      =
-							      {   name = "X" + int::to_string (next ());
+																		# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+						    fun make_dummytype_generator ()   :   Void -> tdt::Typoid
+							=
+							{   count = REF 0;
+							    #
+							    fun next ()
+								=
+								{   count := *count + 1;
+								    *count;
+								};
+							    #
+							    fun next_type ()
+								=
+								{   name = "X" + int::to_string (next ());
+								    #
+								    tdt::TYPCON_TYPOID (
+									#	
+									tdt::SUM_TYPE
+									  {
+									    stamp       =>  sta::make_static_stamp  name,
+									    namepath    =>  ip::INVERSE_PATH [sy::make_type_symbol name],
+									    arity	=>  0,
+									    is_eqtype	=>  REF tdt::e::NO,
+									    kind        =>  tdt::ABSTRACT  ctt::bool_type,
+									    stub        =>  NULL
+									  },
 
-								  tdt::TYPCON_TYPOID (
-								      #	
-								      tdt::SUM_TYPE
-									{
-									  stamp       =>  sta::make_static_stamp  name,
-									  namepath    =>  ip::INVERSE_PATH [sy::make_type_symbol name],
-									  arity	      =>  0,
-									  is_eqtype =>  REF tdt::e::NO,
-									  kind        =>  tdt::ABSTRACT  ctt::bool_type,
-									  stub        =>  NULL
-								        },
+									[]
+								    );
+								};
 
-								      []
-								  );
-							      };
-
-							  next_type;
-						      };
-					      end;
+							    next_type;
+							};
+						end;
 
 
-				# Track number of type variables bound.
-				# This will wind up being the typescheme
-				# arity:
-				#
-				typescheme_arg_slots_allocated
+				typescheme_arg_slots_allocated									# Tracks number of type variables bound. This will wind up being the typescheme arity.
 				    =
 				    REF 0;
 
 				#
-				fun allocate_typescheme_arg_slot ()
+				fun allot_typescheme_arg_slot ()
 				    =
 				    {   slot =  *typescheme_arg_slots_allocated;
 					#
@@ -822,17 +818,14 @@ internals   =   log::debugging;
 					slot;
 				    };
 
-
-				# Check a type variable for membership
-				# in our 'user_typevar_refs' parameter:
 				#
-				fun is_local_function_typevar_ref  ref_typevar
+				fun is_local_function_typevar_ref  ref_typevar							# Check a typevar_ref for membership in our 'user_typevar_refs' parameter.
 				    =
 				    is_member  user_typevar_refs
 				    where
 					fun is_member (user_typevar_ref ! rest)
 						=>
-						tyj::typevar_refs_are_equal (ref_typevar, user_typevar_ref)
+						tyj::same_typevar_ref (ref_typevar, user_typevar_ref)				# NB: This compares the refcells, NOT their contents!
 						or
 						is_member rest;
 
@@ -840,43 +833,36 @@ internals   =   log::debugging;
 					end;
 				    end;
 
-
-				# Track which of the below type variables
-				# need to be of equality type.  This list
-				# will always be the same length as the
-				# next.  Possibly they should be combined:
-				#
-				typescheme_eqflags
-				    =
-				    REF ([]: tdt::Typescheme_Eqflags);
+				typescheme_eqflags										# Track which of the below type variables need to be of equality type.
+				    =												# This list will always be the same length as the next.
+				    REF ([]: tdt::Typescheme_Eqflags);								# Possibly they should be combined.
 
 
-				# In this association list we track the
-				# tdt::TYPESCHEME_ARG slots of variables
-				# we've already generalized, to avoid assigning
-				# two slots to one variable.
-				# 
-				# The keys in this list are USER_TYPEVAR
-				# and META_TYPEVAR type variables;  the
-				# corresponding values are the
-				# tdt::TYPESCHEME_ARG types (slot numbers)
-				# we create for them.
-				#
-				# ASSERTION: There are no duplicate typevars
-				#            in domain of generalized_typevars.
-				#
+																# In this association list we track the
+																# tdt::TYPESCHEME_ARG slots of variables
+																# we've already generalized, to avoid assigning
+																# two slots to one variable.
+																# 
+																# The keys in this list are USER_TYPEVAR
+																# and META_TYPEVAR type variables;  the
+																# corresponding values are the
+																# tdt::TYPESCHEME_ARG types (slot numbers)
+																# we create for them.
+																#
+																# ASSERTION: There are no duplicate typevars
+																#            in domain of generalized_typevars.
+																#
 				generalized_typevar_ref_types
 				    =
-				    REF ([]:   List( ( tdt::Typevar_Ref,		# This will be REF( tdt::META_TYPEVAR | tdt::USER_TYPEVAR )
-						       tdt::Typoid			# This will actually always be a tdt::TYPESCHEME_ARG. 
+				    REF ([]:   List( ( tdt::Typevar_Ref,							# This will be REF( tdt::META_TYPEVAR | tdt::USER_TYPEVAR )
+						       tdt::Typoid								# This will actually always be a tdt::TYPESCHEME_ARG. 
 					)          ) );
 
-				# Add an entry to above list:
 				#	
-				fun note_generalized_typevar_ref_type
+				fun note_generalized_typevar_ref_type								# Add an entry to above list.
 				    (
-				      typevar_ref:	tdt::Typevar_Ref,		# This will reference a tdt::META_TYPEVAR or tdt::USER_TYPEVAR
-				      sometype:		tdt::Typoid			# This will actually always be a tdt::TYPESCHEME_ARG. 
+				      typevar_ref:	tdt::Typevar_Ref,							# This will reference a tdt::META_TYPEVAR or tdt::USER_TYPEVAR
+				      sometype:		tdt::Typoid								# This will actually always be a tdt::TYPESCHEME_ARG. 
 				    )
 				    =
 				    {
@@ -892,17 +878,14 @@ internals   =   log::debugging;
 					    *generalized_typevar_ref_types;
 				    };
 
-				# Search above list.
-				# Return key's value if found,
-				# otherwise raise NOT_THERE.
 				#
-				fun find_generalized_typevar_ref_type  typevar_ref
+				fun find_generalized_typevar_ref_type  typevar_ref						# Search above list. Return key's value if found, otherwise raise NOT_THERE.
 				    =
 				    search  *generalized_typevar_ref_types
 				    where
 					fun search ((typevar_ref', typescheme_arg) ! rest)
 						=>
-						tyj::typevar_refs_are_equal (typevar_ref, typevar_ref')
+						tyj::same_typevar_ref (typevar_ref, typevar_ref')
 						    ?? 
 						    typescheme_arg
 						    ::
@@ -913,42 +896,37 @@ internals   =   log::debugging;
 				    end;
 
 
-				# Make a type typeagnostic.
-				# This mainly means replacing both of
-				#     META_TYPEVAR
-				#     USER_TYPEVAR
-				# by
-				#     tdt::TYPESCHEME_ARG 
-				# wherever permitted by the "value restriction"
-				# as implemented by tyj::is_value() and passed
-				# to us via the 'generalize' parameter.
-				#	
-				# We construct and return a Type result
-				# to replace our Type argument, but along
-				# the way we also side-effect various
-				# typevars etc in the expression, so
-				# this code is far from pure:
+																# Make a type typeagnostic.
+																# This mainly means replacing both of
+																#     META_TYPEVAR
+																#     USER_TYPEVAR
+																# by
+																#     tdt::TYPESCHEME_ARG 
+																# wherever permitted by the "value restriction"
+																# as implemented by tyj::is_value() and passed
+																# to us via the 'generalize' parameter.
+																#	
+																# We construct and return a Type result
+																# to replace our Type argument, but along
+																# the way we also side-effect various
+																# typevars etc in the expression, so
+																# this code is far from pure:
 				#
-				fun generalize_type'
+				fun generalize_type'										# SIDE-EFFECT: SETS vac::PLAIN_VARIABLE.vartypoid_ref
 				    (typoid: tdt::Typoid)
 				    :        tdt::Typoid
 				    =     
 				    case typoid
 					#
-					tdt::TYPEVAR_REF (typevar_ref as { id, ref_typevar as REF (tdt::META_TYPEVAR { fn_nesting, eq }) })
+					tdt::TYPEVAR_REF (typevar_ref								# This is the focal case for this function.
+							  as  { id,								# The remaining cases are mostly corner cases
+								ref_typevar as REF (tdt::META_TYPEVAR { fn_nesting, eq }) }	# and recursive descent to reach this case.
+							 )
 					    =>
-					    {
-																if *debugging
+					    {											if *debugging
 																    printf "generalize_type'/META fn_nesting d=%d eq b=%s generalize b=%s\n"
 																	   fn_nesting (eq ?? "TRUE" :: "FALSE")  (generalize ?? "TRUE" :: "FALSE");
 																fi;
-
-																# This is the focal case
-																# for this function. The
-																# remaining cases are mostly
-																# corner cases and recursive
-																# descent to reach this case:
-																#
 						result
 						    =
 						    if (fn_nesting  >  syntax_treewalk_lexical_context.fn_nesting)		# If type variable is not constrained by contexts outside this 'let'.
@@ -963,7 +941,7 @@ internals   =   log::debugging;
 								    =
 								    {   new_typescheme_slot_arg					# Assign a new type scheme slot for this META type variable,
 									    =
-									    tdt::TYPESCHEME_ARG( allocate_typescheme_arg_slot() );
+									    tdt::TYPESCHEME_ARG( allot_typescheme_arg_slot() );
 
 																if_debugging_say ("\ngeneralize_type'/META_TYPEVAR: converting META to TYPESCHEME_ARG by allocating new TYPESCHEME_ARG  [type-core-language-declaration-g.pkg]\n");
 									#
@@ -980,8 +958,10 @@ internals   =   log::debugging;
 							    if syntax_treewalk_lexical_context.outside_all_lets
 								#
 								typevar = make_dummy ();
+
 								failure     :=  TRUE;
 								ref_typevar :=  tdt::RESOLVED_TYPEVAR  typevar;			if_debugging_say ("\ngeneralize_type'/META_TYPEVAR: generalize FALSE so converting META to RESOLVED_TYPEVAR dummy  [type-core-language-declaration-g.pkg]\n");
+
 								typevar;
 							    else
 								if *tc::value_restriction_local_warn
@@ -994,16 +974,15 @@ internals   =   log::debugging;
 									  err::null_error_body;
 								fi;
 
-								# Reset fn_nesting to prevent later incorrect generalization
-								# inside a fun/fn expression.  See typechecking test.pkg
-								#	
-								ref_typevar
+								ref_typevar							# Reset fn_nesting to prevent later incorrect generalization inside a fun/fn expression.  See typechecking test.pkg
 								    :=
-								    tdt::META_TYPEVAR { eq, fn_nesting => syntax_treewalk_lexical_context.fn_nesting };
-
+								    tdt::META_TYPEVAR
+								      { eq,
+									fn_nesting => syntax_treewalk_lexical_context.fn_nesting
+								      };
 																if_debugging_say ("\ngeneralize_type'/META_TYPEVAR:  generalize FALSE, resetting fn_nesting to prevent incorrect generalization  [type-core-language-declaration-g.pkg]\n");
 
-								typoid;	# Return our (modified) input argument as our result.
+								typoid;								# Return our (modified) input argument as our result.
 							    fi;
 							fi;
 
@@ -1069,9 +1048,13 @@ internals   =   log::debugging;
 						   )
 						)
 
+						known_fields' =  string::cat  (list::map  (fn (label, _) = sy::name label + " ")  known_fields);
+
 						error_function source_code_region err::ERROR 					# Originally said "flex record".
-						   "unresolved record type (need to know the \
-						   \names of ALL the fields\n in this context)"
+						   ( "unresolved record type:  Know only fields   "
+						   + known_fields'
+						   +  "  but need to know the names of ALL the fields in this context."
+						   )
 						   (fn pp
 						       =
 						       {   uty::reset_unparse_type();
@@ -1103,39 +1086,36 @@ internals   =   log::debugging;
 					tdt::TYPEVAR_REF (typevar_ref as { id, ref_typevar as REF (tdt::USER_TYPEVAR { name, fn_nesting, eq } ) } )
 					    =>
 					    {   										if *debugging  printf "generalize_type'/USER_TYPEVAR [type-core-language-declaration-g.pkg]: %s fn_nesting==%d eq==%s\n" (sy::name name) fn_nesting (eq ?? "TRUE" :: "FALSE");  fi;
-						# We're looking at a type variable X or Y in an
-						# expression like  fun foo (x: X) = ... and
-						# wondering if it is ok to generalize.
 
-						# If it isn't on the list of type variables
-						# used in the current function's pattern
-						# clause(s) (parameter expressions), we have
-						# no business messing with it:
-						#	
-						if (not (is_local_function_typevar_ref  typevar_ref))
-																if_debugging_say "is not local";
-						    # This USER_TYPEVAR does not belong
-						    # to us, so we cannot generalize it:
+																# We're looking at a type variable X or Y in an
+																# expression like  fun foo (x: X) = ... and
+																# wondering if it is ok to generalize.
+
+																# If it isn't on the list of type variables
+																# used in the current function's pattern
+																# clause(s) (parameter expressions), we have
+																# no business messing with it:
+																#	
+						if (not (is_local_function_typevar_ref  typevar_ref))				if_debugging_say "is not local";
 						    #
-						    typoid;
+						    typoid;									# This USER_TYPEVAR does not belong to us, so we should not generalize it.
 
-						else
-						    # This USER_TYPEVAR -does- belong
-						    # to us, so we can (maybe) generalize it:
-																if_debugging_say " is local";
+						else										if_debugging_say " is local";
 
-						    # If this type variable is mentioned in an
-						    # enclosing lexical context (fun/fn), it
-						    # encodes type constraints that would be
-						    # lost if we generalized it, allowing
-						    # incorrect code to typecheck:
-						    # 
-						    if ( fn_nesting > syntax_treewalk_lexical_context.fn_nesting		# External scope references do not forbid generalization.
+																# This USER_TYPEVAR -does- belong
+																# to us, so we can (maybe) generalize it:
+
+																# If this type variable is mentioned in an
+																# enclosing lexical context (fun/fn), it
+																# encodes type constraints that would be
+																# lost if we generalized it, allowing
+																# incorrect code to typecheck.
+
+						    if ( fn_nesting > syntax_treewalk_lexical_context.fn_nesting		# if external scope references do not forbid generalization...
 							 and
-							 generalize								# "value restrIction" does not forbid generalization.
+							 generalize								# ... and if "value restriction" does not forbid generalization...
 						       )
-
-							# We're GO to generalize this type variable.
+																# ... then we are GO to generalize this type variable.
 
 																if_debugging_say " is generalizable, replacing USER_TYPEVAR by TYPESCHEME_ARG  [type-core-language-declaration-g.pkg]";
 
@@ -1143,12 +1123,10 @@ internals   =   log::debugging;
 							except
 							    NOT_THERE
 								=
-								{   # Need to assign a fresh typescheme slot,
-								    # then note and return it:
-
+								{								# Need to assign a fresh typescheme slot, then note and return it.
 								    new_typescheme_slot_arg
 									=
-									tdt::TYPESCHEME_ARG (allocate_typescheme_arg_slot());
+									tdt::TYPESCHEME_ARG (allot_typescheme_arg_slot());
 
 								    typescheme_eqflags						# Remember whether this new type variable resolve to an equality type.
 									:=
@@ -1211,27 +1189,26 @@ typoid;
 				    esac;											# fun generalize_type'
 
 
-																if_debugging_unparse_typoid ("\ngeneralize_type:  var_type as given to generalize_type' (unparse):      [type-core-language-declaration-g.pkg]", *var_type);
-																if_debugging_prprint_typoid ("\ngeneralize_type:  var_type as given to generalize_type' (prprint):      [type-core-language-declaration-g.pkg]", *var_type);
+																if_debugging_unparse_typoid ("\ngeneralize_type:  vartypoid_ref as given to generalize_type' (unparse):      [type-core-language-declaration-g.pkg]", *vartypoid_ref);
+																if_debugging_prprint_typoid ("\ngeneralize_type:  vartypoid_ref as given to generalize_type' (prprint):      [type-core-language-declaration-g.pkg]", *vartypoid_ref);
 
-				typescheme_body =  generalize_type'  *var_type;
+				typescheme_body =  generalize_type'  *vartypoid_ref;
 
-																if_debugging_unparse_typoid ("\ngeneralize_type: var_type as converted by generalize_type' (unparse):    [type-core-language-declaration-g.pkg]", typescheme_body);
-																if_debugging_prprint_typoid ("\ngeneralize_type: var_type as converted by generalize_type' (prprint):    [type-core-language-declaration-g.pkg]", typescheme_body);
+																if_debugging_unparse_typoid ("\ngeneralize_type: vartypoid_ref as converted by generalize_type' (unparse):    [type-core-language-declaration-g.pkg]", typescheme_body);
+																if_debugging_prprint_typoid ("\ngeneralize_type: vartypoid_ref as converted by generalize_type' (prprint):    [type-core-language-declaration-g.pkg]", typescheme_body);
 
 				generalized_typevar_refs
 				    =
 				    map #1 (reverse *generalized_typevar_ref_types);
 
-				# Turn user bound typevars into ordinary META typevars 
-				#
 																if_debugging_say ("\ngeneralize_type: running hack to eliminate user_bound variables.   [type-core-language-declaration-g.pkg]\n");
-				apply  eliminate_user_bound_typevars
+
+				apply  eliminate_user_bound_typevars								# Turn user bound typevars (USER_TYPEVAR) into ordinary META_TYPEVARs.
 				       generalized_typevar_refs
-				where
-				    #  A hack to eliminate all user bound type variables --zsh 
-				    #  ZHONG?: is this still necessary? [dbm] XXX BUGGO FIXME 
-				    #
+				where												# A hack to eliminate all user bound type variables --zsh 
+																# ZHONG?: is this still necessary? -- David B MacQueen
+																# 2014-01-15 CrT: Apparently it is -- commenting out this block and doing a compile cycle produces:
+																#     Error: Compiler bug: translate_deep_syntax_to_lambdacode: unexpected typevar MACRO_EXPANDED in translate_pattern_expression
 				    fun eliminate_user_bound_typevars
 					  {
 					    id,
@@ -1265,7 +1242,7 @@ typoid;
 				# Set the type variable we're generalizing
 				# to the type scheme we've constructed:
 				#
-				var_type := tdt::TYPESCHEME_TYPOID
+				vartypoid_ref := tdt::TYPESCHEME_TYPOID
 					      {
 						typescheme
 						    =>
@@ -1278,8 +1255,8 @@ typoid;
 						    reverse  *typescheme_eqflags
 					      };
 
-																if_debugging_unparse_typoid ("\ngeneralize_type: final value for *var_type (unparse):    [type-core-language-declaration-g.pkg]", *var_type);
-																if_debugging_prprint_typoid ("\ngeneralize_type: final value for *var_type (prprint):    [type-core-language-declaration-g.pkg]", *var_type);
+																if_debugging_unparse_typoid ("\ngeneralize_type: final value for *vartypoid_ref (unparse):    [type-core-language-declaration-g.pkg]", *vartypoid_ref);
+																if_debugging_prprint_typoid ("\ngeneralize_type: final value for *vartypoid_ref (prprint):    [type-core-language-declaration-g.pkg]", *vartypoid_ref);
 
 																if *debugging
 																    printf "\ngeneralize_type returning %d type variables:           [type-core-language-declaration-g.pkg] \n" (list::length generalized_typevar_refs);
@@ -1315,7 +1292,7 @@ typoid;
 																# We are called from do_named_value()
 																# in do_declaration/VALUE_DECLARATIONS:
 																#
-		    fun generalize_pattern
+		    fun generalize_pattern											# SIDE-EFFECT: SETS vac::PLAIN_VARIABLE.vartypoid_ref
 			(
 			  given_pattern:                    ds::Case_Pattern,							# Left-hand-side of a "fun foo ... = ..." or "my ... = ..." statement or such.
 			  userbound:                        List( tdt::Typevar_Ref ),						# List of type variables from 'given_pattern'.
@@ -1350,7 +1327,7 @@ typoid;
 					    # 
 					    added_bound_typevar_refs
 						=
-						generalize_type									# This is the only call to generalize_type().
+						generalize_type									# This is the only call to generalize_type().	SIDE-EFFECT: SETS vac::PLAIN_VARIABLE.vartypoid_ref
 						    ( variable,
 						      userbound,
 						      syntax_treewalk_lexical_context,
@@ -1429,7 +1406,8 @@ typoid;
 				  );
 
 																if_debugging_say "\ncompute_fn_application_type calling unify_typoids   [type-core-language-declaration-g.pkg]\n";
-			    uyt::unify_typoids
+
+			    uyt::unify_typoids											# SIDE-EFFECT:  Sets tdt::TYPEVAR_REF.ref_typevar
 			      (
 				"operator_type",   "operand_type --> result_type",
 				 operator_type,    (operand_type --> result_type),
@@ -1476,19 +1454,19 @@ typoid;
 					  tyj::make_meta_typevar_and_type  (fn_nesting, ["compute_pattern_type/WILDCARD_PATTERN  from  type-core-language-declaration-g.pkg"])
 					);
 
-				    ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { var_type as REF tdt::UNDEFINED_TYPOID, ... } )
+				    ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { vartypoid_ref as REF tdt::UNDEFINED_TYPOID, ... } )
 					=> 
-					{   var_type :=  tyj::make_meta_typevar_and_type
+					{   vartypoid_ref :=  tyj::make_meta_typevar_and_type
 							   ( fn_nesting,
 							     ["compute_pattern_type/VARIABLE_IN_PATTERN  from  type-core-language-declaration-g.pkg"]
 							   );
 
-					    (given_pattern, *var_type);
+					    (given_pattern, *vartypoid_ref);
 					};
 
 				    # Multiple occurrence due to or-pattern 
 				    #
-				    ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { var_type, ... } )	=>  (given_pattern, *var_type); 
+				    ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { vartypoid_ref, ... } )	=>  (given_pattern, *vartypoid_ref); 
 
 				    ds::FLOAT_CONSTANT_IN_PATTERN _					=>  (given_pattern, mtt::float64_typoid);
 				    ds::STRING_CONSTANT_IN_PATTERN _					=>  (given_pattern, mtt::string_typoid);
@@ -1581,7 +1559,7 @@ typoid;
 					    # Force all vector elements
 					    # to have the same type:
 					    #
-					    vector_element_type
+					    vector_element_type									# SIDE-EFFECT:   unify_typoids  sets tdt::TYPEVAR_REF.ref_typevar
 						=
 						fold_backward
 						      (fn (a, b) =  { uyt::unify_typoids ("vector a", "vector b", a, b, "compute_pattern_type/VECTOR_PATTERN(2)" ! callstack); b;})
@@ -1618,7 +1596,7 @@ typoid;
 					      # Force both sides of the '|'
 					      # pattern to have the same type:
 					      #
-					      unify_typoids_and_handle_errors
+					      unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						  {
 						    typoid1,  name1 => "expected",
 						    typoid2,  name2 => "found",
@@ -1641,7 +1619,7 @@ typoid;
 
 				    ds::CONSTRUCTOR_PATTERN (valcon as tdt::VALCON { typoid, ... }, _)
 					=> 
-					{   (tyj::instantiate_if_typescheme  (typoid, symbolmapstack, "compute_pattern_type/ds::CONSTRUCTOR_PATTERN" ! callstack))
+					{   (tyj::instantiate_if_typescheme  (typoid, symbolmapstack, "compute_pattern_type/ds::CONSTRUCTOR_PATTERN" ! callstack))		# symbolmapstack is used only for debugging.
 						->
 						(type, fresh_meta_typevars);
 						  
@@ -1650,7 +1628,8 @@ typoid;
 					      # on the type variables in type. (ZHONG)
 					      #
 																if_debugging_say "\ncompute_pattern_type/ds::CONSTRUCTOR_PATTERN calling unify_typoids  [type-core-language-declaration-g.pkg]\n";
-					      uyt::unify_typoids
+
+					      uyt::unify_typoids								# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						(
 						  "type", "temp_type",
 						   type,   temp_type,
@@ -1679,12 +1658,10 @@ typoid;
 						->
 						(arg_pattern, arg_type);
 
-					    my  (constructor, type)
+					    my (constructor, type)
 						=
-						case form
-						    #
-						    varhome::REFCELL_REP =>  (ref_new_valcon valcon,  mtt::ref_pattern_typoid);
-						    _                    =>  (valcon,                 typoid    );
+						case form   varhome::REFCELL_REP =>  (ref_new_valcon valcon,  mtt::ref_pattern_typoid);
+							    _                    =>  (valcon,                 typoid    );
 						esac;
 
 					    (tyj::instantiate_if_typescheme (type, symbolmapstack, "compute_pattern_type/ds::APPLY_PATTERN" ! callstack))
@@ -1738,7 +1715,8 @@ typoid;
 																if_debugging_say "\ncompute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN done calling compute_pattern_type  [type-core-language-declaration-g.pkg]\n";
 
 																if_debugging_say "\ncompute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN calling unify_typoids_and_handle_errors  [type-core-language-declaration-g.pkg]\n";
-					    if (unify_typoids_and_handle_errors
+
+					    if (unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						     {
 						       typoid1 => pat_type,  name1 => "pattern",
 						       typoid2 => type,      name2 => "constraint",
@@ -1766,7 +1744,7 @@ typoid;
 					    fi;
 					};
 
-				    ds::AS_PATTERN (var_pattern as ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { var_type, ... } ), main_pattern)
+				    ds::AS_PATTERN (var_pattern as ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { vartypoid_ref, ... } ), main_pattern)
 					=>
 					{
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN calling compute_pattern_type  [type-core-language-declaration-g.pkg]\n";
@@ -1780,14 +1758,14 @@ typoid;
 						  );
 
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN done calling compute_pattern_type  [type-core-language-declaration-g.pkg]\n";
-					    var_type :=  main_pattern_type;
+					    vartypoid_ref :=  main_pattern_type;
 
 					    ( ds::AS_PATTERN (var_pattern, main_pattern),
 					      main_pattern_type
 					    );
 					};
 
-				    ds::AS_PATTERN (constraint_pattern as ds::TYPE_CONSTRAINT_PATTERN (ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { var_type, ... } ), constraining_type), main_pattern)
+				    ds::AS_PATTERN (constraint_pattern as ds::TYPE_CONSTRAINT_PATTERN (ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { vartypoid_ref, ... } ), constraining_type), main_pattern)
 					=>
 					{
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN II calling compute_pattern_type  [type-core-language-declaration-g.pkg]\n";
@@ -1802,7 +1780,8 @@ typoid;
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN II done calling compute_pattern_type  [type-core-language-declaration-g.pkg]\n";
 
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN II calling unify_typoids_and_handle_errors  [type-core-language-declaration-g.pkg]\n";
-					    if (unify_typoids_and_handle_errors
+
+					    if (unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						  {
 						    typoid1        => main_pattern_type,    name1 => "pattern",
 						    typoid2        => constraining_type,    name2 => "constraint",
@@ -1819,7 +1798,7 @@ typoid;
 					       )
 
 																if_debugging_say "\ncompute_pattern_type/AS_PATTERN II done calling unify_typoids_and_handle_errors (succeeded)  [type-core-language-declaration-g.pkg]\n";
-						var_type :=  constraining_type;
+						vartypoid_ref :=  constraining_type;
 
 						( ds::AS_PATTERN (constraint_pattern, main_pattern),
 						  constraining_type
@@ -1869,7 +1848,7 @@ typoid;
 				{
 																if_debugging_say "\ncompute_expression_type: bool_unify_err: calling unify_and-handle_errors  [type-core-language-declaration-g.pkg]\n";
 																result =
-				    unify_typoids_and_handle_errors
+				    unify_typoids_and_handle_errors								# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 				      {
 					typoid1    => type,          	  name1 => name,
 					typoid2    => mtt::bool_typoid,   name2 => "",
@@ -1923,20 +1902,20 @@ typoid;
 																if *debugging print_callstack "\ncompute_expression_type/TOP.z [type-core-language-declaration-g.pkg] " callstack; fi;
 			    case given_expression
 				#
-				ds::VARIABLE_IN_EXPRESSION { var             =>  var_ref  as  REF (vac::PLAIN_VARIABLE { var_type, inlining_data, ... } ),
+				ds::VARIABLE_IN_EXPRESSION { var             =>  var_ref  as  REF (vac::PLAIN_VARIABLE { vartypoid_ref, inlining_data, ... } ),
 					                     typescheme_args =>  _
 				                           }
 				    =>
 				    { 	
 																 if_debugging_say "\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE/TOP.   [type-core-language-declaration-g.pkg]";
-																 if_debugging_unparse_typoid ("\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE   unparse [type-core-language-declaration-g.pkg]: *var_type == ", *var_type);
-																 if_debugging_prprint_typoid ("\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE   prprint [type-core-language-declaration-g.pkg]: *var_type == ", *var_type);
+																 if_debugging_unparse_typoid ("\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE   unparse [type-core-language-declaration-g.pkg]: *vartypoid_ref == ", *vartypoid_ref);
+																 if_debugging_prprint_typoid ("\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE   prprint [type-core-language-declaration-g.pkg]: *vartypoid_ref == ", *vartypoid_ref);
 					case (inlining_data_to_my_type  inlining_data)						# For builtins like string::get, inlining_data was set up from   all_primops   in   src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
 					    #
 					    THE inl_typoid
 						=>
 						{   (tyj::instantiate_if_typescheme  (inl_typoid, symbolmapstack, "compute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE/THE st" ! callstack)) ->  (inl_typoid', fresh_meta_typevars);
-						    (tyj::instantiate_if_typescheme  (*var_type,  symbolmapstack, "compute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE/THE st" ! callstack)) ->  (var_typoid', _);
+						    (tyj::instantiate_if_typescheme  (*vartypoid_ref,  symbolmapstack, "compute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE/THE st" ! callstack)) ->  (var_typoid', _);
 
 /* */																fun prettyprint_typoid typoid =   if_debugging_prprint_typoid ("", typoid);
 																len =  list::length  fresh_meta_typevars;
@@ -1959,7 +1938,7 @@ typoid;
 
 																
 
-						    uyt::unify_typoids
+						    uyt::unify_typoids								# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						      ( "inl_typoid'", "var_typoid'", inl_typoid', var_typoid',
 							["compute_expression_type/ds::VARIABLE_IN_EXPRESSION"]
 						      )
@@ -1984,7 +1963,7 @@ typoid;
 						{
 																if_debugging_say "\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE I: calling tyj::instantiate_if_typescheme.  [type-core-language-declaration-g.pkg]";
 
-						    (tyj::instantiate_if_typescheme  (*var_type, symbolmapstack, "compute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE I" ! callstack))
+						    (tyj::instantiate_if_typescheme  (*vartypoid_ref, symbolmapstack, "compute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE I" ! callstack))
 							->
 							(fresh_type, fresh_meta_typevars);
 																if_debugging_say "\ncompute_expression_type/ds::VARIABLE_IN_EXPRESSION/vac::PLAIN_VARIABLE I: done calling tyj::instantiate_if_typescheme.  [type-core-language-declaration-g.pkg]";
@@ -2131,7 +2110,7 @@ typoid;
 
 
 					{											if_debugging_say "\ncompute_expression_type/RECORD_SELECTOR_EXPRESSION: calling unify_typoids.   [type-core-language-declaration-g.pkg]";
-					    uyt::unify_typoids
+					    uyt::unify_typoids									# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 					      ( "incomplete_record_type", "record_expression_type",
 						 incomplete_record_type,   record_expression_type,
 						["compute_expression_type/RECORD_SELECTOR_EXPRESSION"]
@@ -2140,7 +2119,7 @@ typoid;
 					    (ds::RECORD_SELECTOR_EXPRESSION (label, record_expression), result_type);
 					}
 					except
-					    uyt::UNIFY_TYPOIDS (mode)
+					    uyt::UNIFY_TYPOIDS  mode
 					       =
 					       {   error_function
 						       source_code_region
@@ -2192,7 +2171,7 @@ typoid;
 					vector_element_type
 					    =
 					    fold_backward
-						(fn (a, b) =    {   uyt::unify_typoids( "vector a",
+						(fn (a, b) =    {   uyt::unify_typoids( "vector a",				# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 											"vector b",
 											a, b,
 											["compute_expression_type/VECTOR_IN_EXPRESSION  from  type-core-language-declaration-g.pkg"]
@@ -2377,7 +2356,7 @@ typoid;
 				ds::TYPE_CONSTRAINT_EXPRESSION (expression, constraining_type)
 				    =>
 				    {
-																 if_debugging_say "\ncompute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION.   [type-core-language-declaration-g.pkg]";
 					my  (expression, expression_type)
 					    =
 					    compute_expression_type
@@ -2387,8 +2366,9 @@ typoid;
 						"compute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION" ! callstack
 					      );
 
-																 if_debugging_say "\ncompute_expression_type/TYPE_CONSTRAINT_EXPRESSION: calling unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
-					if (unify_typoids_and_handle_errors
+																if_debugging_say "\ncompute_expression_type/TYPE_CONSTRAINT_EXPRESSION: calling unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
+
+					if (unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						{
 						  typoid1 => expression_type,    name1 => "expression",
 						  typoid2 => constraining_type,  name2 => "constraint",
@@ -2437,18 +2417,21 @@ typoid;
 					expression =  ds::EXCEPT_EXPRESSION (expression, (rules, rule_pattern_type));
 
 																 if_debugging_say "\ncompute_expression_type/EXCEPT_EXPRESSION: above call to unify_typoids   [type-core-language-declaration-g.pkg]";
-					{   uyt::unify_typoids  ( "exception_handler_type",    "exception_typoid --> expression_type",            
-								   exception_handler_type,  mtt::exception_typoid --> expression_type,
-								  ["compute_expression_type/EXCEPT_EXPRESSION"]
-								);
+
+					{   uyt::unify_typoids									# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
+					      ( "exception_handler_type",    "exception_typoid --> expression_type",            
+						 exception_handler_type,  mtt::exception_typoid --> expression_type,
+						 ["compute_expression_type/EXCEPT_EXPRESSION"]
+					      );
 
 					    (expression, expression_type);
 					}
 					except uyt::UNIFY_TYPOIDS  mode
 					    =
 					    {
-															      if_debugging_say "\ncompute_expression_type/EXCEPT_EXPRESSION: above second call to unify_typoids   [type-core-language-declaration-g.pkg]";
-						if (unify_typoids_and_handle_errors
+																if_debugging_say "\ncompute_expression_type/EXCEPT_EXPRESSION: above second call to unify_typoids   [type-core-language-declaration-g.pkg]";
+
+						if (unify_typoids_and_handle_errors						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 							{
 							  typoid1 => mtt::domain (tyj::drop_resolved_typevars  exception_handler_type),   name1 => "handler domain",
 							  typoid2 => mtt::exception_typoid,                                               name2 => "",
@@ -2464,8 +2447,9 @@ typoid;
 						        }
 						   )
 
-															      if_debugging_say "\ncompute_expression_type/EXCEPT_EXPRESSION: above third call to unify_typoids   [type-core-language-declaration-g.pkg]";
-						    unify_typoids_and_handle_errors
+																if_debugging_say "\ncompute_expression_type/EXCEPT_EXPRESSION: above third call to unify_typoids   [type-core-language-declaration-g.pkg]";
+
+						    unify_typoids_and_handle_errors						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 						      {
 							typoid1 => expression_type,                                                  name1 => "body",
 							typoid2 => mtt::range (tyj::drop_resolved_typevars exception_handler_type),  name2 => "handler range",
@@ -2502,12 +2486,12 @@ typoid;
 						"compute_expression_type/RAISE_EXPRESSION" ! callstack
 					      );
 
-																 if_debugging_say "\ncompute_expression_type/RAISE_EXPRESSION:  BBB: back from compute_expression_type.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/RAISE_EXPRESSION:  BBB: back from compute_expression_type.   [type-core-language-declaration-g.pkg]";
 
-																 if_debugging_say "\ncompute_expression_type/RAISE_EXPRESSION:  CCC: calling unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/RAISE_EXPRESSION:  CCC: calling unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
 					# Verify that 'expression' has an exception type:
 					#
-					unify_typoids_and_handle_errors
+					unify_typoids_and_handle_errors								# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 					    {
 					      typoid1 => expression_type,     name1 => "raised",
 					      typoid2 => mtt::exception_typoid,  name2 => "",
@@ -2544,15 +2528,15 @@ typoid;
 					# depends entirely upon its terminal
 					# 'expression':
 
-																 if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  TOP: calling do_declaration on LET_EXPRESSION.d.    [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  TOP: calling do_declaration on LET_EXPRESSION.d.    [type-core-language-declaration-g.pkg]";
 					declaration =   do_declaration
 							  ( declaration,
 							    enter_let_scope (syntax_treewalk_lexical_context),
 							    source_code_region,
 							    "compute_expression_type/LET_EXPRESSION" ! callstack
 							  );
-																 if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  done calling do_declaration on LET_EXPRESSION.d.    [type-core-language-declaration-g.pkg]";
-																 if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  BBB: calling compute_expression_type on LET_EXPRESSION.e.    [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  done calling do_declaration on LET_EXPRESSION.d.    [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  BBB: calling compute_expression_type on LET_EXPRESSION.e.    [type-core-language-declaration-g.pkg]";
 					my (expression, expression_type)
 					    =
 					    compute_expression_type
@@ -2561,8 +2545,8 @@ typoid;
 						source_code_region,
 						"compute_expression_type/LET_EXPRESSION(2)" ! callstack
 					      );
-																 if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  done calling compute_expression_type on LET_EXPRESSION.e.    [type-core-language-declaration-g.pkg]";
-																 if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  BOT.    [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  done calling compute_expression_type on LET_EXPRESSION.e.    [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/LET_EXPRESSION:  BOT.    [type-core-language-declaration-g.pkg]";
 
 					( ds::LET_EXPRESSION (declaration, expression),
 					  expression_type
@@ -2571,14 +2555,14 @@ typoid;
 
 				ds::CASE_EXPRESSION (expression, rules, is_match)
 				    =>
-				    {												 if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  TOP.    [type-core-language-declaration-g.pkg]";
+				    {												if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  TOP.    [type-core-language-declaration-g.pkg]";
 
 					my (expression, expression_type) =  compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/CASE_EXPRESSION(2) " ! callstack);
 					my (rules', _, rule_type)        =  compute_match_type      (rules,      syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/CASE_EXPRESSION(3) " ! callstack);
 
 					expression = ds::CASE_EXPRESSION (expression, rules', is_match);
 
-																 if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above call to compute_fn_application_type.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above call to compute_fn_application_type.   [type-core-language-declaration-g.pkg]";
 					( expression,
 					  compute_fn_application_type (rule_type, expression_type, callstack)
 					)
@@ -2586,8 +2570,9 @@ typoid;
 					    uyt::UNIFY_TYPOIDS  mode
 						=
 						{   if is_match
-																  if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above call to unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
-							unify_typoids_and_handle_errors
+																if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above call to unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
+
+							unify_typoids_and_handle_errors						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 							  {
 							    typoid1 => mtt::domain rule_type,    name1 => "rule domain",
 							    typoid2 => expression_type,   name2 => "object",
@@ -2617,8 +2602,9 @@ typoid;
 									    _ => bug "unexpected rule list 456";
 									esac;
 
-																  if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above second call to unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
-							unify_typoids_and_handle_errors
+																if_debugging_say "\ncompute_expression_type/CASE_EXPRESSION:  above second call to unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
+
+							unify_typoids_and_handle_errors						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 							  {
 							    typoid1 => mtt::domain rule_type,   name1 => "pattern",
 							    typoid2 => expression_type,        name2 => "expression",
@@ -2661,7 +2647,7 @@ typoid;
 						 message => "test expression in if is not of type bool"
 					       }
 					and
-					   unify_typoids_and_handle_errors
+					   unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 					       {
 						 typoid1 => tct,   name1 => "then branch",
 						 typoid2 => ect,   name2 => "else branch",
@@ -2677,7 +2663,7 @@ typoid;
 					       }
 					)
 
-																 if_debugging_say "\ncompute_expression_type/IF_EXPRESSION:  success.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/IF_EXPRESSION:  success.   [type-core-language-declaration-g.pkg]";
 					    ( ds::IF_EXPRESSION { test_case => test_case',
 								  then_case => then_case',
 								  else_case => else_case'
@@ -2685,7 +2671,7 @@ typoid;
 					      tct
 					    );
 					else
-																 if_debugging_say "\ncompute_expression_type/IF_EXPRESSION:  failure.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/IF_EXPRESSION:  failure.   [type-core-language-declaration-g.pkg]";
 					    ( given_expression,
 					      tdt::WILDCARD_TYPOID
 					    );
@@ -2695,14 +2681,14 @@ typoid;
 				ds::AND_EXPRESSION (expression1, expression2)
 				    =>
 				    {
-																 if_debugging_say "\ncompute_expression_type/ds::AND_EXPRESSION.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/ds::AND_EXPRESSION.   [type-core-language-declaration-g.pkg]";
 					short_circuit_and_or (ds::AND_EXPRESSION, "and", expression1, expression2);
 				    };
 
 				ds::OR_EXPRESSION (expression1, expression2)
 				    =>
 				    {
-																 if_debugging_say "\ncompute_expression_type/OR_EXPRESSION.   [type-core-language-declaration-g.pkg]";
+																if_debugging_say "\ncompute_expression_type/OR_EXPRESSION.   [type-core-language-declaration-g.pkg]";
 					short_circuit_and_or (ds::OR_EXPRESSION, "or", expression1, expression2);
 				    };
 
@@ -2842,7 +2828,8 @@ typoid;
 						  );
 
 																if_debugging_say "\ncompute_match_type: unify_with_rule0: calling unify_typoids_and_handle_errors.   [type-core-language-declaration-g.pkg]";
-					    unify_typoids_and_handle_errors
+
+					    unify_typoids_and_handle_errors							# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 					      {
 						typoid1 => rule_type,  name1 => "earlier rule (s)",
 						typoid2 => rule_type', name2 => "this rule",
@@ -2872,14 +2859,14 @@ typoid;
 			( given_declaration:			ds::Declaration,
 			  syntax_treewalk_lexical_context:	Syntax_Treewalk_Lexical_Context,
 			  source_code_region:			ds::Source_Code_Region,
-			  callstack:				List(String)				# Debug support.
+			  callstack:				List(String)							# Debug support.
 			)
 			:
 			ds::Declaration
 			=
 			{
 																if *debugging   print_callstack "\ndo_declaration/TOP   [type-core-language-declaration-g.pkg]" callstack; fi;
-																if_debugging_unparse_declaration     ("\ndo_declaration/TOP given_declaration unparse     is:    [type-core-language-declaration-g.pkg]\n", given_declaration);
+																if_debugging_unparse_declaration     ("\ndo_declaration/TOP given_declaration unparse     is:    [type-core-language-declaration-g.pkg]\n",  given_declaration);
 																if_debugging_prettyprint_declaration ("\ndo_declaration/TOP given_declaration prettyprint is:    [type-core-language-declaration-g.pkg]\n", (given_declaration,100));
 
 			    case given_declaration
@@ -2913,19 +2900,20 @@ typoid;
 																if_debugging_unparse_expression     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression unparse == \n", (given_expression,100));
 																if_debugging_prettyprint_expression ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression prprint == \n", (given_expression,100));
 
-							my (pattern,    pattern_type   ) = compute_pattern_type    (given_pattern,        tdt::infinity,                   source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(1) " ! callstack);	# Propagate type data leaf-to-root in pattern.
-							my (expression, expression_type) = compute_expression_type (given_expression,     syntax_treewalk_lexical_context, source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(2) " ! callstack);	# Propagate type data leaf-to-root in expression.
+							my (pattern,    pattern_type   ) =  compute_pattern_type    (given_pattern,        tdt::infinity,                   source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(1) " ! callstack);	# Propagate type data leaf-to-root in pattern.
+							my (expression, expression_type) =  compute_expression_type (given_expression,     syntax_treewalk_lexical_context, source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(2) " ! callstack);	# Propagate type data leaf-to-root in expression.
 
 																if_debugging_say "\ndo_declaration/VALUE_DECLARATIONS/do_named_value done calling compute_expression_type.   [type-core-language-declaration-g.pkg]";
 																#
 																if_debugging_unparse_pattern        ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern unparse == \n",     (pattern,100));
 																if_debugging_prettyprint_pattern    ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern prettyprint == \n", (pattern,100));
 																#
-																if_debugging_unparse_expression     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression unparse == \n", (expression,100));
+																if_debugging_unparse_expression     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression unparse == \n",     (expression,100));
 																if_debugging_prettyprint_expression ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression prettyprint == \n", (expression,100));
 																#
-																if_debugging_unparse_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern type unparse == \n", pattern_type);
-																if_debugging_prprint_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern type prprint == \n", pattern_type);
+																if_debugging_unparse_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern type unparse == \n",    pattern_type);
+																if_debugging_prprint_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  pattern type prprint == \n",    pattern_type);
+																#
 																if_debugging_unparse_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression type unparse == \n", expression_type);
 																if_debugging_prprint_typoid     ("\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  expression type prprint == \n", expression_type);
 
@@ -2944,9 +2932,9 @@ typoid;
 
 																if_debugging_say "\ndo_declaration/VALUE_DECLARATIONS/do_named_value [type-core-language-declaration-g.pkg]:  calling unify_typoids_and_handle_errors on pattern + expression\n";
 
-							unify_typoids_and_handle_errors						# Propagate type information between left- and right-hand side.
-							    {
-							      name1 => "pattern",	typoid1 => pattern_type,
+							unify_typoids_and_handle_errors						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
+							    {									# Propagate type information between left- and right-hand side.
+							      name1 => "pattern",	typoid1 => pattern_type,		# typoid1 and typoid2 are the two args that matter.
 							      name2 => "expression",	typoid2 => expression_type,
 
 							      message => "Pattern and expression in 'my' declaration do not agree",
@@ -2984,8 +2972,9 @@ typoid;
 																		if_debugging_unparse_typevar_ref ("", typevar_ref);
 																	end;
 																    printf "\n";
-																    if_debugging_unparse_pattern        ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.pattern == \n", (pattern,100));
-																    if_debugging_unparse_expression     ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.expression == \n", (expression,100));
+																    if_debugging_unparse_pattern        ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.pattern == \n",                (pattern,   100));
+																    if_debugging_unparse_expression     ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.expression == \n",             (expression,100));
+																    #
 																    if_debugging_prettyprint_pattern    ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.pattern    prettyprint == \n", (pattern,   100));
 																    if_debugging_prettyprint_expression ("\n[type-core-language-declaration-g.pkg]  NAMED_VALUE.expression prettyprint == \n", (expression,100));
 																fi;
@@ -3078,7 +3067,7 @@ typoid;
 																# We save the result in
 																#     NAMED_RECURSIVE_VALUE /
 																#     ORDINARY_VARIBLE /
-																#     var_type.
+																#     vartypoid_ref.
 																#
 																# During this first pass we do not compute any range
 																# range types from the actual rule right hand sides
@@ -3090,7 +3079,7 @@ typoid;
 							    as
 							    ds::NAMED_RECURSIVE_VALUE
 							      {
-								variable =>  variable as  vac::PLAIN_VARIABLE { var_type, ... },
+								variable =>  variable as  vac::PLAIN_VARIABLE { vartypoid_ref, ... },
 								expression,
 								raw_typevars,
 								generalized_typevars,
@@ -3143,9 +3132,9 @@ typoid;
 																#
 
 							    domain_type =   tyj::make_meta_typevar_and_type  (syntax_treewalk_lexical_context.fn_nesting, ["domain_type in do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  type-core-language-declaration-g.pkg"]);
-							    range_type  =   tyj::make_meta_typevar_and_type  (syntax_treewalk_lexical_context.fn_nesting, ["range_type  in do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  type-core-language-declaration-g.pkg"]);
+							    result_type =   tyj::make_meta_typevar_and_type  (syntax_treewalk_lexical_context.fn_nesting, ["result_type in do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  type-core-language-declaration-g.pkg"]);
 							    #
-							    function_type_so_far =   domain_type --> range_type;
+							    function_type_so_far =   domain_type --> result_type;
 
 
 																# If the user explicitly declared a type for the
@@ -3160,7 +3149,8 @@ typoid;
 								    =>
 								    {
 																if_debugging_say "\ndo_one_function: calling unify_typoids_and_handle_errors in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  type-core-language-declaration-g.pkg\n";
-									unify_typoids_and_handle_errors
+
+									unify_typoids_and_handle_errors				# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 									    {
 									      typoid1 => function_type_so_far,    name1 => "",
 									      typoid2 => declared_function_type,  name2 => "constraint",
@@ -3215,17 +3205,17 @@ typoid;
 
 												    case expression
 													#
-													ds::TYPE_CONSTRAINT_EXPRESSION (expression, range_type_constraint)
+													ds::TYPE_CONSTRAINT_EXPRESSION (expression, result_type_constraint)
 													    =>
 													    ( pattern,
-													      pattern_type --> range_type_constraint,
+													      pattern_type --> result_type_constraint,
 													      (expression, source_code_region)
 													    );
 
 													expression
 													    =>
 													    ( pattern,
-													      pattern_type --> range_type,
+													      pattern_type --> result_type,
 													      (expression, source_code_region)
 													    );
 												    esac;
@@ -3248,7 +3238,7 @@ typoid;
 																if_debugging_say "\ndo_declaration/RECURSIVE_VALUE_DECLARATIONS [type-core-language-declaration-g.pkg]: \
 																			\do_one_function: unify_rule_type_with_function_type_so_far:  calling unify_typoids_and_handle_errors\n";
 
-											    unify_typoids_and_handle_errors
+											    unify_typoids_and_handle_errors	# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 											      {
 												typoid1 => rule_type,              name1 => "this clause",
 												typoid2 => function_type_so_far,   name2 => "previous clauses",
@@ -3269,19 +3259,20 @@ typoid;
 											};
 										end;
 
-										var_type := function_type_so_far;
+										vartypoid_ref := function_type_so_far;
 
-										# Added 2009-04-25 CrT: See Note[1] at bottom of tile.
+										# Added 2009-04-25 CrT: See Note[1] at bottom of tile -- this stuff is unused and usable and should probably be deleted soon unless we can work out a special case sufficient for OOP or something like that.
 										#		
 # src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg: generalize_type'/USER_TYPEVAR: X fn_nesting 1 syntax_treewalk_lexical_context.fn_nesting  1
 # src/lib/thread-kit/src/core-thread-kit/event.pkg:151.9-172.3 Error: Explicit type variable cannot be generalized at its declaration point: X
 # src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg: generalize_type'/USER_TYPEVAR: X fn_nesting 1 syntax_treewalk_lexical_context.fn_nesting  1
 # src/lib/thread-kit/src/core-thread-kit/event.pkg:357.9-374.3 Error: Explicit type variable cannot be generalized at its declaration point: X
 										#
-										if	*generalize_mutually_recursive_functions
+										if *generalize_mutually_recursive_functions
+										    #	
 										    apply  generalize_rule_pattern  rule_patterns
 										    where
-											fun generalize_rule_pattern  pattern
+											fun generalize_rule_pattern  pattern				# SIDE-EFFECT: SETS vac::PLAIN_VARIABLE.vartypoid_ref
 											    =
 											    {
 																if *debugging
@@ -3290,7 +3281,7 @@ typoid;
 																fi;
 												added_typevars
 												    =
-												    generalize_pattern
+												    generalize_pattern					# SIDE-EFFECT: SETS vac::PLAIN_VARIABLE.vartypoid_ref
 												      (
 													pattern,
 												       *raw_typevars,					# Type variables explicitly specified by user:  X, Y, ... 
@@ -3327,7 +3318,7 @@ typoid;
 																	    if_debugging_unparse_typevar_ref ("", typevar_ref);
 																    end;
 																fi;
-										fi;
+										fi;						# end of bogus generalization of mutually recursive fns
 
 										expression_thunk
 										    =
@@ -3337,16 +3328,16 @@ typoid;
 											    ( paired_lists::map
 												  ds::CASE_RULE
 												  ( rule_patterns,
-												    map  unify_expression_with_range_type  rule_expressions
+												    map  unify_expression_with_result_type  rule_expressions
 												  ),
 
 											      mtt::domain  (tyj::drop_resolved_typevars  function_type_so_far)
 											    )
 											where
-											    fun unify_expression_with_range_type  (expression,  source_code_region)
+											    fun unify_expression_with_result_type  (expression,  source_code_region)
 												=
 												{
-																if_debugging_say "\ncalling compute_expression_type [type-core-language-declaration-g.pkg]: unify_expression_with_range_type() in \
+																if_debugging_say "\ncalling compute_expression_type [type-core-language-declaration-g.pkg]: unify_expression_with_result_type() in \
 																	\f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() \
 																	\in type-core-language-declaration-g.pkg";
 												    my (expression, expression_type)
@@ -3358,15 +3349,15 @@ typoid;
 													    source_code_region,
 													    "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(5)" ! callstack
 													  );
-																if_debugging_say "\nback from compute_expression_type [type-core-language-declaration-g.pkg]:  unify_expression_with_range_type() in f() in do_one_function() in \
+																if_debugging_say "\nback from compute_expression_type [type-core-language-declaration-g.pkg]:  unify_expression_with_result_type() in f() in do_one_function() in \
 																		    \RECURSIVE_VALUE_DECLARATIONS in do_declaration() in type-core-language-declaration-g.pkg";
 
-																if_debugging_say "\ncalling unify_typoids_and_handle_errors:   unify_expression_with_range_type() in f() in \
+																if_debugging_say "\ncalling unify_typoids_and_handle_errors:   unify_expression_with_result_type() in f() in \
 																		    \do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in type-core-language-declaration-g.pkg";
-												    unify_typoids_and_handle_errors {
-
+												    unify_typoids_and_handle_errors {						# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
+													#
 													typoid1 => expression_type,   name1 => "expression",
-													typoid2 => range_type,        name2 => "result type",
+													typoid2 =>     result_type,   name2 => "result type",
 
 													message=>"right-hand-side of clause\
 														 \ doesn't agree with function result type",
@@ -3379,7 +3370,7 @@ typoid;
 
 													callstack      => "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(6)" ! callstack
 												      };
-																if_debugging_say "\nback from unify_typoids_and_handle_errors:   unify_expression_with_range_type() in \
+																if_debugging_say "\nback from unify_typoids_and_handle_errors:   unify_expression_with_result_type() in \
 																			\f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in type-core-language-declaration-g.pkg";
 
 												    expression;
@@ -3411,7 +3402,8 @@ typoid;
 									    =>
 									    {
 																if_debugging_say "\ndo_declaration/RECURSIVE_VALUE_DECLARATIONS [type-core-language-declaration-g.pkg]: do_one_function: f:  calling unify_typoids_and_handle_errors\n";
-										unify_typoids_and_handle_errors
+
+										unify_typoids_and_handle_errors			# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
 										    {
 										      typoid1 => constraining_type,      name1 => "this constraint",
 										      typoid2 => function_type_so_far,   name2 => "outer constraints",
@@ -3765,14 +3757,14 @@ typoid;
 
 
 		    #	
-#		    fun drop_resolved_typevars_in_named_value (ds::VALUE_NAMING { pattern => ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { path, varhome, inlining_data, var_type } ), ... })
+#		    fun drop_resolved_typevars_in_named_value (ds::VALUE_NAMING { pattern => ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { path, varhome, inlining_data, vartypoid_ref } ), ... })
 #			    =>
-#			    case var_type
+#			    case vartypoid_ref
 #				#
 #				REF              (tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body                                     } } )
 #			    =>  {
 #																if *debugging   printf "drop_resolved_typevars_in_named_value: handled case.\n";   fi;
-#				    var_type :=  (tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body => tyj::drop_resolved_typevars body } } );
+#				    vartypoid_ref :=  (tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body => tyj::drop_resolved_typevars body } } );
 #				};
 #
 #				_ =>    {
