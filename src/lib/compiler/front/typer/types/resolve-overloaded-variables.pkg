@@ -54,7 +54,9 @@ herein
 	#
 	make_overloaded_variable_resolver
 	    :
-	    (id::Inlining_Data -> Null_Or( tdt::Typoid ))				# inlining_data_to_my_type	from   src/lib/compiler/front/semantic/modules/generics-expansion-junk-parameter.pkg
+	    ( (id::Inlining_Data -> Null_Or( tdt::Typoid )),				# inlining_data_to_my_type	from   src/lib/compiler/front/semantic/modules/generics-expansion-junk-parameter.pkg
+	      Ref (Null_Or( List (Void -> Void )))					# undo support:  "undo_log"
+	    )
 	    ->
 	    {   note_overloaded_variable:
 		    ( Ref( vac::Variable ),
@@ -101,8 +103,8 @@ herein
     : (weak)  Resolve_Overloaded_Variables
     {
 	say = control_print::say;
-	debugging = REF FALSE;
-# debugging = log::debugging;
+#	debugging = REF FALSE;
+debugging = log::debugging;
 	#
 	fun if_debugging_say (msg: String)
             =
@@ -145,219 +147,288 @@ herein
 
 	exception SOFT_UNIFY;
 
-	# Restore the pre-existing values
-        # of a set of typevar refs by
-        # applying an accumulated substitution.
-        #
-	fun undo_substitution (((typevar_ref as REF type), oldtype) ! rest)
-		=>
-		{   typevar_ref := oldtype;
-		    undo_substitution  rest;
-		};
-
-	    undo_substitution NIL =>  ();
-	end;
 
 
-        # Attempt unification of type1 with type2.
-        #
-        # If anything goes wrong, roll back all
-        # changes made.
-        #
-        # Return TRUE if the two unified successfully,
-        # otherwise FALSE.
-        #
-	fun soft_unify
-            ( typoid1:	tdt::Typoid,
-              typoid2:	tdt::Typoid
-            )
-            : Bool
-            =
-	    {	{   unify (typoid1, typoid2);
-		    TRUE;
-		}
-		except
-		    SOFT_UNIFY
-			=
-			{   undo_substitution *substitution;
-			    FALSE;
-			};
-	    }
-            where
-	        # Initialize a Substitution in which to	
-                # record all changes made during unification
-                # for possible rollback:
-                #
-		substitution =   REF NIL:   Ref( Substitution );
-                    
-
-
-		# Set given typevar ref to given type,
-                # save its pre-existing value in the
-                # above substitution for possible rollback.
-                #
-                # We raise SOFT_UNIFY if the standard unification
-                # 'occur' check fails -- for background see:
-                #
-		#     http://en.wikipedia.org/wiki/Occurs_check
-                #
-		fun set_typevar_undoably
-                    ( tv as { id, ref_typevar as REF typevar }:  tdt::Typevar_Ref,
-                      typoid:	tdt::Typoid
-                    )
-                    : Void
-                    =
-		    case typevar
-			#
-			( tdt::OVERLOADED_TYPEVAR eq
-			| tdt::META_TYPEVAR { eq, ... }
-			)
-			    =>
-			    {   scan  eq  typoid;
+	fun maybe_note_ref_in_undo_log										# If we're maintaining the undo_log, add an entry to undo uncoming assignment to ref.
+	      (													# 
+		 undo_log:  Ref (Null_Or(List(Void -> Void))),							# When non-NULL, *undo_log accumulates a list of thunks which will undo everything done by do_declaration() call.
+		 ref:	Ref(X)											# 
+	      )
+	    =
+	    case *undo_log
+		#
+		THE log =>  {   oldval    =  *ref;
 				#
-				substitution :=  (ref_typevar, typevar) ! *substitution;
-				ref_typevar  :=  tdt::RESOLVED_TYPEVAR typoid;
-			    }
-			    where
-			        fun scan eq (typoid:  tdt::Typoid): Void				# Simple occurrence check 
-				    =
-				    case typoid
-					#
-					tdt::TYPEVAR_REF (tv' as { id => id', ref_typevar => ref_typevar' })
-					    => 
-					    if (tj::same_typevar_ref (tv, tv'))
-						#
-						raise exception SOFT_UNIFY;
-					    else
-						case ref_typevar'
-						    #
-						    REF (tdt::INCOMPLETE_RECORD_TYPEVAR { known_fields, ... } )
-							=>
-							#  David B MacQueen: can this happen?   XXX QUERO FIXME
-							apply   (fn (_, typoid') = scan eq typoid')   known_fields;
-
-						    _   => ();
-						esac;
-					    fi;
-
-					tdt::TYPCON_TYPOID (type, args)
-					    =>
-					    # Check equality property if necessary 
-					    #
-					    if (not eq)
-						#
-						apply (scan eq) args;
-					    else
-						case type
-						    #
-						    tdt::NAMED_TYPE _
-							=> 
-							scan eq (tj::head_reduce_typoid typoid);
-
-						    tdt::SUM_TYPE gt
-							=>
-							case *gt.is_eqtype
-							    #
-							    tdt::e::YES   =>  apply (scan eq) args;
-							    tdt::e::CHUNK =>  apply (scan FALSE) args;
-							    _             =>  raise exception SOFT_UNIFY;		# Won't happen 
-							esac;
-
-						   _ => raise exception SOFT_UNIFY;				# Won't happen?
-						esac;
-
-					    fi;
-
-				       typoid => ();     #  propagate error
-
-				   esac;
-			    end;
-
-			_ => raise exception SOFT_UNIFY;
-		    esac;
-
-
-
-
-		fun unify
-                      ( typoid1:	tdt::Typoid,
-                        typoid2:	tdt::Typoid
-                      )
-                      : Void
-                    =
-		    {   typoid1 =  tj::drop_resolved_typevars  typoid1;
-			typoid2 =  tj::drop_resolved_typevars  typoid2;
-
-			case (typoid1, typoid2)
-			    #
-			    (tdt::WILDCARD_TYPOID, _) => ();		# Wildcards unify with anything.
-			    (_, tdt::WILDCARD_TYPOID) => ();		# Wildcards unify with anything.
-
-			    (tdt::TYPEVAR_REF (tv1), tdt::TYPEVAR_REF (tv2))
-				=>
-				if (not (tj::same_typevar_ref (tv1, tv2)))
-				    #
-				    set_typevar_undoably (tv1, typoid2);
-				fi;
-
-			    (tdt::TYPEVAR_REF (tv1), _) => set_typevar_undoably (tv1, typoid2);
-
-			    (_, tdt::TYPEVAR_REF (tv2)) => set_typevar_undoably (tv2, typoid1);
-
-			    (tdt::TYPCON_TYPOID (type1, args1), tdt::TYPCON_TYPOID (type2, args2))
-				=>
-				if (tj::types_are_equal (type1, type2) )
-				    #
-				    unify_lists (args1, args2);
-				else
-				    unify (tj::reduce_typoid typoid1, typoid2)
-				    except
-					tj::BAD_TYPE_REDUCTION
-					    => 
-					    unify (typoid1, tj::reduce_typoid typoid2)
-					    except
-						tj::BAD_TYPE_REDUCTION
-						    =>
-						    raise exception SOFT_UNIFY;
-					    end;
-				    end;
-				fi;
-
-			     _ => raise exception SOFT_UNIFY;
-			 esac;
-		      }
-
-		  also
-		  fun unify_lists ([],[])
-                          =>
-                          ();
-
-		      unify_lists
-                          ( type1 ! rest1,
-                            type2 ! rest2
-                          )
-			  => 
-			  {   unify (type1, type2);
-                              unify_lists (rest1, rest2);
-                          };
-
-		      unify_lists  _
-                          =>
-                          raise exception SOFT_UNIFY;
-                  end;
-	      end;								# fun soft_unify
+				undo_log :=  THE ((fn () = ref := oldval) ! log);
+			    };
+		NULL    =>  ();
+	    esac;
 
 	# We get invoked (only) from:
 	#
 	#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
 	#
 	fun make_overloaded_variable_resolver
-		(inlining_data_to_my_type:  id::Inlining_Data -> Null_Or( tdt::Typoid ))
+	      (
+		(inlining_data_to_my_type:	id::Inlining_Data -> Null_Or( tdt::Typoid )),
+		undo_log:			Ref (Null_Or( List (Void -> Void )))						# undo support
+	      )
 	    =
 	    { note_overloaded_variable,
               resolve_all_overloaded_variables
             }
             where
+		# Restore the pre-existing values
+		# of a set of typevar refs by
+		# applying an accumulated substitution.
+		#
+		fun undo_substitution (((typevar_ref as REF type), oldtype) ! rest)
+			=>
+			{   typevar_ref := oldtype;
+			    #
+			    undo_substitution  rest;
+			};
+
+		    undo_substitution NIL =>  ();
+		end;
+
+		#
+#		fun move_substitution_to_undo_log (((typevar_ref as REF type), oldtype) ! rest)
+#			=>
+#			{   case *undo_log
+#				#
+#				THE log =>  undo_log :=  THE ((fn () =  typevar_ref := oldtype)  !  log);			# Add a thunk to undo_log that will restore typevar_ref to original (pre-soft_unify) value.
+#				NULL	=>  ();
+#			    esac;
+#
+#			    move_substitution_to_undo_log  rest;
+#			};
+#
+#		    move_substitution_to_undo_log []  =>   ();
+#		end;
+
+		# Attempt unification of type1 with type2.
+		#
+		# If anything goes wrong, roll back all
+		# changes made.
+		#
+		# Return TRUE if the two unified successfully,
+		# otherwise FALSE.
+		#
+		fun soft_unify
+		    ( typoid1:	tdt::Typoid,
+		      typoid2:	tdt::Typoid
+		    )
+		    : Bool
+		    =
+		    {
+if (winix::process::get_env "NEWCODE" == NULL)
+# Pre-existing well-tested code:
+
+			{   unify (typoid1, typoid2);
+			    TRUE;
+			}
+			except
+			    SOFT_UNIFY
+				=
+				{   undo_substitution *substitution;
+				    FALSE;
+				};
+else
+# Experimental new code:
+
+			undo_log2 =  REF (THE ([]: List(Void -> Void)));							# When non-NULL, undo_log accumulates a list of thunks which will undo everything done by do_declaration() call.
+
+			{   uyt::unify_typoids											# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
+			      (
+				"typoid1", "typoid2",
+				typoid1, typoid2,
+				[ "soft_unify" ],
+				undo_log2
+			      );
+
+
+			    case *undo_log
+				#
+				THE log =>  undo_log :=  THE ((the *undo_log2) @ log);						# Leave unification in place but allow caller to undo it via undo_log.
+				NULL    =>  ();
+			    esac;
+
+			    TRUE;
+			}
+			except
+			    uyt::UNIFY_TYPOIDS mode
+				=
+				{
+				    apply  (fn f = f())  (the *undo_log2);							# Execute undo thunks in last-in first-out order to restore 'declaration' to original state.
+				    FALSE;
+				};
+fi;
+		    }
+		    where
+			# Initialize a Substitution in which to	
+			# record all changes made during unification
+			# for possible rollback:
+			#
+			substitution =   REF NIL:   Ref( Substitution );
+
+
+
+			# Set given typevar ref to given type,
+			# save its pre-existing value in the
+			# above substitution for possible rollback.
+			#
+			# We raise SOFT_UNIFY if the standard unification
+			# 'occur' check fails -- for background see:
+			#
+			#     http://en.wikipedia.org/wiki/Occurs_check
+			#
+			fun set_typevar_undoably
+			    ( tv as { id, ref_typevar as REF typevar }:  tdt::Typevar_Ref,
+			      typoid:	tdt::Typoid
+			    )
+			    : Void
+			    =
+			    case typevar
+				#
+				( tdt::OVERLOADED_TYPEVAR eq
+				| tdt::META_TYPEVAR { eq, ... }
+				)
+				    =>
+				    {   scan  eq  typoid;
+					#
+					substitution :=  (ref_typevar, typevar) ! *substitution;
+					ref_typevar  :=  tdt::RESOLVED_TYPEVAR typoid;
+				    }
+				    where
+					fun scan eq (typoid:  tdt::Typoid): Void				# Simple occurrence check 
+					    =
+					    case typoid
+						#
+						tdt::TYPEVAR_REF (tv' as { id => id', ref_typevar => ref_typevar' })
+						    => 
+						    if (tj::same_typevar_ref (tv, tv'))
+							#
+							raise exception SOFT_UNIFY;
+						    else
+							case ref_typevar'
+							    #
+							    REF (tdt::INCOMPLETE_RECORD_TYPEVAR { known_fields, ... } )
+								=>
+								#  David B MacQueen: can this happen?   XXX QUERO FIXME
+								apply   (fn (_, typoid') = scan eq typoid')   known_fields;
+
+							    _   => ();
+							esac;
+						    fi;
+
+						tdt::TYPCON_TYPOID (type, args)
+						    =>
+						    # Check equality property if necessary 
+						    #
+						    if (not eq)
+							#
+							apply (scan eq) args;
+						    else
+							case type
+							    #
+							    tdt::NAMED_TYPE _
+								=> 
+								scan eq (tj::head_reduce_typoid typoid);
+
+							    tdt::SUM_TYPE gt
+								=>
+								case *gt.is_eqtype
+								    #
+								    tdt::e::YES   =>  apply (scan eq) args;
+								    tdt::e::CHUNK =>  apply (scan FALSE) args;
+								    _             =>  raise exception SOFT_UNIFY;		# Won't happen 
+								esac;
+
+							   _ => raise exception SOFT_UNIFY;				# Won't happen?
+							esac;
+
+						    fi;
+
+					       typoid => ();     #  propagate error
+
+					   esac;
+				    end;
+
+				_ => raise exception SOFT_UNIFY;
+			    esac;
+
+
+
+
+			fun unify
+			      ( typoid1:	tdt::Typoid,
+				typoid2:	tdt::Typoid
+			      )
+			      : Void
+			    =
+			    {   typoid1 =  tj::drop_resolved_typevars  typoid1;
+				typoid2 =  tj::drop_resolved_typevars  typoid2;
+
+				case (typoid1, typoid2)
+				    #
+				    (tdt::WILDCARD_TYPOID, _) => ();		# Wildcards unify with anything.
+				    (_, tdt::WILDCARD_TYPOID) => ();		# Wildcards unify with anything.
+
+				    (tdt::TYPEVAR_REF (tv1), tdt::TYPEVAR_REF (tv2))
+					=>
+					if (not (tj::same_typevar_ref (tv1, tv2)))
+					    #
+					    set_typevar_undoably (tv1, typoid2);
+					fi;
+
+				    (tdt::TYPEVAR_REF (tv1), _) => set_typevar_undoably (tv1, typoid2);
+
+				    (_, tdt::TYPEVAR_REF (tv2)) => set_typevar_undoably (tv2, typoid1);
+
+				    (tdt::TYPCON_TYPOID (type1, args1), tdt::TYPCON_TYPOID (type2, args2))
+					=>
+					if (tj::types_are_equal (type1, type2) )
+					    #
+					    unify_lists (args1, args2);
+					else
+					    unify (tj::reduce_typoid typoid1, typoid2)
+					    except
+						tj::BAD_TYPE_REDUCTION
+						    => 
+						    unify (typoid1, tj::reduce_typoid typoid2)
+						    except
+							tj::BAD_TYPE_REDUCTION
+							    =>
+							    raise exception SOFT_UNIFY;
+						    end;
+					    end;
+					fi;
+
+				     _ => raise exception SOFT_UNIFY;
+				 esac;
+			      }
+
+			  also
+			  fun unify_lists ([],[])
+				  =>
+				  ();
+
+			      unify_lists
+				  ( type1 ! rest1,
+				    type2 ! rest2
+				  )
+				  => 
+				  {   unify (type1, type2);
+				      unify_lists (rest1, rest2);
+				  };
+
+			      unify_lists  _
+				  =>
+				  raise exception SOFT_UNIFY;
+			  end;
+		      end;														# fun soft_unify
+
 
 	        all_overloaded_variables
                     =
@@ -507,8 +578,13 @@ list::reverse  result;
 																    pp.flush();	
 																fi;
 
+						    maybe_note_ref_in_undo_log (undo_log, var_ref);
+
 						    var_ref		:=  variant;						# Overload successfully resolved.
 
+
+
+if (winix::process::get_env "NEWCODE" == NULL)
 						    case variant								# This logic added 2013-11-18 CrT -- see Note[1].
 							#
 							vac::PLAIN_VARIABLE { vartypoid_ref, inlining_data, ... }
@@ -552,7 +628,8 @@ list::reverse  result;
 
 									uyt::unify_typoids
 									  ( "inl_typoid'", "var_typoid'", inl_typoid', var_typoid',
-									    ["resolve_overloaded_variable/vac::PLAIN_VARIABLE"]
+									    ["resolve_overloaded_variable/vac::PLAIN_VARIABLE"],
+									    undo_log
 									  )
 									except
 									    _ = {   if *debugging   printf "The bird died. :-(\n";  fi;
@@ -587,6 +664,7 @@ list::reverse  result;
 																fi;
 									    };
 						    esac;
+fi;
 
 						    variant;
 						fi;
