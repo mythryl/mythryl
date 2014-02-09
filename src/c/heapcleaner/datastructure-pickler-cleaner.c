@@ -326,7 +326,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
     Heap*   heap       =  task->heap;
     Sibid*  b2s =  book_to_sibid__global;
 
-    Bool dummy = FALSE;
+    Bool dummy __attribute__((unused)) = FALSE;									// "unused" suppresses a gcc warning/error
 
     Sibid	maxAid;
 

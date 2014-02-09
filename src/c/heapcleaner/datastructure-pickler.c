@@ -137,7 +137,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     } adjust[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];
 
     Sib_Header*  p;										// Sib_Header		def in    src/c/heapcleaner/runtime-heap-image.h
-    Sib_Header*  sib_headers[ TOTAL_SIBS ];
+//  Sib_Header*  sib_headers[ TOTAL_SIBS ];							// Commented out 2014-02-07 CrT -- gcc says it is unused.
     Sib_Header*  sib_header_buffer;
 
     int  sib_header_bytesize;
@@ -242,7 +242,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
         //
 	if (total_sib_buffer_bytesize[ ilk ] <= 0) {
 	    //
-	    sib_headers[ilk] = NULL;
+//	    sib_headers[ilk] = NULL;
 	    //
 	} else {
 	    //
@@ -254,7 +254,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 	    p->info.o.rounded_bytesize = -1;					// Not used.
 	    //
 	    p->offset		            = -1;  					// Not used.
-	    sib_headers[ ilk ]	            = p;
+//	    sib_headers[ ilk ]	            = p;
 	    p++;
 	}
     }

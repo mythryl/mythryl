@@ -446,7 +446,7 @@ void          records_apply   (Val* start, Val* stop, void(*fn)(void* fnarg, Val
 	} else {
 
 	    int   words = GET_LENGTH_IN_WORDS_FROM_TAGWORD(*p);
-	    Bool  words_is_bogus = FALSE;
+//	    Bool  words_is_bogus = FALSE;				// Commented out 2014-02-07 CrT -- gcc says it is unused.
 	    Bool    tag_is_bogus = FALSE;
 	    char* tag;
 
@@ -455,7 +455,7 @@ void          records_apply   (Val* start, Val* stop, void(*fn)(void* fnarg, Val
 	    case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";					break;
 	    //
 	    case RW_VECTOR_HEADER_BTAG:
-		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
+//		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		switch (words) {
 		case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:			tag = "FLOAT64_RW_VECTOR HEADER";		break;
 		case TYPEAGNOSTIC_VECTOR_CTAG:				tag = "TYPEAGNOSTIC_RW_VECTOR HEADER";		break;
@@ -466,7 +466,7 @@ void          records_apply   (Val* start, Val* stop, void(*fn)(void* fnarg, Val
 		break;
 	    //
 	    case RO_VECTOR_HEADER_BTAG:
-		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
+//		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		switch (words) {
 		case TYPEAGNOSTIC_VECTOR_CTAG:				tag = "TYPEAGNOSTIC_RO_VECTOR HEADER";		break;
 		case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "STRING / UNT8_RO_VECTOR HEADER";		break;
@@ -482,7 +482,7 @@ void          records_apply   (Val* start, Val* stop, void(*fn)(void* fnarg, Val
 	    case FORWARDED_CHUNK_BTAG:					tag = "FORWARDED";				break;
 	    //
 	    case WEAK_POINTER_OR_SUSPENSION_BTAG:
-		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
+//		words_is_bogus = TRUE;					// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		switch (words) {
 		case UNEVALUATED_LAZY_SUSPENSION_CTAG:			tag = "UNEVAL_SUSPENSION";			break;
 		case   EVALUATED_LAZY_SUSPENSION_CTAG:			tag =   "EVAL_SUSPENSION";			break;
