@@ -1,11 +1,6 @@
 ## binarytree-ximp.pkg
 #
-# This file is intended purely for clone-and-mutate
-# construction of new X imps ("ximps").
-#
-# For the big picture see the imp dataflow diagram in
-#
-#     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+# This file supports testing of basic imp functionality.
 
 # Compiled by:
 #     src/lib/test/unit-tests.lib
@@ -37,7 +32,7 @@ herein
                     rightkid:  Null_Or( btp::Binarytree_Port )
 		};
 
-	Configstate = Mailslot ( { imports: 	Imports,
+	Me_Slot = Mailslot ( { imports: 	Imports,
 				  me:		Binarytree_Ximp_State,
 				  run_gun':	Run_Gun,
 				  end_gun':	End_Gun
@@ -46,6 +41,10 @@ herein
 
 	Exports	= { binarytree_port:	btp::Binarytree_Port
 		  };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
@@ -115,17 +114,17 @@ herein
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying -- second arg is provided by make_thread.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying -- second arg is provided by make_thread.
 	    =
-	    {   configstate =  make_mailslot  ()	:  Configstate;
+	    {   me_slot =  make_mailslot  ()	:  Me_Slot;
 
 		binarytree_port  = { set_state, pass_subtree_sum, get_subtree_sum };
 
 		to         =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { binarytree_port }));					# Return value from make_binarytree_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { binarytree_port }));					# Return value from make_binarytree_ximp().
 
-		(take_from_mailslot  configstate)									# Input args from configure_binarytree_ximp().
+		(take_from_mailslot  me_slot)									# Input args from configure_binarytree_ximp().
 		    ->
 		    { me, imports, run_gun', end_gun' };
 
@@ -162,32 +161,53 @@ herein
 	    end;
 
 
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_binarytree_ximp_state i										# External entrypoint.
-	    =
-	    REF i;
-
-	fun make_binarytree_ximp  (name: String)									# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop();
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried -- second arg is provided by make_thread.
-
-		get_from_oneshot  reply_oneshot;
-	    };
-
-	fun configure_binarytree_ximp											# External entrypoint.
+	fun make_binarytree_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	      (
-		configstate:	Configstate,
-		me:		Binarytree_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun
-	      )
+		i:		Int,
+		options:	List(Option)
+	      )	
 	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
+	    {   (process_options (options, { name => "binarytree" }))
+		    ->
+		    { name };
+	
+		me = REF i;
+
+		fn () = {   reply_oneshot = make_oneshot_maildrop();							# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    };
+
+			    (exports, phase3);
+			};
+	    };
 
 
 	fun clientport_to_mailqueue x = x;										# For debugging

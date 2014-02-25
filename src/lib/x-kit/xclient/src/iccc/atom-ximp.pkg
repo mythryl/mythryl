@@ -22,7 +22,7 @@ stipulate
     package xt  =  xtypes;						# xtypes		is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
     package w2v =  wire_to_value;					# wire_to_value		is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
     package v2w =  value_to_wire;					# value_to_wire		is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
-    package sp  =  xsequencer_port;					# xsequencer_port		is from   src/lib/x-kit/xclient/src/wire/xsequencer-port.pkg
+    package sp  =  xsequencer;						# xsequencer		is from   src/lib/x-kit/xclient/src/wire/xsequencer.pkg
     package ap  =  atom_port;						# atom_port		is from   src/lib/x-kit/xclient/src/iccc/atom-port.pkg
 herein
 
@@ -40,8 +40,12 @@ herein
 		    };
 
 	Imports   = {							# Ports we use which are exported by other imps.
-		      xsequencer_port:		sp::Xsequencer_Port
+		      xsequencer:		sp::Xsequencer
 		    };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	Client_Plea
 	  = PLEA_INTERN  (String,	Oneshot_Maildrop(          xt::Atom   ))
@@ -51,7 +55,7 @@ herein
 
 	Client_Q    = Mailqueue( Client_Plea );
 
-	Configstate = Mailslot( { imports:	Imports,
+	Me_Slot = Mailslot( { imports:	Imports,
 				  me:		Atom_Ximp_State,
 				  run_gun':	Run_Gun,
 				  end_gun':	End_Gun
@@ -59,7 +63,7 @@ herein
 			      );
 
 
-	fun intern  (xsequencer_port:	sp::Xsequencer_Port)
+	fun intern  (xsequencer:	sp::Xsequencer)
 		    #
 		    (arg:		{ name:			String,
 					  only_if_exists:	Bool
@@ -69,7 +73,7 @@ herein
 	    w2v::decode_intern_atom_reply
 		(block_until_mailop_fires
 #		 ========================				# XXX SUCKO FIXME
-		    (xsequencer_port.send_xrequest_and_read_reply
+		    (xsequencer.send_xrequest_and_read_reply
 			(v2w::encode_intern_atom  arg)
 		)   );
 
@@ -109,11 +113,11 @@ herein
 			herein
 			    fun do_client_plea (PLEA_INTERN (id, reply_1shot))
 				    =>
-				    put_in_oneshot (reply_1shot, intern imports.xsequencer_port { name => id, only_if_exists => FALSE } );
+				    put_in_oneshot (reply_1shot, intern imports.xsequencer { name => id, only_if_exists => FALSE } );
 
 				do_client_plea (PLEA_LOOKUP (id, reply_1shot))
 				    =>
-				    case (intern imports.xsequencer_port { name => id, only_if_exists => TRUE } )
+				    case (intern imports.xsequencer { name => id, only_if_exists => TRUE } )
 					#
 					(xt::XATOM 0u0) =>   put_in_oneshot (reply_1shot, NULL    );
 					atom            =>   put_in_oneshot (reply_1shot, THE atom);
@@ -127,7 +131,7 @@ herein
 					name =  w2v::decode_get_atom_name_reply (
 						    block_until_mailop_fires (
 #                                                   ========================                                XXX SUCKO FIXME
-							imports.xsequencer_port.send_xrequest_and_read_reply  (
+							imports.xsequencer.send_xrequest_and_read_reply  (
 							    v2w::encode_get_atom_name { atom }
 							)
 						    )
@@ -138,9 +142,9 @@ herein
 		    end;												# fun loop
 	    end;													# fun run
 	
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate     =  make_mailslot  ()	:  Configstate;
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
 		#
 		atom_port  =  { make_atom,
 				find_atom,
@@ -149,9 +153,9 @@ herein
 
 		to             =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { atom_port }));						# Return value from make_atom_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { atom_port }));						# Return value from make_atom_ximp().
 
-		(take_from_mailslot  configstate)									# Input args from configure_sequencer_imp().
+		(take_from_mailslot  me_slot)									# Input args from configure_sequencer_imp().
 		    ->
 		    { me, imports, run_gun', end_gun' };
 
@@ -190,38 +194,52 @@ herein
 		    };
 	    end;
 
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_atom_ximp_state ()											# External entrypoint.
-	  =
-	  ();
-
-	#
-	fun make_atom_ximp  (name: String)										# External entrypoint.
+	fun make_atom_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+	    {   (process_options (options, { name => "atom" }))
+		    ->
+		    { name };
+	
+		me = ();
 
-		get_from_oneshot  reply_oneshot;
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    };
+
+			    (exports, phase3);
+			};
 	    };
-	#
-	#
-	fun configure_atom_ximp												# External entrypoint.
-	      (
-		configstate:	Configstate,
-		me:		Atom_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun
-	      )
-	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
-
-
-
-
     };					#  atom_imp 
 end;
 

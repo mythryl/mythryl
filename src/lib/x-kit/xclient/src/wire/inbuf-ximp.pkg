@@ -5,7 +5,7 @@
 #
 # For the big picture see the imp dataflow diagram in
 #
-#     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
 #
 # Here we monitor the input stream from the X-server
 # socket and break it up into individual messages which
@@ -169,7 +169,7 @@ herein
 
 
 
-	Configstate(X)
+	Me_Slot(X)
 	    =
 	    Mailslot(   {   imports:	Imports,
 			    me:		Inbuf_Ximp_State,
@@ -182,6 +182,9 @@ herein
 	Exports = { };													# Ports we provide for use by other imps.
 
 
+	Option = MICROTHREAD_NAME String;							# 
+
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
 		  me:			Inbuf_Ximp_State,								# State which is preserved across imp shutdown/restart cycles.
@@ -305,55 +308,73 @@ herein
 		    };
 	    end;														# fun run
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate(X), Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot(X), Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate =  make_mailslot  ()	:  Configstate(X);
+	    {   me_slot =  make_mailslot  ()	:  Me_Slot(X);
 		#
 		to          =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { }));								# Return value from make_sample_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { }));								# Return value from make_sample_ximp().
 
-		(take_from_mailslot  configstate)										# Input args from configure_sample_imp().
+		(take_from_mailslot  me_slot)										# Input args from configure_sample_imp().
 		    ->
 		    { me, imports, run_gun', end_gun', socket };
 
-		block_until_mailop_fires  run_gun';										# Wait for the starting gun.
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, imports, to, end_gun', socket };									# Will not return.
+		run { me, imports, to, end_gun', socket };								# Will not return.
+	    };
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
 	    };
 
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_inbuf_ximp_state ()											# External entrypoint.
-	    =
-	    { bytes_left_to_read =>  REF std_packet_size,
-	      done_header	 =>  REF FALSE,
-	      saved_bytevectors  =>  REF []
-	    };
-
-	fun make_inbuf_ximp  (name: String)										# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate(X), Exports) );
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
-
-		get_from_oneshot  reply_oneshot;
-	    };
-
-	fun configure_inbuf_ximp											# External entrypoint.
+	fun make_inbuf_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	      (
-		configstate:	Configstate(X),
-		me:		Inbuf_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun,
-		socket:		sok::Socket (X, sok::Stream(sok::Active))						# Socket to read.
-	      )
+		socket:		sok::Socket (X, sok::Stream(sok::Active)),						# Socket to read.
+		options:	List(Option))
 	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', socket });
+	    {   (process_options (options, { name => "inbuf" }))
+		    ->
+		    { name };
+
+		me =	{ bytes_left_to_read =>  REF std_packet_size,
+			  done_header	     =>  REF FALSE,
+			  saved_bytevectors  =>  REF []
+			};
 
 
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot(X), Exports) );	# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', socket });
+				    };
+
+			    (exports, phase3);
+			};
+	    };
 
     };						# package inbuf_ximp
 end;

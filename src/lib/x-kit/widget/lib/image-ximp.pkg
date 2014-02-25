@@ -22,9 +22,9 @@ stipulate
     #
     package qk  =  quark;				# quark			is from   src/lib/x-kit/style/quark.pkg
     package xc  =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
-    package ip  =  image_port;				# image_port		is from   src/lib/x-kit/widget/lib/image-port.pkg
+    package ip  =  image;				# image			is from   src/lib/x-kit/widget/lib/image.pkg
     package cpm =  cs_pixmap;				# cs_pixmap		is from   src/lib/x-kit/xclient/src/window/cs-pixmap.pkg
-#    package sp  =  xsequencer_port;			# xsequencer_port		is from   src/lib/x-kit/xclient/src/wire/xsequencer-port.pkg
+#   package sp  =  xsequencer;				# xsequencer		is from   src/lib/x-kit/xclient/src/wire/xsequencer.pkg
 herein
 
     package   image_ximp
@@ -41,11 +41,15 @@ herein
 	Image_Table =   qht::Hashtable( cpm::Cs_Pixmap );
 
 	Exports	  = {										# Ports we export for use by other imps.
-		      image_port:		ip::Image_Port					# Requests from widget/application code.
+		      image:			ip::Image					# Requests from widget/application code.
 		    };
 
 	Imports   = {										# Ports we use which are exported by other imps.
 		    };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	Image_Ximp_State									# Opaque wrapper for all mutable state maintained by ximp.
 	  =
@@ -53,7 +57,7 @@ herein
 	    image_table:  Image_Table
 	  };
 
-	Configstate = Mailslot( {  imports:	Imports,
+	Me_Slot = Mailslot( {  imports:	Imports,
 				   me:		Image_Ximp_State,
 				   run_gun':	Run_Gun,
 				   end_gun':	End_Gun
@@ -136,20 +140,20 @@ herein
 		    end;												# fun loop
 	    end;													# fun run
 	
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate     =  make_mailslot  ()	:  Configstate;
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
 		#
-		image_port  = {
+		image  = {
 				add_image,
 				get_image
 			      };
 
 		to             =  make_replyqueue();
 
-		put_in_oneshot (reply_oneshot, (configstate, { image_port }));						# Return value from make_image_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { image }));						# Return value from make_image_ximp().
 
-		(take_from_mailslot  configstate)									# Input args from configure_image_ximp().
+		(take_from_mailslot  me_slot)									# Input args from configure_image_ximp().
 		    ->
 		    { me, imports, run_gun', end_gun' };
 
@@ -175,35 +179,53 @@ herein
 	    end;
 
 
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_image_ximp_state ()
+	fun make_image_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
-	    {
-	      image_table =>    qht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+	    {   (process_options (options, { name => "image" }))
+		    ->
+		    { name };
+	
+		me = 	{
+			  image_table =>    qht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+			};
+
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    };
+
+			    (exports, phase3);
+			};
 	    };
-
-	fun make_image_ximp  (name: String)										# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
-
-		get_from_oneshot  reply_oneshot;
-	    };
-
-
-	fun configure_image_ximp											# External entrypoint.
-	      (
-		configstate:	Configstate,
-		me:		Image_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun
-	      )
-	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
     };
 
 end;

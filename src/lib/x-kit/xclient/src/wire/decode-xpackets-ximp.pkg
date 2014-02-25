@@ -2,7 +2,7 @@
 #
 # For the big picture see the imp dataflow diagram in
 #
-#     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
 #
 # X event buffer imp.
 #
@@ -87,7 +87,7 @@ herein
 		    xevent_sink:	xes::Xevent_Sink								# To forward Xpackets toward the widget tree.
 		  };
 
-	Configstate = Mailslot(   { imports:	Imports,
+	Me_Slot = Mailslot(   { imports:	Imports,
 				    me:		Decode_Xpackets_Ximp_State,
 				    run_gun':	Run_Gun,
 				    end_gun':	End_Gun
@@ -102,6 +102,10 @@ herein
 		  };
 
 	
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);							# PUBLIC.
+
+	Option = MICROTHREAD_NAME String;										# PUBLIC.
+
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
 		  me:					Decode_Xpackets_Ximp_State,					# State which is preserved across imp shutdown/restart cycles.
 		  imports:				Imports,							# Ximps to which we send requests.
@@ -189,16 +193,16 @@ herein
 		    end;												# fun loop
 	    end;													# fun run
 	
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate  =  make_mailslot  ()	:  Configstate;
+	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		to           =  make_replyqueue();
 
 		xpacket_sink =  { put_value };
 
-		put_in_oneshot (reply_oneshot, (configstate, { xpacket_sink }));					# Return value from make_decode_xpackets_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { xpacket_sink }));					# Return value from make_decode_xpackets_ximp().
 
-		(take_from_mailslot  configstate)									# Input args from configure_decode_xpackets_imp().
+		(take_from_mailslot  me_slot)									# Input args from configure_decode_xpackets_imp().
 		    ->
 		    { me, imports, run_gun', end_gun' };
 
@@ -220,34 +224,49 @@ herein
 };
 	    end;
 
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_decode_xpackets_ximp_state ()										# External entrypoint.
-	    =
-	    ();														# We need no persistent state; we process each xpacket in isolation except for collapsing Expose sequences.
+	fun make_decode_xpackets_egg (options: List(Option))								# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =	
+	    {   (process_options (options, { name => "decode_xpackets" }))
+		    ->
+		    { name };
+	
+		me = ();												# We need no persistent state; we do each xpacket in isolation except for collapsing Expose sequences.
 
-	#
-	fun make_decode_xpackets_ximp  (name: String)									# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
 
-		get_from_oneshot  reply_oneshot;
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    };
+
+			    (exports, phase3);
+			};
 	    };
-	#
-	fun configure_decode_xpackets_ximp										# External entrypoint.
-	      (
-		configstate:	Configstate,
-		me:		Decode_Xpackets_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun
-	      )
-	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
-
     };															# package decode_xpackets_ximp
 end;
 

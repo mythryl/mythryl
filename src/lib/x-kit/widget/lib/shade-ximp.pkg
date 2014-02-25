@@ -1,4 +1,4 @@
-## shade-ximp.pkg
+## shade	-ximp.pkg
 #
 # Publish the current trio of color shades
 # (light/base/dark) to be used for drawing
@@ -21,7 +21,7 @@ stipulate
     #
     package xc  =  xclient;					# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
     package pms =  standard_clientside_pixmaps;			# standard_clientside_pixmaps	is from   src/lib/x-kit/widget/lib/standard-clientside-pixmaps.pkg
-    package shp =  shade_port;					# shade_port			is from   src/lib/x-kit/widget/lib/shade-port.pkg
+    package shp =  shade;					# shade				is from   src/lib/x-kit/widget/lib/shade.pkg
     package rpm =  ro_pixmap;					# ro_pixmap			is from   src/lib/x-kit/xclient/src/window/ro-pixmap.pkg
     package pn  =  pen;						# pen				is from   src/lib/x-kit/xclient/src/window/pen.pkg
     package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
@@ -29,17 +29,19 @@ stipulate
 herein
 
     package   shade_ximp
-    : (weak)  Shade_Ximp					# Shade_Ximp			is from   src/lib/x-kit/widget/lib/shade-ximp.api
+    : (weak)  Shade_Ximp					# shade	_Ximp			is from   src/lib/x-kit/widget/lib/shade-ximp.api
     {
-
-
 	Exports	  = {						# Ports we export for use by other imps.
-		      shade_port:	shp::Shade_Port		# Requests from widget/application code.
+		      shade:	shp::Shade			# Requests from widget/application code.
 		    };
 
 	Imports   = {						# Ports we use which are exported by other imps.
 		    };
 
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	exception BAD_SHADE;
 
@@ -78,7 +80,7 @@ herein
 	      rgb_table:  Rgb_Table
 	    };
 
-	Configstate = Mailslot( {  imports:	Imports,
+	Me_Slot = Mailslot( {  imports:	Imports,
 				   me:		Shade_Ximp_State,
 				   run_gun':	Run_Gun,
 				   end_gun':	End_Gun,
@@ -224,19 +226,19 @@ herein
 		    end;												# fun loop
 	    end;													# fun run
 	
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate     =  make_mailslot  ()	:  Configstate;
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
 		#
-		shade_port  = {
+		shade  = {
 				get_shades
 			      };
 
 		to =  make_replyqueue ();
 
-		put_in_oneshot (reply_oneshot, (configstate, { shade_port }));						# Return value from make_image_ximp().
+		put_in_oneshot (reply_oneshot, (me_slot, { shade }));						# Return value from make_image_ximp().
 
-		(take_from_mailslot  configstate)									# Input args from configure_image_ximp().
+		(take_from_mailslot  me_slot)									# Input args from configure_image_ximp().
 		    ->
 		    { me, imports, run_gun', end_gun', screen };
 
@@ -258,37 +260,56 @@ herein
 	    end;
 
 
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
         ##########################################################################################
 	# External entrypoints
 	#
-	fun make_shade_ximp_state ()
-	    =
-	    {
-	     rgb_table =>    rgb_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
-	    };
-
-	fun make_shade_ximp  (name: String)										# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Configstate, Exports) );
-		#
-		xlogger::make_thread  name  (startup  reply_oneshot);							# Note that startup() is curried.
-
-		get_from_oneshot  reply_oneshot;
-	    };
-
-
-	fun configure_shade_ximp											# External entrypoint.
+	fun make_shade_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	      (
-		configstate:	Configstate,
-		me:		Shade_Ximp_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun,
-		screen:		xsession_junk::Screen
+		screen:		xsession_junk::Screen,
+		options:	List(Option)
 	      )
 	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun', screen });
+	    {   (process_options (options, { name => "shade" }))
+		    ->
+		    { name };
+	
+		me = 	{
+			  rgb_table =>    rgb_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+			};
 
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', screen });
+				    };
+
+			    (exports, phase3);
+			};
+	    };
     };
 
 end;
