@@ -49,10 +49,10 @@ stipulate
 herein
 
     package appwindow_for_x
-    :       Appwindow												# Appwindow			is from   src/lib/x-kit/widget/theme/appwindow.api
+    :       Appwindow_Imp											# Appwindow_Imp		is from   src/lib/x-kit/widget/theme/appwindow-imp.api
     {
 	#
-	include appwindow_port;											# appwindow_port		is from   src/lib/x-kit/widget/shape/label-shape-port.pkg
+	include appwindow;											# appwindow		is from   src/lib/x-kit/widget/theme/appwindow.pkg
 	#
 	Appwindow_State = Ref( Void );										# Opaque wrapper for all nonephemeral mutable state maintained by shape.
 
@@ -60,7 +60,7 @@ herein
 		    int_sink: Int -> Void
 		  };
 
-	Configstate = Mailslot( { imports:	Imports,
+	Me_Slot = Mailslot( { imports:	Imports,
 				  me:		Appwindow_State,
 				  run_gun':	Run_Gun,
 				  end_gun':	End_Gun
@@ -76,8 +76,12 @@ herein
 
 
 	Exports	= {													# Ports we provide for use by other imps.
-		    appwindow_port:	Appwindow_Port
+		    appwindow:	Appwindow
 		  };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Appwindow_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	fun create_window   (xsequencer: sp::Xsequencer)				# Create a new X-window with the given xid 
 	    {
@@ -568,19 +572,19 @@ herein
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Configstate, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
-	    {   configstate  =  make_mailslot  ()	:  Configstate;
+	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		appwindow_port
+		appwindow
 		    =
 		    { do_something, exercise_appwindow, pass_something, pass_appwindow_exercise_results };
 
 		to          =  make_replyqueue();
 		#
-		put_in_oneshot (reply_oneshot, (configstate, { appwindow_port }));				# Return value from make_appwindow().
+		put_in_oneshot (reply_oneshot, (me_slot, { appwindow }));						# Return value from appwindow_egg'().
 
-		(take_from_mailslot  configstate)									# Input args from configure_appwindow().
+		(take_from_mailslot  me_slot)										# Imports from appwindow_egg'().
 		    ->
 		    { me, imports, run_gun', end_gun' };
 
@@ -591,12 +595,12 @@ herein
 	    where
 		appwindow_q     =  make_mailqueue (get_current_microthread()):  Appwindow_Q;
 
-		fun do_something (i: Int)										# External entrypoint.
+		fun do_something (i: Int)										# PUBLIC.
 		    =	
 		    put_in_mailqueue  (appwindow_q, DO_SOMETHING i);
 
 
-		fun exercise_appwindow ()										# External entrypoint.
+		fun exercise_appwindow ()										# PUBLIC.
 		    =	
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Void );
 			#
@@ -605,7 +609,7 @@ herein
 			fn () = get_from_oneshot reply_oneshot;								# Return a thunk which will wait until exercise is complete.
 		    };
 
-		fun  pass_appwindow_exercise_results  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)		# External entrypoint.
+		fun  pass_appwindow_exercise_results  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)		# PUBLIC.
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
@@ -614,7 +618,7 @@ herein
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
 
-		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# External entrypoint.
+		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
@@ -625,33 +629,50 @@ herein
 	    end;
 
 
-        ##########################################################################################
-	# External entrypoints
-	#
-	fun make_appwindow_state ()										# External entrypoint.
+	fun process_options (options: List(Option), { name })
 	    =
-	    REF ();
-
-	fun make_appwindow  (name: String)									# External entrypoint.
-	    =
-	    {   reply_oneshot = make_oneshot_maildrop();
+	    {   my_name   = REF name;
 		#
-		xlogger::make_thread  name  (startup  reply_oneshot);						# Note that startup() is curried.
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
 
-		get_from_oneshot  reply_oneshot;
+		{ name => *my_name };
 	    };
 
-	fun configure_appwindow											# External entrypoint.
-	      (
-		configstate:	Configstate,
-		me:		Appwindow_State,
-		imports:	Imports,
-		run_gun':	Run_Gun,
-		end_gun':	End_Gun
-	      )
-	    =
-	    put_in_mailslot  (configstate, { me, imports, run_gun', end_gun' });
 
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_appwindow_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =
+	    {   (process_options (options, { name => "appwindow_for_x" }))
+		    ->
+		    { name };
+	
+		me = REF ();
+
+		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    phase3
+				=
+				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				      run_gun':	Run_Gun,	
+				      end_gun':	End_Gun
+				    )
+				    =
+				    {
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    };
+
+			    (exports, phase3);
+			};
+	    };
     };
 
 end;
