@@ -19,29 +19,29 @@
 
 
 STUFF_FOR_ETAGS_TO_INDEX := \
-	      */*.pkg */*/*.pkg */*/*/*.pkg */*/*/*/*.pkg */*/*/*/*/*.pkg */*/*/*/*/*/*.pkg  */*/*/*/*/*/*/*.pkg \
-              */*.api */*/*.api */*/*/*.api */*/*/*/*.api */*/*/*/*/*.api */*/*/*/*/*/*.api  */*/*/*/*/*/*/*.api \
-              */*.unused */*/*.unused */*/*/*.unused */*/*/*/*.unused */*/*/*/*/*.unused */*/*/*/*/*/*.unused  */*/*/*/*/*/*/*.unused \
-              */*.grammar */*/*.grammar */*/*/*.grammar */*/*/*/*.grammar */*/*/*/*/*.grammar */*/*/*/*/*/*.grammar  */*/*/*/*/*/*/*.grammar \
-              */*.lex */*/*.lex */*/*/*.lex */*/*/*/*.lex */*/*/*/*/*.lex */*/*/*/*/*/*.lex  */*/*/*/*/*/*/*.lex \
-              */*.tex */*/*.tex */*/*/*.tex */*/*/*/*.tex */*/*/*/*/*.tex */*/*/*/*/*/*.tex */*/*/*/*/*/*/*.tex \
-              */*.mldoc */*/*.mldoc */*/*/*.mldoc */*/*/*/*.mldoc */*/*/*/*/*.mldoc */*/*/*/*/*/*.mldoc  */*/*/*/*/*/*/*.mldoc \
-              */*.adl */*/*.adl */*/*/*.adl */*/*/*/*.adl */*/*/*/*/*.adl */*/*/*/*/*/*.adl */*/*/*/*/*/*/*.adl \
-              */*.OVERVIEW */*/*.OVERVIEW */*/*/*.OVERVIEW */*/*/*/*.OVERVIEW */*/*/*/*/*.OVERVIEW */*/*/*/*/*/*.OVERVIEW  */*/*/*/*/*/*/*.OVERVIEW \
-              */*.NOTES */*/*.NOTES */*/*/*.NOTES */*/*/*/*.NOTES */*/*/*/*/*.NOTES */*/*/*/*/*/*.NOTES  */*/*/*/*/*/*/*.NOTES \
-              */*.README */*/*.README */*/*/*.README */*/*/*/*.README */*/*/*/*/*.README */*/*/*/*/*/*.README  */*/*/*/*/*/*/*.README  */*/*/*/*/*/*/*/*.README \
-              */README* */*/README* */*/*/README* */*/*/*/README* */*/*/*/*/README* */*/*/*/*/*/README*  */*/*/*/*/*/*/README*  */*/*/*/*/*/*/*/README* \
-              */build* */*/build* */*/*/build* */*/*/*/build* */*/*/*/*/build* */*/*/*/*/*/build*  */*/*/*/*/*/*/build*   */*/*/*/*/*/*/*/build* \
-              */*.lib */*/*.lib */*/*/*.lib */*/*/*/*.lib */*/*/*/*/*.lib */*/*/*/*/*/*.lib  */*/*/*/*/*/*.lib   */*/*/*/*/*/*/*.lib \
-              */*.sublib */*/*.sublib */*/*/*.sublib */*/*/*/*.sublib */*/*/*/*/*.sublib */*/*/*/*/*/*.sublib  */*/*/*/*/*/*.sublib   */*/*/*/*/*/*/*.sublib \
-              */*.plan */*/*.plan */*/*/*.plan */*/*/*/*.plan */*/*/*/*/*.plan */*/*/*/*/*/*.plan  */*/*/*/*/*/*.plan   */*/*/*/*/*/*/*.plan \
-              Makefile */Makefile.in */*/Makefile.in */*/*/Makefile.in */*/*/*/Makefile.in */*/*/*/*/Makefile.in */*/*/*/*/*/Makefile.in  */*/*/*/*/*/*/Makefile.in   */*/*/*/*/*/*/*/Makefile.in \
-              */makefile.win32 */*/makefile.win32 */*/*/makefile.win32 */*/*/*/makefile.win32 */*/*/*/*/makefile.win32 */*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/makefile.win32 \
-              */*.c */*/*.c */*/*/*.c */*/*/*/*.c */*/*/*/*/*.c */*/*/*/*/*/*.c  */*/*/*/*/*/*/*.c \
-              */*.h */*/*.h */*/*/*.h */*/*/*/*.h */*/*/*/*/*.h */*/*/*/*/*/*.h  */*/*/*/*/*/*/*.h \
-              */*.asm */*/*.asm */*/*/*.asm */*/*/*/*.asm */*/*/*/*/*.asm */*/*/*/*/*/*.asm  */*/*/*/*/*/*/*.asm \
-             */*.masm */*/*.masm */*/*/*.masm */*/*/*/*.masm */*/*/*/*/*.masm */*/*/*/*/*/*.masm  */*/*/*/*/*/*/*.masm \
-              */*.txt */*/*.txt */*/*/*.txt */*/*/*/*.txt */*/*/*/*/*.txt */*/*/*/*/*/*.txt  */*/*/*/*/*/*/*.txt \
+	      */*.pkg */*/*.pkg */*/*/*.pkg */*/*/*/*.pkg */*/*/*/*/*.pkg */*/*/*/*/*/*.pkg */*/*/*/*/*/*/*.pkg */*/*/*/*/*/*/*/*.pkg \
+              */*.api */*/*.api */*/*/*.api */*/*/*/*.api */*/*/*/*/*.api */*/*/*/*/*/*.api */*/*/*/*/*/*/*.api */*/*/*/*/*/*/*/*.api \
+              */*.unused */*/*.unused */*/*/*.unused */*/*/*/*.unused */*/*/*/*/*.unused */*/*/*/*/*/*.unused   */*/*/*/*/*/*/*.unused  */*/*/*/*/*/*/*/*.unused \
+              */*.grammar */*/*.grammar */*/*/*.grammar */*/*/*/*.grammar */*/*/*/*/*.grammar */*/*/*/*/*/*.grammar */*/*/*/*/*/*/*.grammar */*/*/*/*/*/*/*/*.grammar \
+              */*.lex */*/*.lex */*/*/*.lex */*/*/*/*.lex */*/*/*/*/*.lex */*/*/*/*/*/*.lex  */*/*/*/*/*/*/*.lex */*/*/*/*/*/*/*/*.lex \
+              */*.tex */*/*.tex */*/*/*.tex */*/*/*/*.tex */*/*/*/*/*.tex */*/*/*/*/*/*.tex */*/*/*/*/*/*/*.tex  */*/*/*/*/*/*/*/*.tex \
+              */*.mldoc */*/*.mldoc */*/*/*.mldoc */*/*/*/*.mldoc */*/*/*/*/*.mldoc */*/*/*/*/*/*.mldoc  */*/*/*/*/*/*/*.mldoc */*/*/*/*/*/*/*/*.mldoc \
+              */*.adl */*/*.adl */*/*/*.adl */*/*/*/*.adl */*/*/*/*/*.adl */*/*/*/*/*/*.adl */*/*/*/*/*/*/*.adl */*/*/*/*/*/*/*/*.adl \
+              */*.OVERVIEW */*/*.OVERVIEW */*/*/*.OVERVIEW */*/*/*/*.OVERVIEW */*/*/*/*/*.OVERVIEW */*/*/*/*/*/*.OVERVIEW  */*/*/*/*/*/*/*.OVERVIEW */*/*/*/*/*/*/*/*.OVERVIEW \
+              */*.NOTES */*/*.NOTES */*/*/*.NOTES */*/*/*/*.NOTES */*/*/*/*/*.NOTES */*/*/*/*/*/*.NOTES  */*/*/*/*/*/*/*.NOTES */*/*/*/*/*/*/*/*.NOTES \
+              */*.README */*/*.README */*/*/*.README */*/*/*/*.README */*/*/*/*/*.README */*/*/*/*/*/*.README  */*/*/*/*/*/*/*.README  */*/*/*/*/*/*/*/*.README */*/*/*/*/*/*/*/*/*.README \
+              */README* */*/README* */*/*/README* */*/*/*/README* */*/*/*/*/README* */*/*/*/*/*/README*  */*/*/*/*/*/*/README*  */*/*/*/*/*/*/*/README* */*/*/*/*/*/*/*/*/README* \
+              */build* */*/build* */*/*/build* */*/*/*/build* */*/*/*/*/build* */*/*/*/*/*/build*  */*/*/*/*/*/*/build*   */*/*/*/*/*/*/*/build* */*/*/*/*/*/*/*/*/build* \
+              */*.lib */*/*.lib */*/*/*.lib */*/*/*/*.lib */*/*/*/*/*.lib */*/*/*/*/*/*.lib  */*/*/*/*/*/*.lib   */*/*/*/*/*/*/*.lib  */*/*/*/*/*/*/*/*.lib \
+              */*.sublib */*/*.sublib */*/*/*.sublib */*/*/*/*.sublib */*/*/*/*/*.sublib */*/*/*/*/*/*.sublib  */*/*/*/*/*/*.sublib   */*/*/*/*/*/*/*.sublib */*/*/*/*/*/*/*/*.sublib \
+              */*.plan */*/*.plan */*/*/*.plan */*/*/*/*.plan */*/*/*/*/*.plan */*/*/*/*/*/*.plan  */*/*/*/*/*/*.plan   */*/*/*/*/*/*/*.plan */*/*/*/*/*/*/*/*.plan \
+              Makefile */Makefile.in */*/Makefile.in */*/*/Makefile.in */*/*/*/Makefile.in */*/*/*/*/Makefile.in */*/*/*/*/*/Makefile.in  */*/*/*/*/*/*/Makefile.in   */*/*/*/*/*/*/*/Makefile.in */*/*/*/*/*/*/*/*/Makefile.in \
+              */makefile.win32 */*/makefile.win32 */*/*/makefile.win32 */*/*/*/makefile.win32 */*/*/*/*/makefile.win32 */*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/makefile.win32 */*/*/*/*/*/*/*/makefile.win32 \
+              */*.c */*/*.c */*/*/*.c */*/*/*/*.c */*/*/*/*/*.c */*/*/*/*/*/*.c  */*/*/*/*/*/*/*.c */*/*/*/*/*/*/*/*.c \
+              */*.h */*/*.h */*/*/*.h */*/*/*/*.h */*/*/*/*/*.h */*/*/*/*/*/*.h  */*/*/*/*/*/*/*.h */*/*/*/*/*/*/*/*.h \
+              */*.asm */*/*.asm */*/*/*.asm */*/*/*/*.asm */*/*/*/*/*.asm */*/*/*/*/*/*.asm  */*/*/*/*/*/*/*.asm */*/*/*/*/*/*/*/*.asm \
+             */*.masm */*/*.masm */*/*/*.masm */*/*/*/*.masm */*/*/*/*/*.masm */*/*/*/*/*/*.masm  */*/*/*/*/*/*/*.masm */*/*/*/*/*/*/*/*.masm \
+              */*.txt */*/*.txt */*/*/*.txt */*/*/*/*.txt */*/*/*/*/*.txt */*/*/*/*/*/*.txt  */*/*/*/*/*/*/*.txt */*/*/*/*/*/*/*/*.txt \
 	     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description \
              src/lib/compiler/back/low/intel32/intel32.architecture-description \
              src/lib/compiler/back/low/sparc32/sparc32.architecture-description \
