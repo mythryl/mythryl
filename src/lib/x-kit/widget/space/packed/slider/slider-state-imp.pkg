@@ -55,7 +55,12 @@ herein
     {
 	include slider_state;												# slider_state			is from   src/lib/x-kit/widget/space/packed/slider/slider-state.pkg
 	#
-	Slider_State_State = Ref( Void );										# Holds all nonephemeral mutable state maintained by state.
+	Slider_State_State
+	    =
+	    { min_value:	Float,
+	      max_value:	Float,
+	      value:	   Ref( Float )											# Holds all nonephemeral mutable state maintained by state.
+	    };
 
 #	Imports =  pwe::Imports;
 #	Exports =  pwe::Exports;
@@ -64,12 +69,14 @@ herein
 		    int_sink: Int -> Void
 		  };
 
-	Me_Slot = Mailslot( { imports:	Imports,
-				  me:		Slider_State_State,
-				  run_gun':	Run_Gun,
-				  end_gun':	End_Gun
-                                }
-                              );
+	Me_Slot = Mailslot( { imports:			Imports,
+			      me:			Slider_State_State,
+			      run_gun':			Run_Gun,
+			      end_gun':			End_Gun,
+			      changed_value_callbacks:	List(Float -> Void),
+			      slider_state_callbacks:	List(Slider_State -> Void)
+			    }
+			  );
 
 	Slider_Plea =  DO_SOMETHING Int
 		    |  PASS_SOMETHING Oneshot_Maildrop( Int )
@@ -82,7 +89,13 @@ herein
 		  };
 
 
-	Option = MICROTHREAD_NAME String;										# 
+	Option  = MICROTHREAD_NAME		String									# 
+		| MAX_VALUE			Float
+		| MIN_VALUE			Float
+		| INITIAL_VALUE			Float
+		| CHANGED_VALUE_CALLBACK	Float -> Void
+		| SLIDER_STATE_CALLBACK		Slider_State -> Void
+		;
 
 	Slider_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
@@ -141,7 +154,7 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from slider_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun' };
+		    { me, imports, run_gun', end_gun', changed_value_callbacks, slider_state_callbacks };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -166,16 +179,39 @@ herein
 	    end;
 
 
-	fun process_options (options: List(Option), { name })
+	fun process_options (options: List(Option), { name, min_value, max_value, initial_value, changed_value_callbacks, slider_state_callbacks })
 	    =
-	    {   my_name   = REF name;
+	    {   my_name		= REF name;
+		#
+		my_min_value	= REF min_value;
+		my_max_value	= REF max_value;
+		my_initial_value= REF initial_value;
+		#
+		my_changed_value_callbacks	= REF changed_value_callbacks;
+		my_slider_state_callbacks	= REF slider_state_callbacks;
 		#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		    fun do_option (MICROTHREAD_NAME 	  n)  =>  my_name := n;
+		        #
+			do_option (MIN_VALUE	    	  f)  =>  my_min_value     := f;
+			do_option (MAX_VALUE	    	  f)  =>  my_max_value     := f;
+			do_option (INITIAL_VALUE    	  f)  =>  my_initial_value := f;
+		        #
+			do_option (CHANGED_VALUE_CALLBACK c)  =>  my_changed_value_callbacks :=  c ! *my_changed_value_callbacks;
+			do_option ( SLIDER_STATE_CALLBACK c)  =>   my_slider_state_callbacks :=  c !  *my_slider_state_callbacks;
+		    end;
 		end;
 
-		{ name => *my_name };
+		{ name		=>  *my_name,
+		  #
+		  min_value	=>  *my_min_value,
+		  max_value	=>  *my_max_value,
+		  initial_value	=>  *my_initial_value,
+		  #
+		  changed_value_callbacks  =>  *my_changed_value_callbacks,
+		   slider_state_callbacks  =>   *my_slider_state_callbacks
+		};
 	    };
 
         ##########################################################################################
@@ -183,11 +219,31 @@ herein
 	#
 	fun make_slider_state_egg (options: List(Option))								# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
-	    {   (process_options (options, { name => "slider_state" }))
-		    ->
-		    { name };
+	    {   (process_options
+		  ( options,
+		    { name		=> "slider_state",
+		      #	
+		      min_value		=> 0.0,
+		      max_value		=> 1.0,
+		      initial_value	=> 0.0,
+		      #	
+		      changed_value_callbacks	=> [],
+		      slider_state_callbacks	=> []
+		    }
+		) )
+		  ->
+		  { name,
+		    min_value,
+		    max_value,
+		    initial_value,
+		    changed_value_callbacks,
+		    slider_state_callbacks
+		  };
 	
-		me = REF ();
+		me =  { min_value,
+			max_value,
+			value => REF initial_value
+		      };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
@@ -203,7 +259,7 @@ herein
 				    )
 				    =
 				    {
-					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', changed_value_callbacks, slider_state_callbacks });
 				    };
 
 			    (exports, phase3);
