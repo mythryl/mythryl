@@ -73,13 +73,14 @@ herein
 			      me:			Slider_State_State,
 			      run_gun':			Run_Gun,
 			      end_gun':			End_Gun,
-			      changed_value_callbacks:	List(Float -> Void),
+			      changed_value_callbacks:	Ref(List(Float -> Void)),
 			      slider_state_callbacks:	List(Slider_State -> Void)
 			    }
 			  );
 
-	Slider_Plea =  DO_SOMETHING Int
-		    |  PASS_SOMETHING Oneshot_Maildrop( Int )
+	Slider_Plea =  SET_VALUE			Float
+		    |  PASS_VALUE			Oneshot_Maildrop( Float )
+		    |  SUBSCRIBE_TO_VALUE_CHANGES	(Float -> Void)
 		    ;
 	Slider_Q    = Mailqueue( Slider_Plea );
 
@@ -97,14 +98,22 @@ herein
 		| SLIDER_STATE_CALLBACK		Slider_State -> Void
 		;
 
+	State   = { min: Float,
+		    max: Float,
+		    val: Float
+		  };
+
+	Arg = (State, List(Option));
+
 	Slider_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		    me:			Slider_State_State,								# State which is preserved across imp shutdown/restart cycles.
-		    imports:		Imports,									# Imps to which we send requests.
-		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    slider_q:		Slider_Q									# 
+		    me:				Slider_State_State,							# State which is preserved across imp shutdown/restart cycles.
+		    imports:			Imports,								# Imps to which we send requests.
+		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':			End_Gun,								# We shut down the microthread when this fires.
+		    slider_q:			Slider_Q,								# 
+		    changed_value_callbacks:	Ref(List(Float -> Void))						#
 		}
 	    =
 	    loop ()
@@ -114,7 +123,7 @@ herein
 		    {   do_one_mailop' to [
 			    #
 			    (end_gun'                        ==>  shut_down_slider_imp'),
-			    (take_from_mailqueue' slider_q    ==>  do_slider_plea)
+			    (take_from_mailqueue' slider_q   ==>  do_slider_plea)
 			];
 
 			loop ();
@@ -126,15 +135,39 @@ herein
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
-			fun do_slider_plea  (DO_SOMETHING i)
+
+			fun do_slider_plea  (SET_VALUE f)
 			        =>
-				{   imports.int_sink i;									# Demonstrate use of imports.
+				{   oldval = *me.value;
+				    #
+				    f = if (f < me.min_value)   me.min_value;						# Make sure our new value is not below min end of slider.
+					else			f;
+					fi;
+
+				    f = if (f > me.max_value)	me.max_value;						# Make sure our new value is not above max end of slider.
+					else			f;
+					fi;
+
+
+				    if (f != oldval)
+					#
+					me.value := f;									# Note new value of slider.
+
+					apply  (fn watcher = watcher(f))  *changed_value_callbacks;			# Tell everyone who cares what our new value is.
+				    fi;	
 				};
 
-			    do_slider_plea  (PASS_SOMETHING reply_oneshot)
+			    do_slider_plea  (PASS_VALUE reply_oneshot)
 				=>
-				{   put_in_oneshot (reply_oneshot, 0);
+				{   put_in_oneshot (reply_oneshot, *me.value);
 				};
+
+			    do_slider_plea  (SUBSCRIBE_TO_VALUE_CHANGES sink)
+			        =>
+				{
+				    changed_value_callbacks :=  sink ! *changed_value_callbacks;
+				};
+
 			end;
 		    end;
 	    end;	
@@ -145,7 +178,7 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		slider_state	=  { do_something, pass_something };
+		slider_state	=  { set_value, pass_value, subscribe_to_value_changes };
 		exports		=  { slider_state };
 
 		to          =  make_replyqueue();
@@ -158,24 +191,30 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, slider_q, imports, to, end_gun' };								# Will not return.
+		run { me, slider_q, imports, to, end_gun', changed_value_callbacks };					# Will not return.
 	    }
 	    where
 		slider_q     =  make_mailqueue (get_current_microthread()):  Slider_Q;
 
-		fun do_something (i: Int)										# PUBLIC.
+		fun set_value (f: Float)										# PUBLIC.
 		    =	
-		    put_in_mailqueue  (slider_q, DO_SOMETHING i);
+		    put_in_mailqueue  (slider_q, SET_VALUE f);
 
 
-		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
+		fun pass_value  (replyqueue: Replyqueue)  (reply_handler: Float -> Void)				# PUBLIC.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Float );
 			#
-			put_in_mailqueue  (slider_q, PASS_SOMETHING reply_oneshot);
+			put_in_mailqueue  (slider_q, PASS_VALUE reply_oneshot);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
+
+		fun subscribe_to_value_changes (sink: Float -> Void)							# PUBLIC.
+		    =	
+		    put_in_mailqueue  (slider_q, SUBSCRIBE_TO_VALUE_CHANGES sink);
+
+
 	    end;
 
 
@@ -187,7 +226,7 @@ herein
 		my_max_value	= REF max_value;
 		my_initial_value= REF initial_value;
 		#
-		my_changed_value_callbacks	= REF changed_value_callbacks;
+		my_changed_value_callbacks	=     changed_value_callbacks;		# Comes with REF pre-installed.
 		my_slider_state_callbacks	= REF slider_state_callbacks;
 		#
 		apply  do_option  options
@@ -209,7 +248,7 @@ herein
 		  max_value	=>  *my_max_value,
 		  initial_value	=>  *my_initial_value,
 		  #
-		  changed_value_callbacks  =>  *my_changed_value_callbacks,
+		  changed_value_callbacks  =>   my_changed_value_callbacks,
 		   slider_state_callbacks  =>   *my_slider_state_callbacks
 		};
 	    };
@@ -217,7 +256,7 @@ herein
         ##########################################################################################
 	# PUBLIC.
 	#
-	fun make_slider_state_egg (options: List(Option))								# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	fun make_slider_state_egg (state: State, options: List(Option))								# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
 	    {   (process_options
 		  ( options,
@@ -227,7 +266,7 @@ herein
 		      max_value		=> 1.0,
 		      initial_value	=> 0.0,
 		      #	
-		      changed_value_callbacks	=> [],
+		      changed_value_callbacks	=> REF([]),
 		      slider_state_callbacks	=> []
 		    }
 		) )
