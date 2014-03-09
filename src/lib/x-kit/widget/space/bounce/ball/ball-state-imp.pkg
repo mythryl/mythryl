@@ -55,16 +55,17 @@ herein
     {
 	include ball_state;												# ball_state			is from   src/lib/x-kit/widget/space/bounce/ball/ball-state.pkg
 	#
-	Ball_State_State = Ref( Void );											# Holds all nonephemeral mutable state maintained by state.
-
-
 	Imports = {													# Ports we use, provided by other imps.
-		    int_sink: Int -> Void
+                    state_sink: { position: Xyz, velocity: Xyz } -> Void
 		  };
 
-	Ball_Plea =  DO_SOMETHING Int
-		    |  PASS_SOMETHING Oneshot_Maildrop( Int )
-		    ;
+	Ball_State_Needs  = { position: Xyz,
+			      velocity: Xyz	
+			    };
+
+	Ball_Plea =  SUBSCRIBE_TO_CHANGES Ball_State_Needs -> Void
+		  |  SET_STATE 		  Ball_State_Needs
+		  ;
 	Ball_Q    = Mailqueue( Ball_Plea );
 
 
@@ -73,27 +74,39 @@ herein
 		  };
 
 
-	Ball_State_Option = MICROTHREAD_NAME String;										# 
-	Ball_State_Needs  = { text: String };
+	Ball_State_Option												# 
+	    #
+	    = MICROTHREAD_NAME		String
+	    | CHANGE_CALLBACK		Ball_State_Needs -> Void							# We'll call each of these callbacks each time our value changes.
+	    | BALL_STATE_CALLBACK	Ball_State       -> Void							# Client code registers this callback to get a port to us once we start up.
+	    ;
+
 	Ball_Arg = (Ball_State_Needs, List(Ball_State_Option));
 
 	Ball_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	Me_Slot = Mailslot( { imports:		Imports,
-			      me:		Ball_State_State,
-			      run_gun':		Run_Gun,
-			      end_gun':		End_Gun,
-			      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg))					# When end_gun fires we save our state in this and exit.
+	Ball_State_State = Ref( Ball_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
+
+	Me_Slot = Mailslot( { imports:			Imports,
+			      me:			     Ball_State_State,
+			      options:			List(Ball_State_Option),
+			      run_gun':			Run_Gun,
+			      end_gun':			End_Gun,
+			      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Ball_Arg)),				# When end_gun fires we save our state in this and exit.
+			      change_callbacks:		Ref(List(Ball_State_Needs -> Void)),
+			      ball_state_callbacks:	List(Ball_State -> Void)
 			    }
 			  );
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
 		    me:			Ball_State_State,								# State which is preserved across imp shutdown/restart cycles.
+		    options:		List(Ball_State_Option),
 		    imports:		Imports,									# Imps to which we send requests.
 		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    ball_q:		Ball_Q,										# 
 		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg))						# When end_gun fires we save our state in this and exit.
+		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg)),						# When end_gun fires we save our state in this and exit.
+		    change_callbacks:	Ref(List(Ball_State_Needs -> Void))						# We call these each time our state changes.
 		}
 	    =
 	    loop ()
@@ -112,19 +125,24 @@ herein
 			fun shut_down_ball_imp' ()
 			    =
 			    {
-# XXX BUGGO NOT YET USING endstate_oneshot:
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
-			fun do_ball_plea  (DO_SOMETHING i)
+			fun do_ball_plea  (SET_STATE state)
 			        =>
-				{   imports.int_sink i;									# Demonstrate use of imports.
-				};
+				{   me := state;									# Change the text we display.
+				    apply (fn callback = callback *me)  *change_callbacks;				# Update all listeners with our new state.
+				};	
 
-			    do_ball_plea  (PASS_SOMETHING reply_oneshot)
+			    do_ball_plea  (SUBSCRIBE_TO_CHANGES callback)
 				=>
-				{   put_in_oneshot (reply_oneshot, 0);
-				};
+				change_callbacks :=  callback ! *change_callbacks;
 			end;
 		    end;
 	    end;	
@@ -135,7 +153,7 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		ball_state	=  { do_something, pass_something };
+		ball_state	=  { set_state, subscribe_to_changes };
 		exports		=  { ball_state };
 
 		to		=  make_replyqueue();
@@ -144,41 +162,49 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from ball_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun', endstate_oneshot };
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, ball_state_callbacks };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, ball_q, imports, to, end_gun', endstate_oneshot };								# Will not return.
+		apply  (fn callback = callback ball_state)  ball_state_callbacks;					# Pass our port to everyone who asked for it.
+
+		apply  (fn callback = callback *me)  *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
+
+		run { me, options, ball_q, imports, to, end_gun', endstate_oneshot, change_callbacks };			# Will not return.
 	    }
 	    where
 		ball_q     =  make_mailqueue (get_current_microthread()):  Ball_Q;
 
-		fun do_something (i: Int)										# PUBLIC.
+
+		fun set_state (state: Ball_State_Needs)									# PUBLIC.
 		    =	
-		    put_in_mailqueue  (ball_q, DO_SOMETHING i);
+		    put_in_mailqueue  (ball_q, SET_STATE state);
 
 
-		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
+		fun subscribe_to_changes  callback									# PUBLIC.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-			#
-			put_in_mailqueue  (ball_q, PASS_SOMETHING reply_oneshot);
-
-			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
-		    };
+		    put_in_mailqueue  (ball_q, SUBSCRIBE_TO_CHANGES callback);
 	    end;
 
 
-	fun process_options (options: List(Ball_State_Option), { name })
+	fun process_options (options: List(Ball_State_Option), { name, change_callbacks, ball_state_callbacks })
 	    =
-	    {   my_name   = REF name;
+	    {   my_name			=  REF name;
+		my_change_callbacks	=      change_callbacks;		# Comes with REF pre-installed.
+		my_ball_state_callbacks	=  REF ball_state_callbacks;
 		#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		    fun do_option (MICROTHREAD_NAME    n) =>   my_name                 :=  n;
+			do_option (CHANGE_CALLBACK     c) =>   my_change_callbacks     :=  c ! *my_change_callbacks;
+			do_option (BALL_STATE_CALLBACK c) =>   my_ball_state_callbacks :=  c ! *my_ball_state_callbacks;
+		    end;
 		end;
 
-		{ name => *my_name };
+		{ name 			=>   *my_name,
+		  change_callbacks	=>    my_change_callbacks,
+		  ball_state_callbacks	=>   *my_ball_state_callbacks
+		};
 	    };
 
         ##########################################################################################
@@ -190,12 +216,20 @@ herein
 		)
 		(endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg)))						# When end_gun fires we save our state in this and exit.
 	    =
-	    {   (process_options (options, { name => "ball_state" }))
+	    {   (process_options
+		  ( options,
+		    { name			=>  "ball_state",
+		      change_callbacks		=>  REF([]),
+		      ball_state_callbacks	=>  []
+		    }
+		) )
 		    ->
-		    { name };
-# XXX BUGGO FIXME need to use 'needs' here -- see corresponding code in  src/lib/x-kit/widget/space/packed/slider/slider-state-imp.pkg
-	
-		me = REF ();
+		    { name,
+		      change_callbacks,
+		      ball_state_callbacks
+		    };
+
+		me = REF needs;
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
@@ -210,8 +244,9 @@ herein
 				      end_gun':	End_Gun
 				    )
 				    =
-				    {
-					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot });
+				    {   change_callbacks :=  imports.state_sink ! *change_callbacks;
+					#
+					put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, ball_state_callbacks });
 				    };
 
 			    (exports, phase3);
