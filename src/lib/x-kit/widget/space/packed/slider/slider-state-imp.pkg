@@ -55,31 +55,33 @@ herein
     {
 	include slider_state;												# slider_state			is from   src/lib/x-kit/widget/space/packed/slider/slider-state.pkg
 	#
-	Slider_State_State
-	    =
-	    { min_value:	Float,
-	      max_value:	Float,
-	      value:	   Ref( Float )											# Holds all nonephemeral mutable state maintained by state.
-	    };
-
-#	Imports =  pwe::Imports;
-#	Exports =  pwe::Exports;
-
-	Imports = {													# Ports we use, provided by other imps.
-		    int_sink: Int -> Void
+	Slider_State_Needs
+	        = { min: Float,
+		    max: Float,
+		    val: Float
 		  };
 
-	Slider_Plea =  SET_VALUE			Float
-		    |  PASS_VALUE			Oneshot_Maildrop( Float )
-		    |  SUBSCRIBE_TO_VALUE_CHANGES	(Float -> Void)
-		    ;
-	Slider_Q    = Mailqueue( Slider_Plea );
+	Imports = {													# Ports we use, provided by other imps.
+                    state_sink: Slider_State_Needs -> Void
+		  };
 
+	Slider_Plea =  SET_VALUE		Float
+		    |  PASS_STATE		Oneshot_Maildrop( Slider_State_Needs )
+		    |  SUBSCRIBE_TO_CHANGES	(Slider_State_Needs -> Void)
+		    ;
+
+	Slider_State_State
+	    =
+	    { min:	Float,
+	      max:	Float,
+	      val:      Float												# Holds all nonephemeral mutable state maintained by state.
+	    };
+
+	Slider_Q    = Mailqueue( Slider_Plea );
 
 	Exports	= {													# Ports we provide for use by other imps.
 		    slider_state:	Slider_State
 		  };
-
 
 	Slider_State_Option
 		#
@@ -87,38 +89,36 @@ herein
 		| MAX_VALUE			Float
 		| MIN_VALUE			Float
 		| INITIAL_VALUE			Float
-		| CHANGED_VALUE_CALLBACK	Float -> Void
-		| SLIDER_STATE_CALLBACK		Slider_State -> Void
+		| CHANGE_CALLBACK		Slider_State_Needs -> Void
+		| SLIDER_STATE_CALLBACK		Slider_State	   -> Void
 		;
-
-	Slider_State_Needs
-	        = { min: Float,
-		    max: Float,
-		    val: Float
-		  };
 
 	Slider_Arg = (Slider_State_Needs, List(Slider_State_Option));
 
 	Slider_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
+	Slider_State_State = Ref( Slider_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
+
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			Slider_State_State,
+			      options:			List(Slider_State_Option),
 			      run_gun':			Run_Gun,
 			      end_gun':			End_Gun,
-			      changed_value_callbacks:	Ref(List(Float -> Void)),
-			      slider_state_callbacks:	List(Slider_State -> Void),
-			      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Slider_Arg))				# When end_gun fires we save our state in this and exit.
+			      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Slider_Arg)),				# When end_gun fires we save our state in this and exit.
+			      change_callbacks:		Ref(List(Slider_State_Needs -> Void)),
+			      slider_state_callbacks:	List(Slider_State -> Void)
 			    }
 			  );
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		    me:				Slider_State_State,							# State which is preserved across imp shutdown/restart cycles.
+		    me:				     Slider_State_State,						# State which is preserved across imp shutdown/restart cycles.
+		    options:			List(Slider_State_Option),
 		    imports:			Imports,								# Imps to which we send requests.
 		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':			End_Gun,								# We shut down the microthread when this fires.
 		    slider_q:			Slider_Q,								# 
-		    changed_value_callbacks:	Ref(List(Float -> Void)),						#
-		    endstate_oneshot:		Null_Or(Oneshot_Maildrop(Slider_Arg))					# When end_gun fires we save our state in this and exit.
+		    end_gun':			End_Gun,								# We shut down the microthread when this fires.
+		    endstate_oneshot:		Null_Or(Oneshot_Maildrop(Slider_Arg)),					# When end_gun fires we save our state in this and exit.
+		    change_callbacks:		Ref(List(Slider_State_Needs -> Void))					#
 		}
 	    =
 	    loop ()
@@ -137,43 +137,44 @@ herein
 			fun shut_down_slider_imp' ()
 			    =
 			    {
-# XXX BUGGO NOT YET USING endstate_oneshot:
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
 
 			fun do_slider_plea  (SET_VALUE f)
 			        =>
-				{   oldval = *me.value;
+				{   (*me) -> { min, max, val };
 				    #
-				    f = if (f < me.min_value)   me.min_value;						# Make sure our new value is not below min end of slider.
-					else			f;
+				    f = if (f < min)	min;								# Make sure our new value is not below min end of slider.
+					else		f;
 					fi;
 
-				    f = if (f > me.max_value)	me.max_value;						# Make sure our new value is not above max end of slider.
-					else			f;
+				    f = if (f > max)	max;								# Make sure our new value is not above max end of slider.
+					else		f;
 					fi;
 
 
-				    if (f != oldval)
+				    if (f != val)
 					#
-					me.value := f;									# Note new value of slider.
+					me := { min, max, val => f };							# Note new state of slider.
 
-					apply  (fn watcher = watcher(f))  *changed_value_callbacks;			# Tell everyone who cares what our new value is.
+					apply  (fn callback = callback(*me))  *change_callbacks;			# Tell everyone who cares what our new state is.
 				    fi;	
 				};
 
-			    do_slider_plea  (PASS_VALUE reply_oneshot)
+			    do_slider_plea  (PASS_STATE reply_oneshot)
 				=>
-				{   put_in_oneshot (reply_oneshot, *me.value);
-				};
+				put_in_oneshot (reply_oneshot, *me);
 
-			    do_slider_plea  (SUBSCRIBE_TO_VALUE_CHANGES sink)
+			    do_slider_plea  (SUBSCRIBE_TO_CHANGES callback)
 			        =>
-				{
-				    changed_value_callbacks :=  sink ! *changed_value_callbacks;
-				};
-
+				change_callbacks :=  callback ! *change_callbacks;
 			end;
 		    end;
 	    end;	
@@ -184,7 +185,7 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		slider_state	=  { set_value, pass_value, subscribe_to_value_changes };
+		slider_state	=  { set_value, pass_state, subscribe_to_changes };
 		exports		=  { slider_state };
 
 		to          =  make_replyqueue();
@@ -193,13 +194,15 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from slider_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun', changed_value_callbacks, slider_state_callbacks, endstate_oneshot };
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, slider_state_callbacks };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		apply  (fn callback = callback slider_state)  slider_state_callbacks;					# Hand our port to everyone who requested it.
+		apply  (fn callback = callback slider_state)  slider_state_callbacks;					# Pass our port to everyone who asked for it.
 
-		run { me, slider_q, imports, to, end_gun', changed_value_callbacks, endstate_oneshot };			# Will not return.
+		apply  (fn callback = callback *me)  *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
+
+		run { me, options, slider_q, imports, to, end_gun', endstate_oneshot, change_callbacks };		# Will not return.
 	    }
 	    where
 		slider_q     =  make_mailqueue (get_current_microthread()):  Slider_Q;
@@ -209,24 +212,22 @@ herein
 		    put_in_mailqueue  (slider_q, SET_VALUE f);
 
 
-		fun pass_value  (replyqueue: Replyqueue)  (reply_handler: Float -> Void)				# PUBLIC.
+		fun pass_state  (replyqueue: Replyqueue)  (reply_handler: Slider_State_Needs -> Void)			# PUBLIC.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Float );
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Slider_State_Needs );
 			#
-			put_in_mailqueue  (slider_q, PASS_VALUE reply_oneshot);
+			put_in_mailqueue  (slider_q, PASS_STATE reply_oneshot);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
 
-		fun subscribe_to_value_changes (sink: Float -> Void)							# PUBLIC.
+		fun subscribe_to_changes   callback									# PUBLIC.
 		    =	
-		    put_in_mailqueue  (slider_q, SUBSCRIBE_TO_VALUE_CHANGES sink);
-
-
+		    put_in_mailqueue  (slider_q, SUBSCRIBE_TO_CHANGES callback);
 	    end;
 
 
-	fun process_options (options: List(Slider_State_Option), { name, min_value, max_value, initial_value, changed_value_callbacks, slider_state_callbacks })
+	fun process_options (options: List(Slider_State_Option), { name, min_value, max_value, initial_value, change_callbacks, slider_state_callbacks })
 	    =
 	    {   my_name		= REF name;
 		#
@@ -234,7 +235,7 @@ herein
 		my_max_value	= REF max_value;
 		my_initial_value= REF initial_value;
 		#
-		my_changed_value_callbacks	=     changed_value_callbacks;		# Comes with REF pre-installed.
+		my_change_callbacks		=     change_callbacks;		# Comes with REF pre-installed.
 		my_slider_state_callbacks	= REF slider_state_callbacks;
 		#
 		apply  do_option  options
@@ -245,8 +246,8 @@ herein
 			do_option (MAX_VALUE	    	  f)  =>  my_max_value     := f;
 			do_option (INITIAL_VALUE    	  f)  =>  my_initial_value := f;
 		        #
-			do_option (CHANGED_VALUE_CALLBACK c)  =>  my_changed_value_callbacks :=  c ! *my_changed_value_callbacks;
-			do_option ( SLIDER_STATE_CALLBACK c)  =>   my_slider_state_callbacks :=  c !  *my_slider_state_callbacks;
+			do_option (CHANGE_CALLBACK        c)  =>  my_change_callbacks       :=  c ! *my_change_callbacks;
+			do_option (SLIDER_STATE_CALLBACK  c)  =>  my_slider_state_callbacks :=  c ! *my_slider_state_callbacks;
 		    end;
 		end;
 
@@ -256,8 +257,8 @@ herein
 		  max_value	=>  *my_max_value,
 		  initial_value	=>  *my_initial_value,
 		  #
-		  changed_value_callbacks  =>   my_changed_value_callbacks,
-		   slider_state_callbacks  =>   *my_slider_state_callbacks
+		  change_callbacks	  =>   my_change_callbacks,
+		  slider_state_callbacks  =>  *my_slider_state_callbacks
 		};
 	    };
 
@@ -278,7 +279,7 @@ herein
 		      max_value		=> needs.max,
 		      initial_value	=> needs.val,
 		      #	
-		      changed_value_callbacks	=> REF([]),
+		      change_callbacks		=> REF([]),
 		      slider_state_callbacks	=> []
 		    }
 		) )
@@ -287,14 +288,14 @@ herein
 		    min_value,
 		    max_value,
 		    initial_value,
-		    changed_value_callbacks,
+		    change_callbacks,
 		    slider_state_callbacks
 		  };
 	
-		me =  { min_value,
-			max_value,
-			value => REF initial_value
-		      };
+		me =  REF { min => min_value,
+			    max => max_value,
+			    val => initial_value
+			  };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
@@ -309,8 +310,9 @@ herein
 				      end_gun':	End_Gun
 				    )
 				    =
-				    {
-					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', changed_value_callbacks, slider_state_callbacks, endstate_oneshot });
+				    {   change_callbacks :=  imports.state_sink ! *change_callbacks;
+					#
+					put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, slider_state_callbacks });
 				    };
 
 			    (exports, phase3);
