@@ -55,15 +55,15 @@ herein
     {
 	include label_state;												# label_state			is from   src/lib/x-kit/widget/space/packed/label/label-state.pkg
 	#
-	Label_State_State = Ref( Void );										# Holds all nonephemeral mutable state maintained by state.
-
 
 	Imports = {													# Ports we use, provided by other imps.
-		    int_sink: Int -> Void
+                    state_sink: { text: String } -> Void
 		  };
 
-	Label_Plea =  DO_SOMETHING Int
-		    |  PASS_SOMETHING Oneshot_Maildrop( Int )
+	Label_State_Needs  =  { text: String };
+
+	Label_Plea  =  SET_TEXT String
+		    |  SUBSCRIBE_TO_CHANGES Label_State_Needs -> Void
 		    ;
 	Label_Q    = Mailqueue( Label_Plea );
 
@@ -73,27 +73,40 @@ herein
 		  };
 
 
-	Option = MICROTHREAD_NAME String;										# 
-	State = { text: String };
-	Label_Arg = (State, List(Option));
+
+	Label_State_Option
+	    #
+	    =  MICROTHREAD_NAME 	String										# 
+	    |  CHANGE_CALLBACK		Label_State_Needs -> Void							# We'll call each of these callbacks each time our value changes.
+	    |  LABEL_STATE_CALLBACK	Label_State       -> Void							# Client code registers this callback to get a port to us once we start up.
+	    ;
+
+	Label_Arg = (Label_State_Needs, List(Label_State_Option));
 
 	Label_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	Me_Slot = Mailslot( { imports:		Imports,
-			      me:		Label_State_State,
-			      run_gun':		Run_Gun,
-			      end_gun':		End_Gun,
-			      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Label_Arg))					# When end_gun fires we save our state in this and exit.
+	Label_State_State = Ref( Label_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
+
+	Me_Slot = Mailslot( { imports:			Imports,
+			      me:			Label_State_State,
+			      options:			List(Label_State_Option),
+			      run_gun':			Run_Gun,
+			      end_gun':			End_Gun,
+			      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Label_Arg)),				# When end_gun fires we save our state in this and exit.
+			      change_callbacks:		Ref(List(Label_State_Needs -> Void)),
+			      label_state_callbacks:	List(Label_State -> Void)
 			    }
 			  );
 
 	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		    me:			Label_State_State,								# State which is preserved across imp shutdown/restart cycles.
-		    imports:		Imports,									# Imps to which we send requests.
-		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    label_q:		Label_Q,									# 
-		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Label_Arg))						# When end_gun fires we save our state in this and exit.
+		    me:				Label_State_State,							# State which is preserved across imp shutdown/restart cycles.
+		    options:			List(Label_State_Option),
+		    imports:			Imports,								# Imps to which we send requests.
+		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    label_q:			Label_Q,								# 
+		    end_gun':			End_Gun,								# We shut down the microthread when this fires.
+		    endstate_oneshot:		Null_Or(Oneshot_Maildrop(Label_Arg)),					# When end_gun fires we save our state in this and exit.
+		    change_callbacks:		Ref(List(Label_State_Needs -> Void))					# We call these each time our state changes.
 		}
 	    =
 	    loop ()
@@ -102,8 +115,8 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (end_gun'                        ==>  shut_down_label_imp'),
-			    (take_from_mailqueue' label_q    ==>  do_label_plea)
+			    (end_gun'                     ==>  shut_down_label_imp'),
+			    (take_from_mailqueue' label_q ==>  do_label_plea)
 			];
 
 			loop ();
@@ -112,19 +125,28 @@ herein
 			fun shut_down_label_imp' ()
 			    =
 			    {
-# XXX BUGGO NOT YET USING endstate_oneshot:
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
-			fun do_label_plea  (DO_SOMETHING i)
-			        =>
-				{   imports.int_sink i;									# Demonstrate use of imports.
-				};
+			fun set_text string
+			    =
+			    {   me := { text => string };								# Change the text we display.
+				apply (fn callback = callback *me)  *change_callbacks;					# Update all listeners with our new state.
+			    };	
 
-			    do_label_plea  (PASS_SOMETHING reply_oneshot)
+			fun do_label_plea  (SET_TEXT string)
+			        =>
+				set_text string;
+
+			    do_label_plea  (SUBSCRIBE_TO_CHANGES callback)
 				=>
-				{   put_in_oneshot (reply_oneshot, 0);
-				};
+				change_callbacks :=  callback ! *change_callbacks;
 			end;
 		    end;
 	    end;	
@@ -135,7 +157,7 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		label_state	=  { do_something, pass_something };
+		label_state	=  { set_text, subscribe_to_changes };
 		exports		=  { label_state };
 
 		to		=  make_replyqueue();
@@ -144,58 +166,73 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from label_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun', endstate_oneshot };
+		    { me, options, imports, run_gun', end_gun', change_callbacks, label_state_callbacks, endstate_oneshot };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, label_q, imports, to, end_gun', endstate_oneshot };						# Will not return.
+		apply  (fn callback = callback label_state)  label_state_callbacks;					# Pass our port to everyone who asked for it.
+
+		apply  (fn callback = callback *me)  *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
+
+		run { me, options, label_q, imports, to, end_gun', change_callbacks, endstate_oneshot };		# Will not return.
 	    }
 	    where
 		label_q     =  make_mailqueue (get_current_microthread()):  Label_Q;
 
-		fun do_something (i: Int)										# PUBLIC.
+		fun set_text (string: String)										# PUBLIC.
 		    =	
-		    put_in_mailqueue  (label_q, DO_SOMETHING i);
+		    put_in_mailqueue  (label_q, SET_TEXT string);
 
 
-		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
+		fun subscribe_to_changes  callback									# PUBLIC.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-			#
-			put_in_mailqueue  (label_q, PASS_SOMETHING reply_oneshot);
-
-			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
-		    };
+		    put_in_mailqueue  (label_q, SUBSCRIBE_TO_CHANGES callback);
 	    end;
 
 
-	fun process_options (options: List(Option), { name })
+	fun process_options (options: List(Label_State_Option), { name, change_callbacks, label_state_callbacks })
 	    =
-	    {   my_name   = REF name;
+	    {   my_name				=  REF name;
+		my_change_callbacks		=      change_callbacks;		# Comes with REF pre-installed.
+		my_label_state_callbacks	=  REF label_state_callbacks;
 		#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		    fun do_option (MICROTHREAD_NAME     n) =>   my_name                  :=  n;
+			do_option (CHANGE_CALLBACK      c) =>   my_change_callbacks      :=  c ! *my_change_callbacks;
+			do_option (LABEL_STATE_CALLBACK c) =>   my_label_state_callbacks :=  c ! *my_label_state_callbacks;
+		    end;
 		end;
 
-		{ name => *my_name };
+		{ name 			=>   *my_name,
+		  change_callbacks      =>    my_change_callbacks,
+		  label_state_callbacks =>   *my_label_state_callbacks
+		};
 	    };
 
         ##########################################################################################
 	# PUBLIC.
 	#
 	fun make_label_state_egg											# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
-		( state:		State,
-		  options:		List(Option)	
+		( needs:		     Label_State_Needs,
+		  options:		List(Label_State_Option)	
 		)
 		(endstate_oneshot:	Null_Or(Oneshot_Maildrop(Label_Arg)))						# When end_gun fires we save our state in this and exit.
 	    =
-	    {   (process_options (options, { name => "label_state" }))
+	    {   (process_options
+		  ( options,
+		    { name			=>  "label_state",
+		      change_callbacks		=>  REF([]),
+		      label_state_callbacks	=>  []
+		    }
+		) )
 		    ->
-		    { name };
-# XXX BUGGO FIXME need to handle 'state' here -- see corresponding code in  src/lib/x-kit/widget/space/packed/slider/slider-state-imp.pkg
+		    { name,
+		      change_callbacks,
+		      label_state_callbacks
+		    };
 	
-		me = REF ();
+		me = REF needs;
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
@@ -210,8 +247,9 @@ herein
 				      end_gun':	End_Gun
 				    )
 				    =
-				    {
-					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot });
+				    {	change_callbacks :=  imports.state_sink ! *change_callbacks;
+					#
+					put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', change_callbacks, label_state_callbacks, endstate_oneshot });
 				    };
 
 			    (exports, phase3);
