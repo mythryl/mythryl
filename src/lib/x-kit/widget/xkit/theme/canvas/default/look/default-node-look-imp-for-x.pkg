@@ -47,7 +47,8 @@ stipulate
 
     package aw  =  appwindow;					# appwindow			is from   src/lib/x-kit/widget/theme/appwindow.pkg
     package nsi =  node_state_imp;				# node_state_imp		is from   src/lib/x-kit/widget/space/canvas/node/node-state-imp.pkg
-    package pwe =  canvas_widget_egg;				# canvas_widget_egg		is from   src/lib/x-kit/widget/space/canvas-widget-egg.pkg
+    package cwc =  canvas_widget_control;			# canvas_widget_control		is from   src/lib/x-kit/widget/space/canvas/canvas-widget-control.pkg
+    package cwe =  canvas_widget_egg;				# canvas_widget_egg		is from   src/lib/x-kit/widget/space/canvas-widget-egg.pkg
     #
     tracefile   =  "widget-unit-test.trace.log";
 herein
@@ -60,25 +61,26 @@ herein
 	#
 	Node_Look_State = Ref( Void );											# Opaque wrapper for all nonephemeral mutable state maintained by look.
 
-	Imports =  pwe::Imports;
-	Exports =  pwe::Exports;
+	Imports =  cwe::Imports;
+	Exports =  cwe::Exports;
 
 #	Imports = {													# Ports we use, provided by other imps.
 #		    int_sink: Int -> Void
 #		  };
 
-	Me_Slot = Mailslot( { imports:		Imports,
-			      me:		Node_Look_State,
-			      run_gun':		Run_Gun,
-			      end_gun':		End_Gun,
-			      endstate_oneshot:	Null_Or(Oneshot_Maildrop( nsi::Node_Arg ))
+	Me_Slot = Mailslot( { imports:			Imports,
+			      me:			Node_Look_State,
+			      run_gun':			Run_Gun,
+			      end_gun':			End_Gun,
+			      endstate_oneshot:		Null_Or(Oneshot_Maildrop( nsi::Node_Arg )),
+			      widget_control_callbacks:	List(cwc::Canvas_Widget_Control -> Void)
 			    }
 			  );
 
 	Node_Plea =  DO_SOMETHING		Int
-		   |  PASS_SOMETHING		Oneshot_Maildrop( Int )
-		   |  PASS_DRAW_DONE_FLAG	Oneshot_Maildrop( Void )
-		   ;
+		  |  PASS_SOMETHING		Oneshot_Maildrop( Int )
+		  |  PASS_DRAW_DONE_FLAG	Oneshot_Maildrop( Void )
+		  ;
 
 	Node_Q    = Mailqueue( Node_Plea );
 
@@ -88,7 +90,11 @@ herein
 #		    node_look:		Node_Look
 #		  };
 
-	Node_Look_Option =  MICROTHREAD_NAME  String;									# 
+	Node_Look_Option
+	    #
+	    =  MICROTHREAD_NAME		String										# 
+	    |  WIDGET_CONTROL_CALLBACK	cwc::Canvas_Widget_Control -> Void						# Gui boss registers this callback to get a port to us once we start up.
+	    ;
 
 	Node_Look_Arg	 =  List(Node_Look_Option);									# Currently no mandatory component.
 
@@ -156,9 +162,11 @@ herein
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_node_look_for_x().
 		    ->
-		    { me, imports, run_gun', end_gun', endstate_oneshot };
+		    { me, imports, run_gun', end_gun', endstate_oneshot, widget_control_callbacks };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		apply   {. #callback canvas_widget_control; }   widget_control_callbacks;				# Pass our port to everyone who asked for it.
 
 		run { me, node_q, imports, to, end_gun', endstate_oneshot };						# Will not return.
 	    }
@@ -190,16 +198,21 @@ herein
 	    end;
 
 
-	fun process_options (options: List(Node_Look_Option), { name })
+	fun process_options (options: List(Node_Look_Option), { name, widget_control_callbacks })
 	    =
-	    {   my_name   = REF name;
+	    {   my_name				=  REF name;
+		my_widget_control_callbacks	=  REF widget_control_callbacks;
 		#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		    fun do_option (MICROTHREAD_NAME        n) =>   my_name			:=  n;
+			do_option (WIDGET_CONTROL_CALLBACK c) =>   my_widget_control_callbacks	:=  c ! *my_widget_control_callbacks;
+		    end;
 		end;
 
-		{ name => *my_name };
+		{ name			    =>  *my_name,
+		  widget_control_callbacks  =>  *my_widget_control_callbacks
+		};
 	    };
 
 
@@ -214,9 +227,16 @@ herein
 		endstate_oneshot:	Null_Or(Oneshot_Maildrop( nsi::Node_Arg ))
 	      )
 	    =
-	    {   (process_options (options, { name => "node_look" }))
+	    {   (process_options
+		  ( options,
+		    { name			=>  "node_look",
+		      widget_control_callbacks	=>  []
+		    }
+		) )
 		    ->
-		    { name };
+		    { name,
+		      widget_control_callbacks
+		    };
 	
 		me = REF ();
 
@@ -230,21 +250,20 @@ herein
 
 			    (node_state_egg ()) -> (node_state_exports, node_state_egg');
 
-
-			    phase3
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
 				=
-				fn  ( imports:	Imports,								# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
-				      run_gun':	Run_Gun,	
-				      end_gun':	End_Gun
-				    )
-				    =
-				    {
-					node_state_imports = { int_sink => fn (i: Int) = () };
+				{
+				    node_state_imports = { int_sink => fn (i: Int) = () };
 
-					node_state_egg' (node_state_imports, run_gun', end_gun');
+				    node_state_egg' (node_state_imports, run_gun', end_gun');
 
-					put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot });
-				    };
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot, widget_control_callbacks });
+				};
 
 			    (exports, phase3);
 			};
