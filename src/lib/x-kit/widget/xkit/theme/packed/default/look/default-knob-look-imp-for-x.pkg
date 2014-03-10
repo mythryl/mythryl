@@ -59,7 +59,7 @@ herein
 	#
 	include knob_look;												# knob_look		is from   src/lib/x-kit/widget/theme/packed/knob-look.pkg
 	#
-	Knob_Look_State = Ref( Void );											# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	Knob_Look_State = Ref( ssi::Slider_State_Needs );								# Opaque wrapper for all nonephemeral mutable state maintained by look.
 
 	Imports =  pwe::Imports;
 	Exports =  pwe::Exports;
@@ -80,6 +80,7 @@ herein
 	Knob_Plea =  DO_SOMETHING		Int
 		  |  PASS_SOMETHING		Oneshot_Maildrop( Int )
 		  |  PASS_DRAW_DONE_FLAG	Oneshot_Maildrop( Void )
+		  |  NOTE_NEW_STATE		ssi::Slider_State_Needs
 		  ;
 
 	Knob_Q    = Mailqueue( Knob_Plea );
@@ -143,13 +144,17 @@ herein
 				=>
 				{   put_in_oneshot (reply_oneshot, ());
 				};
+
+			    do_knob_plea  (NOTE_NEW_STATE state)
+				=>
+				me := state;										# Do we need to notify gui-boss that we need to redraw?
 			end;
 		    end;
 	    end;	
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, ssi::Slider_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
@@ -158,7 +163,7 @@ herein
 
 		to          =  make_replyqueue();
 		#
-		put_in_oneshot (reply_oneshot, (me_slot, exports));							# Return value from make_knob_look().
+		put_in_oneshot (reply_oneshot, (me_slot, exports, note_new_state));					# Return value from make_knob_look().
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_knob_look_for_x().
 		    ->
@@ -172,6 +177,12 @@ herein
 	    }
 	    where
 		knob_q     =  make_mailqueue (get_current_microthread()):  Knob_Q;
+
+
+		fun note_new_state (state: ssi::Slider_State_Needs)							# External entrypoint.
+		    =	
+		    put_in_mailqueue  (knob_q, NOTE_NEW_STATE state);
+
 
 		fun do_something (i: Int)										# External entrypoint.
 		    =	
@@ -238,15 +249,20 @@ herein
 		      widget_control_callbacks
 		    };
 	
-		me = REF ();
+		slider_arg -> (slider_state_needs, slider_state_options);
+
+		me = REF slider_state_needs;
 
 		slider_state_egg =  ssi::make_slider_state_egg  slider_arg  endstate_oneshot;
 
-		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
-			    #
+		fn () = {   reply_oneshot										# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+				=
+				make_oneshot_maildrop ()
+				:    Oneshot_Maildrop( (Me_Slot, Exports, ssi::Slider_State_Needs -> Void) );
+
 			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
 
-			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports, note_new_state);
 
 			    (slider_state_egg ()) -> (slider_state_exports, slider_state_egg');
 
@@ -257,7 +273,7 @@ herein
 				  end_gun':	End_Gun
 				)
 				=
-				{   slider_state_imports = { state_sink => fn (n: ssi::Slider_State_Needs) = () };
+				{   slider_state_imports = { state_sink => note_new_state };
 				    #
 				    slider_state_egg' (slider_state_imports, run_gun', end_gun');
 

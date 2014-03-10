@@ -59,7 +59,7 @@ herein
 	#
 	include label_look;												# label_look		is from   src/lib/x-kit/widget/theme/packed/label-look.pkg
 	#
-	Label_Look_State = Ref( Void );											# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	Label_Look_State = Ref( lsi::Label_State_Needs );								# Opaque wrapper for all nonephemeral mutable state maintained by look.
 
 	Imports =  pwe::Imports;
 	Exports =  pwe::Exports;
@@ -80,6 +80,7 @@ herein
 	Label_Plea =  DO_SOMETHING		Int
 		   |  PASS_SOMETHING		Oneshot_Maildrop( Int )
 		   |  PASS_DRAW_DONE_FLAG	Oneshot_Maildrop( Void )
+		   |  NOTE_NEW_STATE		lsi::Label_State_Needs
 		   ;
 
 	Label_Q    = Mailqueue( Label_Plea );
@@ -115,8 +116,8 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (end_gun'                        ==>  shut_down_label_imp'),
-			    (take_from_mailqueue' label_q    ==>  do_label_plea)
+			    (end_gun'                     ==>  shut_down_label_imp'),
+			    (take_from_mailqueue' label_q ==>  do_label_plea)
 			];
 
 			loop ();
@@ -143,13 +144,17 @@ herein
 				=>
 				{   put_in_oneshot (reply_oneshot, ());
 				};
+
+			    do_label_plea  (NOTE_NEW_STATE state)
+				=>
+				me := state;										# Do we need to notify gui-boss that we need to redraw?
 			end;
 		    end;
 	    end;	
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, lsi::Label_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
@@ -158,7 +163,7 @@ herein
 
 		to          =  make_replyqueue();
 		#
-		put_in_oneshot (reply_oneshot, (me_slot, exports));							# Return value from make_label_look().
+		put_in_oneshot (reply_oneshot, (me_slot, exports, note_new_state));					# Return value from make_label_look().
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_label_look_for_x().
 		    ->
@@ -171,8 +176,14 @@ herein
 		run { me, label_q, imports, to, end_gun', endstate_oneshot };						# Will not return.
 	    }
 	    where
-		label_q     =  make_mailqueue (get_current_microthread()):  Label_Q
-;
+		label_q     =  make_mailqueue (get_current_microthread()):  Label_Q;
+
+
+		fun note_new_state (state: lsi::Label_State_Needs)							# External entrypoint.
+		    =	
+		    put_in_mailqueue  (label_q, NOTE_NEW_STATE state);
+
+
 		fun do_something (i: Int)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (label_q, DO_SOMETHING i);
@@ -229,9 +240,12 @@ herein
 	#
 	#  o  Export a pwc::Packed_Widget_Control port to 								# packed_widget_control	is from   src/lib/x-kit/widget/space/packed/packed-widget-control.pkg
 	#     gui_boss so it can tell us when to redraw.
+	#     We use our WIDGET_CONTROL_CALLBACK option for this.
 	#
 	#  o  Register with label_state_imp to get change updates,							# label_state_imp	is from   src/lib/x-kit/widget/space/packed/label/label-state-imp.pkg
 	#     so we know what information to display wne redrawing.
+	#     We do this by passing note_new_state to label_state_imp
+	#     via label_state_imports.
 	#
 	fun make_label_look_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	      (
@@ -252,15 +266,20 @@ herein
 		      widget_control_callbacks
 		    };
 	
-		me = REF ();
+		label_arg -> (label_state_needs, label_state_options);
+
+		me = REF label_state_needs;
 
 		label_state_egg =  lsi::make_label_state_egg  label_arg  endstate_oneshot;
 
-		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
-			    #
+		fn () = {   reply_oneshot										# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+				=
+				make_oneshot_maildrop ()
+				:    Oneshot_Maildrop( (Me_Slot, Exports, lsi::Label_State_Needs -> Void) );
+
 			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
 
-			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports, note_new_state);
 
 			    (label_state_egg ()) -> (label_state_exports, label_state_egg');
 
@@ -272,7 +291,7 @@ herein
 				  end_gun':	End_Gun
 				)
 				=
-				{   label_state_imports = { state_sink => fn (n: lsi::Label_State_Needs) = () };
+				{   label_state_imports = { state_sink => note_new_state };
 				    #
 				    label_state_egg' (label_state_imports, run_gun', end_gun');
 

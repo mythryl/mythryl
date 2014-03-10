@@ -59,7 +59,7 @@ herein
 	#
 	include ball_look;												# ball_look		is from   src/lib/x-kit/widget/theme/bounce/ball-look.pkg
 	#
-	Ball_Look_State = Ref( Void );											# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	Ball_Look_State = Ref( bsi::Ball_State_Needs );									# Opaque wrapper for all nonephemeral mutable state maintained by look.
 
 	Imports =  bwe::Imports;
 	Exports =  bwe::Exports;
@@ -80,6 +80,7 @@ herein
 	Ball_Plea =  DO_SOMETHING		Int
 		  |  PASS_SOMETHING		Oneshot_Maildrop( Int )
 		  |  PASS_DRAW_DONE_FLAG	Oneshot_Maildrop( Void )
+		  |  NOTE_NEW_STATE		bsi::Ball_State_Needs
 		  ;
 
 	Ball_Q    = Mailqueue( Ball_Plea );
@@ -115,8 +116,8 @@ herein
 		    =
 		    {   do_one_mailop' to [
 			    #
-			    (end_gun'                        ==>  shut_down_ball_imp'),
-			    (take_from_mailqueue' ball_q    ==>  do_ball_plea)
+			    (end_gun'                    ==>  shut_down_ball_imp'),
+			    (take_from_mailqueue' ball_q ==>  do_ball_plea)
 			];
 
 			loop ();
@@ -143,13 +144,17 @@ herein
 				=>
 				{   put_in_oneshot (reply_oneshot, ());
 				};
+
+			    do_ball_plea  (NOTE_NEW_STATE state)
+				=>
+				me := state;										# Do we need to notify gui-boss that we need to redraw?
 			end;
 		    end;
 	    end;	
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, bsi::Ball_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
@@ -158,7 +163,7 @@ herein
 
 		to          =  make_replyqueue();
 		#
-		put_in_oneshot (reply_oneshot, (me_slot, exports));							# Return value from make_ball_look().
+		put_in_oneshot (reply_oneshot, (me_slot, exports, note_new_state));					# Return value from make_ball_look().
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_ball_look_for_x().
 		    ->
@@ -171,8 +176,14 @@ herein
 		run { me, ball_q, imports, to, end_gun', endstate_oneshot };						# Will not return.
 	    }
 	    where
-		ball_q     =  make_mailqueue (get_current_microthread()):  Ball_Q
-;
+		ball_q     =  make_mailqueue (get_current_microthread()):  Ball_Q;
+
+
+		fun note_new_state (state: bsi::Ball_State_Needs)							# External entrypoint.
+		    =	
+		    put_in_mailqueue  (ball_q, NOTE_NEW_STATE state);
+
+
 		fun do_something (i: Int)										# External entrypoint.
 		    =	
 		    put_in_mailqueue  (ball_q, DO_SOMETHING i);
@@ -238,15 +249,20 @@ herein
 		      widget_control_callbacks
 		    };
 	
-		me = REF ();
+		ball_arg -> (ball_state_needs, ball_state_options);
+
+		me = REF ball_state_needs;
 
 		ball_state_egg =  bsi::make_ball_state_egg  ball_arg  endstate_oneshot;
 
-		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
-			    #
+		fn () = {   reply_oneshot										# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+				=
+				make_oneshot_maildrop ()
+				:    Oneshot_Maildrop( (Me_Slot, Exports, bsi::Ball_State_Needs -> Void) );
+
 			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
 
-			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports, note_new_state);
 
 			    (ball_state_egg ()) -> (ball_state_exports, ball_state_egg');
 
@@ -258,7 +274,7 @@ herein
 				)
 				=
 				{
-				    ball_state_imports = { int_sink => fn (i: Int) = () };
+				    ball_state_imports = { state_sink => note_new_state };
 
 				    ball_state_egg' (ball_state_imports, run_gun', end_gun');
 
