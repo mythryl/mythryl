@@ -63,14 +63,6 @@ herein
                     state_sink: Ball_State_Needs -> Void
 		  };
 
-	Ball_Plea =  SUBSCRIBE_TO_CHANGES                 Ball_State_Needs -> Void
-		  |  PASS_STATE		Oneshot_Maildrop( Ball_State_Needs )
-		  |  SET_STATE 		                  Ball_State_Needs
-		  ;
-
-	Ball_Q    = Mailqueue( Ball_Plea );
-
-
 	Exports	= {													# Ports we provide for use by other imps.
 		    ball_state:	Ball_State
 		  };
@@ -99,16 +91,30 @@ herein
 			    }
 			  );
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		    me:			Ball_State_State,								# State which is preserved across imp shutdown/restart cycles.
-		    options:		List(Ball_State_Option),
-		    imports:		Imports,									# Imps to which we send requests.
-		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    ball_q:		Ball_Q,										# 
-		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg)),						# When end_gun fires we save our state in this and exit.
-		    change_callbacks:	Ref(List(Ball_State_Needs -> Void))						# We call these each time our state changes.
-		}
+
+	Runstate =    {	me:			Ball_State_State,									# State which is preserved across imp shutdown/restart cycles.
+			options:		List(Ball_State_Option),
+			imports:		Imports,										# Imps to which we send requests.
+			to:			Replyqueue,										# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+			end_gun':		End_Gun,										# We shut down the microthread when this fires.
+			endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg)),							# When end_gun fires we save our state in this and exit.
+			change_callbacks:	Ref(List(Ball_State_Needs -> Void))							# We call these each time our state changes.
+		      };
+
+	Ball_Q =  Mailqueue( Runstate -> Void );
+
+	fun run	( ball_q:		Mailqueue( Runstate -> Void ),							# 
+		  runstate as
+		    {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:		     Ball_State_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:		List(Ball_State_Option),
+		      imports:		Imports,									# Imps to which we send requests.
+		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Ball_Arg)),						# When end_gun fires we save our state in this and exit.
+		      change_callbacks:	Ref(List(Ball_State_Needs -> Void))						# We call these each time our state changes.
+		    }
+		)
 	    =
 	    loop ()
 	    where
@@ -123,6 +129,10 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_ball_plea  thunk
+			    =
+			    thunk runstate;
+
 			fun shut_down_ball_imp' ()
 			    =
 			    {
@@ -134,22 +144,6 @@ herein
 
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
-
-			fun do_ball_plea  (SUBSCRIBE_TO_CHANGES callback)
-				=>
-				change_callbacks :=  callback ! *change_callbacks;
-
-			    do_ball_plea  (PASS_STATE reply_oneshot)
-				=>
-				put_in_oneshot (reply_oneshot, *me);
-
-			    do_ball_plea  (SET_STATE state)
-			        =>
-				{   me := state;									# Change the text we display.
-				    apply   {. #callback *me; }   *change_callbacks;					# Update all listeners with our new state.
-				};	
-
-			end;
 		    end;
 	    end;	
 
@@ -175,7 +169,7 @@ herein
 		apply   {. #callback ball_state; }   ball_state_callbacks;						# Pass our port to everyone who asked for it.
 		apply   {. #callback *me;        }   *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
 
-		run { me, options, ball_q, imports, to, end_gun', endstate_oneshot, change_callbacks };			# Will not return.
+		run (ball_q, { me, options, imports, to, end_gun', endstate_oneshot, change_callbacks });		# Will not return.
 	    }
 	    where
 		ball_q     =  make_mailqueue (get_current_microthread()):  Ball_Q;
@@ -183,14 +177,28 @@ herein
 
 		fun subscribe_to_changes  callback									# PUBLIC.
 		    =
-		    put_in_mailqueue  (ball_q, SUBSCRIBE_TO_CHANGES callback);
+		    put_in_mailqueue
+		      (
+			ball_q,
+			#
+			fn ({ change_callbacks, ... }: Runstate)
+			    =
+			    change_callbacks :=  callback ! *change_callbacks
+		      );	
 
 
 		fun pass_state  (replyqueue: Replyqueue)  (reply_handler: Ball_State_Needs -> Void)			# PUBLIC.
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Ball_State_Needs );
 			#
-			put_in_mailqueue  (ball_q, PASS_STATE reply_oneshot);
+			put_in_mailqueue
+			  (
+			    ball_q,
+			    #
+			    fn ({ me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, *me)
+			  );
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
@@ -198,7 +206,16 @@ herein
 
 		fun set_state (state: Ball_State_Needs)									# PUBLIC.
 		    =	
-		    put_in_mailqueue  (ball_q, SET_STATE state);
+		    put_in_mailqueue
+		      (
+			ball_q,
+			#
+			fn ({ me, change_callbacks, ... }: Runstate)
+			    =
+			    {   me := state;										# Change the text we display.
+				apply   {. #callback *me; }   *change_callbacks;					# Update all listeners with our new state.
+			    }	
+			);
 
 
 	    end;
