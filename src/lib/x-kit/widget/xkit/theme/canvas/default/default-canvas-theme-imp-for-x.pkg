@@ -69,13 +69,11 @@ herein
                                 }
                               );
 
-	Theme_Plea =  DO_SOMETHING			Int
-		   |  EXERCISE_APPWINDOW		Oneshot_Maildrop(Int)
-		   |  PASS_APPWINDOW_EXERCISE_RESULTS	Oneshot_Maildrop(Int)
-		   |  PASS_SOMETHING			Oneshot_Maildrop(Int)
-		   ;
-	Theme_Q    = Mailqueue( Theme_Plea );
-
+#	Theme_Plea =  DO_SOMETHING			Int
+#		   |  EXERCISE_APPWINDOW		Oneshot_Maildrop(Int)
+#		   |  PASS_APPWINDOW_EXERCISE_RESULTS	Oneshot_Maildrop(Int)
+#		   |  PASS_SOMETHING			Oneshot_Maildrop(Int)
+#		   ;
 
 	Exports	= {													# Ports we provide for use by other imps.
 		    canvas_theme:	Canvas_Theme
@@ -86,13 +84,25 @@ herein
 
 	Canvas_Theme_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:		Theme_State,									# State which is preserved across imp shutdown/restart cycles.
+		      imports:		Imports,									# Imps to which we send requests.
+		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':		End_Gun										# We shut down the microthread when this fires.
+		    };
+
+	Theme_Q    = Mailqueue( Runstate -> Void );
+
+	fun run ( theme_q:		Theme_Q,									# 
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
 		    me:			Theme_State,									# State which is preserved across imp shutdown/restart cycles.
 		    imports:		Imports,									# Imps to which we send requests.
 		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    theme_q:		Theme_Q										# 
-		}
+		    end_gun':		End_Gun										# We shut down the microthread when this fires.
+		  }
+		)
 	    =
 	    loop ()
 	    where
@@ -113,30 +123,34 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_theme_plea thunk
+			    =
+			    thunk runstate;
+
 			fun shut_down_theme_imp' ()
 			    =
 			    {
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
-			fun do_theme_plea  (DO_SOMETHING i)
-			        =>
-				{   imports.int_sink i;									# Demonstrate use of imports.
-				};
-
-			    do_theme_plea  (EXERCISE_APPWINDOW reply_oneshot)
-				=>
-				exercise_appwindow  reply_oneshot;
-
-			    do_theme_plea  (PASS_APPWINDOW_EXERCISE_RESULTS reply_oneshot)
-				=>
-				exercise_appwindow  reply_oneshot;
-
-			    do_theme_plea  (PASS_SOMETHING reply_oneshot)
-				=>
-				{   put_in_oneshot (reply_oneshot, 0);
-				};
-			end;
+#			fun do_theme_plea  (DO_SOMETHING i)
+#			        =>
+#				{   imports.int_sink i;									# Demonstrate use of imports.
+#				};
+#
+#			    do_theme_plea  (EXERCISE_APPWINDOW reply_oneshot)
+#				=>
+#				exercise_appwindow  reply_oneshot;
+#
+#			    do_theme_plea  (PASS_APPWINDOW_EXERCISE_RESULTS reply_oneshot)
+#				=>
+#				exercise_appwindow  reply_oneshot;
+#
+#			    do_theme_plea  (PASS_SOMETHING reply_oneshot)
+#				=>
+#				{   put_in_oneshot (reply_oneshot, 0);
+#				};
+#			end;
 		    end;
 	    end;	
 
@@ -160,21 +174,32 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, theme_q, imports, to, end_gun' };								# Will not return.
+		run (theme_q, { me, imports, to, end_gun' });								# Will not return.
 	    }
 	    where
 		theme_q     =  make_mailqueue (get_current_microthread()):  Theme_Q;
 
 		fun do_something (i: Int)										# PUBLIC.
 		    =	
-		    put_in_mailqueue  (theme_q, DO_SOMETHING i);
-
+		    put_in_mailqueue  (theme_q,
+			#
+			fn ({ me, imports, ... }: Runstate)
+			    =
+			    imports.int_sink i										# Demonstrate use of imports.
+		    );
 
 		fun exercise_appwindow ()										# PUBLIC.
 		    =	
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
-			put_in_mailqueue  (theme_q, EXERCISE_APPWINDOW reply_oneshot);
+			put_in_mailqueue  (theme_q,
+			    #
+			    fn ({ me, imports, to, ... }: Runstate)
+				=
+				imports.appwindow.pass_appwindow_exercise_results
+				    to
+				    {.  put_in_oneshot (reply_oneshot, #i);   }
+			);
 
 			fn () =  get_from_oneshot reply_oneshot;
 		    };
@@ -183,7 +208,14 @@ herein
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
-			put_in_mailqueue  (theme_q, PASS_APPWINDOW_EXERCISE_RESULTS reply_oneshot);
+			put_in_mailqueue  (theme_q,
+			    #
+			    fn ({ me, imports, to, ... }: Runstate)
+				=
+				imports.appwindow.pass_appwindow_exercise_results
+				    to
+				    {.  put_in_oneshot (reply_oneshot, #i);   }
+			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
@@ -192,7 +224,12 @@ herein
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
-			put_in_mailqueue  (theme_q, PASS_SOMETHING reply_oneshot);
+			put_in_mailqueue  (theme_q,
+			    #
+			    fn ({ me, ... }: Runstate)
+			        =
+				put_in_oneshot (reply_oneshot, 0)
+			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };

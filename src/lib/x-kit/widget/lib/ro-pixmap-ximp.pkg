@@ -45,9 +45,7 @@ herein
 
 	exception BAD_NAME;
 
-	Client_Plea  = GET_RO_PIXMAP  (String, Oneshot_Maildrop( Null_Or(rpm::Ro_Pixmap) ) );
-
-	Client_Q    =   Mailqueue( Client_Plea  );
+#	Client_Plea  = GET_RO_PIXMAP  (String, Oneshot_Maildrop( Null_Or(rpm::Ro_Pixmap) ) );
 
 #	Reply_Mail = Null_Or( rpm::Ro_Pixmap );
 
@@ -81,7 +79,7 @@ herein
 				me:			Ro_Pixmap_Ximp_State,
 				run_gun':		Run_Gun,
 				end_gun':		End_Gun,
-				screen:		xsession_junk::Screen,
+				screen:			xsession_junk::Screen,
 				name_to_cs_pixmap:	qk::Quark -> cpm::Cs_Pixmap
 			      }
 			  );
@@ -201,90 +199,35 @@ herein
 #	    };
 
 
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Ro_Pixmap_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		      screen:				xsession_junk::Screen,
+		      name_to_cs_pixmap:		qk::Quark -> cpm::Cs_Pixmap
+		    };
+
+	Client_Q    =   Mailqueue( Runstate -> Void );
 
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:					Ro_Pixmap_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
-		  imports:				Imports,							# Ximps to which we send requests.
-		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
-		  client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
-		  screen:				xsession_junk::Screen,
-		  name_to_cs_pixmap:			qk::Quark -> cpm::Cs_Pixmap
-		}
+
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Ro_Pixmap_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    
+		    screen:				xsession_junk::Screen,
+		    name_to_cs_pixmap:			qk::Quark -> cpm::Cs_Pixmap
+		  }
+		)
 	    =
 	    loop ()
 	    where
-		note_window =  qht::set   me.window_table;
-		find_window =  qht::find  me.window_table;
-
-		# Parse file, being careful to close
-		# it properly if an exception is raised:
-		#
-		fun parse_file (fd, parse)
-		    = 
-		    (parse fd
-		     then
-			 fil::close_input  fd
-		    ) 
-		    except
-			e = {   fil::close_input  fd;
-				raise exception e;
-			    };
-
-		fun make_window_from_file (name, quark)
-		    =
-		    {   file_name = substring (name, 1, size name - 1);
-			#
-			fd = fil::open_for_read  file_name;
-
-			(parse_file (fd, bio::read_bitmap))
-			    ->
-			    { image, ... };
-
-			t = rpm::make_readonly_pixmap_from_clientside_pixmap
-				screen
-				image;
-
-			note_window (quark, t);
-
-			THE t;
-		    };
-
-		fun make_window_from_clientside_pixmap  quark
-		    =
-		    {   window =    rpm::make_readonly_pixmap_from_clientside_pixmap
-					screen
-					(name_to_cs_pixmap  quark);
-
-			note_window (quark, window);
-
-			THE window;
-		    };
-
-		fun make_window (arg as (name, q))
-		    = 
-		    if (string::get (name, 0) == '@')
-			#
-			make_window_from_file  arg;
-		    else
-			make_window_from_clientside_pixmap  q;
-		    fi
-		    except _ = NULL;
-
-		fun do_client_plea (GET_RO_PIXMAP (name, reply_1shot))
-		    =
-		    {   quark = qk::quark name;
-			#
-			result =    case (find_window quark)
-					#
-					NULL => make_window (name, quark);
-					s    => s;
-				    esac;
-
-			put_in_oneshot (reply_1shot, result);
-		    };
-
 		fun loop ()												# Outer loop for the imp.
 		    =
 		    {   do_one_mailop' to [
@@ -296,6 +239,10 @@ herein
 			loop ();
 		    }
 		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
 			fun shut_down_ro_pixmap_ximp' ()
 			    =
 			    thread_exit { success => TRUE };								# Will not return.	
@@ -320,16 +267,93 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, client_q, imports, to, end_gun', screen, name_to_cs_pixmap };					# Will not return.
+		run (client_q, { me, imports, to, end_gun', screen, name_to_cs_pixmap });				# Will not return.
 	    }
 	    where
 		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+
+#		fun do_client_plea (GET_RO_PIXMAP (name, reply_1shot))
+#		    =
 
 		fun get_ro_pixmap  (name: String)
 		    =
 		    {   reply_1shot =  make_oneshot_maildrop ();
 			#
-			put_in_mailqueue (client_q, GET_RO_PIXMAP (name, reply_1shot));
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, screen, name_to_cs_pixmap, ... }: Runstate)
+				=
+				{   quark = qk::quark name;
+				    #
+				    result =    case (find_window quark)
+						    #
+						    NULL => make_window (name, quark);
+						    s    => s;
+						esac;
+
+				    put_in_oneshot (reply_1shot, result);
+				}
+				where
+				    note_window =  qht::set   me.window_table;
+				    find_window =  qht::find  me.window_table;
+
+				    # Parse file, being careful to close
+				    # it properly if an exception is raised:
+				    #
+				    fun parse_file (fd, parse)
+					= 
+					(parse fd
+					 then
+					     fil::close_input  fd
+					) 
+					except
+					    e = {   fil::close_input  fd;
+						    raise exception e;
+						};
+
+				    fun make_window_from_file (name, quark)
+					=
+					{   file_name = substring (name, 1, size name - 1);
+					    #
+					    fd = fil::open_for_read  file_name;
+
+					    (parse_file (fd, bio::read_bitmap))
+						->
+						{ image, ... };
+
+					    t = rpm::make_readonly_pixmap_from_clientside_pixmap
+						    screen
+						    image;
+
+					    note_window (quark, t);
+
+					    THE t;
+					};
+
+				    fun make_window_from_clientside_pixmap  quark
+					=
+					{   window =    rpm::make_readonly_pixmap_from_clientside_pixmap
+							    screen
+							    (name_to_cs_pixmap  quark);
+
+					    note_window (quark, window);
+
+					    THE window;
+					};
+
+				    fun make_window (arg as (name, q))
+					= 
+					if (string::get (name, 0) == '@')
+					    #
+					    make_window_from_file  arg;
+					else
+					    make_window_from_clientside_pixmap  q;
+					fi
+					except _ = NULL;
+				end
+# GET_RO_PIXMAP (name, reply_1shot)
+			);
 
 			get_from_oneshot  reply_1shot;
 		    };

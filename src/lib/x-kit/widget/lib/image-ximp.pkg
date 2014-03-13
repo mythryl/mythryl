@@ -66,13 +66,11 @@ herein
 
 	exception BAD_NAME;
 
-	Client_Plea
-          #
-	  = GET_IMAGE  (qk::Quark, Oneshot_Maildrop( cpm::Cs_Pixmap ) )
-	  | ADD_IMAGE  (qk::Quark, cpm::Cs_Pixmap)
-	  ;
-
-	Client_Q    = Mailqueue( Client_Plea  );
+#	Client_Plea
+#          #
+#	  = GET_IMAGE  (qk::Quark, Oneshot_Maildrop( cpm::Cs_Pixmap ) )
+#	  | ADD_IMAGE  (qk::Quark, cpm::Cs_Pixmap)
+#	  ;
 
 
 							    # typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
@@ -80,20 +78,28 @@ herein
 
 	exception NOT_FOUND;
 
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun								# We shut down the microthread when this fires.
+		    };
 
+	Client_Q    = Mailqueue( Runstate -> Void  );
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:					Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
-		  imports:				Imports,							# Ximps to which we send requests.
-		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
-		  client_q:				Client_Q							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
-		}
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun								# We shut down the microthread when this fires.
+		  }
+		)
 	    =
 	    loop ()
 	    where
-		image_ins  =  qht::set   me.image_table;
-		image_find =  qht::find  me.image_table;
 
 		fun loop ()												# Outer loop for the imp.
 		    =
@@ -106,36 +112,40 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
 			fun shut_down_image_ximp' ()
 			    =
 			    thread_exit { success => TRUE };								# Will not return.	
 
 
 	
-			fun do_client_plea (GET_IMAGE (n, reply_1shot))
-				=>
-				case (image_find n)
-				    #
-				    THE i =>    put_in_oneshot (reply_1shot, i);
-				    #
-				    NULL  =>    {   msg = "Failed to find required pixmap! -- GET_IMAGE in image-ximp.pkg";
-						    log::fatal msg;
-						    raise exception FAIL msg;
-						};
-				esac;
-
-			    do_client_plea (ADD_IMAGE (q, i))
-				=>
-				case (image_find q)
-				    #
-				    NULL  =>    {   image_ins (q, i);   };
-				    #
-				    THE _ =>    {   msg = "Attempt to register already-present image -- image-ximp.pkg";
-						    log::fatal msg;
-						    raise exception FAIL msg;
-						};
-				esac;
-			end;
+#			fun do_client_plea (GET_IMAGE (n, reply_1shot))
+#				=>
+#				case (image_find n)
+#				    #
+#				    THE i =>    put_in_oneshot (reply_1shot, i);
+#				    #
+#				    NULL  =>    {   msg = "Failed to find required pixmap! -- GET_IMAGE in image-ximp.pkg";
+#						    log::fatal msg;
+#						    raise exception FAIL msg;
+#						};
+#				esac;
+#
+#			    do_client_plea (ADD_IMAGE (q, i))
+#				=>
+#				case (image_find q)
+#				    #
+#				    NULL  =>    {   image_ins (q, i);   };
+#				    #
+#				    THE _ =>    {   msg = "Attempt to register already-present image -- image-ximp.pkg";
+#						    log::fatal msg;
+#						    raise exception FAIL msg;
+#						};
+#				esac;
+#			end;
 
 		    end;												# fun loop
 	    end;													# fun run
@@ -159,20 +169,46 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, client_q, imports, to, end_gun' };								# Will not return.
+		run (client_q, { me, imports, to, end_gun' });								# Will not return.
 	    }
 	    where
 		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
 
 		fun add_image  (name: qk::Quark,  image: cpm::Cs_Pixmap)
 		    =
-		    put_in_mailqueue (client_q, ADD_IMAGE (name, image));
+		    put_in_mailqueue (client_q,
+			#
+			fn ({ me, ... }: Runstate)
+			    =
+			    case (qht::find  me.image_table  name)
+				#
+				NULL  =>    {   qht::set   me.image_table   (name, image);   };
+				#
+				THE _ =>    {   msg = "Attempt to register already-present image -- image-ximp.pkg";
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+			    esac
+		    );
 
 		fun get_image  (name: qk::Quark)
 		    =
 		    {   reply_1shot =  make_oneshot_maildrop ():  Oneshot_Maildrop( cpm::Cs_Pixmap );
 			#
-			put_in_mailqueue (client_q, GET_IMAGE (name, reply_1shot));
+			put_in_mailqueue (client_q,
+			#
+			fn ({ me, ... }: Runstate)
+			    =
+			    case (qht::find  me.image_table  name)
+				#
+				THE i =>    put_in_oneshot (reply_1shot, i);
+				#
+				NULL  =>    {   msg = "Failed to find required pixmap! -- GET_IMAGE in image-ximp.pkg";
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+			    esac
+			);
 
 			get_from_oneshot  reply_1shot;
 		    };
