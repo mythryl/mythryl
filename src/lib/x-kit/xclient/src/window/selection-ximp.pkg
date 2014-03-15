@@ -126,32 +126,41 @@ herein
 
 	Request_Result =   Mailop( Null_Or( xt::Property_Value ) );				# The return result of a PLEA_REQUEST_SELECTION. 
 
-	Client_Plea
-	  #
-	  = PLEA_ACQUIRE_SELECTION								# Acquire a selection.
-	      {
-		window:     xt::Window_Id,
-		selection:  xt::Atom,
-		timestamp:  ts::Xserver_Timestamp,
-		do_plea:    sep::Selection_Plea -> Void,
-		ack:        Oneshot_Maildrop(  Null_Or(  sep::Selection_Handle ) )
-	      }
+#	Client_Plea
+#	  #
+#	  = PLEA_ACQUIRE_SELECTION								# Acquire a selection.
+#	      {
+#		window:     xt::Window_Id,
+#		selection:  xt::Atom,
+#		timestamp:  ts::Xserver_Timestamp,
+#		do_plea:    sep::Selection_Plea -> Void,
+#		ack:        Oneshot_Maildrop(  Null_Or(  sep::Selection_Handle ) )
+#	      }
+#
+#	  | PLEA_RELEASE_SELECTION  xt::Atom							# Release a selection.
+#
+#	  | PLEA_REQUEST_SELECTION								# Request the value of a selection.
+#	      {	
+#		window:    xt::Window_Id,
+#		selection: xt::Atom,
+#		target:    xt::Atom, 
+#		property:  xt::Atom,
+#		timestamp: ts::Xserver_Timestamp,
+#		ack:       Oneshot_Maildrop( Request_Result )
+#	      }
+#	  ;
 
-	  | PLEA_RELEASE_SELECTION  xt::Atom							# Release a selection.
-
-	  | PLEA_REQUEST_SELECTION								# Request the value of a selection.
-	      {	
-		window:    xt::Window_Id,
-		selection: xt::Atom,
-		target:    xt::Atom, 
-		property:  xt::Atom,
-		timestamp: ts::Xserver_Timestamp,
-		ack:       Oneshot_Maildrop( Request_Result )
-	      }
-	  ;
-
-	Client_Q    = Mailqueue( Client_Plea  );
 	Xevent_Q    = Mailqueue( et::x::Event );
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Selection_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		      xevent_q:				Xevent_Q							# 
+		    };
+
+	Client_Q    = Mailqueue( Runstate -> Void );
 
 
     #  +DEBUG 
@@ -316,22 +325,26 @@ herein
 	    end;
 
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:					Selection_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
-		  imports:				Imports,							# Ximps to which we send requests.
-		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
-		  client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
-		  xevent_q:				Xevent_Q							# 
-		}
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Selection_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    
+		    xevent_q:				Xevent_Q							# 
+		  }
+		)
 	    =
 	    loop ()
 	    where
-		insert_selection =  aht::set    me.selection_table;
+#		insert_selection =  aht::set    me.selection_table;
 		find_selection   =  aht::find   me.selection_table;
 		drop_selection   =  aht::drop   me.selection_table;
-
-		insert_plea	 =  aht::set    me.plea_table;
+#
+#		insert_plea	 =  aht::set    me.plea_table;
 		find_plea	 =  aht::find   me.plea_table;
 		drop_plea	 =  aht::drop   me.plea_table;
 
@@ -347,85 +360,89 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
 			fun shut_down_selection_imp' ()
 			    =
 			    thread_exit { success => TRUE };								# Will not return.	
 
 
-			fun do_client_plea (PLEA_ACQUIRE_SELECTION { window, selection, timestamp, do_plea, ack } )	# Handle a request.
-				=>
-				{   log_if {. "PLEA_AcquireSel"; };
-				    #
-				    set_selection_owner  imports.xsequencer
-				      {
-					selection,
-					window_id =>  THE window,
-					timestamp =>  xt::TIMESTAMP timestamp
-				      };
-	
-				    log_if {. "PLEA_AcquireSel: check owner"; };
-	
-				    case (get_selection_owner  imports.xsequencer  { selection } )			# THIS IS A BLOCKING CALL
-					#										# XXX SUCKO FIXME
-					NULL   =>   put_in_oneshot (ack, NULL);
-	
-					THE id =>   if (id != window)
-							#
-							put_in_oneshot (ack, NULL);
-						    else
-							release_1shot =  make_oneshot_maildrop ();
-	
-							result =  { selection,
-								    timestamp,
-								    release' =>  get_from_oneshot' release_1shot,
-								    release  => {.   put_in_mailqueue  (client_q,  PLEA_RELEASE_SELECTION selection);   }
-								  };
-	
-							insert_selection (selection, { owner=>window, do_plea, release_1shot, timestamp } );
-	
-							put_in_oneshot (ack, THE result);
-						    fi;
-				    esac;
-				};
-	
-			    do_client_plea (PLEA_RELEASE_SELECTION selection)						# Client holding selection has decided to release it.
-				=>
-				{
-				    log_if {. "PLEA_ReleaseSel"; };
-	
-				    drop_selection  selection;
-	
-				    set_selection_owner  imports.xsequencer
-				      {
-					selection,
-					window_id => NULL,
-					timestamp => xt::CURRENT_TIME #  ??? 
-				      };
-	
-#				    xok::flush_xsocket xsocket;
-				};
-	
-			    do_client_plea (PLEA_REQUEST_SELECTION req)
-				=>
-				{
-				    reply_1shot = make_oneshot_maildrop ();
-	
-				    log_if {. "PLEA_RequestSel"; };
-	
-				    insert_plea (req.selection, reply_1shot);
-	
-				    convert_selection  imports.xsequencer
-				      {
-					selection => req.selection,
-					target    => req.target,
-					property  => THE req.property,
-					requestor => req.window,
-					timestamp => xt::TIMESTAMP req.timestamp
-				      };
-	
-				    put_in_oneshot  (req.ack,  get_from_oneshot' reply_1shot);
-				};
-			end;
+#			fun do_client_plea (PLEA_ACQUIRE_SELECTION { window, selection, timestamp, do_plea, ack } )	# Handle a request.
+#				=>
+#				{   log_if {. "PLEA_AcquireSel"; };
+#				    #
+#				    set_selection_owner  imports.xsequencer
+#				      {
+#					selection,
+#					window_id =>  THE window,
+#					timestamp =>  xt::TIMESTAMP timestamp
+#				      };
+#	
+#				    log_if {. "PLEA_AcquireSel: check owner"; };
+#	
+#				    case (get_selection_owner  imports.xsequencer  { selection } )			# THIS IS A BLOCKING CALL
+#					#										# XXX SUCKO FIXME
+#					NULL   =>   put_in_oneshot (ack, NULL);
+#	
+#					THE id =>   if (id != window)
+#							#
+#							put_in_oneshot (ack, NULL);
+#						    else
+#							release_1shot =  make_oneshot_maildrop ();
+#	
+#							result =  { selection,
+#								    timestamp,
+#								    release' =>  get_from_oneshot' release_1shot,
+#								    release  => {.   put_in_mailqueue  (client_q,  PLEA_RELEASE_SELECTION selection);   }
+#								  };
+#	
+#							insert_selection (selection, { owner=>window, do_plea, release_1shot, timestamp } );
+#	
+#							put_in_oneshot (ack, THE result);
+#						    fi;
+#				    esac;
+#				};
+#	
+#			    do_client_plea (PLEA_RELEASE_SELECTION selection)						# Client holding selection has decided to release it.
+#				=>
+#				{
+#				    log_if {. "PLEA_ReleaseSel"; };
+#	
+#				    drop_selection  selection;
+#	
+#				    set_selection_owner  imports.xsequencer
+#				      {
+#					selection,
+#					window_id => NULL,
+#					timestamp => xt::CURRENT_TIME #  ??? 
+#				      };
+#	
+##				    xok::flush_xsocket xsocket;
+#				};
+#	
+#			    do_client_plea (PLEA_REQUEST_SELECTION req)
+#				=>
+#				{
+#				    reply_1shot = make_oneshot_maildrop ();
+#	
+#				    log_if {. "PLEA_RequestSel"; };
+#	
+#				    insert_plea (req.selection, reply_1shot);
+#	
+#				    convert_selection  imports.xsequencer
+#				      {
+#					selection => req.selection,
+#					target    => req.target,
+#					property  => THE req.property,
+#					requestor => req.window,
+#					timestamp => xt::TIMESTAMP req.timestamp
+#				      };
+#	
+#				    put_in_oneshot  (req.ack,  get_from_oneshot' reply_1shot);
+#				};
+#			end;
 	
 			fun do_xevent_plea (et::x::SELECTION_REQUEST xevent)			# Handle a selection related X-event.
 				=>
@@ -583,11 +600,19 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, client_q, xevent_q, imports, to, end_gun' };							# Will not return.
+		run (client_q, { me, xevent_q, imports, to, end_gun' });						# Will not return.
 	    }
 	    where
 		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
 		xevent_q  =  make_mailqueue (get_current_microthread())	:  Xevent_Q;
+
+#		insert_selection =  aht::set    me.selection_table;
+#		find_selection   =  aht::find   me.selection_table;
+#		drop_selection   =  aht::drop   me.selection_table;
+#
+#		insert_plea	 =  aht::set    me.plea_table;
+#		find_plea	 =  aht::find   me.plea_table;
+#		drop_plea	 =  aht::drop   me.plea_table;
 
 		fun put_value (xevent: et::x::Event)
 		    =
@@ -604,10 +629,64 @@ herein
 		    =
 		    {   reply_1shot =   make_oneshot_maildrop ();
 			#
-			put_in_mailqueue
-			  ( client_q,
-			    PLEA_ACQUIRE_SELECTION
-			      { window, selection, timestamp, do_plea, ack => reply_1shot }
+			put_in_mailqueue ( client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+				{   log_if {. "PLEA_AcquireSel"; };
+				    #
+				    set_selection_owner  imports.xsequencer
+				      {
+					selection,
+					window_id =>  THE window,
+					timestamp =>  xt::TIMESTAMP timestamp
+				      };
+	
+				    log_if {. "PLEA_AcquireSel: check owner"; };
+	
+				    case (get_selection_owner  imports.xsequencer  { selection } )			# THIS IS A BLOCKING CALL
+					#										# XXX SUCKO FIXME
+					NULL   =>   put_in_oneshot (reply_1shot, NULL);
+	
+					THE id =>   if (id != window)
+							#
+							put_in_oneshot (reply_1shot, NULL);
+						    else
+							release_1shot =  make_oneshot_maildrop ();
+	
+							result =  { selection,
+								    timestamp,
+								    release' =>  get_from_oneshot' release_1shot,
+								    release  => {.  put_in_mailqueue  (client_q,
+											#
+											fn ({ me, imports, ... }: Runstate)
+											    =
+											    {
+												log_if {. "PLEA_ReleaseSel"; };
+
+												aht::find   me.selection_table  selection;
+
+												set_selection_owner  imports.xsequencer
+												  {
+												    selection,
+												    window_id => NULL,
+												    timestamp => xt::CURRENT_TIME #  ??? 
+												  };
+
+							    #					xok::flush_xsocket xsocket;
+											    }
+# PLEA_RELEASE_SELECTION selection
+										    );
+										}
+								  };
+	
+							aht::set    me.selection_table (selection, { owner=>window, do_plea, release_1shot, timestamp } );
+	
+							put_in_oneshot (reply_1shot, THE result);
+						    fi;
+				    esac;
+				}
+# PLEA_ACQUIRE_SELECTION { window, selection, timestamp, do_plea, ack => reply_1shot }
 			  );
 	
 			get_from_oneshot  reply_1shot;
@@ -628,14 +707,35 @@ herein
 			put_in_mailqueue
 			  ( client_q,
 			    #
-			    PLEA_REQUEST_SELECTION
-			      { window,
-				selection,
-				target,
-				property,
-				timestamp,
-				ack => reply_1shot
-			      }
+			    fn ({ me, imports, ... }: Runstate)
+				=
+				{
+				    reply_1shot' = make_oneshot_maildrop ();
+	
+				    log_if {. "PLEA_RequestSel"; };
+	
+				    aht::set    me.plea_table (selection, reply_1shot');
+	
+				    convert_selection  imports.xsequencer
+				      {
+					selection => selection,
+					target    => target,
+					property  => THE property,
+					requestor => window,
+					timestamp => xt::TIMESTAMP timestamp
+				      };
+	
+				    put_in_oneshot  (reply_1shot,  get_from_oneshot' reply_1shot');
+				}
+			    #
+#  PLEA_REQUEST_SELECTION
+#			      { window,
+#				selection,
+#				target,
+#				property,
+#				timestamp,
+#				ack => reply_1shot
+#			      }
 			  );
 	
 			get_from_oneshot  reply_1shot;

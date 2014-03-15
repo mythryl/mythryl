@@ -139,7 +139,6 @@ herein
 				  }
 			        );
 
-	Client_Q    = Mailqueue( Client_Plea );
 	Xpacket_Q   = Mailqueue( Xpacket_Plea   );
 	Xerror_Q    = Mailqueue( sp::Xerror     );
 
@@ -152,6 +151,18 @@ herein
 	Option = MICROTHREAD_NAME String;							# PUBLIC.
 
 	Xsequencer_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);		# PUBLIC.
+
+	Runstate =  {														# These values will be statically globally visible throughout the code body for the imp.
+		      me:					Xsequencer_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:					Imports,							# Ximps to which we send requests.
+		      to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':					End_Gun,							# We shut down the microthread when this fires.
+		      xpacket_q:				Xpacket_Q,							# Xpackets from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
+		      xerror_q:					Xerror_Q,							# 
+		      graphics_expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )		# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
+		    };
+
+	Client_Q    = Mailqueue( Runstate -> Void );
 
 	empty_v =   v1u::from_list [];
 
@@ -451,16 +462,19 @@ herein
 # ABOVE CODE COMPILES BUT NOT YET CALLED.
 
 	
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		  me:					Xsequencer_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
-		  imports:				Imports,							# Ximps to which we send requests.
-		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
-		  xpacket_q:				Xpacket_Q,							# Xpackets from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
-		  client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
-		  xerror_q:				Xerror_Q,							# 
-		  graphics_expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )		# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
-		}
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Xsequencer_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    xpacket_q:				Xpacket_Q,							# Xpackets from inbuf_ximp -- src/lib/x-kit/xclient/src/wire/inbuf-ximp.pkg
+		    xerror_q:				Xerror_Q,							# 
+		    graphics_expose_event_accumulator:	Ref (Null_Or( et::x::Graphics_Expose_Record -> Void ) )		# Extra state for handling sequences of x::GRAPHICS_EXPOSE events.
+		  }
+		)
 	    =
 	    loop ()
 	    where
@@ -476,6 +490,23 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
+			# Handle requests from clients
+			# (app threads on our side):
+			# 
+			fun do_client_pleas  [] =>    ();
+			    #
+			    do_client_pleas  pleas
+				=>
+				{   apply  do_client_plea  pleas;
+				    #	
+			    #       put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
+				};
+			end;
+
 			fun shut_down_sequencer_imp' ()
 			    =
 {
@@ -484,67 +515,67 @@ herein
 };
 			#
 
-			stipulate
-			    fun add_to_pending_reply_queue  pending_reply
-				=
-				{   (*me.pending_reply_queue) -> { front, rear };
-				    #
-				    me.pending_reply_queue := { front, rear =>  pending_reply ! rear };
-				};
-			    #
-			    fun send_request_reply (request, reply_oneshot)
-				=
-				{   n = *me.last_seqn_sent + 0u1;
-				    me.last_seqn_sent := n;
-
-				    imports.outbuf.put_value  request;
-
-				    add_to_pending_reply_queue (ONE_REPLY (n, reply_oneshot));
-				};
-
-			    #
-			    fun send_request_and_check (request, reply_oneshot)
-				=
-				{   n = *me.last_seqn_sent + 0u1;
-				    me.last_seqn_sent := n;
-				    #
-				    imports.outbuf.put_value  request;
-
-				    add_to_pending_reply_queue (ERROR_CHECK (n, reply_oneshot));
-				};
-
-#			    fun send_request_replies (req, reply_mailslot, remain)
-#				=
-#				{   n = *me.last_seqn_sent + 0u1;
-#				    me.last_seqn_sent := n;
-#				    #
-#				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
-#
-#				    me.pending_reply_queue :=  add_to_pending_reply_queue (MULTI_REPLY (n, reply_mailslot, remain, []), *me.pending_reply_queue);
-#				};
-#
-			    #
-			    fun do_clientplea (PLEA_REPLY	request) =>  send_request_reply     request;
-				do_clientplea (PLEA_AND_CHECK	request) =>  send_request_and_check request;
-
-#				do_clientplea (PLEA_REPLIES	request) =>  send_request_replies   request;
-#				#
-				do_clientplea (PLEA_SEND_BYTEVECTOR	request)
-				    =>
-				    {   imports.outbuf.put_value  request;
-					#
-					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
-				    };
-
-				do_clientplea (PLEA_SEND_BYTEVECTORS	requests)
-				    =>
-				    {   imports.outbuf.put_values  requests;
-					#
-					me.last_seqn_sent := *me.last_seqn_sent + (unt::from_int (list::length requests));
-				    };
-			    end;
-
-			herein
+# 			stipulate
+# 			    fun add_to_pending_reply_queue  pending_reply
+# 				=
+# 				{   (*me.pending_reply_queue) -> { front, rear };
+# 				    #
+# 				    me.pending_reply_queue := { front, rear =>  pending_reply ! rear };
+# 				};
+# 			    #
+# 			    fun send_request_reply (request, reply_oneshot)
+# 				=
+# 				{   n = *me.last_seqn_sent + 0u1;
+# 				    me.last_seqn_sent := n;
+# 
+# 				    imports.outbuf.put_value  request;
+# 
+# 				    add_to_pending_reply_queue (ONE_REPLY (n, reply_oneshot));
+# 				};
+# 
+# 			    #
+# 			    fun send_request_and_check (request, reply_oneshot)
+# 				=
+# 				{   n = *me.last_seqn_sent + 0u1;
+# 				    me.last_seqn_sent := n;
+# 				    #
+# 				    imports.outbuf.put_value  request;
+# 
+# 				    add_to_pending_reply_queue (ERROR_CHECK (n, reply_oneshot));
+# 				};
+# 
+# #			    fun send_request_replies (req, reply_mailslot, remain)
+# #				=
+# #				{   n = *me.last_seqn_sent + 0u1;
+# #				    me.last_seqn_sent := n;
+# #				    #
+# #				    put_in_mailslot (to_x_mailslot, ADD_TO_OUTBUF req);
+# #
+# #				    me.pending_reply_queue :=  add_to_pending_reply_queue (MULTI_REPLY (n, reply_mailslot, remain, []), *me.pending_reply_queue);
+# #				};
+# #
+# 			    #
+# 			    fun do_clientplea (PLEA_REPLY	request) =>  send_request_reply     request;
+# 				do_clientplea (PLEA_AND_CHECK	request) =>  send_request_and_check request;
+# 
+# #				do_clientplea (PLEA_REPLIES	request) =>  send_request_replies   request;
+# #				#
+# 				do_clientplea (PLEA_SEND_BYTEVECTOR	request)
+# 				    =>
+# 				    {   imports.outbuf.put_value  request;
+# 					#
+# 					me.last_seqn_sent := *me.last_seqn_sent + 0u1;
+# 				    };
+# 
+# 				do_clientplea (PLEA_SEND_BYTEVECTORS	requests)
+# 				    =>
+# 				    {   imports.outbuf.put_values  requests;
+# 					#
+# 					me.last_seqn_sent := *me.last_seqn_sent + (unt::from_int (list::length requests));
+# 				    };
+# 			    end;
+# 
+# 			herein
 			    fun do_xpacket_plea (XPLEA_NOTE_XPACKET (xpacket as { code: v1u::Element,  packet: v1u::Vector }))
 				=
 				{
@@ -674,19 +705,7 @@ herein
 				    esac;
 				};
 
-			    # Handle requests from clients
-			    # (app threads on our side):
-			    # 
-			    fun do_client_pleas  [] =>    ();
-				#
-				do_client_pleas  pleas
-				    =>
-				    {   apply  do_clientplea  pleas;
-					#	
-				#       put_in_mailslot (to_x_mailslot, FLUSH_OUTBUF);
-				    };
-			    end;
-			end;
+# 			end;
 		    end;												# fun loop
 	    end;													# fun run
 	
@@ -723,7 +742,7 @@ herein
 
 		graphics_expose_event_accumulator = REF NULL;
 
-		run { me, xpacket_q, client_q, xerror_q, imports, to, end_gun', graphics_expose_event_accumulator };	# Will not return.
+		run (client_q, { me, xpacket_q, xerror_q, imports, to, end_gun', graphics_expose_event_accumulator });	# Will not return.
 	    }
 	    where
 		xpacket_q    =  make_mailqueue (get_current_microthread())	:  Xpacket_Q;
@@ -747,26 +766,69 @@ herein
 			    ();
 			};
 		#
-		fun send_xrequest  (bytevector: v1u::Vector)								# PUBLIC.
+		fun add_to_pending_reply_queue
+		      (
+			me:		Xsequencer_Ximp_State,
+			pending_reply:	Pending_Reply
+		      )	
+		    =
+		    {   (*me.pending_reply_queue) -> { front, rear };
+			#
+			me.pending_reply_queue := { front, rear =>  pending_reply ! rear };
+		    };
+ 			    #
+		fun send_xrequest  (request: v1u::Vector)								# PUBLIC.
 		    =
 		    {
-			put_in_mailqueue (client_q, PLEA_SEND_BYTEVECTOR bytevector);
+			put_in_mailqueue (client_q, 
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_SEND_BYTEVECTOR bytevector
+				{   imports.outbuf.put_value  request;
+				    #
+				    me.last_seqn_sent := *me.last_seqn_sent + 0u1;
+				}
+			);
 		    };
 		#
-		fun send_xrequests (bytevectors: List(v1u::Vector))							# PUBLIC.
+		fun send_xrequests (requests: List(v1u::Vector))							# PUBLIC.
 		    =
 		    {
-			put_in_mailqueue (client_q, PLEA_SEND_BYTEVECTORS bytevectors);
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_SEND_BYTEVECTORS bytevectors
+				{   imports.outbuf.put_values  requests;
+				    #
+				    me.last_seqn_sent := *me.last_seqn_sent + (unt::from_int (list::length requests));
+				}
+			);
 		    };
 
 		# This is a workhorse call,
 		# request-with-single-reply:
 		# 
-		fun send_xrequest_and_read_reply  (s: v1u::Vector)							# PUBLIC.
+		fun send_xrequest_and_read_reply  (request: v1u::Vector)							# PUBLIC.
 		    =
 		    {   reply_oneshot = make_oneshot_maildrop ();
 			#
-			put_in_mailqueue (client_q, PLEA_REPLY (s, reply_oneshot));
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_REPLY (s, reply_oneshot)
+# 			    fun send_request_reply (request, reply_oneshot)
+# 				=
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 
+ 				    imports.outbuf.put_value  request;
+ 
+ 				    add_to_pending_reply_queue  (me,  ONE_REPLY (n, reply_oneshot));
+ 				}
+			);
 
 			get_from_oneshot'  reply_oneshot
 			    ==>
@@ -775,18 +837,46 @@ herein
 
 		# As above, but with client providing the oneshot:
 		# 
-		fun send_xrequest_and_read_reply'  (s: v1u::Vector, reply_oneshot: Oneshot_Maildrop(sp::Reply_Mail))	# PUBLIC.
+		fun send_xrequest_and_read_reply'									# PUBLIC.
+		      (
+			request:	v1u::Vector,
+			reply_oneshot:	Oneshot_Maildrop(sp::Reply_Mail)
+		      )
 		    =
-		    put_in_mailqueue (client_q, PLEA_REPLY (s, reply_oneshot));
+		    put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_REPLY (s, reply_oneshot)
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 
+ 				    imports.outbuf.put_value  request;
+ 
+ 				    add_to_pending_reply_queue  (me,  ONE_REPLY (n, reply_oneshot));
+ 				}
+		    );
 
 		fun send_xrequest_and_pass_reply									# PUBLIC.
-			(s:		v1u::Vector)
+			(request:	v1u::Vector)
 			(replyqueue:	Replyqueue)
 			(reply_handler: v1u::Vector -> Void)
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( sp::Reply_Mail );
 			#
-			put_in_mailqueue  (client_q,  PLEA_REPLY (s, reply_oneshot));
+			put_in_mailqueue  (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_REPLY (s, reply_oneshot)
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 
+ 				    imports.outbuf.put_value  request;
+ 
+ 				    add_to_pending_reply_queue   (me,  ONE_REPLY (n, reply_oneshot));
+ 				}
+			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> (reply_handler o unwrap_reply));
 		    };
@@ -806,14 +896,42 @@ herein
 		# successful completion of the op before
 		# continuing.
 		#
-		fun send_xrequest_and_return_completion_mailop  (s: v1u::Vector)						# PUBLIC.
+		fun send_xrequest_and_return_completion_mailop  (request1: v1u::Vector)						# PUBLIC.
 		    =
 		    {   reply_oneshot1 =  make_oneshot_maildrop ();								# Nobody will read this.
 			reply_oneshot2 =  make_oneshot_maildrop ():  Oneshot_Maildrop(sp::Reply_Mail);
 
-			put_in_mailqueue (client_q, PLEA_AND_CHECK (s, reply_oneshot1));
-			put_in_mailqueue (client_q, PLEA_REPLY (v2w::request_get_input_focus, reply_oneshot2));			# Reppy often uses dummy get_input_focus calls, presumably
-																# to verify that preceding commands have completed.
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_AND_CHECK (s, reply_oneshot1)
+# 			    fun send_request_and_check (request, reply_oneshot)
+# 				=
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 				    #
+ 				    imports.outbuf.put_value  request1;
+ 
+ 				    add_to_pending_reply_queue  (me,  ERROR_CHECK (n, reply_oneshot1));
+ 				}
+			);
+														# Reppy often uses dummy get_input_focus calls, presumably
+														# to verify that preceding commands have completed.
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_REPLY (v2w::request_get_input_focus, reply_oneshot2)
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 
+ 				    imports.outbuf.put_value  v2w::request_get_input_focus;
+ 
+ 				    add_to_pending_reply_queue  (me,  ONE_REPLY (n, reply_oneshot2));
+ 				}
+			);
+
 			# Construct and return a mailop which caller can
 			#     block_until_mailop_fires
 			# on to await completion of the requested operation:
@@ -827,14 +945,38 @@ herein
 		#
 		fun send_xrequest_and_return_completion_mailop'									# PUBLIC.
 		      (
-			s:			v1u::Vector,
+			request1:		v1u::Vector,
 			reply_oneshot2:		Oneshot_Maildrop(sp::Reply_Mail)
 		      )
 		    =
 		    {   reply_oneshot1 =  make_oneshot_maildrop ();								# Nobody will read this.
 			#
-			put_in_mailqueue (client_q, PLEA_AND_CHECK (s, reply_oneshot1));
-			put_in_mailqueue (client_q, PLEA_REPLY (v2w::request_get_input_focus, reply_oneshot2));			# Reppy often uses dummy get_input_focus calls, presumably
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_AND_CHECK (s, reply_oneshot1)
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 				    #
+ 				    imports.outbuf.put_value  request1;
+ 
+ 				    add_to_pending_reply_queue   (me,  ERROR_CHECK (n, reply_oneshot1));
+ 				}
+			);
+			put_in_mailqueue (client_q,
+			    #
+			    fn ({ me, imports, ... }: Runstate)
+				=
+# PLEA_REPLY (v2w::request_get_input_focus, reply_oneshot2)
+ 				{   n = *me.last_seqn_sent + 0u1;
+ 				    me.last_seqn_sent := n;
+ 
+ 				    imports.outbuf.put_value  v2w::request_get_input_focus;
+ 
+ 				    add_to_pending_reply_queue   (me,  ONE_REPLY (n, reply_oneshot2));
+ 				}
+			);
 		    };
 
 		take_xerror  =   fn () = take_from_mailqueue  xerror_q;
