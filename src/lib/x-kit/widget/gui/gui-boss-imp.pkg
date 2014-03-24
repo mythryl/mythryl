@@ -85,7 +85,9 @@ herein
 	#
 	include gui_boss;												# gui_boss			is from   src/lib/x-kit/widget/gui/gui-boss.pkg
 	#
-	Gui_Boss_State = Ref( Void );											# Holds all nonephemeral mutable state maintained by shape.
+	Gui_Boss_State
+	    =
+	    Ref( Null_Or( gt::Gui_Tree ) );								# Holds all nonephemeral mutable state maintained by shape.
 
 	Imports = {													# Ports we use, provided by other imps.
 		    int_sink:			Int -> Void,
@@ -155,6 +157,41 @@ herein
 		    end;
 	    end;	
 
+	fun end_gui'
+	      (
+		{ me:		Gui_Boss_State,										# State which is preserved across imp shutdown/restart cycles.
+		  imports:	Imports,										# Imps to which we send requests.
+		  to:		Replyqueue,										# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		  end_gun':	End_Gun											# We shut down the microthread when this fires.
+		}:		Runstate
+	      )
+	    =
+	    case *me
+		THE { fire_end_gun:	Void -> Void,									# Signal which will shut down the GUI impnet.
+		      #
+		      packed_space:	ps::Packed_Space,								# Runtime GUI state synthesized locally per client spec.
+		      packed_widget':	gt::Packed_Widget,								# "                                       ".
+		      #
+		      packed_space_arg:	pai::Packed_Space_Arg,								# Original GUI spec provided by client code.
+		      packed_widget:	gp::Packed_Widget								# "                                       ".
+		    }
+		    : Null_Or( gt::Gui_Tree )
+		    =>
+		    {
+printf "end_gui' doing fire_end_gun() -- gui-boss-imp.pkg\n";
+			fire_end_gun ();										# Shut down Gui impnet.
+printf "end_gui' done  fire_end_gun() -- gui-boss-imp.pkg\n";
+			#
+			(packed_space_arg, packed_widget);								# Return sufficient information to recreate the GUI.
+		    };													#
+
+		NULL =>
+		    {   msg = "end_gui called before run_gui?!\n";
+			print msg;
+			raise exception FAIL msg;
+		    };
+	    esac;
+
 	fun run_gui'
 	      (
 		{ me:		Gui_Boss_State,										# State which is preserved across imp shutdown/restart cycles.
@@ -167,26 +204,45 @@ herein
 	      )
 	    =
 	    {
-printf "gui-boss/run_gui' not doing a damn thing!\n";
+printf "gui-boss/run_gui' constructing gui_tree from gui_plan...\n";
 		gui_tree = gui_plan__to__gui_tree  gui_plan;
+printf "gui-boss/run_gui' done constructing gui_tree from gui_plan...\n";
+		me := THE gui_tree;
+printf "gui-boss/run_gui' firing run gun...\n";
+		fire_run_gun ();
+printf "gui-boss/run_gui' fired  run gun...\n";
+
 		();
 	    }
 	    where
+		(make_run_gun ()) ->   { run_gun', fire_run_gun };
+		(make_end_gun ()) ->   { end_gun', fire_end_gun };
+
 		fun gui_plan__to__gui_tree
 		    (
 		      packed_space_arg:		pai::Packed_Space_Arg,
 		      packed_widget:		gp::Packed_Widget
 		    )
+		    : gt::Gui_Tree
 		    =
 		    {
 			packed_space   = do_packed_space  packed_space_arg;
 			packed_widget' = do_packed_widget packed_widget;
 
-			(packed_space, packed_widget');
+			{ fire_end_gun,
+			  packed_space,
+			  packed_widget',
+			  packed_space_arg,
+			  packed_widget
+			};
+#	Gui_Tree =  { fire_end_gun:	Void -> Void,
+#		      packed_space:	ps::Packed_Space,
+#		      packed_widget':	Packed_Widget:
+#		      packed_space_arg:	pai::Packed_Space_Arg,
+#		      packed_widget:	gp::Packed_Widget
+#		    };
 		    }
 		    where
-			(make_run_gun ()) ->   { run_gun', fire_run_gun };
-			(make_end_gun ()) ->   { end_gun', fire_end_gun };
 
 			fun do_packed_space  (packed_space_arg: pai::Packed_Space_Arg)
 			    =
@@ -433,10 +489,11 @@ gt::NULL_PACKED_WIDGET;	#    raise exception FAIL "unimplemented";
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 
-		gui_boss =   { do_something,
+		gui_boss =    { do_something,
 				pass_something,
 				exercise_appwindow,
 				run_gui,
+				end_gui,
 				get_bounce_theme,
 				get_canvas_theme,
 				get_packed_theme
@@ -494,6 +551,21 @@ gt::NULL_PACKED_WIDGET;	#    raise exception FAIL "unimplemented";
 			    run_gui' (runstate, gui_plan)
 		    );
 
+
+		fun end_gui ()												# PUBLIC.
+		    =	
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( gp::Gui_Plan );
+			#
+			put_in_mailqueue  (gui_boss_q,
+			    #
+			    fn (runstate: Runstate)
+				=
+				put_in_oneshot  (reply_oneshot,  end_gui' runstate)
+				
+			);
+
+			get_from_oneshot reply_oneshot;
+		    };
 
 		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
 		    =
@@ -575,7 +647,7 @@ gt::NULL_PACKED_WIDGET;	#    raise exception FAIL "unimplemented";
 		    ->
 		    { name };
 	
-		me = REF ();
+		me = REF NULL;
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
