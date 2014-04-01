@@ -45,6 +45,7 @@ stipulate
 #   package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
     #
+    package mid =  make_fresh_imp_id;				# make_fresh_imp_id		is from   src/lib/src/make-fresh-imp-id.pkg
     package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
     package pwe =  bounce_widget_egg;				# bounce_widget_egg		is from   src/lib/x-kit/widget/space/bounce/bounce-widget-egg.pkg
     #
@@ -56,8 +57,7 @@ herein
     {
 	include ball_state;												# ball_state			is from   src/lib/x-kit/widget/space/bounce/ball/ball-state.pkg
 	#
-	Ball_State_Needs  = { id:	Int,
-			      position: Xyz,
+	Ball_State_Needs  = { position: Xyz,
 			      velocity: Xyz	
 			    };
 
@@ -72,6 +72,7 @@ herein
 	Ball_State_Option												# 
 	    #
 	    = MICROTHREAD_NAME		String
+	    | ID			Int										# Stable, unique id for imp.
 	    | CHANGE_CALLBACK		Ball_State_Needs -> Void							# We'll call each of these callbacks each time our value changes.
 	    | BALL_STATE_CALLBACK	Ball_State       -> Void							# Client code registers this callback to get a port to us once we start up.
 	    ;
@@ -80,10 +81,14 @@ herein
 
 	Ball_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	Ball_State_State = Ref( Ball_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
+	Ball_State_State
+	  =
+	  { id:		Int,
+	    state:	Ref( Ball_State_Needs )
+	  };
 
 	Me_Slot = Mailslot( { imports:			Imports,
-			      me:			     Ball_State_State,
+			      me:			Ball_State_State,
 			      options:			List(Ball_State_Option),
 			      run_gun':			Run_Gun,
 			      end_gun':			End_Gun,
@@ -108,7 +113,7 @@ herein
 	fun run	( ball_q:		Mailqueue( Runstate -> Void ),							# 
 		  runstate as
 		    {													# These values will be statically globally visible throughout the code body for the imp.
-		      me:		     Ball_State_State,								# State which is preserved across imp shutdown/restart cycles.
+		      me:		Ball_State_State,								# State which is preserved across imp shutdown/restart cycles.
 		      options:		List(Ball_State_Option),
 		      imports:		Imports,									# Imps to which we send requests.
 		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
@@ -141,7 +146,7 @@ herein
 				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
 				    #
 				    NULL	=> ();
-				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				    THE oneshot =>  put_in_oneshot (oneshot, (*me.state, options));			# 
 				esac;
 
 				thread_exit { success => TRUE };							# Will not return.	
@@ -167,7 +172,7 @@ herein
 		    { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, ball_state_callbacks };
 
 		apply   {. #callback ball_state; }   ball_state_callbacks;						# Pass our port to everyone who asked for it.
-		apply   {. #callback *me;        }   *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
+		apply   {. #callback *me.state;  }   *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -199,7 +204,9 @@ herein
 			    #
 			    fn ({ me, ... }: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, *me)
+				{
+				    put_in_oneshot (reply_oneshot, *me.state);
+				}
 			  );
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
@@ -214,8 +221,8 @@ herein
 			#
 			fn ({ me, change_callbacks, ... }: Runstate)
 			    =
-			    {   me := state;										# Change the text we display.
-				apply   {. #callback *me; }   *change_callbacks;					# Update all listeners with our new state.
+			    {   me.state := state;									# Change the text we display.
+				apply   {. #callback state; }   *change_callbacks;					# Update all listeners with our new state.
 			    }	
 			);
 
@@ -223,21 +230,26 @@ herein
 	    end;
 
 
-	fun process_options (options: List(Ball_State_Option), { name, change_callbacks, ball_state_callbacks })
+	fun process_options (options: List(Ball_State_Option), { name, id, change_callbacks, ball_state_callbacks })
 	    =
 	    {   my_name			=  REF name;
+		my_id			=  REF id;
 		my_change_callbacks	=      change_callbacks;		# Comes with REF pre-installed.
 		my_ball_state_callbacks	=  REF ball_state_callbacks;
 		#
 		apply  do_option  options
 		where
 		    fun do_option (MICROTHREAD_NAME    n) =>   my_name                 :=  n;
+			do_option (ID                  i) =>   my_id                   :=  i;
 			do_option (CHANGE_CALLBACK     c) =>   my_change_callbacks     :=  c ! *my_change_callbacks;
 			do_option (BALL_STATE_CALLBACK c) =>   my_ball_state_callbacks :=  c ! *my_ball_state_callbacks;
 		    end;
 		end;
 
+
+
 		{ name 			=>   *my_name,
+		  id 			=>   *my_id,
 		  change_callbacks	=>    my_change_callbacks,
 		  ball_state_callbacks	=>   *my_ball_state_callbacks
 		};
@@ -254,18 +266,29 @@ herein
 	    =
 	    {   (process_options
 		  ( options,
-		    { name			=>  "ball_state",
+		    { id			=>  0,
+		      name			=>  "ball_state",
 		      change_callbacks		=>  REF([]),
 		      ball_state_callbacks	=>  []
 		    }
 		) )
 		    ->
 		    { name,
+		      id, 
 		      change_callbacks,
 		      ball_state_callbacks
 		    };
 
-		me = REF needs;
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = mid::make_fresh_imp_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);
+		    fi;
+
+		me = { id, state => REF needs };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
@@ -295,15 +318,14 @@ herein
 	      (ball_arg:	Ball_Arg)
 	    =
 	    {
-		ball_arg ->  ( { id:		Int,
-				 position:	Xyz,
-				 velocity:	Xyz
+		ball_arg ->   ( { position:	Xyz,
+				  velocity:	Xyz
 			        }:		Ball_State_Needs,
 				options:	List(Ball_State_Option)
 			      );
 
 		pp.box {.
-		    pp.lit (sprintf "{ id => %d, position => { x => %g, y => %g, z => %g }, velocity => { x => %g, y => %g, z => %g } }" id position.x position.y position.z velocity.x velocity.y velocity.z );
+		    pp.lit (sprintf "{ position => { x => %g, y => %g, z => %g }, velocity => { x => %g, y => %g, z => %g } }" position.x position.y position.z velocity.x velocity.y velocity.z );
 		    pp.endlit ",";
 		    pp.txt " [";
 		    pp::seq {. pp.txt ", "; }
@@ -319,8 +341,9 @@ herein
 		    =
 		    case option
 			#
-			MICROTHREAD_NAME name	=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
-			CHANGE_CALLBACK _	=>  {  pp.lit          "CHANGE_CALLBACK (callback)";		};
+			MICROTHREAD_NAME name	=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name );	};
+			ID               id	=>  {  pp.lit (sprintf "ID %d" id                     );	};
+			CHANGE_CALLBACK _	=>  {  pp.lit          "CHANGE_CALLBACK (callback)"    ;	};
 			BALL_STATE_CALLBACK _	=>  {  pp.lit          "BALL_STATE_CALLBACK (callback)";	};
 		    esac;
 	    end;
