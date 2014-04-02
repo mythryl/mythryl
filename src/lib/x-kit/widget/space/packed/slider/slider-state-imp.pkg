@@ -45,6 +45,7 @@ stipulate
 #   package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
     #
+    package mid =  make_fresh_imp_id;				# make_fresh_imp_id		is from   src/lib/src/make-fresh-imp-id.pkg
     package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
     package pwe =  packed_widget_egg;				# packed_widget_egg		is from   src/lib/x-kit/widget/space/packed/packed-widget-egg.pkg
     #
@@ -57,24 +58,21 @@ herein
 	include slider_state;												# slider_state			is from   src/lib/x-kit/widget/space/packed/slider/slider-state.pkg
 	#
 	Slider_State_Needs
-	        = { id:  Int,
-		    min: Float,
-		    max: Float,
-		    val: Float
-		  };
+	  =
+	  { min: Float,
+	    max: Float,
+	    val: Float
+	  };
 
 	Imports = {													# Ports we use, provided by other imps.
                     state_sink: Slider_State_Needs -> Void
 		  };
 
 	Slider_State_State
-	    =
-	    { id:	Int,
-	      min:	Float,
-	      max:	Float,
-	      val:      Float												# Holds all nonephemeral mutable state maintained by state.
-	    };
-
+	  =
+	  { id:		Int,
+	    state:	Ref( Slider_State_Needs )
+	  };
 
 	Exports	= {													# Ports we provide for use by other imps.
 		    slider_state:	Slider_State
@@ -83,6 +81,7 @@ herein
 	Slider_State_Option
 		#
 		= MICROTHREAD_NAME		String									# 
+	        | ID				Int									# Stable, unique id for imp.
 		| MAX_VALUE			Float
 		| MIN_VALUE			Float
 		| INITIAL_VALUE			Float
@@ -93,8 +92,6 @@ herein
 	Slider_Arg = (Slider_State_Needs, List(Slider_State_Option));
 
 	Slider_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
-
-	Slider_State_State = Ref( Slider_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
 
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			Slider_State_State,
@@ -158,7 +155,7 @@ herein
 				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
 				    #
 				    NULL	=> ();
-				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				    THE oneshot => put_in_oneshot (oneshot, (*me.state, options));			# 
 				esac;
 
 				thread_exit { success => TRUE };							# Will not return.	
@@ -168,11 +165,11 @@ herein
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,  reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()				# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		slider_state	=  { subscribe_to_changes, pass_state, set_value };
+		slider_state	=  { id, subscribe_to_changes, pass_state, set_value };
 		exports		=  { slider_state };
 
 		to          =  make_replyqueue();
@@ -184,7 +181,7 @@ herein
 		    { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, slider_state_callbacks };
 
 		apply   {. #callback slider_state; }   slider_state_callbacks;						# Pass our port to everyone who asked for it.
-		apply   {. #callback *me;	   }  *change_callbacks;						# Pass our initial state to everyone who is change-subscribed.
+		apply   {. #callback    *me.state; }        *change_callbacks;						# Pass our initial state to everyone who is change-subscribed.
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -212,7 +209,7 @@ herein
 			    #
 			    fn ({ me, ... }: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, *me)
+				put_in_oneshot (reply_oneshot, *me.state)
 			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
@@ -223,11 +220,9 @@ herein
 		    =	
 		    put_in_mailqueue  (slider_q,
 			#
-			fn ({ me, change_callbacks, ... }: Runstate)
+			fn ({ me as { id, state => REF { min, max, val } }, change_callbacks, ... }: Runstate)
 			    =
-			    {   (*me) -> { id, min, max, val };
-				#
-				f = if (f < min)	min;								# Make sure our new value is not below min end of slider.
+			    {   f = if (f < min)	min;								# Make sure our new value is not below min end of slider.
 				    else		f;
 				    fi;
 
@@ -238,18 +233,20 @@ herein
 
 				if (f != val)
 				    #
-				    me := { id, min, max, val => f };							# Note new state of slider.
+				    state = { min, max, val => f };
+				    me.state := state;									# Note new state of slider.
 
-				    apply   {. #callback *me; }   *change_callbacks;					# Tell everyone who cares what our new state is.
+				    apply   {. #callback state; }   *change_callbacks;					# Tell everyone who cares what our new state is.
 				fi;	
 			    }
 		    );
 	    end;
 
 
-	fun process_options (options: List(Slider_State_Option), { name, min_value, max_value, initial_value, change_callbacks, slider_state_callbacks })
+	fun process_options (options: List(Slider_State_Option), { name, id, min_value, max_value, initial_value, change_callbacks, slider_state_callbacks })
 	    =
 	    {   my_name		= REF name;
+		my_id		=  REF id;
 		#
 		my_min_value	= REF min_value;
 		my_max_value	= REF max_value;
@@ -260,11 +257,12 @@ herein
 		#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME 	  n)  =>  my_name := n;
+		    fun do_option (MICROTHREAD_NAME 	  n)  =>  my_name          :=  n;
+			do_option (ID                     i) =>   my_id            :=  i;
 		        #
-			do_option (MIN_VALUE	    	  f)  =>  my_min_value     := f;
-			do_option (MAX_VALUE	    	  f)  =>  my_max_value     := f;
-			do_option (INITIAL_VALUE    	  f)  =>  my_initial_value := f;
+			do_option (MIN_VALUE	    	  f)  =>  my_min_value     :=  f;
+			do_option (MAX_VALUE	    	  f)  =>  my_max_value     :=  f;
+			do_option (INITIAL_VALUE    	  f)  =>  my_initial_value :=  f;
 		        #
 			do_option (CHANGE_CALLBACK        c)  =>  my_change_callbacks       :=  c ! *my_change_callbacks;
 			do_option (SLIDER_STATE_CALLBACK  c)  =>  my_slider_state_callbacks :=  c ! *my_slider_state_callbacks;
@@ -272,6 +270,7 @@ herein
 		end;
 
 		{ name		=>  *my_name,
+		  id 		=>  *my_id,
 		  #
 		  min_value	=>  *my_min_value,
 		  max_value	=>  *my_max_value,
@@ -294,6 +293,7 @@ herein
 	    {   (process_options
 		  ( options,
 		    { name		=> "slider_state",
+		      id		=>  0,
 		      #	
 		      min_value		=> needs.min,
 		      max_value		=> needs.max,
@@ -305,6 +305,7 @@ herein
 		) )
 		  ->
 		  { name,
+		    id, 
 		    min_value,
 		    max_value,
 		    initial_value,
@@ -312,15 +313,25 @@ herein
 		    slider_state_callbacks
 		  };
 	
-		me =  REF { id  => needs.id,
-			    min => min_value,
-			    max => max_value,
-			    val => initial_value
-			  };
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = mid::make_fresh_imp_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);
+		    fi;
+
+		me =  { id,
+                        state =>  REF { min =>  min_value,
+					max =>  max_value,
+					val =>  initial_value
+				      }
+		      };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
 
@@ -346,12 +357,12 @@ herein
 	      (slider_arg:	Slider_Arg)
 	    =
 	    {
-		slider_arg ->  ( { id, min, max, val }:	Slider_State_Needs,
+		slider_arg ->  ( { min, max, val }:	Slider_State_Needs,
 				   options:		List(Slider_State_Option)
 			        );
 
 		pp.box {.
-		    pp.lit (sprintf "({ id => %d  min => %g, max => %g, val => %g }" id min max val);
+		    pp.lit (sprintf "({ min => %g, max => %g, val => %g }" min max val);
 		    pp.endlit ",";
 		    pp.txt " [";
 		    pp::seq {. pp.txt ", "; }
@@ -368,6 +379,7 @@ herein
 		    case option
 			#
 			MICROTHREAD_NAME name	=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
+			ID               id	=>  {  pp.lit (sprintf "ID %d" id                     );	};
 			MIN_VALUE f	        =>  {  pp.lit (sprintf "MIN_VALUE => %f" f);			};
 			MAX_VALUE f	        =>  {  pp.lit (sprintf "MAX_VALUE => %f" f);			};
 			INITIAL_VALUE f	        =>  {  pp.lit (sprintf "INITIAL_VALUE => %f" f);		};

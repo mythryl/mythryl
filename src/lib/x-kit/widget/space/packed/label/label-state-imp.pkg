@@ -45,6 +45,7 @@ stipulate
 #   package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
     #
+    package mid =  make_fresh_imp_id;				# make_fresh_imp_id		is from   src/lib/src/make-fresh-imp-id.pkg
     package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
     package pwe =  packed_widget_egg;				# packed_widget_egg		is from   src/lib/x-kit/widget/space/packed/packed-widget-egg.pkg
     #
@@ -59,8 +60,7 @@ herein
 
 	Label_State_Needs
 	    =
-	    { id:	Int,
-	      text:	String
+	    { text:	String
 	    };
 
 	Imports = {													# Ports we use, provided by other imps.
@@ -74,16 +74,21 @@ herein
 
 	Label_State_Option
 	    #
-	    =  MICROTHREAD_NAME 	String										# 
-	    |  CHANGE_CALLBACK		Label_State_Needs -> Void							# We'll call each of these callbacks each time our value changes.
-	    |  LABEL_STATE_CALLBACK	( Label_State -> Void	)							# Client code registers this callback to get a port to us once we start up.
+	    = MICROTHREAD_NAME		String										# 
+	    | ID			Int										# Stable, unique id for imp.
+	    | CHANGE_CALLBACK		Label_State_Needs -> Void							# We'll call each of these callbacks each time our value changes.
+	    | LABEL_STATE_CALLBACK	( Label_State -> Void	)							# Client code registers this callback to get a port to us once we start up.
 	    ;
 
 	Label_Arg = (Label_State_Needs, List(Label_State_Option));
 
 	Label_State_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	Label_State_State = Ref( Label_State_Needs );									# Holds all nonephemeral mutable state maintained by state.
+	Label_State_State
+	  =
+	  { id:		Int,
+	    state:	Ref( Label_State_Needs )									# Holds all nonephemeral mutable state maintained by state.
+	  };
 
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			     Label_State_State,
@@ -122,7 +127,7 @@ herein
 		)
 	    =
 	    {
-text  = (*me).text;
+text  = (*me.state).text;
 printf "label(%s): run() entering loop() -- label-state-imp.pkg\n" text;
 		loop ();
 	    }
@@ -146,12 +151,12 @@ printf "label(%s): run() entering loop() -- label-state-imp.pkg\n" text;
 			fun shut_down_label_imp' ()
 			    =
 			    {
-text  = (*me).text;
+text  = (*me.state).text;
 printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
 				    #
 				    NULL	=> ();
-				    THE oneshot => put_in_oneshot (oneshot, (*me, options));				# 
+				    THE oneshot => put_in_oneshot (oneshot, (*me.state, options));			# 
 				esac;
 
 				thread_exit { success => TRUE };							# Will not return.	
@@ -161,11 +166,11 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,  reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		label_state	=  { subscribe_to_changes, pass_state, set_text };
+		label_state	=  { id, subscribe_to_changes, pass_state, set_text };
 		exports		=  { label_state };
 
 		to		=  make_replyqueue();
@@ -179,9 +184,8 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 		      label_state_callbacks
 		    };
 
-		apply   {.                 (#thunk     label_state); }   label_state_callbacks;				# Pass our port to everyone who asked for it.
-
-		apply   {. #callback *me; 	  }  *change_callbacks;							# Pass our initial state to everyone who is change-subscribed.
+		apply   {. #callback label_state; }   label_state_callbacks;						# Pass our port to everyone who asked for it.
+		apply   {. #callback   *me.state; }       *change_callbacks;						# Pass our initial state to everyone who is change-subscribed.
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -209,7 +213,7 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 			    #
 			    fn ({ me, ... }: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, *me)
+				put_in_oneshot (reply_oneshot, *me.state)
 			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
@@ -220,31 +224,35 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 		    =	
 		    put_in_mailqueue  (label_q,
 			#
-			fn ({ me as REF { id, ... }, change_callbacks, ... }: Runstate)
+			fn ({ me as{ id, ... }, change_callbacks, ... }: Runstate)
 			    =
-			    {   me :=  { id,  text => string };								# Change the text we display.
+			    {   state = { text => string };
+				me.state :=  state;									# Change the text we display.
 				#
-				apply   {. #callback *me; }   *change_callbacks;					# Update all listeners with our new state.
+				apply   {. #callback state; }   *change_callbacks;					# Update all listeners with our new state.
 			    }
 		    );
 	    end;
 
 
-	fun process_options (options: List(Label_State_Option), { name, change_callbacks, label_state_callbacks })
+	fun process_options (options: List(Label_State_Option), { name, id, change_callbacks, label_state_callbacks })
 	    =
 	    {   my_name			 =  REF name;
+		my_id			 =  REF id;
 		my_change_callbacks	 =      change_callbacks;		# Comes with REF pre-installed.
 		my_label_state_callbacks =  REF label_state_callbacks;
 		#
 		apply  do_option  options
 		where
 		    fun do_option (MICROTHREAD_NAME     n) =>   my_name                  :=  n;
+			do_option (ID                   i) =>   my_id                    :=  i;
 			do_option (CHANGE_CALLBACK      c) =>   my_change_callbacks      :=  c ! *my_change_callbacks;
 			do_option (LABEL_STATE_CALLBACK c) =>   my_label_state_callbacks :=  c ! *my_label_state_callbacks;
 		    end;
 		end;
 
 		{ name 		        =>   *my_name,
+		  id 			=>   *my_id,
 		  change_callbacks      =>    my_change_callbacks,
 		  label_state_callbacks =>   *my_label_state_callbacks
 		};
@@ -262,21 +270,32 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 	    {   (process_options
 		  ( options,
 		    { name		    =>  "label_state",
+		      id		    =>  0,
 		      change_callbacks	    =>  REF([]),
 		      label_state_callbacks =>  []
 		    }
 		) )
 		    ->
 		    { name,
+		      id, 
 		      change_callbacks,
 		      label_state_callbacks
 		    };
 	
-		me = REF needs;
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = mid::make_fresh_imp_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);											# Nop.
+		    fi;
+
+		me = { id, state => REF needs };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
 
@@ -301,12 +320,12 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 	      (label_arg:	Label_Arg)
 	    =
 	    {
-		label_arg ->  ( { id, text }:	Label_State_Needs,
+		label_arg ->  ( { text }:	Label_State_Needs,
 				options:	List(Label_State_Option)
 			      );
 
 		pp.box {.
-		    pp.lit (sprintf "({ id => %d, text => \"%s\" }" id text);
+		    pp.lit (sprintf "({ text => \"%s\" }" text);
 		    pp.endlit ",";
 		    pp.txt " [";
 		    pp::seq {. pp.txt ", "; }
@@ -323,6 +342,7 @@ printf "label(%s): loop() shutting down.  -- label-state-imp.pkg\n" text;
 		    case option
 			#
 			MICROTHREAD_NAME name	=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
+			ID               id	=>  {  pp.lit (sprintf "ID %d" id                    );		};
 			CHANGE_CALLBACK _	=>  {  pp.lit          "CHANGE_CALLBACK (callback)";		};
 			LABEL_STATE_CALLBACK _	=>  {  pp.lit          "LABEL_STATE_CALLBACK (callback)";	};
 		    esac;
