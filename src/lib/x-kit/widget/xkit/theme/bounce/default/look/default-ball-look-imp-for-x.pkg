@@ -46,6 +46,7 @@ stipulate
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
 
     package aw  =  appwindow;					# appwindow			is from   src/lib/x-kit/widget/theme/appwindow.pkg
+    package mid =  make_fresh_imp_id;				# make_fresh_imp_id		is from   src/lib/src/make-fresh-imp-id.pkg
     package bl  =  ball_look;					# ball_look			is from   src/lib/x-kit/widget/theme/bounce/look/ball-look.pkg
     package bli =  ball_look_imp;				# ball_look_imp			is from   src/lib/x-kit/widget/theme/bounce/look/ball-look-imp.pkg
     package bsi =  ball_state_imp;				# ball_state_imp		is from   src/lib/x-kit/widget/space/bounce/ball/ball-state-imp.pkg
@@ -62,13 +63,21 @@ herein
 	#
 	include ball_look;												# ball_look		is from   src/lib/x-kit/widget/theme/bounce/ball-look.pkg
 	#
-	Ball_Look_State = Ref( bsi::Ball_State_Needs );									# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	Ball_Look_State
+	  =
+	  { id:		Int,
+	    state:	Ref( bsi::Ball_State_Needs )									# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	  };
 
 	Imports =  bwe::Imports;
 	Exports =  bwe::Exports;
 
+	Ball_Look_Option == bli::Ball_Look_Option;
+        Ball_Look_Arg    =  bli::Ball_Look_Arg;
+
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			Ball_Look_State,
+			      options:			List(Ball_Look_Option),
 			      run_gun':			Run_Gun,
 			      end_gun':			End_Gun,
 			      endstate_oneshot:		Null_Or(Oneshot_Maildrop( bsi::Ball_Arg )),
@@ -77,11 +86,9 @@ herein
 			    }
 			  );
 
-	Ball_Look_Option == bli::Ball_Look_Option;
-        Ball_Look_Arg    =  bli::Ball_Look_Arg;
-
 	Runstate  =   {													# These values will be statically globally visible throughout the code body for the imp.
 			me:			Ball_Look_State,							# State which is preserved across imp shutdown/restart cycles.
+		        options:		List(Ball_Look_Option),
 			imports:		Imports,								# Imps to which we send requests.
 			to:			Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 			end_gun':		End_Gun,								# We shut down the microthread when this fires.
@@ -96,6 +103,7 @@ herein
 		  runstate as
 		  {													# These values will be statically globally visible throughout the code body for the imp.
 		    me:			Ball_Look_State,								# State which is preserved across imp shutdown/restart cycles.
+		    options:		List(Ball_Look_Option),
 		    imports:		Imports,									# Imps to which we send requests.
 		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
@@ -124,6 +132,12 @@ herein
 			    =
 			    {
 # XXX BUGGO NOT YET USING endstate_oneshot:
+#				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+#				    #
+#				    NULL	=> ();
+#				    THE oneshot => put_in_oneshot (oneshot, options);					# 
+#				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 
@@ -132,12 +146,12 @@ herein
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, bsi::Ball_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,   reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, bsi::Ball_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		bounce_widget_control	=  { do_something, pass_something, pass_draw_done_flag };
-		ball_look		=  { do_something, pass_something };
+		bounce_widget_control	=  { id, do_something, pass_something, pass_draw_done_flag };
+		ball_look		=  { id, do_something, pass_something };
 		exports			=  { bounce_widget_control };
 
 		to          =  make_replyqueue();
@@ -146,7 +160,7 @@ herein
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_ball_look_for_x().
 		    ->
-		    { me, imports, run_gun', end_gun', endstate_oneshot,
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot,
 		      widget_control_callbacks,
 		           ball_look_callbacks
 		    };
@@ -156,7 +170,7 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run (ball_q, { me, imports, to, end_gun', endstate_oneshot });						# Will not return.
+		run (ball_q, { me, options, imports, to, end_gun', endstate_oneshot });					# Will not return.
 	    }
 	    where
 		ball_q     =  make_mailqueue (get_current_microthread()):  Ball_Q;
@@ -168,7 +182,7 @@ herein
 			#
 			fn ({ me, ... }: Runstate)
 			    =
-			    me := state											# Do we need to notify gui-boss that we need to redraw?
+			    me.state := state											# Do we need to notify gui-boss that we need to redraw?
 		    );
 
 
@@ -216,24 +230,29 @@ herein
 	    ( options: List(Ball_Look_Option),
 	      #
 	      { name,
+		id,
 		ball_look_callbacks,
 		widget_control_callbacks
 	      }
 	    )
 	    =
 	    {   my_name				=  REF name;
+		my_id				=  REF id;
 		my_widget_control_callbacks	=  REF widget_control_callbacks;
 		my_ball_look_callbacks		=  REF      ball_look_callbacks;
 		#
 		apply  do_option  options
 		where
 		    fun do_option (MICROTHREAD_NAME        n) =>   my_name			:=  n;
+			do_option (ID      	           i) =>   my_id                   	:=  i;
+			#
 			do_option (WIDGET_CONTROL_CALLBACK c) =>   my_widget_control_callbacks	:=  c ! *my_widget_control_callbacks;
 			do_option (BALL_LOOK_CALLBACK      c) =>   my_ball_look_callbacks	:=  c ! *my_ball_look_callbacks;
 		    end;
 		end;
 
 		{ name			    =>  *my_name,
+		  id 			    =>  *my_id,
 		  ball_look_callbacks       =>  *my_ball_look_callbacks,
 		  widget_control_callbacks  =>  *my_widget_control_callbacks
 		};
@@ -254,19 +273,30 @@ herein
 	    {   (process_options
 		  ( options,
 		    { name			=>  "ball_look",
+		      id			=>  0,
 		      ball_look_callbacks	=>  [],
 		      widget_control_callbacks	=>  []
 		    }
 		) )
 		    ->
 		    { name,
+		      id, 
 		      ball_look_callbacks,
 		      widget_control_callbacks
 		    };
 	
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = mid::make_fresh_imp_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);											# Nop.
+		    fi;
+
 		ball_arg -> (ball_state_needs, ball_state_options);
 
-		me = REF ball_state_needs;
+		me = { id, state => REF ball_state_needs };
 
 		ball_state_egg =  bsi::make_ball_state_egg  ball_arg  endstate_oneshot;
 
@@ -275,7 +305,7 @@ herein
 				make_oneshot_maildrop ()
 				:    Oneshot_Maildrop( (Me_Slot, Exports, bsi::Ball_State_Needs -> Void) );
 
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports, note_new_state);
 
@@ -293,7 +323,7 @@ herein
 
 				    ball_state_egg' (ball_state_imports, run_gun', end_gun');
 
-				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot,
+				    put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot,
 								 ball_look_callbacks,
 								 widget_control_callbacks
 							       }
@@ -330,6 +360,7 @@ herein
 		    case option
 			#
 			MICROTHREAD_NAME name		=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
+			ID			id	=>  {  pp.lit (sprintf "ID %d" id                    );		};
 			WIDGET_CONTROL_CALLBACK _	=>  {  pp.lit          "WIDGET_CONTROL_CALLBACK (callback)";	};
 			BALL_LOOK_CALLBACK _		=>  {  pp.lit          "BALL_LOOK_CALLBACK (callback)";	};
 		    esac;

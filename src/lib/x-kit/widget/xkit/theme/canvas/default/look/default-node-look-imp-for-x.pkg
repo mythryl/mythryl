@@ -46,6 +46,7 @@ stipulate
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
 
     package aw  =  appwindow;					# appwindow			is from   src/lib/x-kit/widget/theme/appwindow.pkg
+    package mid =  make_fresh_imp_id;				# make_fresh_imp_id		is from   src/lib/src/make-fresh-imp-id.pkg
     package nl  =  node_look;					# node_look			is from   src/lib/x-kit/widget/theme/packed/look/node-look.pkg
     package nli =  node_look_imp;				# node_look_imp			is from   src/lib/x-kit/widget/theme/canvas/look/node-look-imp.pkg
     package nsi =  node_state_imp;				# node_state_imp		is from   src/lib/x-kit/widget/space/canvas/node/node-state-imp.pkg
@@ -62,13 +63,23 @@ herein
 	#
 	include node_look;												# node_look		is from   src/lib/x-kit/widget/theme/canvas/node-look.pkg
 	#
-	Node_Look_State = Ref( nsi::Node_State_Needs );									# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	Node_Look_State
+	  =
+	  { id:		Int,
+	    state:	Ref( nsi::Node_State_Needs )									# Opaque wrapper for all nonephemeral mutable state maintained by look.
+	  };
 
 	Imports =  cwe::Imports;
 	Exports =  cwe::Exports;
 
+	Node_Look_Option == nli::Node_Look_Option;
+	Node_Look_Arg	 =  nli::Node_Look_Arg;
+
+	Node_Look_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			Node_Look_State,
+			      options:			List(Node_Look_Option),
 			      run_gun':			Run_Gun,
 			      end_gun':			End_Gun,
 			      endstate_oneshot:		Null_Or(Oneshot_Maildrop( nsi::Node_Arg )),
@@ -76,13 +87,9 @@ herein
 			      widget_control_callbacks:	List(cwc::Canvas_Widget_Control -> Void)
 			    }
 			  );
-	Node_Look_Option == nli::Node_Look_Option;
-	Node_Look_Arg	 =  nli::Node_Look_Arg;
-
-	Node_Look_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
-
 	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
 		      me:		Node_Look_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:		List(Node_Look_Option),
 		      imports:		Imports,									# Imps to which we send requests.
 		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		      end_gun':		End_Gun,									# We shut down the microthread when this fires.
@@ -97,6 +104,7 @@ herein
 		  runstate as
 		  {													# These values will be statically globally visible throughout the code body for the imp.
 		    me:			Node_Look_State,								# State which is preserved across imp shutdown/restart cycles.
+		    options:		List(Node_Look_Option),
 		    imports:		Imports,									# Imps to which we send requests.
 		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
@@ -125,6 +133,12 @@ herein
 			    =
 			    {
 # XXX BUGGO NOT YET USING endstate_oneshot:
+#				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+#				    #
+#				    NULL	=> ();
+#				    THE oneshot => put_in_oneshot (oneshot, options);					# 
+#				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 		    end;
@@ -132,12 +146,12 @@ herein
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, nsi::Node_State_Needs -> Void) ))   ()	# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,   reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports, nsi::Node_State_Needs -> Void) ))   ()		# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		canvas_widget_control	=  { do_something, pass_something, pass_draw_done_flag };
-		node_look		=  { do_something, pass_something };
+		canvas_widget_control	=  { id, do_something, pass_something, pass_draw_done_flag };
+		node_look		=  { id, do_something, pass_something };
 		exports			=  { canvas_widget_control };
 
 		to          =  make_replyqueue();
@@ -146,7 +160,7 @@ herein
 
 		(take_from_mailslot  me_slot)										# Input args from configure_default_node_look_for_x().
 		    ->
-		    { me, imports, run_gun', end_gun', endstate_oneshot,
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot,
                       widget_control_callbacks,
 		           node_look_callbacks
                     };
@@ -156,7 +170,7 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run (node_q, { me, imports, to, end_gun', endstate_oneshot });						# Will not return.
+		run (node_q, { me, options, imports, to, end_gun', endstate_oneshot });					# Will not return.
 	    }
 	    where
 		node_q     =  make_mailqueue (get_current_microthread()):  Node_Q;
@@ -168,7 +182,7 @@ herein
 			#
 			fn ({ me, ... }: Runstate)
 			    =
-			    me := state											# Do we need to notify gui-boss that we need to redraw?
+			    me.state := state										# Do we need to notify gui-boss that we need to redraw?
 		    );
 
 		fun do_something (i: Int)										# External entrypoint.
@@ -215,24 +229,29 @@ herein
             ( options:	List(Node_Look_Option),
 	      #
 	      { name,
+		id,
 		node_look_callbacks,
 		widget_control_callbacks
 	      }
 	    )
 	    =
 	    {   my_name				=  REF name;
+		my_id				=  REF id;
 		my_widget_control_callbacks	=  REF widget_control_callbacks;
 		my_node_look_callbacks		=  REF      node_look_callbacks;
 		#
 		apply  do_option  options
 		where
 		    fun do_option (MICROTHREAD_NAME        n) =>   my_name			:=  n;
+			do_option (ID      	           i) =>   my_id                   	:=  i;
+			#
 			do_option (WIDGET_CONTROL_CALLBACK c) =>   my_widget_control_callbacks	:=  c ! *my_widget_control_callbacks;
 			do_option (NODE_LOOK_CALLBACK      c) =>   my_node_look_callbacks	:=  c ! *my_node_look_callbacks;
 		    end;
 		end;
 
 		{ name			    =>  *my_name,
+		  id 			    =>  *my_id,
 		  node_look_callbacks       =>  *my_node_look_callbacks,
 		  widget_control_callbacks  =>  *my_widget_control_callbacks
 		};
@@ -253,19 +272,30 @@ herein
 	    {   (process_options
 		  ( options,
 		    { name			=>  "node_look",
+		      id			=>  0,
 		      node_look_callbacks	=>  [],
 		      widget_control_callbacks	=>  []
 		    }
 		) )
 		    ->
 		    { name,
+		      id, 
 		      node_look_callbacks,
 		      widget_control_callbacks
 		    };
 	
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = mid::make_fresh_imp_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);											# Nop.
+		    fi;
+
 		node_arg -> (node_state_needs, node_state_options);
 
-		me = REF node_state_needs;
+		me = { id, state => REF node_state_needs };
 
 		node_state_egg =  nsi::make_node_state_egg  node_arg  endstate_oneshot;
 
@@ -274,7 +304,7 @@ herein
 				make_oneshot_maildrop ()
 				:    Oneshot_Maildrop( (Me_Slot, Exports, nsi::Node_State_Needs -> Void) );
 
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports, note_new_state);
 
@@ -291,7 +321,7 @@ herein
 				    #
 				    node_state_egg' (node_state_imports, run_gun', end_gun');
 
-				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', endstate_oneshot,
+				    put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot,
 								 node_look_callbacks,
 								 widget_control_callbacks
 							       }
@@ -328,10 +358,34 @@ herein
 		    case option
 			#
 			MICROTHREAD_NAME name		=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
+			ID			id	=>  {  pp.lit (sprintf "ID %d" id                    );		};
 			WIDGET_CONTROL_CALLBACK _	=>  {  pp.lit          "WIDGET_CONTROL_CALLBACK (callback)";	};
 			NODE_LOOK_CALLBACK _		=>  {  pp.lit          "NODE_LOOK_CALLBACK (callback)";	};
 		    esac;
 	    end;
     };
-
 end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Original code by Jeff Prothero Copyright (c) 2014-2015,
+## released per terms of SMLNJ-COPYRIGHT.
