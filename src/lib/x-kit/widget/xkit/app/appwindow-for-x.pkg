@@ -9,6 +9,7 @@ stipulate
     #
     package ap  =  atom_port;					# atom_port			is from   src/lib/x-kit/xclient/src/iccc/atom-port.pkg
     package au  =  authentication;				# authentication		is from   src/lib/x-kit/xclient/src/stuff/authentication.pkg
+    package aw  =  appwindow;					# appwindow			is from   src/lib/x-kit/widget/theme/appwindow.pkg
 #   package cpm =  cs_pixmap;					# cs_pixmap			is from   src/lib/x-kit/xclient/src/window/cs-pixmap.pkg
     package cpt =  cs_pixmat;					# cs_pixmat			is from   src/lib/x-kit/xclient/src/window/cs-pixmat.pkg
     package dy  =  display;					# display			is from   src/lib/x-kit/xclient/src/wire/display.pkg
@@ -16,6 +17,7 @@ stipulate
     package exp =  xserver;					# xserver			is from   src/lib/x-kit/xclient/src/window/xserver.pkg
 #   package fil =  file__premicrothread;			# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
     package fti =  font_index;					# font_index			is from	  src/lib/x-kit/xclient/src/window/font-index.pkg
+    package iui =  issue_unique_id;				# issue_unique_id		is from   src/lib/src/issue-unique-id.pkg
     package kp  =  keymap;					# keymap			is from   src/lib/x-kit/xclient/src/window/keymap.pkg
     package mtx =  rw_matrix;					# rw_matrix			is from   src/lib/std/src/rw-matrix.pkg
     package r8  =  rgb8;					# rgb8				is from   src/lib/x-kit/xclient/src/color/rgb8.pkg
@@ -49,41 +51,72 @@ stipulate
 herein
 
     package appwindow_for_x
-    :       Appwindow_Imp											# Appwindow_Imp		is from   src/lib/x-kit/widget/theme/appwindow-imp.api
+    :       Appwindow_Imp												# Appwindow_Imp		is from   src/lib/x-kit/widget/theme/appwindow-imp.api
     {
 	#
-	include appwindow;											# appwindow		is from   src/lib/x-kit/widget/theme/appwindow.pkg
+	include appwindow;												# appwindow		is from   src/lib/x-kit/widget/theme/appwindow.pkg
 	#
-	Appwindow_State = Ref( Void );										# Holds all nonephemeral mutable state maintained by shape.
 
 	Imports = {													# Ports we use, provided by other imps.
 		    int_sink: Int -> Void
 		  };
 
-	Me_Slot = Mailslot( { imports:	Imports,
-				  me:		Appwindow_State,
-				  run_gun':	Run_Gun,
-				  end_gun':	End_Gun
-                                }
-                              );
-
-	Appwindow_Plea =  DO_SOMETHING				Int
-		       |  EXERCISE_APPWINDOW			Oneshot_Maildrop(Void)
-		       |  PASS_APPWINDOW_EXERCISE_RESULTS	Oneshot_Maildrop( Int)
-		       |  PASS_SOMETHING			Oneshot_Maildrop( Int)
-		       ;
-	Appwindow_Q    = Mailqueue( Appwindow_Plea );
-
-
 	Exports	= {													# Ports we provide for use by other imps.
 		    appwindow:	Appwindow
 		  };
 
-	Option = MICROTHREAD_NAME String;							# 
+	Appwindow_Needs
+	  =
+	  {
+	    site:	xg::Window_Site											# Where and how big (in pixels) should the application window be?
+	  };
+
+	Appwindow_Option
+	  #
+	  = MICROTHREAD_NAME		String										#
+	  | ID				Int										# Unique ID for window, issued by issue_unique_id::issue_unique_id().
+	  | CHANGE_CALLBACK		Appwindow_Needs -> Void								# We'll call each of these callbacks each time our value changes.
+	  | APPWINDOW_CALLBACK		aw::Appwindow -> Void								# Client code registers this callback to get a port to us once we start up.
+	  ;
+
+	Appwindow_Arg = (Appwindow_Needs, List(Appwindow_Option));
 
 	Appwindow_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	fun create_window   (xsequencer: sp::Xsequencer)				# Create a new X-window with the given xid 
+	Appwindow_State													# Holds all nonephemeral mutable state maintained by shape.
+	  =
+	  { id:		Int,
+	    state:	Ref( Appwindow_Needs )
+	  };
+
+	Me_Slot = Mailslot( { imports:			Imports,
+			      me:			Appwindow_State,
+			      options:			List(Appwindow_Option),
+			      run_gun':			Run_Gun,
+			      end_gun':			End_Gun,
+			      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Appwindow_Arg)),			# When end_gun fires we save our state in this and exit.
+			      change_callbacks:		Ref(List(Appwindow_Needs -> Void)),
+			      appwindow_callbacks:	List(Appwindow -> Void)
+			    }
+			  );
+
+
+
+	Runstate = {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:			Appwindow_State,								# State which is preserved across imp shutdown/restart cycles.
+		    options:		List(Appwindow_Option),
+		    imports:		Imports,									# Imps to which we send requests.
+		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Appwindow_Arg)),					# When end_gun fires we save our state in this and exit.
+		    change_callbacks:	Ref(List(Appwindow_Needs -> Void)),						#
+		    fire_end_gun:	Void -> Void,
+		    window:		xj::Window
+		   };
+
+	Appwindow_Q    = Mailqueue( Runstate -> Void );
+
+	fun create_window   (xsequencer: sp::Xsequencer)								# Create a new X-window with the given xid 
 	    {
 	      window_id:    	xt::Window_Id,
 	      parent_window_id:	xt::Window_Id,
@@ -114,24 +147,23 @@ herein
 	    {
 		(au::get_xdisplay_string_and_xauthentication  NULL)
 		    ->
-		    ( display_name:     String,						# Typically from $DISPLAY environment variable.
-		      xauthentication:  Null_Or(xt::Xauthentication)			# Typically from ~/.Xauthority
+		    ( display_name:     String,										# Typically from $DISPLAY environment variable.
+		      xauthentication:  Null_Or(xt::Xauthentication)							# Typically from ~/.Xauthority
 		    );
 
 		(make_run_gun ()) ->   { run_gun', fire_run_gun };
 		(make_end_gun ()) ->   { end_gun', fire_end_gun };
 
-		root_window = 	rw::make_root_window { display_name,
-						       xauthentication,
-						       run_gun',
-						       end_gun'
-						     };
+		root_window = 	rw::make_root_window  { display_name,
+							xauthentication,
+							run_gun',
+							end_gun'
+						      };
 
 		root_window ->  rw::ROOT_WINDOW
 					  { screen:			xj::Screen,
-					    id:				Ref( Void ),					# Here we are just taking advantage of the fact that all REFs are distinct.
-					    #										# We should eventually convert this to a proper small-int id -- eventually
-					    #										# one wants to use the id as a key for lookup.  -- 2013-07-21 CrT
+					    id:				Int,
+					    #
 					    make_shade:			rgb::Rgb -> shp::Shades,
 					    make_tile:			String -> rop::Ro_Pixmap,
 					    #
@@ -157,7 +189,7 @@ herein
 
 					    default_screen_info:   	xj::Screen_Info,
 
-					    xevent_to_window:		s2p::Xevent_To_Window,			# Feeds X events to appropriate toplevel window.
+					    xevent_to_window:		s2p::Xevent_To_Window,				# Feeds X events to appropriate toplevel window.
 
 					    font_index:          	fti::Font_Index,
 					    atom_port:          	ap::Atom_Port,
@@ -169,8 +201,8 @@ herein
 					    keymap:			kp::Keymap
 					  };
 
-		xdisplay -> dy::XDISPLAY  { socket: 			sj::Stream_Socket(Int),				# Actual unix socket fd, wrapped up a bit. The 'Int' part is bogus -- I don't get what Reppy was trying to do with that phantom type.
-					    #
+		xdisplay -> dy::XDISPLAY  { socket: 			sj::Stream_Socket(Int),				# Actual unix socket fd, wrapped up a bit. The 'Int' part is bogus -- I
+					    #										# don't get what Reppy was trying to do with that phantom type.
 					    name:			String,						# "host: display::screen",     e.g. "foo.com:0.0".
 					    vendor:			String,						# Name of the server's vendor, e.g. 'The X.Org Foundation'.
 
@@ -223,10 +255,10 @@ herein
 			#
 			case event
 			    #
-			    et::x::EXPOSE { exposed_window_id:  xt::Window_Id,				# The exposed window. 
-					    boxes:              List( xg::Box ),			# The exposed rectangle.  The list is
-													# so  that multiple events can be packed. 
-					    count:              Int					# Number of subsequent expose events.
+			    et::x::EXPOSE { exposed_window_id:  xt::Window_Id,							# The exposed window. 
+					    boxes:              List( xg::Box ),						# The exposed rectangle.  The list is
+																# so  that multiple events can be packed. 
+					    count:              Int								# Number of subsequent expose events.
 					  }
 				=>  {
 					printf "xevent_sink(): EXPOSE { exposed_window_id d=%d (window_id d=%d) count d=%d list::length boxes d=%d     -- xclient-unit-test.pkg\n"
@@ -250,8 +282,8 @@ herein
 		xevent_to_window.note_new_topwindow
 		  (
 		    window_id,
-		    xg::WINDOW_SITE  { upperleft    =>  xg::POINT { col =>    0, row  =>   0 },
-				       size         =>  xg::SIZE { wide => 1650, high => 850 },
+		    xg::WINDOW_SITE  { upperleft    =>  xg::POINT { col =>   0, row  =>  0 },
+				       size         =>  xg::SIZE { wide => 165, high => 85 },
 				       border_thickness =>  1
 				     },
 		    xevent_sink
@@ -262,7 +294,7 @@ herein
 		    xt::VISUAL { visual_id, depth as 24, red_mask => 0uxFF0000, green_mask => 0ux00FF00, blue_mask => 0ux0000FF, ... }		# Code currently assumes that we always get this case.
                         =>
                         {
-			    create_window   xsequencer									# Create a window on the X server to draw stuff in etc.
+			    create_window   xsequencer											# Create a window on the X server to draw stuff in etc.
 			      {
 				window_id,
 				parent_window_id =>	root_window_id,
@@ -273,8 +305,8 @@ herein
 				io_class	 =>	xt::INPUT_OUTPUT,
 				#
 				site		 =>    	xg::WINDOW_SITE
-							  { upperleft    =>  xg::POINT { col =>    0, row  =>   0 },
-							    size         =>  xg::SIZE  { wide=> 1650, high => 850 },
+							  { upperleft    =>  xg::POINT { col =>   0, row  =>  0 },
+							    size         =>  xg::SIZE  { wide=> 165, high => 85 },
 							    border_thickness =>  1
 							  },
 
@@ -284,7 +316,7 @@ herein
 							]
 			      };
 
-			    xsequencer.send_xrequest  (v2w::encode_map_window { window_id });				# "map" (make visible) our new window.
+			    xsequencer.send_xrequest  (v2w::encode_map_window { window_id });					# "map" (make visible) our new window.
 
 
 			    wait_until_window_has_received_first_expose_xevent ();
@@ -295,7 +327,7 @@ herein
 			    per_depth_imps
 				->
 				xj::PER_DEPTH_IMPS    { depth:			Int,
-							xserver:		exp::Xserver,				# The xpacket encoder  for this depth on this screen.
+							xserver:		exp::Xserver,					# The xpacket encoder  for this depth on this screen.
 							window_map_event_sink:	wme::Window_Map_Event_Sink
 						      };									#
 
@@ -320,19 +352,19 @@ herein
 		esac;
 	    };
 
-	fun exercise_appwindow   (window:  xj::Window)	
+	fun exercise_appwindow'   (window:  xj::Window)	
 	    =
-	    {	mblack   =  mtx::make_rw_matrix ((100,100), r8::rgb8_black	);
+	    {	mblack   =  mtx::make_rw_matrix ((10,10), r8::rgb8_black	);
 		#
-		mred     =  mtx::make_rw_matrix ((100,100), r8::rgb8_red	);
-		mgreen   =  mtx::make_rw_matrix ((100,100), r8::rgb8_green	);
-		mblue    =  mtx::make_rw_matrix ((100,100), r8::rgb8_blue	);
+		mred     =  mtx::make_rw_matrix ((10,10), r8::rgb8_red		);
+		mgreen   =  mtx::make_rw_matrix ((10,10), r8::rgb8_green	);
+		mblue    =  mtx::make_rw_matrix ((10,10), r8::rgb8_blue		);
 		#
-		mcyan    =  mtx::make_rw_matrix ((100,100), r8::rgb8_cyan	);
-		mmagenta =  mtx::make_rw_matrix ((100,100), r8::rgb8_magenta	);
-		myellow  =  mtx::make_rw_matrix ((100,100), r8::rgb8_yellow	);
+		mcyan    =  mtx::make_rw_matrix ((10,10), r8::rgb8_cyan		);
+		mmagenta =  mtx::make_rw_matrix ((10,10), r8::rgb8_magenta	);
+		myellow  =  mtx::make_rw_matrix ((10,10), r8::rgb8_yellow	);
 		#
-		mwhite   =  mtx::make_rw_matrix ((100,100), r8::rgb8_white	);
+		mwhite   =  mtx::make_rw_matrix ((10,10), r8::rgb8_white	);
 		#
 		fun to_x dest pixmat					# Dest is something like   { col => 140, row => 20 }
 		    =
@@ -341,8 +373,8 @@ herein
 			window
 			#
 			{ from => pixmat,
-			  from_box => xg::BOX { col => 0,  wide => 90,
-						row => 0,  high => 90
+			  from_box => xg::BOX { col => 0,  wide => 9,
+						row => 0,  high => 9
 					      },
 			  to_point => xg::POINT dest
 			};
@@ -351,179 +383,183 @@ herein
 		#     =
 		#     cpt::make_clientside_pixmat_from_window (window_area_to_sample, window);
 
-		printf "appwindow-for-x.pkg sleeping for 2 seconds before doing 100 updates...\n";
-		sleep_for 2.0;
+#		printf "appwindow-for-x.pkg sleeping for 2 seconds before doing 100 updates...\n";
+#		sleep_for 2.0;
 
 		matrices = [ mblack, mred, mgreen, mblue, mcyan, mmagenta, myellow, mwhite ];
 
 		for (i = 0, m = matrices;  i < 100;  ++i) {
 		    #
-		    to_x { col =>    5, row =>  10 }  (list::nth (m, 0));
-		    to_x { col =>    5, row => 110 }  (list::nth (m, 1));
-		    to_x { col =>    5, row => 210 }  (list::nth (m, 2));
-		    to_x { col =>    5, row => 310 }  (list::nth (m, 3));
-		    to_x { col =>    5, row => 410 }  (list::nth (m, 4));
-		    to_x { col =>    5, row => 510 }  (list::nth (m, 5));
-		    to_x { col =>    5, row => 610 }  (list::nth (m, 6));
-		    to_x { col =>    5, row => 710 }  (list::nth (m, 7));
+		    to_x { col =>   0, row =>  1 }  (list::nth (m, 0));
+		    to_x { col =>   0, row => 11 }  (list::nth (m, 1));
+		    to_x { col =>   0, row => 21 }  (list::nth (m, 2));
+		    to_x { col =>   0, row => 31 }  (list::nth (m, 3));
+		    to_x { col =>   0, row => 41 }  (list::nth (m, 4));
+		    to_x { col =>   0, row => 51 }  (list::nth (m, 5));
+		    to_x { col =>   0, row => 61 }  (list::nth (m, 6));
+		    to_x { col =>   0, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col =>  105, row =>  10 }  (list::nth (m, 7));
-		    to_x { col =>  105, row => 110 }  (list::nth (m, 6));
-		    to_x { col =>  105, row => 210 }  (list::nth (m, 5));
-		    to_x { col =>  105, row => 310 }  (list::nth (m, 4));
-		    to_x { col =>  105, row => 410 }  (list::nth (m, 3));
-		    to_x { col =>  105, row => 510 }  (list::nth (m, 2));
-		    to_x { col =>  105, row => 610 }  (list::nth (m, 1));
-		    to_x { col =>  105, row => 710 }  (list::nth (m, 0));
+		    to_x { col =>  10, row =>  1 }  (list::nth (m, 7));
+		    to_x { col =>  10, row => 11 }  (list::nth (m, 6));
+		    to_x { col =>  10, row => 21 }  (list::nth (m, 5));
+		    to_x { col =>  10, row => 31 }  (list::nth (m, 4));
+		    to_x { col =>  10, row => 41 }  (list::nth (m, 3));
+		    to_x { col =>  10, row => 51 }  (list::nth (m, 2));
+		    to_x { col =>  10, row => 61 }  (list::nth (m, 1));
+		    to_x { col =>  10, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col =>  205, row =>  10 }  (list::nth (m, 0));
-		    to_x { col =>  205, row => 110 }  (list::nth (m, 1));
-		    to_x { col =>  205, row => 210 }  (list::nth (m, 2));
-		    to_x { col =>  205, row => 310 }  (list::nth (m, 3));
-		    to_x { col =>  205, row => 410 }  (list::nth (m, 4));
-		    to_x { col =>  205, row => 510 }  (list::nth (m, 5));
-		    to_x { col =>  205, row => 610 }  (list::nth (m, 6));
-		    to_x { col =>  205, row => 710 }  (list::nth (m, 7));
+		    to_x { col =>  20, row =>  1 }  (list::nth (m, 0));
+		    to_x { col =>  20, row => 11 }  (list::nth (m, 1));
+		    to_x { col =>  20, row => 21 }  (list::nth (m, 2));
+		    to_x { col =>  20, row => 31 }  (list::nth (m, 3));
+		    to_x { col =>  20, row => 41 }  (list::nth (m, 4));
+		    to_x { col =>  20, row => 51 }  (list::nth (m, 5));
+		    to_x { col =>  20, row => 61 }  (list::nth (m, 6));
+		    to_x { col =>  20, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col =>  305, row =>  10 }  (list::nth (m, 7));
-		    to_x { col =>  305, row => 110 }  (list::nth (m, 6));
-		    to_x { col =>  305, row => 210 }  (list::nth (m, 5));
-		    to_x { col =>  305, row => 310 }  (list::nth (m, 4));
-		    to_x { col =>  305, row => 410 }  (list::nth (m, 3));
-		    to_x { col =>  305, row => 510 }  (list::nth (m, 2));
-		    to_x { col =>  305, row => 610 }  (list::nth (m, 1));
-		    to_x { col =>  305, row => 710 }  (list::nth (m, 0));
+		    to_x { col =>  30, row =>  1 }  (list::nth (m, 7));
+		    to_x { col =>  30, row => 11 }  (list::nth (m, 6));
+		    to_x { col =>  30, row => 21 }  (list::nth (m, 5));
+		    to_x { col =>  30, row => 31 }  (list::nth (m, 4));
+		    to_x { col =>  30, row => 41 }  (list::nth (m, 3));
+		    to_x { col =>  30, row => 51 }  (list::nth (m, 2));
+		    to_x { col =>  30, row => 61 }  (list::nth (m, 1));
+		    to_x { col =>  30, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col =>  405, row =>  10 }  (list::nth (m, 0));
-		    to_x { col =>  405, row => 110 }  (list::nth (m, 1));
-		    to_x { col =>  405, row => 210 }  (list::nth (m, 2));
-		    to_x { col =>  405, row => 310 }  (list::nth (m, 3));
-		    to_x { col =>  405, row => 410 }  (list::nth (m, 4));
-		    to_x { col =>  405, row => 510 }  (list::nth (m, 5));
-		    to_x { col =>  405, row => 610 }  (list::nth (m, 6));
-		    to_x { col =>  405, row => 710 }  (list::nth (m, 7));
+		    to_x { col =>  40, row =>  1 }  (list::nth (m, 0));
+		    to_x { col =>  40, row => 11 }  (list::nth (m, 1));
+		    to_x { col =>  40, row => 21 }  (list::nth (m, 2));
+		    to_x { col =>  40, row => 31 }  (list::nth (m, 3));
+		    to_x { col =>  40, row => 41 }  (list::nth (m, 4));
+		    to_x { col =>  40, row => 51 }  (list::nth (m, 5));
+		    to_x { col =>  40, row => 61 }  (list::nth (m, 6));
+		    to_x { col =>  40, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col =>  505, row =>  10 }  (list::nth (m, 7));
-		    to_x { col =>  505, row => 110 }  (list::nth (m, 6));
-		    to_x { col =>  505, row => 210 }  (list::nth (m, 5));
-		    to_x { col =>  505, row => 310 }  (list::nth (m, 4));
-		    to_x { col =>  505, row => 410 }  (list::nth (m, 3));
-		    to_x { col =>  505, row => 510 }  (list::nth (m, 2));
-		    to_x { col =>  505, row => 610 }  (list::nth (m, 1));
-		    to_x { col =>  505, row => 710 }  (list::nth (m, 0));
+		    to_x { col =>  50, row =>  1 }  (list::nth (m, 7));
+		    to_x { col =>  50, row => 11 }  (list::nth (m, 6));
+		    to_x { col =>  50, row => 21 }  (list::nth (m, 5));
+		    to_x { col =>  50, row => 31 }  (list::nth (m, 4));
+		    to_x { col =>  50, row => 41 }  (list::nth (m, 3));
+		    to_x { col =>  50, row => 51 }  (list::nth (m, 2));
+		    to_x { col =>  50, row => 61 }  (list::nth (m, 1));
+		    to_x { col =>  50, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col =>  605, row =>  10 }  (list::nth (m, 0));
-		    to_x { col =>  605, row => 110 }  (list::nth (m, 1));
-		    to_x { col =>  605, row => 210 }  (list::nth (m, 2));
-		    to_x { col =>  605, row => 310 }  (list::nth (m, 3));
-		    to_x { col =>  605, row => 410 }  (list::nth (m, 4));
-		    to_x { col =>  605, row => 510 }  (list::nth (m, 5));
-		    to_x { col =>  605, row => 610 }  (list::nth (m, 6));
-		    to_x { col =>  605, row => 710 }  (list::nth (m, 7));
+		    to_x { col =>  60, row =>  1 }  (list::nth (m, 0));
+		    to_x { col =>  60, row => 11 }  (list::nth (m, 1));
+		    to_x { col =>  60, row => 21 }  (list::nth (m, 2));
+		    to_x { col =>  60, row => 31 }  (list::nth (m, 3));
+		    to_x { col =>  60, row => 41 }  (list::nth (m, 4));
+		    to_x { col =>  60, row => 51 }  (list::nth (m, 5));
+		    to_x { col =>  60, row => 61 }  (list::nth (m, 6));
+		    to_x { col =>  60, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col =>  705, row =>  10 }  (list::nth (m, 7));
-		    to_x { col =>  705, row => 110 }  (list::nth (m, 6));
-		    to_x { col =>  705, row => 210 }  (list::nth (m, 5));
-		    to_x { col =>  705, row => 310 }  (list::nth (m, 4));
-		    to_x { col =>  705, row => 410 }  (list::nth (m, 3));
-		    to_x { col =>  705, row => 510 }  (list::nth (m, 2));
-		    to_x { col =>  705, row => 610 }  (list::nth (m, 1));
-		    to_x { col =>  705, row => 710 }  (list::nth (m, 0));
+		    to_x { col =>  70, row =>  1 }  (list::nth (m, 7));
+		    to_x { col =>  70, row => 11 }  (list::nth (m, 6));
+		    to_x { col =>  70, row => 21 }  (list::nth (m, 5));
+		    to_x { col =>  70, row => 31 }  (list::nth (m, 4));
+		    to_x { col =>  70, row => 41 }  (list::nth (m, 3));
+		    to_x { col =>  70, row => 51 }  (list::nth (m, 2));
+		    to_x { col =>  70, row => 61 }  (list::nth (m, 1));
+		    to_x { col =>  70, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col =>  805, row =>  10 }  (list::nth (m, 0));
-		    to_x { col =>  805, row => 110 }  (list::nth (m, 1));
-		    to_x { col =>  805, row => 210 }  (list::nth (m, 2));
-		    to_x { col =>  805, row => 310 }  (list::nth (m, 3));
-		    to_x { col =>  805, row => 410 }  (list::nth (m, 4));
-		    to_x { col =>  805, row => 510 }  (list::nth (m, 5));
-		    to_x { col =>  805, row => 610 }  (list::nth (m, 6));
-		    to_x { col =>  805, row => 710 }  (list::nth (m, 7));
+		    to_x { col =>  80, row =>  1 }  (list::nth (m, 0));
+		    to_x { col =>  80, row => 11 }  (list::nth (m, 1));
+		    to_x { col =>  80, row => 21 }  (list::nth (m, 2));
+		    to_x { col =>  80, row => 31 }  (list::nth (m, 3));
+		    to_x { col =>  80, row => 41 }  (list::nth (m, 4));
+		    to_x { col =>  80, row => 51 }  (list::nth (m, 5));
+		    to_x { col =>  80, row => 61 }  (list::nth (m, 6));
+		    to_x { col =>  80, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col =>  905, row =>  10 }  (list::nth (m, 7));
-		    to_x { col =>  905, row => 110 }  (list::nth (m, 6));
-		    to_x { col =>  905, row => 210 }  (list::nth (m, 5));
-		    to_x { col =>  905, row => 310 }  (list::nth (m, 4));
-		    to_x { col =>  905, row => 410 }  (list::nth (m, 3));
-		    to_x { col =>  905, row => 510 }  (list::nth (m, 2));
-		    to_x { col =>  905, row => 610 }  (list::nth (m, 1));
-		    to_x { col =>  905, row => 710 }  (list::nth (m, 0));
+		    to_x { col =>  90, row =>  1 }  (list::nth (m, 7));
+		    to_x { col =>  90, row => 11 }  (list::nth (m, 6));
+		    to_x { col =>  90, row => 21 }  (list::nth (m, 5));
+		    to_x { col =>  90, row => 31 }  (list::nth (m, 4));
+		    to_x { col =>  90, row => 41 }  (list::nth (m, 3));
+		    to_x { col =>  90, row => 51 }  (list::nth (m, 2));
+		    to_x { col =>  90, row => 61 }  (list::nth (m, 1));
+		    to_x { col =>  90, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col => 1005, row =>  10 }  (list::nth (m, 0));
-		    to_x { col => 1005, row => 110 }  (list::nth (m, 1));
-		    to_x { col => 1005, row => 210 }  (list::nth (m, 2));
-		    to_x { col => 1005, row => 310 }  (list::nth (m, 3));
-		    to_x { col => 1005, row => 410 }  (list::nth (m, 4));
-		    to_x { col => 1005, row => 510 }  (list::nth (m, 5));
-		    to_x { col => 1005, row => 610 }  (list::nth (m, 6));
-		    to_x { col => 1005, row => 710 }  (list::nth (m, 7));
+		    to_x { col => 100, row =>  1 }  (list::nth (m, 0));
+		    to_x { col => 100, row => 11 }  (list::nth (m, 1));
+		    to_x { col => 100, row => 21 }  (list::nth (m, 2));
+		    to_x { col => 100, row => 31 }  (list::nth (m, 3));
+		    to_x { col => 100, row => 41 }  (list::nth (m, 4));
+		    to_x { col => 100, row => 51 }  (list::nth (m, 5));
+		    to_x { col => 100, row => 61 }  (list::nth (m, 6));
+		    to_x { col => 100, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col => 1105, row =>  10 }  (list::nth (m, 7));
-		    to_x { col => 1105, row => 110 }  (list::nth (m, 6));
-		    to_x { col => 1105, row => 210 }  (list::nth (m, 5));
-		    to_x { col => 1105, row => 310 }  (list::nth (m, 4));
-		    to_x { col => 1105, row => 410 }  (list::nth (m, 3));
-		    to_x { col => 1105, row => 510 }  (list::nth (m, 2));
-		    to_x { col => 1105, row => 610 }  (list::nth (m, 1));
-		    to_x { col => 1105, row => 710 }  (list::nth (m, 0));
+		    to_x { col => 110, row =>  1 }  (list::nth (m, 7));
+		    to_x { col => 110, row => 11 }  (list::nth (m, 6));
+		    to_x { col => 110, row => 21 }  (list::nth (m, 5));
+		    to_x { col => 110, row => 31 }  (list::nth (m, 4));
+		    to_x { col => 110, row => 41 }  (list::nth (m, 3));
+		    to_x { col => 110, row => 51 }  (list::nth (m, 2));
+		    to_x { col => 110, row => 61 }  (list::nth (m, 1));
+		    to_x { col => 110, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col => 1205, row =>  10 }  (list::nth (m, 0));
-		    to_x { col => 1205, row => 110 }  (list::nth (m, 1));
-		    to_x { col => 1205, row => 210 }  (list::nth (m, 2));
-		    to_x { col => 1205, row => 310 }  (list::nth (m, 3));
-		    to_x { col => 1205, row => 410 }  (list::nth (m, 4));
-		    to_x { col => 1205, row => 510 }  (list::nth (m, 5));
-		    to_x { col => 1205, row => 610 }  (list::nth (m, 6));
-		    to_x { col => 1205, row => 710 }  (list::nth (m, 7));
+		    to_x { col => 120, row =>  1 }  (list::nth (m, 0));
+		    to_x { col => 120, row => 11 }  (list::nth (m, 1));
+		    to_x { col => 120, row => 21 }  (list::nth (m, 2));
+		    to_x { col => 120, row => 31 }  (list::nth (m, 3));
+		    to_x { col => 120, row => 41 }  (list::nth (m, 4));
+		    to_x { col => 120, row => 51 }  (list::nth (m, 5));
+		    to_x { col => 120, row => 61 }  (list::nth (m, 6));
+		    to_x { col => 120, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col => 1305, row =>  10 }  (list::nth (m, 7));
-		    to_x { col => 1305, row => 110 }  (list::nth (m, 6));
-		    to_x { col => 1305, row => 210 }  (list::nth (m, 5));
-		    to_x { col => 1305, row => 310 }  (list::nth (m, 4));
-		    to_x { col => 1305, row => 410 }  (list::nth (m, 3));
-		    to_x { col => 1305, row => 510 }  (list::nth (m, 2));
-		    to_x { col => 1305, row => 610 }  (list::nth (m, 1));
-		    to_x { col => 1305, row => 710 }  (list::nth (m, 0));
+		    to_x { col => 130, row =>  1 }  (list::nth (m, 7));
+		    to_x { col => 130, row => 11 }  (list::nth (m, 6));
+		    to_x { col => 130, row => 21 }  (list::nth (m, 5));
+		    to_x { col => 130, row => 31 }  (list::nth (m, 4));
+		    to_x { col => 130, row => 41 }  (list::nth (m, 3));
+		    to_x { col => 130, row => 51 }  (list::nth (m, 2));
+		    to_x { col => 130, row => 61 }  (list::nth (m, 1));
+		    to_x { col => 130, row => 71 }  (list::nth (m, 0));
 		    #
-		    to_x { col => 1405, row =>  10 }  (list::nth (m, 0));
-		    to_x { col => 1405, row => 110 }  (list::nth (m, 1));
-		    to_x { col => 1405, row => 210 }  (list::nth (m, 2));
-		    to_x { col => 1405, row => 310 }  (list::nth (m, 3));
-		    to_x { col => 1405, row => 410 }  (list::nth (m, 4));
-		    to_x { col => 1405, row => 510 }  (list::nth (m, 5));
-		    to_x { col => 1405, row => 610 }  (list::nth (m, 6));
-		    to_x { col => 1405, row => 710 }  (list::nth (m, 7));
+		    to_x { col => 140, row =>  1 }  (list::nth (m, 0));
+		    to_x { col => 140, row => 11 }  (list::nth (m, 1));
+		    to_x { col => 140, row => 21 }  (list::nth (m, 2));
+		    to_x { col => 140, row => 31 }  (list::nth (m, 3));
+		    to_x { col => 140, row => 41 }  (list::nth (m, 4));
+		    to_x { col => 140, row => 51 }  (list::nth (m, 5));
+		    to_x { col => 140, row => 61 }  (list::nth (m, 6));
+		    to_x { col => 140, row => 71 }  (list::nth (m, 7));
 		    #
-		    to_x { col => 1505, row =>  10 }  (list::nth (m, 7));
-		    to_x { col => 1505, row => 110 }  (list::nth (m, 6));
-		    to_x { col => 1505, row => 210 }  (list::nth (m, 5));
-		    to_x { col => 1505, row => 310 }  (list::nth (m, 4));
-		    to_x { col => 1505, row => 410 }  (list::nth (m, 3));
-		    to_x { col => 1505, row => 510 }  (list::nth (m, 2));
-		    to_x { col => 1505, row => 610 }  (list::nth (m, 1));
-		    to_x { col => 1505, row => 710 }  (list::nth (m, 0));
+		    to_x { col => 150, row =>  1 }  (list::nth (m, 7));
+		    to_x { col => 150, row => 11 }  (list::nth (m, 6));
+		    to_x { col => 150, row => 21 }  (list::nth (m, 5));
+		    to_x { col => 150, row => 31 }  (list::nth (m, 4));
+		    to_x { col => 150, row => 41 }  (list::nth (m, 3));
+		    to_x { col => 150, row => 51 }  (list::nth (m, 2));
+		    to_x { col => 150, row => 61 }  (list::nth (m, 1));
+		    to_x { col => 150, row => 71 }  (list::nth (m, 0));
 		    #
 		    m =  (list::tail m)  @ [ list::head m ];								# Rotate the colors for visual interest.
 		};
-		printf "appwindow-for-x.pkg sleeping for 2 seconds after doing 100 updates...\n";
-		sleep_for 2.0;
+#		printf "appwindow-for-x.pkg sleeping for 2 seconds after doing 100 updates...\n";
+#		sleep_for 2.0;
 
 	    };	
 
-	fun run {													# These values will be statically globally visible throughout the code body for the imp.
-		    me:			Appwindow_State,								# State which is preserved across imp shutdown/restart cycles.
-		    imports:		Imports,									# Imps to which we send requests.
-		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
-		    appwindow_q:	Appwindow_Q									# 
-		}
+	fun run (
+		  appwindow_q:			Appwindow_Q,		
+		  #
+		  runstate as
+		   {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:			Appwindow_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:			List(Appwindow_Option),
+		      imports:			Imports,									# Imps to which we send requests.
+		      to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':			End_Gun,									# We shut down the microthread when this fires.
+		      endstate_oneshot:		Null_Or(Oneshot_Maildrop(Appwindow_Arg)),					# When end_gun fires we save our state in this and exit.
+		      change_callbacks:		Ref(List(Appwindow_Needs -> Void)),						#
+		      fire_end_gun:		Void -> Void,
+		      window:			xj::Window
+		  }
+		)
 	    =
 	    loop ()
 	    where
-		(create_x_window_plus_supporting_impnet ())
-		    ->
-		    ( fire_end_gun:	Void -> Void,
-		      window:		xj::Window
-		    );
 
 		fun loop ()												# Outer loop for the imp.
 		    =
@@ -536,49 +572,36 @@ herein
 			loop ();
 		    }	
 		    where
+			fun do_appwindow_plea  thunk
+			    =
+			    thunk runstate;
+
+
 			fun shut_down_appwindow_imp' ()
 			    =
 			    {   fire_end_gun ();
 				#
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot => put_in_oneshot (oneshot, (*me.state, options));			# 
+				esac;
+
+
 				thread_exit { success => TRUE };							# Will not return.
 			    };
-
-			fun do_appwindow_plea  (DO_SOMETHING i)
-			        =>
-				{   imports.int_sink i;									# Demonstrate use of imports.
-				};
-
-			    do_appwindow_plea  (EXERCISE_APPWINDOW reply_oneshot)
-				=>
-				{   exercise_appwindow  window;
-				    #
-				    put_in_oneshot (reply_oneshot, ());
-				};
-
-			    do_appwindow_plea  (PASS_APPWINDOW_EXERCISE_RESULTS reply_oneshot)
-				=>
-				{   exercise_appwindow  window;
-				    #
-				    put_in_oneshot (reply_oneshot, 0);
-				};
-
-			    do_appwindow_plea  (PASS_SOMETHING reply_oneshot)
-				=>
-				{   put_in_oneshot (reply_oneshot, 0);
-				};
-			end;
 		    end;
 	    end;	
 
 
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,  reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()				# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
 		appwindow
 		    =
-		    { do_something, exercise_appwindow, pass_something, pass_appwindow_exercise_results };
+		    { id, do_something, exercise_appwindow, pass_something, pass_appwindow_exercise_results };
 
 		to          =  make_replyqueue();
 		#
@@ -586,76 +609,168 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from appwindow_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun' };
+		    { me, options, imports,
+		      run_gun', end_gun',
+		      endstate_oneshot, change_callbacks, appwindow_callbacks
+		    };
+
+		apply   {. #callback appwindow; }   appwindow_callbacks;						# Pass our port to everyone who asked for it.
+		apply   {. #callback *me.state; }     *change_callbacks;						# Pass our initial state to everyone who is change-subscribed.
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
-		run { me, appwindow_q, imports, to, end_gun' };								# Will not return.
+		(create_x_window_plus_supporting_impnet ())
+		    ->
+		    ( fire_end_gun:	Void -> Void,
+		      window:		xj::Window
+		    );
+
+		run (													# Will not return.
+		      appwindow_q,
+		      #
+		      {
+			me, options,  imports,
+			to, end_gun',
+			endstate_oneshot, change_callbacks,
+			fire_end_gun, window
+		      }
+		    );
 	    }
 	    where
 		appwindow_q     =  make_mailqueue (get_current_microthread()):  Appwindow_Q;
 
-		fun do_something (i: Int)										# PUBLIC.
-		    =	
-		    put_in_mailqueue  (appwindow_q, DO_SOMETHING i);
 
+		fun  pass_appwindow_exercise_results  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)		# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+
+			put_in_mailqueue  (appwindow_q,
+			    #
+			    fn ({ window, ... }: Runstate)
+				=
+				{   exercise_appwindow'  window;
+				    #
+				    put_in_oneshot (reply_oneshot, 0);
+				}
+			);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
 
 		fun exercise_appwindow ()										# PUBLIC.
 		    =	
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Void );
 			#
-			put_in_mailqueue  (appwindow_q, EXERCISE_APPWINDOW reply_oneshot);
+			put_in_mailqueue  (appwindow_q,
+			    #
+			    fn ({ window, ... }: Runstate)
+				=
+				{   exercise_appwindow'  window;
+				    #
+				    put_in_oneshot (reply_oneshot, ());
+				}
+			);
 
 			fn () = get_from_oneshot reply_oneshot;								# Return a thunk which will wait until exercise is complete.
 		    };
 
-		fun  pass_appwindow_exercise_results  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)		# PUBLIC.
+
+		fun do_something (i: Int)										# PUBLIC.
+		    =	
+		    put_in_mailqueue  (appwindow_q,
+			#
+			fn ({ imports, ... }: Runstate)
+			    =
+			    imports.int_sink i										# Demonstrate use of imports.
+		    );
+
+
+		fun pass_something (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
-			put_in_mailqueue  (appwindow_q, PASS_APPWINDOW_EXERCISE_RESULTS reply_oneshot);
+			put_in_mailqueue  (appwindow_q,
+			    #
+			    fn ({ me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, 0)
+			);
 
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
 
-		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
-		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
-			#
-			put_in_mailqueue  (appwindow_q, PASS_SOMETHING reply_oneshot);
 
-			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
-		    };
 	    end;
 
 
-	fun process_options (options: List(Option), { name })
+	fun process_options (options: List(Appwindow_Option), { name, id, change_callbacks, appwindow_callbacks })
 	    =
-	    {   my_name   = REF name;
-		#
+	    {   my_name			=  REF name;
+		my_id			=  REF id;
+		my_change_callbacks	=     change_callbacks;		# Comes with REF pre-installed.
+		my_appwindow_callbacks	= REF appwindow_callbacks;
+
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		    fun do_option (MICROTHREAD_NAME n)  =>   my_name	:=  n;
+		        do_option (ID               i)  =>   my_id	:=  i;
+			#
+			do_option (CHANGE_CALLBACK     c)  =>  my_change_callbacks    :=  c ! *my_change_callbacks;
+			do_option (APPWINDOW_CALLBACK  c)  =>  my_appwindow_callbacks :=  c ! *my_appwindow_callbacks;
+		    end;
 		end;
 
-		{ name => *my_name };
+		{ name			=>  *my_name,
+		  id 			=>  *my_id,
+		  #
+		  change_callbacks	=>   my_change_callbacks,
+		  appwindow_callbacks	=>  *my_appwindow_callbacks
+	        };
 	    };
 
 
         ##########################################################################################
 	# PUBLIC.
 	#
-	fun make_appwindow_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	fun make_appwindow_egg
+	        ( needs:	     Appwindow_Needs,
+		  options:	List(Appwindow_Option)
+		)
+		(endstate_oneshot:	 Null_Or(Oneshot_Maildrop(Appwindow_Arg)))					# When end_gun fires we save our state in this and exit.
 	    =
-	    {   (process_options (options, { name => "appwindow_for_x" }))
-		    ->
-		    { name };
+	    {   (process_options
+		  ( options,
+		    { name			=>  "appwindow_for_x",
+		      id			=>  0,
+		      #	
+		      change_callbacks		=> REF([]),
+		      appwindow_callbacks	=> []
+		    }
+		) )
+		  ->
+		  { name,
+		    id,
+		    #
+		    change_callbacks,
+		    appwindow_callbacks
+		  };
 	
-		me = REF ();
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = iui::issue_unique_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);
+		    fi;
+
+		me =  { id,
+			state =>  REF needs
+		      };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
 
@@ -667,7 +782,7 @@ herein
 				)
 				=
 				{
-				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				    put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot, change_callbacks, appwindow_callbacks });
 				};
 
 			    (exports, phase3);
