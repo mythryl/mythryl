@@ -45,8 +45,9 @@ stipulate
 #   package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
 #   package xtr =  xlogger;					# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
     #
-    package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
     package bs  =  bounce_space;				# bounce_space			is from   src/lib/x-kit/widget/space/bounce/bounce-space.pkg
+    package iui =  issue_unique_id;				# issue_unique_id		is from   src/lib/src/issue-unique-id.pkg
+    package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
     tracefile   =  "widget-unit-test.trace.log";
 herein
 
@@ -62,7 +63,11 @@ herein
 	#
 	include bounce_space;											# bounce_space			is from   src/lib/x-kit/widget/shape/label-shape.pkg
 	#
-	Bounce_Space_State = Ref( Void );									# Holds all nonephemeral mutable state maintained by shape.
+	Bounce_Space_State											# Holds all nonephemeral mutable state maintained by shape.
+	  =
+	  { id:		Int,
+	    state:	Ref( Void )
+	  };
 
 	Imports = {												# Ports we use, provided by other imps.
 		    int_sink: Int -> Void
@@ -83,6 +88,7 @@ herein
 	Bounce_Space_Option
 	  #
 	  = MICROTHREAD_NAME 		String									# 
+	  | ID				Int									# Stable, unique id for imp.
 	  | BOUNCE_SPACE_CALLBACK	Bounce_Space -> Void
 	  ;
 
@@ -136,11 +142,11 @@ herein
 		    end;
 	    end;	
 
-	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	fun startup   (id: Int,   reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()				# Root fn of imp microthread.  Note currying.
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
-		bounce_space = { do_something, pass_something };
+		bounce_space = { id, do_something, pass_something };
 
 		to          =  make_replyqueue();
 		#
@@ -191,22 +197,26 @@ herein
 	      options: List(Bounce_Space_Option),
 	      #
 	      { name,
+		id,
 		callback
 	      }
 	    )
 	    =
-	    {   my_name   	= REF name;
-		my_callback	= REF callback;
+	    {   my_name   	=  REF name;
+		my_id		=  REF id;
+		my_callback	=  REF callback;
 		#
 		apply  do_option  options
 		where
 		    fun do_option (MICROTHREAD_NAME      n)  =>  my_name	:=  n;
+			do_option (ID                    i)  =>  my_id		:=  i;
 			do_option (BOUNCE_SPACE_CALLBACK c)  =>  my_callback	:=  THE c;
 		    end;
 		end;
 
-		{ name     => *my_name,
-		  callback => *my_callback
+		{ name     =>  *my_name,
+		  id 	   =>  *my_id,
+		  callback =>  *my_callback
 		};
 	    };
 
@@ -216,22 +226,34 @@ herein
 	fun make_bounce_space_egg (options: List(Bounce_Space_Option))							# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
 	    {
-		(process_options ( options,
-				   #
-				   { name	=> "bounce_space",
-				     callback	=> NULL
-				   } 
-		)		 )
+		(process_options
+                  ( options,
+		    #
+		    { name	=> "bounce_space",
+		      id	=>  0,
+		      callback	=> NULL
+		    } 
+		) )
 		    ->
 		    { name,
+		      id, 
 		      callback
 		    };
 	
-		me = REF ();
+		my (id, options)
+		    =
+		    if (id == 0)
+			id = iui::issue_unique_id();									# Allocate unique imp id.
+			(id, ID id ! options);										# Make our id stable across stop/restart cycles.
+		    else
+			(id, options);
+		    fi;
+
+		me = { id, state => REF () };
 
 		fn () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
 			    #
-			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+			    xlogger::make_thread  name  (startup  (id, reply_oneshot));					# Note that startup() is curried.
 
 			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
 
@@ -277,6 +299,7 @@ herein
 		    case option
 			#
 			MICROTHREAD_NAME name	=>  {  pp.lit (sprintf "MICROTHREAD_NAME \"%s\"" name);		};
+			ID               id	=>  {  pp.lit (sprintf "ID %d" id                     );	};
 			BOUNCE_SPACE_CALLBACK _	=>  {  pp.lit          "BOUNCE_SPACE_CALLBACK (callback)";	};
 		    esac;
 	    end;
