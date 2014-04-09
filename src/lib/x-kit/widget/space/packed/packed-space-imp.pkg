@@ -67,17 +67,10 @@ herein
 		    int_sink: Int -> Void
 		  };
 
-	Me_Slot = Mailslot  ( { imports:	Imports,
-				me:		Packed_Space_State,
-				run_gun':	Run_Gun,
-				end_gun':	End_Gun,
-				callback:	Null_Or(Packed_Space -> Void)
-                              }
-                            );
-
 	Exports	= {													# Ports we provide for use by other imps.
 		    packed_space:		Packed_Space
 		  };
+
 
 	Packed_Space_Option
 	    #
@@ -86,16 +79,27 @@ herein
 	    | PACKED_SPACE_CALLBACK	ps::Packed_Space -> Void
 	    ;
 
+	Packed_Space_Arg =  List(Packed_Space_Option);									# Currently no required component. 
+
 	Packed_Space_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-
-	Packed_Space_Arg =  List(Packed_Space_Option);									# Currently no required component. 
+	Me_Slot = Mailslot  ( { imports:		Imports,
+				me:			Packed_Space_State,
+				options:		List(Packed_Space_Option),
+				run_gun':		Run_Gun,
+				end_gun':		End_Gun,
+				endstate_oneshot:	Null_Or(Oneshot_Maildrop(Packed_Space_Arg)),			# When end_gun fires we save our state in this and exit.
+				callback:		Null_Or(Packed_Space -> Void)
+                              }
+                            );
 
 	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
 		      me:		Packed_Space_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:		List(Packed_Space_Option),
 		      imports:		Imports,									# Imps to which we send requests.
 		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		      end_gun':		End_Gun										# We shut down the microthread when this fires.
+		      end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Packed_Space_Arg))					# When end_gun fires we save our state in this and exit.
 		    };
 
 	Label_Q    = Mailqueue( Runstate -> Void );
@@ -105,9 +109,11 @@ herein
 		    runstate as
 		    {													# These values will be statically globally visible throughout the code body for the imp.
 		      me:		Packed_Space_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:		List(Packed_Space_Option),
 		      imports:		Imports,									# Imps to which we send requests.
 		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		      end_gun':		End_Gun										# We shut down the microthread when this fires.
+		      end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Packed_Space_Arg))					# When end_gun fires we save our state in this and exit.
 		    }
 		  )
 	    =
@@ -135,7 +141,12 @@ printf "run() entering loop() -- packed-space-imp.pkg\n";
 			fun shut_down_label_imp' ()
 			    =
 			    {
-printf "loop() shutting down -- packed-space-imp.pkg\n";
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot =>  put_in_oneshot (oneshot, options)		;			# 
+				esac;
+
 				thread_exit { success => TRUE };							# Will not return.	
 			    };
 		    end;
@@ -155,7 +166,7 @@ printf "loop() shutting down -- packed-space-imp.pkg\n";
 
 		(take_from_mailslot  me_slot)										# Imports from packed_space_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun', callback };
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot, callback };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -163,7 +174,7 @@ printf "loop() shutting down -- packed-space-imp.pkg\n";
 				NULL	     => ();
 		esac;
 
-		run (label_q, { me, imports, to, end_gun' });								# Will not return.
+		run (label_q, { me, options, imports, to, end_gun', endstate_oneshot });				# Will not return.
 	    }
 	    where
 		label_q     =  make_mailqueue (get_current_microthread()):  Label_Q;
@@ -225,7 +236,9 @@ printf "loop() shutting down -- packed-space-imp.pkg\n";
         ##########################################################################################
 	# PUBLIC.
 	#
-	fun make_packed_space_egg (options: List(Packed_Space_Option))							# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	fun make_packed_space_egg
+		(options:		List(Packed_Space_Option))							# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+		(endstate_oneshot:	Null_Or(Oneshot_Maildrop(Packed_Space_Arg)))					# When end_gun fires we save our state in this and exit.
 	    =
 	    {   (process_options
                   ( options,
@@ -265,7 +278,7 @@ printf "loop() shutting down -- packed-space-imp.pkg\n";
 				)
 				=
 				{
-				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', callback });
+				    put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot, callback });
 				};
 
 			    (exports, phase3);

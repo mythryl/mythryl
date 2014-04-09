@@ -63,22 +63,6 @@ herein
 	    state:	Ref( Void )
 	  };
 
-	Imports = {												# Ports we use, provided by other imps.
-		    int_sink: Int -> Void
-		  };
-
-	Me_Slot = Mailslot  ( { imports:	Imports,
-				me:		Canvas_Space_State,
-				run_gun':	Run_Gun,
-				end_gun':	End_Gun,
-				callback:	Null_Or(Canvas_Space -> Void)
-                              }
-                            );
-
-	Exports	= {													# Ports we provide for use by other imps.
-		    canvas_space:	Canvas_Space
-		  };
-
 	Canvas_Space_Option
 	  #
 	  = MICROTHREAD_NAME	String											# 
@@ -86,15 +70,35 @@ herein
 	  | CANVAS_SPACE_CALLBACK	cs::Canvas_Space -> Void
 	  ;
 
+	Canvas_Space_Arg =  List(Canvas_Space_Option);									# Currently no required component.
+
+	Imports = {												# Ports we use, provided by other imps.
+		    int_sink: Int -> Void
+		  };
+
+	Exports	= {												# Ports we provide for use by other imps.
+		    canvas_space:	Canvas_Space
+		  };
+
 	Canvas_Space_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-	Canvas_Space_Arg =  List(Canvas_Space_Option);									# Currently no required component.
+	Me_Slot = Mailslot  ( { imports:		Imports,
+				me:			Canvas_Space_State,
+				options:		List(Canvas_Space_Option),
+				run_gun':		Run_Gun,
+				end_gun':		End_Gun,
+				endstate_oneshot:	Null_Or(Oneshot_Maildrop(Canvas_Space_Arg)),		# When end_gun fires we save our state in this and exit.
+				callback:		Null_Or(Canvas_Space -> Void)
+                              }
+                            );
 
 	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
 		      me:		Canvas_Space_State,								# State which is preserved across imp shutdown/restart cycles.
+		      options:		List(Canvas_Space_Option),
 		      imports:		Imports,									# Imps to which we send requests.
 		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		      end_gun':		End_Gun										# We shut down the microthread when this fires.
+		      end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		      endstate_oneshot:	Null_Or(Oneshot_Maildrop(Canvas_Space_Arg))					# When end_gun fires we save our state in this and exit.
 		    };
 
 	Label_Q    = Mailqueue( Runstate -> Void );
@@ -104,9 +108,11 @@ herein
 		  runstate as
 		  {													# These values will be statically globally visible throughout the code body for the imp.
 		    me:			Canvas_Space_State,								# State which is preserved across imp shutdown/restart cycles.
+		    options:		List(Canvas_Space_Option),
 		    imports:		Imports,									# Imps to which we send requests.
 		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':		End_Gun										# We shut down the microthread when this fires.
+		    end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		    endstate_oneshot:	Null_Or(Oneshot_Maildrop(Canvas_Space_Arg))					# When end_gun fires we save our state in this and exit.
 		  }
 		)
 	    =
@@ -130,7 +136,13 @@ herein
 			fun shut_down_label_imp' ()
 			    =
 			    {
-				thread_exit { success => TRUE };							# Will not return.	
+				case endstate_oneshot									# Pass our state back to gui-boss to allow later impnet restart without state loss.
+				    #
+				    NULL	=> ();
+				    THE oneshot =>  put_in_oneshot (oneshot, options)		;			# 
+				esac;
+
+				thread_exit { success => TRUE };							# Will not return.
 			    };
 		    end;
 	    end;	
@@ -149,7 +161,7 @@ herein
 
 		(take_from_mailslot  me_slot)										# Imports from canvas_space_egg'().
 		    ->
-		    { me, imports, run_gun', end_gun', callback };
+		    { me, options, imports, run_gun', end_gun', endstate_oneshot, callback };
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
@@ -157,7 +169,7 @@ herein
 				NULL	     => ();
 		esac;
 
-		run (label_q, { me, imports, to, end_gun' });								# Will not return.
+		run (label_q, { me, options, imports, to, end_gun', endstate_oneshot });				# Will not return.
 	    }
 	    where
 		label_q     =  make_mailqueue (get_current_microthread()):  Label_Q;
@@ -219,7 +231,9 @@ herein
         ##########################################################################################
 	# PUBLIC.
 	#
-	fun make_canvas_space_egg (options: List(Canvas_Space_Option))							# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	fun make_canvas_space_egg
+		(options:		List(Canvas_Space_Option))							# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+		(endstate_oneshot:	Null_Or(Oneshot_Maildrop(Canvas_Space_Arg)))					# When end_gun fires we save our state in this and exit.
 	    =
 	    {
 		(process_options
@@ -260,7 +274,7 @@ herein
 				)
 				=
 				{
-				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', callback });
+				    put_in_mailslot  (me_slot, { me, options, imports, run_gun', end_gun', endstate_oneshot, callback });
 				};
 
 			    (exports, phase3);
