@@ -129,7 +129,7 @@ all:	c-stuff compiler rest
 #
 bin/mythryl-runtime-intel32: src/c/o/Makefile
 	@sh/make-c-stuff
-	@sh/patch-shebangs  bin/mythryld bin/mythryld-bare bin/mythryld-bare-bootstrap bin/mythryl-lex  bin/mythryl-yacc
+	@sh/patch-shebangs  bin/mythryld bin/mythryld-bootstrap bin/mythryl-lex  bin/mythryl-yacc
 
 # User-friendly name for the above:
 #
