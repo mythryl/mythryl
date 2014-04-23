@@ -97,24 +97,13 @@ help:
 	@echo
 	@echo "This is the master makefile for Mythryl7, an advanced incrementally compiled language."
 	@echo
-	@echo
-	@echo "The basic end-user oriented make commands are:"
-	@echo
-	@echo "    make mythryl7        # Build just the core executables and libraries."
-	@echo "    make all             # Build the above plus various other goodies."
-	@echo "    make clean           # Undo the above, returning filetree to pristine condition."
-	@echo
-	@echo
-	@echo "One make command intended chiefly for compiler hackers is:"
-	@echo
-	@echo "    make id              # Build TAGS and ID files indexing the source files."
-	@echo
 	@echo "The current standard compiler hacker development cycle is:"
 	@echo
 	@echo "    make compiler        #"
 	@echo "    make rest            #"
 	@echo "    sudo make install    #"
 	@echo "    make check           #"
+	@echo "    make benchmarks      #"
 	@echo "    make tart            # "
 	@echo
 	@echo "Other commands include:"
