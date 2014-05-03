@@ -2,16 +2,20 @@
 #
 # Track graphics-contexts in the X server.
 #
-# Reppy had this as a full-fledged imp, but it wound up
-# only used by draw-ximp, so I demoted it to a support
-# package. We expect to be used only by a single draw-ximp
-# microthread, so we have no concurrency issues.
+# Reppy had this as a full-fledged imp
+#     src/lib/x-kit/xclient/src/window/pen-to-gcontext-imp-old.pkg
+# but it wound up only used by
+#     src/lib/x-kit/xclient/src/window/xserver-ximp.pkg
+# so it got demoted to a support package. We expect to be used only
+# by a single draw-ximp microthread, so we have no concurrency issues.
 #                           -- 2013-07-17 CrT
 #
 # For the big picture see the imp dataflow diagram in
 #
 #     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
 #
+# NB: Throughout this file, "gc" == "(X11) graphics context"
+#                                  -- NOT "garbage  collector"!
 
 # Compiled by:
 #     src/lib/x-kit/xclient/xclient-internals.sublib
@@ -25,6 +29,8 @@ stipulate
     #
     #
     package un  =  unt;						# unt						is from   src/lib/std/unt.pkg
+    package rwv =  rw_vector;					# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+    package vec =  vector;					# vector					is from   src/lib/std/src/vector.pkg
     package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
     package v2w =  value_to_wire;				# value_to_wire					is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
     package w2v =  wire_to_value;				# wire_to_value					is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
@@ -136,11 +142,6 @@ herein
 	      ];
 
 
-	(|)  = unt::bitwise_or;
-	(&)  = unt::bitwise_and;
-	(>>) = unt::(>>);
-	(<<) = unt::(<<);
-
 	# Search a list of in-use GCs for
 	# given gc_id and remove if free.
 	#
@@ -241,7 +242,7 @@ herein
 		    bitmask (i ! r) =>  (0u1 << unt::from_int i) | (bitmask r);
 		end;
 
-		(vector::from_list (map bitmask l), vector::from_list (map head l));
+		(vec::from_list (map bitmask l), vec::from_list (map head l));
 	    };
 	#
 	fun pen_mask_to_gcmask  pen_mask
@@ -256,8 +257,8 @@ herein
 			=>
 			(mask & 0u1)  == 0u0
 			    ##
-			    ??  loop (mask >> 0u1, i+1, m)
-			    ::  loop (mask >> 0u1, i+1, m | vector::get (penslot_to_gcmask, i));
+			    ??  loop (mask >> 0u1, i+1,  m                       )
+			    ::  loop (mask >> 0u1, i+1,  m | penslot_to_gcmask[i]);
 		end;
 	    end;
 
@@ -284,18 +285,18 @@ herein
 	#
 	fun pen_to_gcvals (pg::PEN { traits, ... }, dst_mask, font)
 	    =
-	    {   gc_vals = rw_vector::make_rw_vector (gc_slot_count, NULL);
+	    {   gc_vals = rwv::make_rw_vector (gc_slot_count, NULL);
 		#
-		fun update   (i, v) = rw_vector::set (gc_vals, i, THE (unt::from_int v));
-		fun update_u (i, v) = rw_vector::set (gc_vals, i, THE v);
+		fun update   (i, v) =   gc_vals[i] := THE (unt::from_int v);
+		fun update_u (i, v) =   gc_vals[i] := THE v;
 		#
 		fun init_val (i, pg::IS_WIRE v)
 			=>
-			update_u (vector::get (penslot_to_gcslot, i), v);
+			update_u (penslot_to_gcslot[i], v);
 
 		    init_val (i, pg::IS_POINT ({ col, row } ))
 			=>
-			{   j = vector::get (penslot_to_gcslot, i);
+			{   j = penslot_to_gcslot[i];
 
 			    update (j,   col);
 			    update (j+1, row);
@@ -303,7 +304,7 @@ herein
 
 		    init_val (i, pg::IS_PIXMAP xid)
 			=>
-			update_u (vector::get (penslot_to_gcslot, i), xt::xid_to_unt xid);
+			update_u (penslot_to_gcslot[i], xt::xid_to_unt xid);
 
 		    init_val _
 			=>
@@ -318,7 +319,7 @@ herein
 			=>
 			{   if ((m & 0u1) != 0u0)
 				#
-				init_val (i, vector::get (traits, i));
+				init_val (i, traits[i]);
 			    fi;
 
 			    init_vals (m >> 0u1, i+1);
@@ -342,11 +343,11 @@ herein
 			  #	
 			  NULL;
 		      else
-			  case (vector::get (traits, clip_mask_penslot))
+			  case (traits[clip_mask_penslot])
 			      #
 			      pg::IS_BOXES boxes
 				  =>
-				  (THE (vector::get (traits, clip_origin_penslot), boxes));
+				  (THE (traits[ clip_origin_penslot ], boxes));
 
 			      _ => NULL;
 			  esac;
@@ -356,11 +357,11 @@ herein
 				#
 				NULL;
 			    else
-				case (vector::get (traits, dashlist_penslot))
+				case (traits[ dashlist_penslot ])
 				    #
 				     pg::IS_DASHES dashes
 					 =>
-					 THE (vector::get (traits, dash_offset_penslot), dashes);
+					 THE (traits[ dash_offset_penslot ], dashes);
 
 				     _ => NULL;
 				esac;
@@ -401,9 +402,9 @@ herein
 	#
 	fun set_font  (gc_id,  font_id, note_xrequest)
 	    =
-	    {   vals = rw_vector::make_rw_vector (gc_slot_count, NULL);
+	    {   vals = rwv::make_rw_vector (gc_slot_count, NULL);
 		#
-		rw_vector::set (vals, font_gcslot, THE (xt::xid_to_unt font_id));
+		vals[font_gcslot] :=  THE (xt::xid_to_unt font_id);
 
 		note_xrequest  (v2w::encode_change_gc { gc_id, vals => xt::VALUE_LIST vals });
 	    };
