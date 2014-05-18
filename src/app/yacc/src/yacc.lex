@@ -35,7 +35,7 @@ pcount        = REF 0;
 comment_level = REF 0;
 actionstart   = REF 0;
 
-eof =   fn i =
+eof =   \\ i =
              {   if  (*pcount > 0)
 
 		     error i *actionstart

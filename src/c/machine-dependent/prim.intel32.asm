@@ -59,7 +59,7 @@
 //      handled by putting the function (technically, closure) called
 //	in ESI and its argument in EBP.
 //
-//      (In practice, whenever the calling and called fn are both known, the
+//      (In practice, whenever the calling and called \\ are both known, the
 //      compiler makes strenuous efforts to pass everything in registers and
 //      avoid explicitly constructing the argument tuple. But the ESI/EBP
 //      model is the one the compiler falls back to whenever its lacks enough

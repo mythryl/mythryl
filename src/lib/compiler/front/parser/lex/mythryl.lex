@@ -112,7 +112,7 @@ fun my_synch (src, pos, parts)
 	fun convert digits
             =
             fold_forward
-                (fn (d, n) =  10*n + digit d)
+                (\\ (d, n) =  10*n + digit d)
                 0
                 (explode digits);
 
@@ -278,6 +278,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>"["	=> (tokens::lbracket(yypos,yypos+1));
 <initial>"#["	=> (tokens::vectorstart(yypos,yypos+1));
 <initial>"]"	=> (yybegin postfix; tokens::rbracket(yypos,yypos+1));
+<initial>"\\\\"	=> (tokens::fn_t(yypos,yypos+1));
 <initial>";"	=> (tokens::semi(yypos,yypos+1));
 <initial>"("{full_sym}+")" => (mythryl_token_table::check_passive_symbol_id(yytext,yypos));
 <initial>"("	=> (if ((null *brack_stack))
@@ -533,6 +534,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <postfix>"["	=> (yybegin initial; tokens::post_lbracket(yypos,yypos+1));
 <postfix>"#["	=> (yybegin initial; tokens::vectorstart(yypos,yypos+1));
 <postfix>"]"	=> (tokens::rbracket(yypos,yypos+1));
+<postfix>"\\\\"	=> (tokens::fn_t(yypos,yypos+1));
 <postfix>";"	=> (yybegin initial; tokens::semi(yypos,yypos+1));
 <postfix>"("{full_sym}+")" => (mythryl_token_table::check_passive_symbol_id(yytext,yypos));
 <postfix>"("	=> (if (null *brack_stack)

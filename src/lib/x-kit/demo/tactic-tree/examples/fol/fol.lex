@@ -25,7 +25,7 @@ type Lex_Arg =  {comment_nesting_depth : int ref,
 
 type Arg = Lex_Arg
 
-eof = fn ({comment_nesting_depth,err,linePos,lineNum,stringtext}: Lex_Arg) => 
+eof = \\ ({comment_nesting_depth,err,linePos,lineNum,stringtext}: Lex_Arg) => 
   let pos = hd(*linePos) in tokens::EOF(pos,pos) end 
 
 
@@ -57,7 +57,7 @@ eof = fn ({comment_nesting_depth,err,linePos,lineNum,stringtext}: Lex_Arg) =>
 <INITIAL>"*" => (tokens::TIMES(0,0));
 <INITIAL>"/" => (tokens::DIVIDE(0,0));
 <INITIAL>{num} => 
-	(tokens::NUM (revfold (fn(a,r)=>ord(a)-ord("0")+10*r) (explode yytext) 0,0,0));       
+	(tokens::NUM (revfold (\\(a,r)=>ord(a)-ord("0")+10*r) (explode yytext) 0,0,0));       
 
 <INITIAL>":" => (tokens::COLON(0,0));
 <INITIAL>"(" => (tokens::LPAREN(0,0));

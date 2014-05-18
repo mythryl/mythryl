@@ -7,7 +7,7 @@ type Source_Position = Interface.Source_Position
   type Token( X, Y ) = tokens::Token( X, Y )
 type Lex_Result= Token( Semantic_Value, Source_Position )
 
-  eof = fn () => tokens::EOF(*line,*line)
+  eof = \\ () => tokens::EOF(*line,*line)
 fun makeInt (s : String) = s
 
 %%

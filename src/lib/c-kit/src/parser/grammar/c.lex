@@ -42,7 +42,7 @@ fun inc (i_ref : Ref Int) =   i_ref := *i_ref + 1;
 
 fun chr i = string::from_char(char::from_int i);
 fun ord s = char::to_int(string::get(s, 0));
-fun explode s = vector_of_chars::fold_backward (fn (c, l) =  str c ! l) [] s;
+fun explode s = vector_of_chars::fold_backward (\\ (c, l) =  str c ! l) [] s;
 fun implode str_list = string::cat str_list;
 
 fun hd [] => {   print "c.lex: hd of empty\n";
@@ -51,7 +51,7 @@ fun hd [] => {   print "c.lex: hd of empty\n";
     hd (h ! l) => h;
 end;
 
-eof = fn ({ comment_nesting_depth,err_warn,line_number_db,stringstart,charlist}: Lex_Arg) =
+eof = \\ ({ comment_nesting_depth,err_warn,line_number_db,stringstart,charlist}: Lex_Arg) =
 	    { pos = int::max(*stringstart+2, line_number_db::curr_pos line_number_db);
 
 	      if (*comment_nesting_depth > 0 )

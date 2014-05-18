@@ -7,7 +7,7 @@ type Lex_Result = Token( Semantic_Value, Source_Position )
 include tokens
 
 lineNum = REF 0
-eof = fn () => EOF(*lineNum,*lineNum)
+eof = \\ () => EOF(*lineNum,*lineNum)
 
 
 package KeyWord : sig
@@ -19,20 +19,20 @@ package KeyWord : sig
 	TableSize = 211
 	HashFactor = 5
 
-	hash = fn s =>
-	   fold_forward (fn (c,v)=>(v*HashFactor+(ord c)) mod TableSize) 0 (explode s)
+	hash = \\ s =>
+	   fold_forward (\\ (c,v)=>(v*HashFactor+(ord c)) mod TableSize) 0 (explode s)
 
 
 	hashtable = rw_vector.array(TableSize,NIL) :
 		 (String * (int * int -> (Semantic_Value,int) token)) list rw_vector.rw_vector
 
 
-	add = fn (s,v) =>
+	add = \\ (s,v) =>
 	 let i = hash s
 	 in rw_vector.update(hashtable,i,(s,v) . (rw_vector.sub(hashtable, i)))
 	 end
 
-        find = fn s =>
+        find = \\ s =>
 	  let i = hash s
 	      fun f ((key,v) . r) = if s=key then THE v else f r
 	        | f NIL = NULL

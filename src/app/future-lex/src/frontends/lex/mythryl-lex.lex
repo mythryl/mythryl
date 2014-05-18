@@ -5,11 +5,11 @@ type Lex_Result = Token( Semantic_Value, Source_Position )
 
 use Tok
 
-eof =   fn () => eofx(-1,-1)
-error = /* fn (e,l : int,_) =>
+eof =   \\ () => eofx(-1,-1)
+error = /* \\ (e,l : int,_) =>
       output(std_out,"line " + (makestring l) +
 	     ": " + e + "\n") */
-     fn _ => ()
+     \\ _ => ()
 
 local
 text = REF ([] : String list)
@@ -20,7 +20,7 @@ fun getAction () = (cat (reverse *text))
 end
 
 #  what to do (i.e. switch start states) after recognizing an action 
-afterAction = REF (fn () => ())
+afterAction = REF (\\ () => ())
 
 #  paren counting for actions 
 pcount = REF 0
@@ -71,14 +71,14 @@ id	= {alpha}({alpha} | {num} | "_" | "'")*;
 <DEFS> "%header" {ws}* "("
 		=> (clrAction(); pcount := 1; inquote := false; 
 	            yybegin ACTION;
-		    afterAction := (fn () => yybegin DEFS);
+		    afterAction := (\\ () => yybegin DEFS);
 		    header(*yylineno, *yylineno));
 <DEFS> "%package"
 		=> (struct(*yylineno, *yylineno));
 <DEFS> "%arg" {ws}* "("
 		=> (clrAction(); pcount := 1; inquote := false;
                     yybegin ACTION;
-		    afterAction := (fn () => yybegin DEFS);
+		    afterAction := (\\ () => yybegin DEFS);
 		    arg(*yylineno, *yylineno));
 <DEFS> "%count" => (count(*yylineno, *yylineno));
 <DEFS> "%reject"=> (rejecttok(*yylineno, *yylineno));
@@ -108,7 +108,7 @@ id	= {alpha}({alpha} | {num} | "_" | "'")*;
 <RE> "=>" {ws}*	"("
 		=> (clrAction(); pcount := 1; inquote := false;
                     yybegin ACTION;
-		    afterAction := (fn () => yybegin RE);
+		    afterAction := (\\ () => yybegin RE);
 		    arrow(*yylineno, *yylineno));
 <RE> ";"	=> (yybegin DEFS; semi(*yylineno, *yylineno));
 

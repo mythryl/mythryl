@@ -144,7 +144,7 @@ fun decimal (err,s,pos) =  scan err (int::scan   number_string::DECIMAL) (s,s)  
 fun real (err,s,pos)
     =
     scan err (eight_byte_float::scan) (s,s) 
-                       (fn (x,y,z) =  real_t(eight_byte_float::to_string x, y, z)) pos;
+                       (\\ (x,y,z) =  real_t(eight_byte_float::to_string x, y, z)) pos;
 
 fun hex    (err,s,pos) =  scan err (int::scan number_string::HEX)    (s,strip 2 s) int pos;
 fun octal  (err,s,pos) =  scan err (int::scan number_string::OCTAL)  (s,strip 2 s) int pos;

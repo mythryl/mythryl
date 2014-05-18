@@ -134,7 +134,7 @@ pp_ids = [    ("defined",	plain tokens::defined	),
 fun id_token (t, p, idlist, default, chstate, in_section2)
     =
     case (list::find
-             (fn (id, _) =  id == t)
+             (\\ (id, _) =  id == t)
 	     ml_ids
     )
 
@@ -147,7 +147,7 @@ fun id_token (t, p, idlist, default, chstate, in_section2)
 	NULL
 	    =>
 	    case (list::find
-		     (fn (id, _) =  id == t)
+		     (\\ (id, _) =  id == t)
 		     idlist
 	    )
 		THE (_, tok) =>   tok (in_section2, (p, p + size t));	# We pass 'in_section2' only so that library_components_token() can set it TRUE.
@@ -308,7 +308,7 @@ sharp="#";
 			      yypos, yypos + size yytext));
 
 <ppp>{id}                 => (id_token (yytext, yypos, pp_ids, tokens::makelib_id,
-				     fn () =  yybegin pm, in_section2));
+				     \\ () =  yybegin pm, in_section2));
 <ppp>"/"                  => (tokens::mulsym (lga::DIV, yypos, yypos + 1));
 <ppp>"%"                  => (tokens::mulsym (lga::MOD, yypos, yypos + 1));
 
@@ -346,7 +346,7 @@ sharp="#";
                                 fi,
 				#
 				tokens::file_standard,
-				fn () =  yybegin mmm,
+				\\ () =  yybegin mmm,
                                 in_section2
 			      )
 			    );
