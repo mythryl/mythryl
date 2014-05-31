@@ -1,5 +1,0 @@
-junk junk junk
-
-main(){
-
-}

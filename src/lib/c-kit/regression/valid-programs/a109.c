@@ -1,5 +1,0 @@
-struct foo *x;
-
-main (){
-
-}

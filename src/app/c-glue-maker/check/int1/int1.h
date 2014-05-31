@@ -1,9 +1,0 @@
-extern int** foo;
-
-
-
-
-
-
-
-
