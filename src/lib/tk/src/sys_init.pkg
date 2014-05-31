@@ -1,0 +1,263 @@
+## sys_init.pkg
+## Author: stefan (Last modification by $Author: 2cxl $)
+## (C) 1996, Bremen Institute for Safe Systems (BISS), University of Bremen. 
+
+# Compiled by:
+#     src/lib/tk/src/tk.sublib
+
+
+# **************************************************************************
+# 
+# Initialization functions for tk
+# 
+# $Date: 2001/03/30 13:39:19 $
+# $Revision: 3.0 $
+#
+#
+# **************************************************************************
+
+
+
+api Sys_Init {
+
+     getenv:       String -> String null_or::Null_Or; 
+     init_sml_tk:  Void -> Void;
+};
+
+
+package sys_init: (weak)  Sys_Init
+=
+package {
+
+    include  basic_tk_types;
+    include  basic_utilities::file_util;
+    include  com_state;
+
+    old_display = REF "";
+
+    fun get_display ()
+        =    
+	{   display = null_or::the_else (winix__premicrothread::process::get_env "DISPLAY", "");
+	    host= null_or::the_else (winix__premicrothread::process::get_env "HOSTNAME", "");
+	
+            (   if (string::get (display, 0)== ':')
+
+                     host$display;   	     #  prefix with host name if display name is ":0.0" or some such 
+	        else display;
+                fi
+            )
+	    except
+                INDEX_OUT_OF_BOUNDS
+		    =
+		    host$":0";
+        };
+	    
+    fun is_file_rd_and_ex pn
+        =
+	# 	winix__premicrothread::file::access (pn,[winix__premicrothread::file::MAY_READ, winix__premicrothread::file::MAY_EXECUTE]) 
+	winix__premicrothread::file::access (pn,[winix__premicrothread::file::MAY_READ]);
+	
+    fun is_file_rd pn
+        =
+	winix__premicrothread::file::access (pn, [winix__premicrothread::file::MAY_READ]);
+	
+    fun is_readable_and_writable_directory pn
+        =
+	(winix__premicrothread::file::access (pn,[winix__premicrothread::file::MAY_READ, winix__premicrothread::file::MAY_WRITE]))
+        and
+	(winix__premicrothread::file::is_directory pn);
+    #
+    fun getenv name
+        = 
+	# read an environment variable NAME. A command line setting of
+	# --name=... overrides the environment variable. 
+
+	{   # This is the command line option
+            # which overrides the env::var: 
+
+	    envsetting = "--" + (string::map char::to_lower name);
+
+  	    # Get command line args (so we reparse them for every variable 
+	    # but this only happens when we start so it's ok)
+
+	    cmds = (map (string::fields (\\ c   =   c == '='))) 
+		   (commandline::get_args());
+	
+            case (list::find
+                      \\ name . arg . _   =>   name == envsetting; 
+                                        _ =>   FALSE;
+                      end
+                      cmds
+                 )
+
+                THE (_ . setting . _)
+		    =>
+                    THE setting;  		   
+
+	        NULL =>
+		    # Not found, try unix environment:
+		    #
+		    winix__premicrothread::process::get_env name;
+            esac;
+	};
+
+    #
+    fun check_upd_paths ()
+        =	
+	{   # Check and update settings if necessary.
+	    # Note that logging is turned off it SMLTK_LOG is not set,
+	    # whereas the paths to the lib and the wish remain unchanged
+	    # if SMLTK_LIB and SMLTK_TCL do not exist:
+
+	    update_lib_path (null_or::the (getenv (sys_conf::lib_var.name)))
+	    except
+                null_or::NULL_OR
+                    =
+                    ();
+
+	    upd_logfilename (getenv (sys_conf::logfile_var.name));
+
+	    upd_wish_path (null_or::the (getenv (sys_conf::wish_var.name)))
+	    except
+                null_or::NULL_OR
+                    =
+                    ();
+
+	    # Now check the (possbily updated) paths: 
+	    #
+	    {   wish_ok = is_file_rd_and_ex (get_wish_path());
+		lib_ok  = is_readable_and_writable_directory (get_lib_path()); #  Writeable ?!?! 
+
+		testfont = fonts::get_testfont_path (get_lib_path());
+
+		font_ok = is_file_rd_and_ex (testfont);
+		dpy_ok  = null_or::not_null (winix__premicrothread::process::get_env "DISPLAY");
+	    
+		file::write (file::stdout, "\ntk parameter settings:\n\
+				\--------------------------\n");
+
+		file::write
+                  ( file::stdout,
+
+                    "wish (SMLTK_TCL)       : " + (get_wish_path())  + 	       
+		     if (not wish_ok ) 
+			  " *** WARNING: no executable found!\n";
+		     else "\n";
+		     fi
+                  );
+
+		file::write
+                  ( file::stdout,
+
+                    "library (SMLTK_LIB)    : " + (get_lib_path())  + 
+			 if (not lib_ok )
+			      " *** WARNING: not a r/w directory!\n"; 
+			 else "\n";
+                         fi
+                  );	      
+
+		if (not font_ok) 
+		     file::write (file::stdout, 
+				   "*** WARNING: no executable `testfont` found at " + testfont + "\n");
+		fi;
+
+		if (not dpy_ok) 
+		      file::write (file::stdout, 
+				    "*** WARNING: environmnent variable DISPLAY not set.\n");
+		fi;
+
+		case (get_logfilename ())
+		    NULL   => file::write (file::stdout, "logfile (SMLTK_LOGFILE): NULL\n");
+		    THE f => file::write (file::stdout, "logfile (SMLTK_LOGFILE): " + f + "\n");
+		esac;
+
+
+		if (not (wish_ok and font_ok and lib_ok and dpy_ok))
+                    
+		    file::write (file::stderr, "\n*** Warnings have occurred, tk malfunction likely.\n\n");
+		fi;
+	    };
+        };
+
+    # The following functions should go into sys_dep,
+    # but that leads to  a cycle in the definitions:
+
+
+#    local use Signals posix::tty in
+#
+#    fun initTTY () =
+#	 let #  Configure TTY driver to make ^\ generate sigQUIT 
+#	     my { iflag, oflag, cflag, lflag, cc, ispeed, ospeed } = 
+#	                 fieldsOf (getattr posix::stdin)
+#	     nuattr= termios { iflag, oflag, cflag, 
+#				  lflag, ispeed, ospeed,
+#				  cc=v::update (cc, [(v::quit, char::from_int 28)]) }
+#	 in  setattr (posix::stdin, tc::sanow, nuattr);
+#	     #  install the top level fate as QUIT signal handler 
+#	     /* (This doesn't really work because we get uncaught exceptions,
+#	      *  but at least we return to the top level...) */
+#	     setHandler (posix_signals::sigQUIT, 
+#			HANDLER (\\ _ => *unsafe::sigint_fate));
+#       	     #  ignore broken pipes, so SML doesn't terminate when wish dies 
+#	     setHandler (posix_signals::sigPIPE, IGNORE);
+#	     /* ignore interrupts-- they are only enabled (and handled) while
+#	      * calling functions bound to events */
+#	     setHandler (sigINT, IGNORE);
+#	     #  Announce these changes 
+#	     print "\nNote: use INTR (Ctrl-C) to stop diverging computations,\
+#                   \\n      use QUIT (Ctrl-\\) to abort tk's toplevel.\n\n"
+#         end
+# 
+#    fun resetTTY () =
+#       ignore (setHandler (sigINT, inqHandler posix_signals::sigQUIT);
+#	      setHandler (posix_signals::sigQUIT, IGNORE))
+#    end
+
+	
+    fun init_sml_tk ()
+        =
+	{   check_upd_paths();
+
+	    sys_dep::init_tty
+		(\\ () = print"[tk] Abort.\n");
+
+	    # Default initializiation for the wish:
+	    #
+	    upd_tcl_init
+	      " set tcl_prompt1 \"puts -nonewline {} \" \n \
+	       \ set tcl_prompt2 \"puts -nonewline {} \" \n ";
+
+	    # If DISPLAY has changed, re-initialize fonts: 
+	    #
+	    {   nu_display= get_display();
+	    
+		if (nu_display != *old_display)
+                     
+		     old_display := nu_display;
+                     fonts::init (get_lib_path());
+                fi;
+	    };
+       };
+
+};
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

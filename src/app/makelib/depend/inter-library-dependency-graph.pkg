@@ -1,0 +1,411 @@
+# inter-library-dependency-graph.pkg
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+# Graph of .lib file (library) dependencies.
+#
+# For a correct program this will actually be a tree,
+# (well, dag) but we also need to handle incorrect
+# programs with dependency cycles.
+
+# See overview comments at bottom of file.
+
+# See also:
+#
+#     src/app/makelib/stuff/raw-libfile.pkg
+
+
+###                           "There are two ways of constructing
+###                            a software design.
+###
+###                           "One way is to make it so simple that
+###                            there are obviously no deficiencies.
+###
+###                           "And the other way is to make it so
+###                            complicated that there are no obvious
+###                            deficiencies."
+###
+###                                            -- C.A.R. Hoare
+
+# Our usual nickname for this package is "lg":  Large-scale dependency Graph.
+
+# Client packages include:
+#     src/app/makelib/stuff/raw-libfile.pkg
+#     src/app/makelib/parse/libfile-grammar-actions.pkg
+#     src/app/makelib/main/makelib-g.pkg
+#     src/app/makelib/depend/from-portable.pkg
+#     src/app/makelib/depend/check-sharing.pkg
+#     src/app/makelib/depend/write-symbol-index-file.pkg
+#     src/app/makelib/depend/scan-dependency-graph.pkg
+#     src/app/makelib/depend/to-portable.pkg
+#     src/app/makelib/depend/find-reachable-sml-nodes.pkg
+#     src/app/makelib/depend/indegrees-of-library-dependency-graph.pkg
+#     src/app/makelib/depend/inter-library-dependency-graph.pkg
+#     src/app/makelib/depend/make-dependency-graph.pkg
+#     src/app/makelib/parse/libfile-parser-g.pkg
+#     src/app/makelib/compile/compile-in-dependency-order-g.pkg
+#     src/app/makelib/mythryl-compiler-compiler/backend-index.pkg
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#     src/app/makelib/freezefile/freezefile-g.pkg
+#     src/app/makelib/freezefile/verify-freezefile-g.pkg
+
+stipulate
+    package ad  =  anchor_dictionary;								# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package sts =  string_set;									# string_set				is from   src/lib/src/string-set.pkg
+    package sys =  symbol_set;									# symbol_set				is from   src/app/makelib/stuff/symbol-set.pkg
+    package sg  =  intra_library_dependency_graph;						# intra_library_dependency_graph	is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package mvi	=  makelib_version_intlist;							# makelib_version_intlist		is from   src/app/makelib/stuff/makelib-version-intlist.pkg
+    package sym =  symbol_map;									# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+    package spm	=  source_path_map;								# source_path_map			is from   src/app/makelib/paths/source-path-map.pkg
+    package tst =  tome_symbolmapstack;								# tome_symbolmapstack			is from   src/app/makelib/depend/tome-symbolmapstack.pkg
+herein
+
+    package inter_library_dependency_graph {
+	#
+	# A   Fat_Tome   defines everything externally
+	# visible about a compiled .api or .pkg file.
+	# This is the only dependency graph node type
+	# to include symbol table information, hence
+	# the 'fat' sobriquet:
+	#
+	Fat_Tome
+	  =
+	  { masked_tome_thunk:		Void -> sg::Masked_Tome,		
+	    exports_mask:		sys::Set,						# We ignore all exports not listed in this symbol-set.
+	    tome_symbolmapstack:	tst::Tome_Symbolmapstack				# Actual package/generic definitions.	This is the *only* place they appear in our library dependency graphs.
+	  };
+		# 2011-09-02 CrT:  I tried naively changing
+		#     masked_tome_thunk: Void -> sg::Masked_Tome
+		# to  masked_tome:               sg::Masked_Tome
+		# and got an error message from    src/app/makelib/freezefile/freezefile-g.pkg
+		#      Error: (built) $ROOT/src/lib/core/init/init.cmi: file is corrupted (old version?)
+		#
+		#	Uncaught exception FAIL [FAIL: make_compiler: cannot build initial library]
+		#	  raised at: src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg:856.32-856.82
+		#       	     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg:1298.37
+		#
+		# so I may need to institute .compiledfile versioning and
+		# loadtime if/then/else logic based on those versions,
+		# or at least better understand the linktime mixing of
+		# versions stuff better.
+
+
+	# Here we define our primary representation of a library.
+	# The two critical fields are 
+	#
+	#    catalog            Gives access to the compiled-code
+	#                       contents of the library.
+	#
+	#    sublibraries       Lists all the immediate sublibraries
+	#                       of this library;  this gives us our
+	#                       library dependency graph.
+	#
+	Library											# Actually one node, but it represents the entire graph to client packages, hence the name.
+	  #
+	  = LIBRARY   { libfile:               ad::File,					# The .lib file defining the library.            	
+			catalog:               sym::Map( Fat_Tome ),				# External views of all the tomes (.api and .pkg files) in the library, by name.
+
+# I suspect this is external libraries not sublibraries;
+# if so should likely rename to 'depends_on' or 'libraries_needed' or such:
+			sublibraries:		List( Library_Thunk ),				# All sublibraries mentioned in the .lib file.	
+			#
+			sources:		spm::Map 					# Maps filenames to following two properties.		
+						  { ilk:      String, 				# Distinguishes .lib from .pkg files etc.		Should be a sumtype. XXX BUGGO FIXME.
+						    derived:  Bool				# TRUE iff file was autogenerated by yacc or such.
+					          }, 
+			#
+			more:                  Main_Vs_Sub_Library_Stuff			# See below.
+		       }
+
+	  #
+	  | BAD_LIBRARY										# For .lib files which didn't parse or were otherwise unusable.
+
+
+	# Our   Library   record holds all the fields common to
+	# libraries and sublibraries.  Here we define the fields
+	# present only in main libraries and only in sublibraries.
+	#  
+	also
+	Main_Vs_Sub_Library_Stuff
+	  #
+	  = MAIN_LIBRARY
+	      {
+		makelib_version_intlist:    Null_Or( mvi::Makelib_Version_Intlist ),		# Opaque.  Implemented as an intlist like:  [ 110, 58, 3, 0, 2 ].
+		frozen_vs_thawed_stuff:	    Frozen_Vs_Thawed_Stuff				# Extra info/functions specific to thawed vs frozen libraries -- see below.
+	      }
+	  # 
+	  | SUBLIBRARY
+              {
+		main_library:  	   Null_Or( ad::File ),						# MAIN_LIBRARY to which this SUBLIBRARY belongs, as a digested filepath.
+	        sublibraries:      List( Library_Thunk )
+	      }
+
+
+        # Our MAIN_LIBRARY record holds the field common to
+	# frozen and thawed main libraries  Here we define
+	# the fields present only in frozen main libraries and
+	# the fields present only in thawed main libraries:
+	#
+	also
+	Frozen_Vs_Thawed_Stuff
+	  #
+	  = FROZENLIB_STUFF   { clear_pickle_cache:  Void -> Void			
+		              }	
+	  #
+	  | THAWEDLIB_STUFF   { sublibraries:        List( Library_Thunk )
+		              }
+
+	withtype
+	Library_Thunk
+	  =
+	  { libfile:        ad::File,							# The .lib file defining the sublibrary -- identical to (me.library_thunk()).libfile.
+	    library_thunk:  Void -> Library						# Thunk to delay constructing Library record until actually needed.	
+	   ,renamings:      ad::Renamings						# Obsolete, MUSTDIE -- see note [1]
+	  };
+
+	# This type synonym is purely to improve readability.
+	# It is intended for client packages to use when
+	# they are thinking of the root node in the graph
+	# as representing the entire dependency graph.
+	#
+        Inter_Library_Dependency_Graph
+	    =
+	    Library;
+
+	#  ``Note: "sublibraries" consists of items where the        libfile   component is equivalent
+	#    but not necessarily identical -- to   (library_thunk()).libfile
+	#    component of library_thunk().  The library might have
+	#    been known before -- in which case 'libfile' would carry the
+	#    path that was used back *then* to refer to the library.  But for
+	#    the purpose of building the library we must know the abstract path
+	#    that was used *this* time.''
+        #                               -- Matthias Blume, circa 1999
+
+    };
+end;
+
+# OVERVIEW
+#
+#     In this file we define a datastructure
+#     containing all the .lib file information
+#     for an application, in the form of a graph
+#     with one node per .lib file (==library)
+#     and for each such node:
+#
+#        o A map 'catalog' giving access
+#          to all the .compiled files "owned" by the
+#          library.  If the library is "frozen",
+#          these .compiled files will be physically
+#          packed within the library .lib.frozen file.
+#          If the library is not frozen, the .compiled
+#          files are read directly off disk as
+#          needed, one by one.
+#
+#        o A list 'sublibraries' containing all
+#          .lib and .sublib files referenced by this library's
+#          .lib file.
+#
+#        o Various other useful bookkeeping info.
+#
+#
+#     makelib also maintains more detailed dependency
+#     graphs at the level of individual source files.
+#     These are implemented in 
+#
+#         src/app/makelib/depend/intra-library-dependency-graph.pkg
+#
+#     See the top-of-file comments in that file for
+#     a general dependency-graph orientation.
+#
+#
+#
+# MOTIVATION
+#
+#     To a first approximation, an application
+#     is specified by some root .lib makefile
+#     plus all the .lib files it mentions, all
+#     the .lib files -they- mention etc.
+#
+#     We may represent this as a graph with one
+#     node per .lib file, and one edge for
+#     each mention of one .lib makefile by another.
+#
+#     At the highest level, we may then think of
+#     compiling an application in terms of doing
+#     a post-order dagwalk of this graph, compiling
+#     all the .api and .pkg files listed in a given
+#     .lib file after building all of its sub-libfiles.
+#
+#
+#
+#
+# DATA STRUCTURES
+#
+#
+#     LIBRARY
+#
+#         Our LIBRARY record represents in essence
+#         a complete .lib file, or in linker's-eye
+#         terms, everything compiled by a given .lib
+#         file.
+#
+#             'libfile' field -- names the .lib file involved.
+#         
+#
+#
+#     SUBLIBRARY / MAIN_LIBRARY
+#
+#         Most libraries are MAIN_LIBRARY.  If a library
+#         is very large, it may be given an internal
+#         hierarchical by defining a tree of SUBLIBRARY
+#         sub-libraries to the main MAIN_LIBRARY library.
+#
+#         When the parent MAIN_LIBRARY library gets frozen,
+#         the contents of all its SUBLIBRARY descendents
+#         are included in the generated freezefile,
+#         making it look like a single library for
+#         all external purposes.
+#
+#         A SUBLIBRARY library is never exists as a
+#         separate freezefile. The compiled code
+#         for a SUBLIBRARY library is always loaded
+#         directly from individual .compiled diskfiles,
+#         or else from the freezefile for its MAIN_LIBRARY
+#         parent library.
+#
+#
+#
+#     FROZEN / THAWED
+#
+#         A MAIN_LIBRARY library whose freezefile has not yet
+#         been constructed is marked THAWED.  When
+#         Mythryl links a program against a THAWED
+#         library it checks all dependencies and
+#         recompiles any outdated .compiled files (i.e.,
+#         ones whose sourcefile has been edited since
+#         the .compiled file was compiled).  In essence,
+#         linking to a THAWED library does an implict
+#         "make".
+#
+#         Once the actual freezefile on disk has been
+#         built, the MAIN_LIBRARY library is marked FROZEN.
+#         When Mythryl links a program against a
+#         FROZEN library, no recompilations are done;
+#         dependencies are ignored and in fact the
+#         source code need not even be present.  This
+#         yields faster library links at the expense
+#         of ignoring any recent sourcefile edits.
+#
+#         Freezing a MAIN_LIBRARY library is in general not
+#         done automatically, but rather only in response
+#         to an explicit user makelib::freeze command.
+#
+#         In the meantime, a THAWED MAIN_LIBRARY library works 
+#         very much like a SUBLIBRARY library -- the relevant
+#         .compiled files are read directly off disk as needed.  
+#
+#         Thus, it is not necessary to build an actual
+#         freezefile for a MAIN_LIBRARY library in order to
+#         link against it.  
+#
+#         During development, leaving a MAIN_LIBRARY library
+#         as THAWED may yield quicker turnaround times.
+#
+#         Once the code is stable, the library may be FROZEN
+#         in order to reduce start-up and link times.
+#
+#         The FROZEN "clear_pickle_cache" function may be invoked
+#         to remove the associated objectfile "pickles" from
+#         memory, on machines where RAM is tight.			"flush the pickle cache" would seem to be more perspicuous terminology
+#
+#         This is a strictly a space/time system-tuning
+#         tradeoff -- deleted pickles will be automatically
+#         re-read as needed.
+#
+#         Pickle-cache clearing is off by default.
+#
+#
+#
+#     Fat_Tome type
+#
+#         The exports of an .compiled file are represented by a Fat_Tome.
+#         A Fat_Tome is essentially just a set of Masked_Tome nodes, but
+#         it also has a tome_symbolmapstack which contains information
+#         about the actual definitions (contents) of exported packages/generics.
+#         This information is necessary to handle the Mythryl "run" construct.
+#
+#
+#
+#
+# The library specified by a .lib file can be
+# "frozen" (via makelib::freeze())
+# to produce a concrete foo.lib.frozen freezefile physically
+# containing images of all the .compiled files compiled
+# from all the .pkg and .api sourcefiles going into
+# the library.
+#
+# This is the production situation, and corresponds
+# to the usual unix situation with a libfoo.a or
+# libfoo.so library file.
+#
+# However, the Mythryl library specified by a
+# .lib file can also be used (linked against)
+# in the "thawed" state, when no .frozen file exists.
+#
+# In this situation, the needed .compiled files are
+# read directly off disk as needed.  This arrangement
+# can be useful during active development, since the
+# rebuild-the-.frozen-file step can be omitted from the
+# edit-compile-run development cycle, saving some time.
+#
+# Also, in a thawed library, all necessary re/compiles
+# can be done by a simple makelib::make call, because makelib
+# checks that every individual .compiled file on disk is
+# up-to-date relative to its sourcefile before using
+# it (and automatically does a recompile if it is not).  
+#
+# In a frozen library, on the other hand, all .compiled files
+# found in the freezefile are used as-is without further
+# checking; the .lib file and the .api and .pkg source
+# files need not even exist.  This yields stable libraries
+# and fast start-up times, both suitable for production
+# use of a developmentally mature library.
+
+# Notes
+# -----
+#
+# [1] This 'renamings' (rebindings) field was part of Matthias Blume's
+#     support for jumping the compiler sourcecode/objectcode tree(s)
+#     (I forget) around hyperkinetically in the middle of compiles.
+#     I prefer simplicity, so I ripped most of that logic out back
+#     around 2007, but removing the renamings field from this record
+#     produces a
+#          Error: (built) $ROOT/src/lib/std/standard.lib: file is corrupted (old version?)
+#     error when the system is recompiled, presumably due to changed
+#     picklehashes or some such, so I've left it in place in favor
+#     of frying bigger fish, but this problem does need to be understood
+#     and fixed eventually.   XXX BUGGO FIXME.
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+# (C) 1999 Lucent Technologies, Bell Laboratories
+# Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+# Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+# released per terms of SMLNJ-COPYRIGHT.

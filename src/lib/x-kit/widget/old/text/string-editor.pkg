@@ -1,0 +1,606 @@
+## string-editor.pkg
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+###          "The world has arrived at an age
+###           of cheap complex devices of great
+###           reliability and something is bound
+###           to come of it."
+###
+###                    -- Vannevar Bush, 1943
+
+
+
+stipulate
+    include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package es  =  extensible_string;			# extensible_string		is from   src/lib/x-kit/widget/text/extensible-string.pkg
+    package vt1 =  one_line_virtual_terminal;		# one_line_virtual_terminal	is from   src/lib/x-kit/widget/text/one-line-virtual-terminal.pkg
+    package wg  =  widget;				# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
+    #
+    package xc  =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+herein
+
+    package   string_editor
+    : (weak)  String_Editor				# String_Editor			is from   src/lib/x-kit/widget/text/string-editor.api
+    {
+	min = int::min;
+	max = int::max;
+
+	Plea_Mail
+	  #
+	  = GET_STRING
+	  | GET_SIZE_CONSTRAINT
+	  | SET_STRING  String
+	  | SHIFT_WINDOW  Int
+	  | DO_REALIZE  {
+	      kidplug:     xc::Kidplug,
+	      window:      xc::Window,
+	      window_size: xg::Size
+	    };
+
+	 Reply_Mail
+	  #
+	  = BOUNDS  wg::Widget_Size_Preference
+	  | STRING  String
+	  ;
+
+	 Input
+	  = MOVE_C  Int
+	  | INSERT  Char
+	  | ERASE
+	  | KILL
+	  ;
+
+	fun key_p (k, inputc)
+	    =
+	    loop ()
+	    where
+		to_ascii
+		    =
+		    xc::map_keysym_to_ascii
+			xc::default_keysym_to_ascii_mapping;
+
+		fun is_erase c   =   (c == '\^H');
+		fun is_kill  c   =   (c == '\^X');
+
+		fun do_chars s
+		    =
+		    do_char 0
+		    where
+			slen = size s;
+
+			fun do_char i
+			    =
+			    if (i != slen)
+
+				 c = string::get (s, i);
+
+				 #  NOTE: 0xa0 = (ord ' ' + 128) 
+
+				 if ((c >= ' ') and ((c <= '~') or (char::to_int c >= 0xa0)))
+
+				      put_in_mailslot (inputc, INSERT c);
+				      do_char (i+1);
+
+				 elif (is_erase c)
+
+				      put_in_mailslot (inputc, ERASE);
+				      do_char (i+1);
+
+				 elif (is_kill c)
+
+				      put_in_mailslot (inputc, KILL);
+				      do_char (i+1);
+
+				 else
+
+				      do_char (i+1);
+
+				 fi;
+			    fi;
+		    end;
+
+		fun loop ()
+		    =
+		    case (xc::envelope_contents (block_until_mailop_fires k))    
+			#
+			xc::KEY_PRESS key
+			    =>
+			    {   do_chars (to_ascii key)
+				except
+				    xc::KEYSYM_NOT_FOUND = ();
+
+				loop ();
+			    };
+
+			_ => loop ();
+		   esac;
+	    end;
+
+	fun mse_p (m, mslot, pttopos)
+	    =
+	    loop ()
+	    where
+
+		wait_up
+                    =
+                    xc::while_mouse_state
+                        xc::some_mousebutton_is_set;
+		mevt
+		    =
+		    m  ==>  (\\ envelope = xc::envelope_contents envelope);
+
+		fun loop ()
+		    =
+		    case (xc::envelope_contents  (block_until_mailop_fires  m))    
+			#
+			xc::MOUSE_FIRST_DOWN { window_point, mouse_button, ... }
+			    =>
+			    {   put_in_mailslot (mslot, MOVE_C (pttopos window_point));
+				wait_up (xc::make_mousebutton_state [mouse_button], mevt);
+				loop ();
+			    };
+
+		       _ => loop ();
+		   esac;
+
+	    end;
+
+	default_minchars = 4;
+
+	String_Editor
+	    =
+	    STRING_EDITOR 
+	      ( wg::Widget,
+		Mailslot( Plea_Mail  ),
+		Mailslot( Reply_Mail )
+	      );
+
+	fun make_string_editor  root_window
+	    {
+	      foreground:      Null_Or( xc::Rgb ),
+	      background:      Null_Or( xc::Rgb ),
+	      #
+	      initial_string:  String,
+	      min_length:      Int
+	    }
+	    =
+	    {   minchars = max (min_length, default_minchars);
+
+		my (bndf, pttopos, realize)
+		    =
+		    vt1::make_one_line_virtual_terminal
+			root_window
+			(foreground, background);
+
+		plea_slot  = make_mailslot ();
+		reply_slot = make_mailslot ();
+
+		input_slot = make_mailslot ();
+
+		my  { wide=>min_length, ... }: xg::Size
+		    =
+		    bndf minchars;
+
+		fun get_bounds slen
+		    =
+		    {   my  { wide, high }
+			    =
+			    bndf (max (minchars, slen));
+
+			col_preference
+			    =
+			    wg::INT_PREFERENCE
+			      { start_at => 0,
+				step_by  => 1,
+				#
+				min_steps   => min_length,
+				ideal_steps => wide,
+				max_steps   => NULL
+			      };
+
+			{ col_preference,
+			  row_preference => wg::tight_preference  high
+			};
+		    };
+
+		fun init_off (slen, winlen)
+		    =
+		    if (slen <= winlen )
+			#
+			0;
+		    else
+			slen - (winlen / 2);
+		    fi;
+
+		fun realize_string_editor
+                    { kidplug =>  xc::KIDPLUG { from_mouse', from_keyboard', from_other', to_mom },
+                      window,
+                      window_size   => given_size
+                    }
+                    init_string
+		    =
+		    {   my_window = window;
+
+			(realize (my_window, given_size))
+			    ->
+			    { set_size, set_cur_pos, set_cursor, insert, reset, deletec };
+
+			fun main window_len me
+			    =
+			    {   fun is_cur_visible (_, pos, woff)
+				    =
+				    (woff <= pos) and (pos <= woff+window_len);
+
+				fun redraw (me as (str, pos, woff))
+				      =
+				      {   reset ();
+					  insert (es::subs (str, woff, window_len));
+
+					  if  (is_cur_visible me)
+
+					       set_cur_pos (pos - woff);
+					       set_cursor TRUE;
+					  fi;
+				      };
+
+				fun right_shift (v, me as (str, pos, woff))
+				    =
+				    if (v == 0)
+					#
+					me;
+				    else
+					me' = (str, pos, woff + v);
+
+					if (v == 1)
+					    #	
+					    set_cursor FALSE;
+					    set_cur_pos 1;
+
+					    deletec (es::subs (str, woff+window_len, 1) except es::BAD_INDEX _ = "");
+
+					    if (is_cur_visible me')
+
+						set_cur_pos (pos - woff - 1);
+						set_cursor TRUE;
+					    fi;
+					else
+					    redraw me';
+					fi;
+
+					me';
+				    fi;
+
+				fun left_shift (v, me as (str, pos, woff))
+				    =
+				    if (v == 0)
+					#
+					me;
+				    else
+					me' = (str, pos, woff - v);
+
+					if (v == 1)
+					    #
+					    set_cursor FALSE;
+					    set_cur_pos 0;
+
+					    insert (es::subs (str, woff - 1, 1));
+
+					    if (is_cur_visible me')
+
+						 set_cur_pos (pos - woff + 1);
+						 set_cursor TRUE;
+
+					    fi;
+					else
+					    redraw me';
+					fi;
+
+					me';
+				    fi;
+
+				fun shift_window (v, me as (str, _, woff))
+				    =
+				    if (v <= 0)
+					#
+					if (woff == 0)
+					    wg::ring_bell  root_window  0;
+					fi;
+
+					left_shift (min(-v, woff), me);
+				    else
+					right_shift (min (v, (es::len str)-woff), me);
+				    fi;
+
+				fun make_cur_vis (me as (str, pos, woff))
+				    =
+				    if (is_cur_visible me)
+					#
+					me;
+
+				    elif (pos < woff)
+					#
+					left_shift (woff-max (0, pos - (window_len / 2)), me);
+				    else
+					right_shift (pos - (window_len / 2) - woff, me);
+				    fi;
+
+				fun insertc (c, me as (str, pos, woff))
+				    =
+				    if (pos - woff == window_len)
+					#
+					woff' = max (pos - 1, pos+1-window_len);
+					me' = (es::ins (str, pos, c), pos+1, woff');
+
+					if (es::len str == window_len)
+					    #
+					    block_until_mailop_fires (to_mom  xc::REQ_RESIZE);
+					fi;
+
+					redraw me';
+					me';
+
+				    else
+					if (es::len str == window_len)
+					    #
+					    block_until_mailop_fires (to_mom  xc::REQ_RESIZE);
+					fi;
+
+					insert (string::from_char c);
+					(es::ins (str, pos, c), pos+1, woff);
+				    fi;
+
+				fun erasec (me as (str, pos, woff))
+				    =
+				    if (pos == 0)
+
+					 wg::ring_bell  root_window  0;
+					 me;
+
+				    elif (pos == woff and woff > 0)
+
+					 woff' = max (0, pos+1-window_len);
+
+					 me' = (es::del (str, pos), pos - 1, woff');
+
+					 if (es::len str > window_len)
+					      #
+					      block_until_mailop_fires  (to_mom  xc::REQ_RESIZE);
+					 fi;
+
+					 redraw me';
+					 me';
+
+				    else
+					 if (     window_len+3  >= es::len str
+					    and   window_len    <  es::len str
+					    )  
+					     block_until_mailop_fires  (to_mom  xc::REQ_RESIZE); 
+					 fi;
+
+					 deletec
+					     ( es::subs (str, woff+window_len, 1)
+					       except
+						   es::BAD_INDEX _ = ""
+					     );
+
+					 (es::del (str, pos), pos - 1, woff);
+				    fi;
+
+
+				fun kill (str, _, _)
+				    =
+				    {   me' = (es::make_extensible_string "", 0, 0);
+
+					if (es::len str > window_len)
+					    #
+					    block_until_mailop_fires  (to_mom  xc::REQ_RESIZE); 
+					fi;
+
+					redraw me';
+					me';
+				    };
+
+
+				fun handle_input (MOVE_C p, (str, pos, woff))
+				       =>
+				       {
+					 pos' = min (es::len str, woff+p);
+
+					 if (pos != pos')
+					     set_cur_pos (pos' - woff);
+					     set_cursor TRUE;
+					 fi;
+
+					 (str, pos', woff);
+				       };
+
+				    handle_input (INSERT c, me) =>  insertc (c, make_cur_vis me);
+				    handle_input (ERASE,    me) =>  erasec (make_cur_vis me);
+				    handle_input (KILL,     me) =>  kill me;
+				end;
+
+
+				fun do_mom (xc::ETC_RESIZE ({ wide, high, ... }: xg::Box), (str, pos, _))
+					=>
+					init_main ({ wide, high }, str, pos);
+
+				    do_mom (xc::ETC_REDRAW _, me) => { redraw me; me;};
+				    do_mom (_, me) => me;
+				end;
+
+
+				fun do_plea (GET_STRING, me as (str, _, _))
+					=> 
+					{   put_in_mailslot (reply_slot, STRING (es::gets str));
+					    me;
+					};
+
+				    do_plea (SHIFT_WINDOW arg, me as (str, _, _))
+					=> 
+					shift_window (arg, me);
+
+				    do_plea (GET_SIZE_CONSTRAINT, me as (str, _, _))
+					=> 
+				        {   put_in_mailslot (reply_slot, BOUNDS (get_bounds (es::len str)));
+					    me;
+					};
+
+				    do_plea (SET_STRING s, _)
+					=>
+					{
+					    slen = size s;
+					    me' = (es::make_extensible_string s, slen, init_off (slen, window_len));
+
+					    block_until_mailop_fires  (to_mom  xc::REQ_RESIZE);
+					    redraw me';
+					    me';
+					};
+
+				    do_plea (DO_REALIZE _, me)
+					=>
+					me;
+				end;
+
+				fun loop me
+				    =
+				    loop (
+					do_one_mailop [
+					    from_other'      ==>  (\\ mailop =  do_mom (xc::envelope_contents mailop, me)),
+					    take_from_mailslot' plea_slot  ==>  (\\ mailop =  do_plea                      (mailop, me)),
+					    take_from_mailslot' input_slot ==>  (\\ mailop =  handle_input                 (mailop, me))
+					]
+				    );
+
+				loop me;
+			  }
+
+			also
+			fun init_main (size, str, pos)
+			    =
+			    {   winlen = set_size size;
+
+				main winlen (str, pos, init_off (pos, winlen));
+			    };
+
+
+			make_thread  "string_editor mouse"  {.
+			    #
+			    mse_p (from_mouse', input_slot, pttopos);
+			};
+
+			make_thread  "string_editor keyboard"  {.
+			    #
+			    key_p (from_keyboard', input_slot);
+			};
+
+			init_main
+			  ( given_size,
+			    es::make_extensible_string  init_string,
+			    size init_string
+			  );
+		  };
+
+		fun init_loop str
+		    =
+		    case (take_from_mailslot  plea_slot)   
+			#
+			GET_STRING => { put_in_mailslot (reply_slot, STRING str); init_loop str;};
+			GET_SIZE_CONSTRAINT => { put_in_mailslot (reply_slot, BOUNDS (get_bounds (size str)));  init_loop str; };
+			#
+			SET_STRING str' => init_loop str';
+			DO_REALIZE arg  => realize_string_editor arg str;
+			SHIFT_WINDOW _  => init_loop str;
+		    esac;
+
+
+		make_thread  "string_editor"  {.
+		    #
+		    init_loop initial_string;
+		    ();
+		};
+
+		STRING_EDITOR (
+		  wg::make_widget {
+		    root_window,
+		    args=> \\ () =  { background => NULL }, 
+
+		    size_preference_thunk_of =>   {.   put_in_mailslot (plea_slot, GET_SIZE_CONSTRAINT);
+
+					case (take_from_mailslot  reply_slot)
+					    #
+					    BOUNDS b   =>  b;
+					    STRING _ =>  raise exception lib_base::IMPOSSIBLE "string_editor.make_string_editor";
+					esac;
+				    },
+
+		    realize =>  (\\ arg =  (put_in_mailslot  (plea_slot,  DO_REALIZE arg)))
+		  },
+		  plea_slot,
+		  reply_slot
+		);
+	    };
+
+
+	fun as_widget (STRING_EDITOR (widget, _, _))
+	    =
+	    widget;
+
+
+	fun set_string
+		(STRING_EDITOR (_, plea_slot, _))
+		arg
+	    =
+	    put_in_mailslot (plea_slot, SET_STRING arg);
+
+
+	fun shift_window
+		(STRING_EDITOR(_, plea_slot, _))
+		arg
+	    =
+	    put_in_mailslot  (plea_slot,  SHIFT_WINDOW arg);
+
+
+	fun get_string
+		(STRING_EDITOR (_, plea_slot, reply_slot))
+	    =
+	    {   put_in_mailslot  (plea_slot,  GET_STRING);
+		#
+		case (take_from_mailslot  reply_slot)
+		    #
+		    BOUNDS _   => raise exception lib_base::IMPOSSIBLE "string_editor::get_string";
+		    STRING s => s;
+		esac;
+	    };
+    };						# package string_editor 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991 by AT&T Bell Laboratories  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

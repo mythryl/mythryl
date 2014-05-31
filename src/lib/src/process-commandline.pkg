@@ -1,0 +1,360 @@
+## process-commandline.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# See comments in
+#
+#     src/lib/src/process-commandline.api
+
+
+###          "There comes a time in the history of any project
+###           when it becomes necessary to shoot the engineers
+###           and begin production."
+###                                    -- MacUser, 1990
+
+
+
+package   process_commandline
+:         Process_Commandline								# Process_Commandline	is from   src/lib/src/process-commandline.api
+{
+    Nonleading_Options_Policy X
+	= NO_NONLEADING_OPTION_PROCESSING		
+	| FREELY_INTERSPERSE_OPTIONS_AND_NONOPTIONS
+	| TURN_NONOPTIONS_INTO_OPTIONS  String -> X;
+
+    Option_Argument X
+	= OPTION_ARGUMENT_NONE       Void -> X
+	| OPTION_ARGUMENT_REQUIRED  { name: String,  wrap:          String   -> X }
+	| OPTION_ARGUMENT_OPTIONAL  { name: String,  wrap: Null_Or( String ) -> X };
+
+    Option_Definition(X)
+	=
+	{
+	  short: String,		
+	  long:  List( String ),	
+	  arg:   Option_Argument(X),	
+	  help:  String		
+	};
+
+    Opt_Kind(X)
+	= OPT X
+	| NON_OPT;
+
+    package ss =  substring;	# substring	is from   src/lib/std/substring.pkg
+    package s  =  string;	# string	is from   src/lib/std/string.pkg
+
+
+    # Helper functions:
+    #
+    fun sep_by (sep, []) => "";
+        sep_by (sep, x ! xs)
+            =>
+	    cat (x ! fold_backward (\\ (element, l) =  sep ! element ! l) [] xs);
+    end;
+
+    breakeq
+        =
+        ss::split_off_prefix
+            {. #c != '='; };
+
+
+    # Formatting of options:
+    #
+    fun fmt_short (OPTION_ARGUMENT_NONE     _             ) so => cat ["-", str so];
+        fmt_short (OPTION_ARGUMENT_REQUIRED { name, ... } ) so => cat ["-", str so, " ", name      ];
+        fmt_short (OPTION_ARGUMENT_OPTIONAL { name, ... } ) so => cat ["-", str so, "[", name, "]" ];
+    end;
+
+    fun fmt_long (OPTION_ARGUMENT_NONE     _             ) lo => cat ["--", lo];
+        fmt_long (OPTION_ARGUMENT_REQUIRED { name, ... } ) lo => cat ["--", lo,  "=", name      ];
+        fmt_long (OPTION_ARGUMENT_OPTIONAL { name, ... } ) lo => cat ["--", lo, "[=", name, "]" ];
+    end;
+
+    fun fmt_opt { short=>sos, long=>los, arg=>ad, help=>descr }
+        =
+        ( sep_by (", ", map (fmt_short ad) (s::explode sos)),
+          sep_by (", ", map (fmt_long ad) los),
+          descr
+        );
+
+    # Generate options usage help string:
+    #
+    fun build_options_usage_string { header, options }
+        =
+        {   fun unlines l
+                =
+                sep_by ("\n", l);
+
+	    fmt_options = map fmt_opt options;
+
+	    my (ms1, ms2)
+                =
+                fold_forward
+		    (\\ ((e1, e2, _), (m1, m2))
+                        =
+                        ( int::max (size e1, m1), 
+		          int::max (size e2, m2)
+		        )
+                    )
+                    (0, 0)
+                    fmt_options;
+
+	    pad = number_string::pad_right ' ';
+
+	    table
+                =
+                fold_backward
+		    (\\ ((e1, e2, e3), l)
+			=
+			cat [
+			    "  ", pad ms1 e1, "  ", pad ms2 e2, "  ", e3
+			  ] ! l
+		    )
+                    []
+                    fmt_options;
+
+            unlines (header ! table);
+        };
+
+
+
+    # Entry point of the library:
+    #
+    fun process_commandline { nonleading_options_policy, options:  List(  Option_Definition(X) ), error_callback }
+        =
+        {   #  Some error handling functions:
+	    #
+	    fun err_ambig opt_string
+                =
+                error_callback (build_options_usage_string {
+		    header => cat [
+			"option `", opt_string, "' is ambiguous; could be one of:"
+		      ],
+		    options
+		  } );
+
+
+	    fun err_req (d, opt_string)
+                =
+                error_callback (cat [
+		    "option `", opt_string, "' requires an argument ", d
+		  ]);
+
+
+	    fun err_unrec opt_string
+                =
+                error_callback (cat [
+		    "unrecognized option `", opt_string, "'"
+		  ]);
+
+
+	    fun err_no_arg opt_string
+                =
+                error_callback (cat [
+		    "option `", opt_string, "' does not allow an argument"
+		  ]);
+
+	    # Handle long option
+	    # this is messy because you cannot
+            # pattern-match on substrings:
+	    #
+	    fun long_opt (subs, rest)
+                =
+                {   my (opt, arg) = breakeq subs;
+
+		    opt' = ss::to_string opt;
+
+		    options
+                        =
+                        list::filter
+			    (\\ { long, ... } =  list::exists (s::is_prefix opt') long)
+			    options;
+
+		    opt_string =  "--" + opt';
+
+		    fun long (_ ! (_ ! _), _, rest')
+			    =>
+			    {   err_ambig opt_string;
+				(NON_OPT, rest');
+			    };
+
+			long ([OPTION_ARGUMENT_NONE a], x, rest')
+			    => 
+			    if   (ss::is_empty x)
+
+                                 (OPT (a()), rest');
+			    else
+                                 if   (ss::is_prefix "=" x)   err_no_arg opt_string; (NON_OPT, rest');
+			         else                         raise exception FAIL "long: impossible";       fi;
+                            fi;
+
+			long ([OPTION_ARGUMENT_REQUIRED { wrap=>f, name=>d } ], x, [])
+			    => 
+			    if   (ss::is_empty x)
+                                 err_req (d, opt_string); (NON_OPT, []);
+			    elif (ss::is_prefix "=" x)    (OPT (f (ss::to_string (ss::drop_first 1 x))), []);
+			    else                          raise exception FAIL "long: impossible";
+                            fi;
+
+			long ([OPTION_ARGUMENT_REQUIRED { wrap=>f, name=>d } ], x, rest' as (r ! rs))
+			    => 
+			    if   (ss::is_empty x)
+                                 (OPT (f r), rs);
+			    elif (ss::is_prefix "=" x)   (OPT (f (ss::to_string (ss::drop_first 1 x))), rest');
+			    else                         raise exception FAIL "long: impossible";
+                            fi;
+
+			long ([OPTION_ARGUMENT_OPTIONAL { wrap=>f, ... } ], x, rest')
+			    => 
+			    if   (ss::is_empty x)	 (OPT (f NULL), rest');
+			    elif (ss::is_prefix "=" x)   (OPT (f (THE (ss::to_string (ss::drop_first 1 x)))), rest');
+			    else                         raise exception FAIL "long: impossible";
+			    fi;
+
+			long ([], _, rest')
+                            =>
+                            {    err_unrec  opt_string;
+
+                                 (NON_OPT, rest');
+			    };
+		    end;
+
+		    long (map .arg options, arg, rest);
+	      };
+
+
+	    # Handle short option.  x is the option character, subs is the
+	    # rest of the option string, rest is the rest of the command-line
+	    # options.
+	    #
+	    fun short_opt (x, subs, rest)
+		=
+		{   options
+			=
+			list::filter
+			    (\\ { short, ... } =  char::contains short x)
+			    options;
+
+		    ads = map .arg options;
+		    opt_string = "-" + (str x);
+
+		    case (ads, rest)
+		      
+
+			 (_ ! _ ! _, rest1)
+			     =>
+			     {    err_ambig opt_string;
+				  (NON_OPT, rest1);
+			     };
+
+			 ((OPTION_ARGUMENT_NONE a) ! _, rest')
+			     =>
+			     if   (ss::is_empty subs)   (OPT (a()), rest');
+			     else                       (OPT (a()), ("-" + (ss::to_string subs)) ! rest');   fi;
+
+			 ((OPTION_ARGUMENT_REQUIRED { wrap=>f, name=>d } ) ! _, [])
+                             => 
+			     if   (ss::is_empty subs)   err_req (d, opt_string); (NON_OPT, []);
+			     else                       (OPT (f (ss::to_string subs)), []);      fi;
+
+			 ((OPTION_ARGUMENT_REQUIRED { wrap=>f, ... } ) ! _, rest' as (r ! rs))
+                             => 
+			     if   (ss::is_empty subs)   (OPT (f r), rs);
+			     else                       (OPT (f (ss::to_string subs)), rest');   fi;
+
+			 ((OPTION_ARGUMENT_OPTIONAL { wrap=>f, ... } ) ! _, rest')
+                             => 
+			     if   (ss::is_empty subs)   (OPT (f NULL), rest');
+			     else                       (OPT (f (THE (ss::to_string subs))), rest');  fi;
+
+			 ([], rest') => { err_unrec opt_string;   (NON_OPT, rest'); };
+		    esac;
+		};
+
+	    fun get ([], opts, non_opts)
+		    =>
+		    (list::reverse opts, list::reverse non_opts);
+
+		get ("--" ! rest, opts, non_opts)
+		    =>
+		    {   non_opts
+			    =
+			    list::reverse_and_prepend (non_opts, rest);
+
+			case nonleading_options_policy
+			  
+			     TURN_NONOPTIONS_INTO_OPTIONS f
+                                 =>
+                                 (list::reverse_and_prepend (opts, list::map f non_opts), []);
+
+			     _   =>
+                                 (list::reverse opts, non_opts);
+
+			esac;
+		    };
+
+		get (arg ! rest, opts, non_opts)
+                    =>
+                    {   arg' = ss::from_string arg;
+
+			fun add_opt (OPT opt, rest) =>  get (rest, opt ! opts, non_opts);
+			    add_opt (NON_OPT, rest) =>  get (rest, opts, arg ! non_opts);
+                        end;
+
+			if   (ss::is_prefix "--" arg')
+
+                             add_opt (long_opt (ss::drop_first 2 arg', rest));
+			else
+                             if   (ss::is_prefix "-" arg')
+
+                                  add_opt (short_opt (ss::get (arg', 1), ss::drop_first 2 arg', rest));
+			     else
+                                  case nonleading_options_policy
+
+				  NO_NONLEADING_OPTION_PROCESSING
+				      =>
+				      (list::reverse opts, list::reverse_and_prepend (non_opts, arg ! rest));
+
+				  FREELY_INTERSPERSE_OPTIONS_AND_NONOPTIONS
+				      =>
+				      get (rest,           opts,   arg ! non_opts);
+
+				  TURN_NONOPTIONS_INTO_OPTIONS f
+				      =>
+				      get (rest,   f arg ! opts,         non_opts);
+
+			          esac;
+			     fi;
+                        fi;
+		    };
+	    end;
+
+	    \\ args =  get (args, [], []);
+
+	};						# fun process_commandline
+};
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

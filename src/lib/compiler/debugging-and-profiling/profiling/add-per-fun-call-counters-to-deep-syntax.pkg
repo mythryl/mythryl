@@ -1,0 +1,775 @@
+## add-per-fun-call-counters-to-deep-syntax.pkg
+#
+# This package appears to
+#
+#   o Establish three variabless global to the given deep-syntax tree,
+#     by wrapping it in a new outer LET:
+#
+#        * first_slot_in__time_profiling_rw_vector__var        Start of our assigned slot-range within  ri::rpc::get_time_profiling_rw_vector()   vector.  I don't know that publishing this accomplishes anything.
+#        * call_count_vector_var                               An int array with one slot for each time-profiled function in the package (i.e., given deep-syntax tree), holding the call count for that fn.
+#        * this_fn_var                                         Tracks the currently executing function. Used to record time statistics by    sigvtalrm_handler   in   src/c/machine-dependent/posix-profiling-support.c
+#
+#   o Rewrite every FN_EXPRESSION in given deep-syntax tree so that
+#     each function on entry increments its slot in the 'call_count_vector_var'
+#     vector and sets this_fn_var to record that it is the currently
+#     running function.                                                -- 2011-07-08 CrT
+#
+#
+# See also:
+#
+#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-byte-counters-to-deep-syntax.pkg				# Broken code that currently does nothing. Looks like an older, discarded version of this file.
+#     src/lib/compiler/debugging-and-profiling/profiling/tdp-instrument.pkg
+
+# Compiled by:
+#     src/lib/compiler/debugging-and-profiling/debugprof.sublib
+
+stipulate
+    package ds  =  deep_syntax;					# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package id  =  inlining_data;				# inlining_data			is from   src/lib/compiler/front/typer-stuff/basics/inlining-data.pkg
+    package pcd =  per_compile_data;				# per_compile_data		is from   src/lib/compiler/front/typer-stuff/main/per-compile-data.pkg
+    package syx =  symbolmapstack;				# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+herein
+
+    api Add_Per_Fun_Call_Counters_To_Deep_Syntax {
+	#
+
+	# The first (curried) argument is a function that should return TRUE
+	# if the operator (specified via inlining info) can return multiple
+	# times.  (In practice this means call/cc.)
+	#
+	maybe_add_per_fun_call_counters_to_deep_syntax
+	    :
+	    (id::Inlining_Data -> Bool)
+	    ->
+	    (syx::Symbolmapstack,   pcd::Per_Compile_Data( ds::Declaration ))
+	    ->
+	    ds::Declaration
+	    ->
+	    ds::Declaration;
+    };
+end;
+
+
+
+###           "In his errors a man is true to type.
+###            Observe the errors and you will
+###            know the man."
+###                     -- Kong Fu Zi
+###                        (aka "Confucius")
+
+
+
+stipulate
+    package bt  =  core_type_types;				# core_type_types		is from   src/lib/compiler/front/typer-stuff/types/core-type-types.pkg
+    package ca  =  core_access;					# core_access			is from   src/lib/compiler/front/typer-stuff/symbolmapstack/core-access.pkg
+    package ds  =  deep_syntax;					# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package err =  error_message;				# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package id  =  inlining_data;				# inlining_data			is from   src/lib/compiler/front/typer-stuff/basics/inlining-data.pkg
+    package pcd =  per_compile_data;				# per_compile_data		is from   src/lib/compiler/front/typer-stuff/main/per-compile-data.pkg
+    package ret =  reconstruct_expression_type;			# reconstruct_expression_type	is from   src/lib/compiler/debugging-and-profiling/types/reconstruct-expression-type.pkg
+    package ri  =  runtime_internals;				# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
+    package sy  =  symbol;					# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;					# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package tdt =  type_declaration_types;			# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package tyj =  type_junk;					# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package vac =  variables_and_constructors;			# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;					# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+
+
+    tupleexp = deep_syntax_junk::tupleexp;			# deep_syntax_junk		is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax-junk.pkg
+    tuplepat = deep_syntax_junk::tuplepat;
+
+
+    int_typoid    =  bt::int_typoid;
+    void_typoid   =  bt::void_typoid;
+    tuple_typoid  =  bt::tuple_typoid;
+    ref_type  =  bt::ref_type;
+
+    rw_vector_type =  bt::rw_vector_type;
+
+    my -->      =  bt::(-->);
+
+    infix my  --> ;
+herein
+
+    package   add_per_fun_call_counters_to_deep_syntax
+    : (weak)  Add_Per_Fun_Call_Counters_To_Deep_Syntax					# Add_Per_Fun_Call_Counters_To_Deep_Syntax				is from   src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+    {
+
+	fun bug s  =   err::impossible ("add_per_fun_call_counters_to_deep_syntax: " + s);
+
+	anon_sym   =   sy::make_value_symbol "anon";
+
+	intreftype =   tdt::TYPCON_TYPOID (ref_type, [int_typoid]);
+
+	fun poly1 type
+	    = 
+	    tdt::TYPESCHEME_TYPOID {
+		typescheme_eqflags =>  [FALSE],
+		typescheme                   =>  tdt::TYPESCHEME { arity=>1, body=>type }
+	    };
+
+
+	fun make_tmpvar (name, type, make_highcode_var)
+	    = 
+	    {   symbol = sy::make_value_symbol name;
+		#
+		vac::PLAIN_VARIABLE
+		  {
+		    varhome       =>  vh::named_varhome (symbol, make_highcode_var),
+		    inlining_data =>  id::NIL,
+		    #
+		    path          =>  syp::SYMBOL_PATH [symbol],
+		    vartypoid_ref      =>  REF type
+		  };
+	    };
+
+	fun make_var_in_exp (v as vac::PLAIN_VARIABLE { vartypoid_ref => REF type, path, ... } )
+		=>
+		case (tyj::head_reduce_typoid  type)
+		    #
+		    tdt::TYPESCHEME_TYPOID _
+			=>
+			bug ("poly[" + syp::to_string path + "] in Prof");
+
+		    type' =>   ds::VARIABLE_IN_EXPRESSION { var => REF v, typescheme_args => [] };		#  VARIABLE_IN_EXPRESSION (REF v, THE type') 
+		esac;
+
+	    make_var_in_exp _
+		=>
+		bug "090924 in prof";
+	end;
+
+
+	fun clean (path as name ! names)
+		=>
+		if (sy::eq (name, anon_sym))   names;
+                else                           path;
+                fi;
+
+	    clean x
+		=>
+		x;
+	end;
+
+	fun add_per_fun_call_counters_to_deep_syntax   may_return_more_than_once   (dictionary, per_compile_data)   deep_syntax_tree
+	    =
+	    {   fun get_variable  name
+		    =
+		    ca::get_variable (dictionary, name);
+
+		updateop    =  get_variable "unboxed_set";	# These strings are totally untypesafe, and in fact I broke them by doing renaming in core.pkg and not here.   Can we do better? XXX SUCKO FIXME.
+		assignop    =  get_variable "assign";
+		subscriptop =  get_variable "get";		# SML/NJ had "subscript" here. This is vector_get (vs, say, tuple_get) and probably should be called that here.
+		derefop     =  get_variable "deref";
+		addop       =  get_variable "iadd";
+
+		make_highcode_var =   (per_compile_data:   pcd::Per_Compile_Data( ds::Declaration )).issue_highcode_codetemp;
+
+		call_count_vector_var = make_tmpvar("call_count_vector", tdt::TYPCON_TYPOID (rw_vector_type, [int_typoid]), make_highcode_var);
+		call_count_vector = make_var_in_exp call_count_vector_var;
+
+		first_slot_in__time_profiling_rw_vector__var =  make_tmpvar("first_slot", int_typoid, make_highcode_var);
+		first_slot_in__time_profiling_rw_vector      =  make_var_in_exp first_slot_in__time_profiling_rw_vector__var;
+
+		this_fn_var = make_tmpvar("this_fn_profiling_hook", tdt::TYPCON_TYPOID (ref_type, [int_typoid]), make_highcode_var);
+		currentexp = make_var_in_exp this_fn_var;
+
+		register_package_for_time_profiling
+		    =
+		    ca::get_variable (dictionary, "register_package_for_time_profiling");	# register_package_for_time_profiling	def in    src/lib/std/src/nj/runtime-profiling-control.pkg
+
+		stipulate
+		    type = case register_package_for_time_profiling
+			       #	
+			       vac::PLAIN_VARIABLE { vartypoid_ref => REF type, ... }  =>   type;
+			       _                                                     =>   bug "298374 in prof";
+			   esac;
+		herein
+
+		    prof_deref_type								# E.g. given Ref(Int) return Int.
+			=
+			case (tyj::head_reduce_typoid  type)					# Simplify the root of 'type' if possible, e.g. by dropping RESOLVE_TYPEVAR nodes.
+			    #
+			    tdt::TYPCON_TYPOID (_, [type']) =>   type';
+			     _                           =>   bug "298342 in prof";
+			esac;
+		end;
+
+		entries    =  REF (NIL: List( String ));
+		entrycount =  REF 0;
+
+		# We call this fn exactly once for each
+		# ds::FN_EXPRESSION found in the input
+		# deep syntax declaration parsetree.
+		#
+		fun make_entry name								# 'name' is "zot.bar.foo", probably intended to be the "zot::bar::foo" fully qualified name for the function.
+		    =
+		    i
+		    where
+			i = *entrycount;
+
+			entries    :=  "\n" ! name ! *entries;
+			entrycount :=  i+1;
+		    end;
+
+		int_upd_type = tuple_typoid [tdt::TYPCON_TYPOID (rw_vector_type, [int_typoid]), int_typoid, int_typoid] --> void_typoid;			# upd == update    -- store-to-vector 		THIS IS NEVER USED.
+		int_sub_type = tuple_typoid [tdt::TYPCON_TYPOID (rw_vector_type, [int_typoid]), int_typoid] --> int_typoid;					# sub == subscript -- fetch-from-vector.	THIS_IS NEVER USED.
+
+
+		# We add two expressions to the front of every profiled function.
+		# Here we generate code for 
+		#
+		#     ++ call_count_vector[ fun_id ];														# There is one call_count_vector per package being profiled.
+		#
+		# which will count all the calls to this fn.
+		# The fn is identified by our 'fun_id' parameter:
+		#
+		fun make_expression_to_bump_call_count_vector_slot (fun_id:  Int)										# Generate expression to do:     ++ call_count_vector[ fun_id ];
+		    =
+		    {   highcode_variable
+			    =
+			    make_tmpvar ("indexvar", int_typoid, make_highcode_var);										# THIS IS NEVER USED.
+
+			ds::APPLY_EXPRESSION
+                          { operator => ds::VARIABLE_IN_EXPRESSION { var => REF updateop, typescheme_args => [int_typoid] },					# store
+			    operand => 
+				tupleexp
+				  [ call_count_vector,
+				    ds::INT_CONSTANT_IN_EXPRESSION (multiword_int::from_int fun_id, int_typoid),
+				    ds::APPLY_EXPRESSION 													# increment
+				      { operator => make_var_in_exp addop,
+					operand =>
+					    tupleexp
+					      [ ds::APPLY_EXPRESSION
+						  { operator => ds::VARIABLE_IN_EXPRESSION { var => REF subscriptop, typescheme_args => [int_typoid] },		# fetch
+						    operand =>
+							tupleexp
+							  [ call_count_vector,
+							    ds::INT_CONSTANT_IN_EXPRESSION (multiword_int::from_int fun_id, int_typoid)
+							  ]
+						  },
+						ds::INT_CONSTANT_IN_EXPRESSION (multiword_int::from_int 1, int_typoid)
+					      ]
+				      }
+				  ]
+                          };
+		    };
+
+		int_ass_type
+		    =
+		    tuple_typoid [tdt::TYPCON_TYPOID (ref_type, [int_typoid]), int_typoid] --> void_typoid;
+
+
+
+		# We add two expressions to the front of every profiled function.
+		# Here we generate code for 
+		#
+		#     this_fn_global_hook :=  first_slot_in__time_profiling_rw_vector + fun_id
+		#
+		# which tells sigvtalrm_handler() which function is currently executing.						# sigvtalrm_handler	def in    src/c/machine-dependent/posix-profiling-support.c
+		#
+		# sigvtalrm_handler() uses this to accumulate seconds-executing-in-fun
+		# statistics in the global   time_profiling_rw_vector.
+		#
+		# sigvtalrm_handler() does
+		#
+		#     ++  time_profiling_rw_vector[ this_fn_global_hook ];
+		#
+		# each time it gets a SIGVTALRM (i.e., every ten milliseconds).
+		#
+		# The   time_profiling_rw_vector   is shared among all packages being profiled:
+		#
+		#   o first_slot_in__time_profiling_rw_vector
+		#         tells us where our package's slotrange starts within time_profiling_rw_vector
+		#
+		#   o fun_id
+		#         tells us where our function's slot lies withing that slotrange.
+		#
+		fun make_expression_to_set__this_fn_hook_global__var (fun_id:  Int)
+		    =
+		    {   highcode_variable =   make_tmpvar("indexvar", int_typoid, make_highcode_var);
+
+			ds::LET_EXPRESSION (
+			    #
+			    ds::VALUE_DECLARATIONS [
+				#
+				ds::VALUE_NAMING {
+				    pattern => ds::VARIABLE_IN_PATTERN  highcode_variable,							# indexvar =  first_slot_in__time_profiling_rw_vector + fun_id 
+				    expression => ds::APPLY_EXPRESSION {
+						     operator => make_var_in_exp addop,
+						     operand =>
+							 tupleexp [
+							     ds::INT_CONSTANT_IN_EXPRESSION (
+								 multiword_int::from_int fun_id,
+								 int_typoid
+							     ),
+							     first_slot_in__time_profiling_rw_vector
+							 ]
+						 },
+				    raw_typevars => REF NIL,
+				    generalized_typevars => []
+				}
+			    ],
+
+			    ds::APPLY_EXPRESSION {												# currentexp := indexvar
+				operator => ds::VARIABLE_IN_EXPRESSION {  var => REF assignop,  typescheme_args => [int_typoid]  },  
+				operand  => tupleexp [currentexp, make_var_in_exp highcode_variable ]
+			    }
+			);
+		    };
+
+		fun instrument_declaration (sp as (names, fun_id), ds::VALUE_DECLARATIONS vbl)
+			=> 
+			ds::VALUE_DECLARATIONS (map instrvb vbl)
+			where
+			    fun getvar (ds::VARIABLE_IN_PATTERN v) => THE v;
+				getvar (ds::TYPE_CONSTRAINT_PATTERN (p, _)) => getvar p;
+				getvar _ => NULL;
+			    end;
+
+			    fun instrvb (named_value as ds::VALUE_NAMING { pattern, expression, raw_typevars, generalized_typevars } )
+				=
+				case (getvar pattern)
+				    #
+				    THE (vac::PLAIN_VARIABLE { inlining_data, path=>syp::SYMBOL_PATH [n], ... } )
+					=>
+					if (id::is_simple  inlining_data)
+					     named_value;
+					else ds::VALUE_NAMING { pattern, raw_typevars,
+						expression=>instrument_expression (n ! clean names, 
+							      fun_id) FALSE expression,
+						generalized_typevars };
+					fi;
+
+				    THE (vac::PLAIN_VARIABLE { inlining_data, ... } )
+					=>
+					if (id::is_simple inlining_data)
+					     named_value;
+					else ds::VALUE_NAMING { pattern, expression=>instrument_expression sp FALSE expression, 
+						raw_typevars, generalized_typevars };
+					fi;
+
+				    _   =>
+					ds::VALUE_NAMING { pattern, expression=>instrument_expression sp FALSE expression, raw_typevars, generalized_typevars };
+				esac;
+			end;
+
+		    instrument_declaration (sp as (names, fun_id), ds::RECURSIVE_VALUE_DECLARATIONS rvbl)
+			=> 
+			ds::RECURSIVE_VALUE_DECLARATIONS (map instrrvb rvbl)
+			where
+			    fun instrrvb
+				    ( ds::NAMED_RECURSIVE_VALUE
+					{ variable as vac::PLAIN_VARIABLE { path=>syp::SYMBOL_PATH [n], ... },
+					  expression, null_or_type, raw_typevars, generalized_typevars
+					}
+				    )
+				    =>
+				    ds::NAMED_RECURSIVE_VALUE { expression=>instrument_expression (n ! clean names, fun_id) FALSE expression,
+				      variable, null_or_type, raw_typevars,
+				      generalized_typevars };
+
+			       instrrvb _ => bug "ds::RECURSIVE_VALUE_DECLARATIONS in instrument_declaration";
+			    end;
+			end;
+
+		    instrument_declaration (sp, ds::ABSTRACT_TYPE_DECLARATION { abstract_types, with_types, body } )
+			=> 
+			ds::ABSTRACT_TYPE_DECLARATION { abstract_types, with_types, 
+				  body=>instrument_declaration (sp, body) };
+
+		    instrument_declaration (sp, ds::PACKAGE_DECLARATIONS strbl)
+			=> 
+			ds::PACKAGE_DECLARATIONS (map (\\ named_package =  instrument_package_in_api (sp, named_package)) strbl);
+
+		    instrument_declaration (sp, ds::GENERIC_DECLARATIONS fctable)
+			=> 
+			ds::GENERIC_DECLARATIONS (map (\\ generic_naming => instrument_generic_package_in_api (sp, generic_naming); end ) fctable);
+
+		    instrument_declaration (sp, ds::LOCAL_DECLARATIONS (localdec, visibledec))
+			=>
+			ds::LOCAL_DECLARATIONS (instrument_declaration (sp, localdec), instrument_declaration (sp, visibledec));
+
+		    instrument_declaration (sp, ds::SEQUENTIAL_DECLARATIONS decl)
+			=> 
+			ds::SEQUENTIAL_DECLARATIONS (map (\\ declaration => instrument_declaration (sp, declaration); end ) decl);
+
+		    instrument_declaration (sp, ds::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, source_code_region))
+			=> 
+			ds::SOURCE_CODE_REGION_FOR_DECLARATION (instrument_declaration (sp, declaration), source_code_region);
+
+		    instrument_declaration (sp, other)
+			=>
+			other;
+		end 
+
+		also
+		fun instrument_package_expression (names, ds::PACKAGE_LET { declaration, expression })
+			=> 
+			ds::PACKAGE_LET { declaration => instrument_declaration   ((names, 0), declaration),
+				      expression  => instrument_package_expression (names,     expression)
+				    };
+
+		    instrument_package_expression (names, ds::SOURCE_CODE_REGION_FOR_PACKAGE (body, source_code_region))
+			=>
+			ds::SOURCE_CODE_REGION_FOR_PACKAGE (instrument_package_expression (names, body), source_code_region);
+
+		    instrument_package_expression (names, x)
+			=>
+			x;
+		end 
+
+
+		also
+		fun instrument_package_in_api ((names, fun_id), ds::NAMED_PACKAGE { name_symbol=>name, a_package=>str, definition=>def } )
+		    = 
+		    ds::NAMED_PACKAGE { a_package=>str, definition=>instrument_package_expression (name ! names, def), name_symbol=>name }
+
+
+		also
+		fun instrument_generic_package_expression (names, ds::GENERIC_DEFINITION { parameter, definition=>def, parameter_types } )
+			=> 
+			ds::GENERIC_DEFINITION { parameter, definition=>instrument_package_expression (names, def), parameter_types };
+
+		    instrument_generic_package_expression (names, ds::GENERIC_LET (d, body))
+			=> 
+			ds::GENERIC_LET (instrument_declaration((names, 0), d), instrument_generic_package_expression (names, body));
+
+		    instrument_generic_package_expression (names, ds::SOURCE_CODE_REGION_FOR_GENERIC (body, source_code_region))
+			=>
+			ds::SOURCE_CODE_REGION_FOR_GENERIC (instrument_generic_package_expression (names, body), source_code_region);
+
+		    instrument_generic_package_expression (names, x)
+			=>
+			x;
+		end 
+
+
+		also
+		fun instrument_generic_package_in_api ((names, fun_id), ds::NAMED_GENERIC { name_symbol=>name, a_generic, definition=>def } )
+		    =
+		    ds::NAMED_GENERIC { name_symbol=>name, a_generic, definition=>instrument_generic_package_expression (name ! names, def) }
+
+		also
+		fun instrument_expression (sp as (names, fun_id))
+		    =
+		    istail
+		    where
+			fun istail tail
+			    =
+			    instruction
+			    where
+				fun iinstr expression =   istail FALSE expression;
+				fun oinstr expression =   istail TRUE  expression;
+
+				fun instrrules transform
+				    =
+				    map   (\\ (ds::CASE_RULE (p, e)) =   ds::CASE_RULE (p, transform e));
+
+				recursive my instruction
+				    :
+				    (ds::Deep_Expression -> ds::Deep_Expression)
+				    =
+				    \\  ds::RECORD_IN_EXPRESSION l
+					    => 
+					    ds::RECORD_IN_EXPRESSION (map (\\ (lab, expression) = (lab, iinstr expression)) l);
+
+				        ds::VECTOR_IN_EXPRESSION (l, t)
+					    =>
+					    ds::VECTOR_IN_EXPRESSION((map iinstr l), t);
+
+				        ds::SEQUENTIAL_EXPRESSIONS l
+					    =>
+					    ds::SEQUENTIAL_EXPRESSIONS (seq l)
+					    where
+						fun seq [e]     =>  [instruction e];
+						    seq (e ! r) =>  (iinstr e) ! (seq r);
+						    seq NIL     =>  NIL;
+						end;
+					    end;
+
+				        ds::IF_EXPRESSION { test_case, then_case, else_case }
+					    =>
+					    ds::IF_EXPRESSION { test_case => iinstr test_case,
+								then_case =>  instruction then_case,
+								else_case =>  instruction else_case
+							      };
+
+				        ds::AND_EXPRESSION (e1, e2) =>  ds::AND_EXPRESSION (iinstr e1, instruction e2);
+				        ds::OR_EXPRESSION  (e1, e2) =>  ds::OR_EXPRESSION  (iinstr e1, instruction e2);
+
+				        ds::WHILE_EXPRESSION { test, expression }
+					    =>
+					    ds::WHILE_EXPRESSION { test => iinstr test, expression => iinstr expression };
+
+				        expression as ds::APPLY_EXPRESSION { operator => f, operand => a }
+					    =>
+					    {   fun safe (ds::VARIABLE_IN_EXPRESSION {  var => REF (vac::PLAIN_VARIABLE { inlining_data, ... } ),  ... } )
+							=>
+							if (id::is_simple inlining_data)
+							    #
+							    if (may_return_more_than_once inlining_data)   FALSE;
+							    else                                           TRUE;
+                                                            fi;
+							else FALSE; fi;
+
+						   safe (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)) =>  safe e;
+						   safe (ds::TYPE_CONSTRAINT_EXPRESSION        (e, _)) =>  safe e;
+						   safe (ds::SEQUENTIAL_EXPRESSIONS            [e]   ) =>  safe e;
+						   safe _ => FALSE;
+						end;
+
+						fun operator_instr a
+						    = 
+						    case a
+							ds::APPLY_EXPRESSION { operator => randf, ... }  =>  if (safe randf ) iinstr; else oinstr;fi;
+							ds::VARIABLE_IN_EXPRESSION _                 =>  oinstr;
+							#	
+							ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _) =>  operator_instr e;
+							ds::TYPE_CONSTRAINT_EXPRESSION (e, _)        =>  operator_instr e;
+							ds::SEQUENTIAL_EXPRESSIONS [e]               =>  operator_instr e;
+							#	
+							_                                            =>  iinstr;
+						    esac;
+
+						f' = operator_instr a f;
+
+						if (tail or (safe f))
+						    #
+						    ds::APPLY_EXPRESSION { operator => f', operand => oinstr a };
+						else
+						    type = ret::reconstruct_expression_type  expression;
+
+						    highcode_variable = make_tmpvar("appvar", type, make_highcode_var);
+
+						    ds::LET_EXPRESSION (ds::VALUE_DECLARATIONS [ds::VALUE_NAMING { pattern=>ds::VARIABLE_IN_PATTERN  highcode_variable,
+									expression=>ds::APPLY_EXPRESSION { operator => f', operand => oinstr a },
+									raw_typevars=>REF NIL,
+									generalized_typevars => [] } ],
+							      ds::SEQUENTIAL_EXPRESSIONS ( [make_expression_to_set__this_fn_hook_global__var (fun_id), 
+								      make_var_in_exp highcode_variable]));
+						fi;
+					    };
+
+				        ds::TYPE_CONSTRAINT_EXPRESSION (e, t)
+					    =>
+					    ds::TYPE_CONSTRAINT_EXPRESSION (instruction e, t);
+
+					ds::EXCEPT_EXPRESSION (e, (l, t))
+					    =>
+					    ds::EXCEPT_EXPRESSION (instruction e, (map rule l, t))
+					    where
+						fun rule (ds::CASE_RULE (p, e))
+						    = 
+						    ds::CASE_RULE (p, ds::SEQUENTIAL_EXPRESSIONS [make_expression_to_set__this_fn_hook_global__var fun_id, instruction e]);
+					    end;
+
+					ds::RAISE_EXPRESSION (e, t)
+					    =>
+					    ds::RAISE_EXPRESSION (oinstr e, t);
+
+					ds::LET_EXPRESSION (d, e)
+					    =>
+					    ds::LET_EXPRESSION (instrument_declaration (sp, d), instruction e);
+
+					ds::ABSTRACTION_PACKING_EXPRESSION (e, t, types)
+					    =>
+					    ds::ABSTRACTION_PACKING_EXPRESSION (oinstr e, t, types);
+
+					ds::CASE_EXPRESSION (e, l, b)
+					    => 
+					    ds::CASE_EXPRESSION (iinstr e, instrrules instruction l, b);
+
+					ds::FN_EXPRESSION (caserules, fun_type)
+					    =>
+					    {
+						fun_id' =   make_entry  fun_name						# Returns int count of entries-made-so-far.
+							    where
+								fun_name =  cat (coloncolon ([], names))
+									    where
+										fun coloncolon (a, [z])      =>  sy::name z ! a;				# Given a list of symbols [foo,bar,zot], return a string "zot::bar::foo".
+										    coloncolon (a, x ! rest) =>  coloncolon ("::" ! sy::name x ! a, rest);
+										    coloncolon _             =>  bug "no path in instrument_expression";
+										end;
+									    end;
+							    end;
+
+						highcode_variable = make_tmpvar("fnvar", fun_type, make_highcode_var);
+
+						exn_match = ca::get_constructor (dictionary, "MATCH");
+
+						(list::last caserules) ->   ds::CASE_RULE(_, special);			# Pattern-action pair; we ignore the pattern.
+
+						# Here we replace the function body,
+						#
+						#     <caserules>
+						#
+						# with
+						#
+						#     foo =>  {   ++ call_count_vector[ fun_id ];
+						#                 this_fn_hook__global := first_slot_in__time_profiling_rw_vector + fun_id;
+						#                 case foo
+						#                     <caserules>
+						#                 esac;
+						#             }
+						#             except _ = raise MATCH <fntype>;
+						#
+						# Or something pretty close to that.
+						# In short, we install a wrapper on each fn
+						# that increments a per-fun call counter and sets
+						# a global variable identifying which fun is running.
+						#
+						#
+						ds::FN_EXPRESSION
+						  (
+						    [ ds::CASE_RULE
+                                                        (
+							  ds::VARIABLE_IN_PATTERN  highcode_variable,
+							  ds::SEQUENTIAL_EXPRESSIONS
+							    ( [ make_expression_to_bump_call_count_vector_slot fun_id',
+								make_expression_to_set__this_fn_hook_global__var        fun_id',
+								ds::CASE_EXPRESSION
+                                                                  ( make_var_in_exp  highcode_variable,
+								    instrrules (instrument_expression (anon_sym ! names, fun_id') TRUE) caserules,
+								    TRUE								# Means we're matching -- fun/fn, not my(...)=...
+                                                                  )
+                                                              ]
+                                                            )
+                                                        ),
+							ds::CASE_RULE
+                                                          ( ds::WILDCARD_PATTERN,
+                                                            ds::RAISE_EXPRESSION
+                                                              ( ds::VALCON_IN_EXPRESSION { valcon => exn_match,  typescheme_args => [] },
+								ret::reconstruct_expression_type special
+                                                              )
+                                                          )
+						    ],
+                                                    fun_type
+                                                  );
+					       };
+
+					ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, source_code_region)
+					   =>
+					   ds::SOURCE_CODE_REGION_FOR_EXPRESSION (instruction e, source_code_region);
+
+					e => e;
+				    end; 
+
+			    end;		# where (fn istail)
+
+		    end;			# fun instrument_expression 
+
+		deep_syntax_tree1
+		    =
+		    instrument_declaration (([], 0), deep_syntax_tree);
+
+
+		# The following break the invariant set in deep-syntax.pkg where
+		# the pattern in each ds::VALUE_NAMING naming should bind single variables !;
+		# The following ds::VALUE_NAMING only binds typelocked variables, so it is
+		# probably ok for the time being. We definitely should clean it
+		# up some time in the future. (ZHONG)    XXX BUGGO FIXME
+
+
+		# This appears to replace deep_syntax_tree1 by
+		#
+		#     {   my (basebar, call_count_vector_var, this_fn_var) =  (*register_package_for_time_profiling) entries;
+		#         deep_syntax_tree1;
+		#     }
+		#
+		# This will result in the package being compiled
+		# automatically registering itself for profilling
+		# when linked.
+		#
+		deep_syntax_tree2
+		    = 
+		    ds::LOCAL_DECLARATIONS
+		      (
+			ds::VALUE_DECLARATIONS
+			  [
+			    ds::VALUE_NAMING
+			      {
+				pattern => tuplepat
+				  [
+				    ds::VARIABLE_IN_PATTERN first_slot_in__time_profiling_rw_vector__var,
+				    ds::VARIABLE_IN_PATTERN call_count_vector_var,
+				    ds::VARIABLE_IN_PATTERN this_fn_var
+                                  ],
+
+			        expression => ds::APPLY_EXPRESSION
+                                  {
+				    operator =>
+					ds::APPLY_EXPRESSION
+					  {
+					    operator => 
+						ds::VARIABLE_IN_EXPRESSION
+						  {
+						    var             =>  REF derefop,
+						    typescheme_args =>      [prof_deref_type]
+						  },
+					    operand => make_var_in_exp  register_package_for_time_profiling		# register_package_for_time_profiling	def in    src/lib/std/src/nj/runtime-profiling-control.pkg
+					  },
+
+				    operand => ds::STRING_CONSTANT_IN_EXPRESSION (cat (reverse *entries))
+                                  },
+
+				raw_typevars => REF NIL,
+
+				generalized_typevars => []
+                              }
+                          ],
+			deep_syntax_tree1
+                      );
+
+		deep_syntax_tree2;
+	    };												# fun add_per_fun_call_counters_to_deep_syntax
+
+	# This fun is called (only) from   maybe_instrument_deep_syntax   in
+	#
+	#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+	fun maybe_add_per_fun_call_counters_to_deep_syntax
+	        mrmto
+                (dictionary, per_compile_data)
+                deep_syntax_tree
+	    = 												# profiling_mode			def in    src/lib/std/src/nj/runtime-profiling-control.pkg
+	    {
+		if *ri::rpc::add_per_fun_call_counters_to_deep_syntax					# runtime_internals			is from   src/lib/std/src/nj/runtime-internals.pkg
+		    #											# runtime_profiling_control		is from   src/lib/std/src/nj/runtime-profiling-control.api
+		    add_per_fun_call_counters_to_deep_syntax
+			mrmto
+			(dictionary, per_compile_data)
+			deep_syntax_tree;
+		else
+		    deep_syntax_tree;									# We're off duty -- don't do anything.
+		fi;
+	    };
+
+    };					# package add_per_fun_call_counters_to_deep_syntax 
+end;					# stipulate
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

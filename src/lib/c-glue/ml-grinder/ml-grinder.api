@@ -1,0 +1,455 @@
+#
+# The ML-Grinder library.
+# This library contains various routines for manipulating SML programs
+# as ASTs.
+#
+# Allen Leung (leunga@{ cs.nyu.edu, dorsai.org } )
+
+
+local
+
+
+   # Functions on various syntactic categories of the AST:
+   #   pp:        forms a pretty printer 
+   #   show:      pretty print as ML (show = asML o pp)
+   #   parse:     parse and return an ast
+   #   map:       apply the translation rules on all subexpressions 
+   #   rewrite:   apply the translation rules on all subexpressions 
+   #                  (can repeat)
+   #   fold:      apply the fold rules on all subexpressions
+   #   apply:     apply the apply rules on all subexpressions
+   #   subst:     perform substitition 
+   #   simplify:  perform simplification
+   #   nolocations:  Strip away all the decorations.line 
+   #   html:      generate html  (for documentation)
+
+
+   api S = 
+   api type t and pp and mr and rr and X fr and ar and sr
+       my show:      t -> String 
+       my pp:        t -> pp
+       my parse:     String -> t
+       my simplify:  t -> t
+       my map:       List( mr ) -> t -> t
+       my rewrite:   List( rr ) -> t -> t
+       my fold:      List( fr(X) ) -> X -> t -> X
+       my apply:     List( ar ) -> t -> Void
+       my subst:     List( sr ) -> t -> t
+       my nolocations:  t -> t
+       #  my html:      t -> html::block 
+   end
+in
+
+api Ml_Grinder = 
+api
+
+   package pp:           PP
+   package re:           Regexp_Lib
+   package raw:          ADL_AST
+   package raw_util:      ADL_AST_UTIL where raw = raw
+   package raw_pp:        ADL_AST_PRETTY_PRINTER where raw = raw 
+   package raw_rewriter:  ADL_AST_REWRITER where raw = raw
+   package raw_trans:     ADL_AST_TRANSLATION where raw = raw
+   package match_g:     MATCH_GEN where raw = raw
+   #  package html_g:   HTML_GEN = HTMLGen 
+
+   type labeled(X) = raw::id * X
+
+   #  First: some helper sumtypes for various transformations 
+
+   #  Rules for map like transformations 
+   package map :
+   api
+      enum rule = E of raw::exp -> raw::exp
+                    | SE of raw::structexp -> raw::structexp
+                    | D of raw::decl -> raw::decl
+                    | T of raw::ty -> raw::ty
+                    | P of raw::pat -> raw::pat
+   end
+
+   #  Rules for rewriting like transformations 
+   package rewrite :
+   api
+      enum rule = E of (raw::exp -> raw::exp) -> raw::exp -> raw::exp
+                    | SE of (raw::structexp -> raw::structexp) -> 
+                                raw::structexp -> raw::structexp
+                    | D of (raw::decl -> raw::decl) -> raw::decl -> raw::decl
+                    | T of (raw::ty -> raw::ty) -> raw::ty -> raw::ty
+                    | P of (raw::pat -> raw::pat) -> raw::pat -> raw::pat
+   end
+
+   #  Rules for fold like transformations 
+   package fold :
+   api
+       enum rule X = E of raw::exp * X -> X
+                        | SE of raw::structexp * X -> X
+                        | D of raw::decl * X -> X
+                        | T of raw::ty * X -> X
+                        | P of raw::pat * X -> X
+   end
+
+   #  Rules for apply like transformations 
+   package app :
+   api
+       enum rule = E of raw::exp -> Void
+                     | SE of raw::structexp -> Void
+                     | D of raw::decl -> Void
+                     | T of raw::ty -> Void
+                     | P of raw::pat -> Void
+   end
+
+   # Rules for substitions. 
+   # NOTE: As a convention, identifiers with leading underscore are
+   #       metavariables.  These may be used for targets for substitution.
+
+   package subst :
+   api
+       enum rule = E  of String -> Null_Or( raw::exp )
+                 | SE of String -> Null_Or( raw::structexp )
+                 | D  of String -> Null_Or( raw::decl )
+                 | T  of String -> Null_Or( raw::ty )
+                 | P  of String -> Null_Or( raw::pat )
+   end
+
+   # Functions on various syntactic categories:
+   #   pp:        forms a pretty printer 
+   #   show:      pretty print as ML (show = asML o pp)
+   #   parse:     parse and return an ast
+   #   map:       apply the translation rules on all subexpressions 
+   #   fold:      apply the fold rules on all subexpressions
+   #   apply:     apply the apply rules on all subexpressions
+   #   subst:     perform substitition 
+   #   simplify:  perform simplification
+
+
+   #  Declarations 
+   package decl :
+      S where type t = raw::decl 
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   # Clause: <pat> => <exp>   
+   #  or     <pat> where <exp> => <exp>      (ml_grinder extension)
+
+   package clause :
+   api include S where type t = raw::clause 
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+       my isComplex:  t -> Bool
+   end
+
+   #  Clauses: <clause> | ... | <clause> 
+   package clauses :
+   api include S where type t = List( raw::clause )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) =  Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+       my isComplex:  t -> Bool
+   end
+
+   # FunClause: f <pat> ... <pat> = <exp> 
+   #  or        f <pat> ....<pat> where (<exp>) => <exp> (ml_grinder extension)
+
+   package fun_clause :
+   api my show:       raw::clause -> String
+       my pp:         raw::clause -> pp::pp
+       my parse:      String -> raw::id * raw::clause #  fun name/clause 
+       my isComplex:  raw::clause -> Bool
+       my nolocations:  raw::id * raw::clause -> raw::id * raw::clause
+   end
+
+   #  Funclauses:  <funclause> | ... | <funclause> 
+   package fun_clauses :
+   api
+       my show:       List( raw::clause ) -> String
+       my pp:         List( raw::clause ) -> pp::pp
+       my parse:      String -> raw::id * List( raw::clause )
+       my isComplex:  List( raw::clause ) -> Bool
+       my nolocations:  raw::id * List( raw::clause ) -> 
+                         raw::id * List( raw::clause )
+   end
+
+   #  Fun: f <funclause> | ... | f <funclause> 
+   package function_def :
+      S where type t = raw::function_def 
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Function_Defs: <function_def> and ... and <function_def> 
+   package function_defs :
+      S where type t = List( raw::function_def )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Named_Value: <pat> = <exp> 
+   package named_value :
+      S where type t = raw::NAMED_VALUE 
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Named_Values: <named_value> and ... and <named_value> 
+   package named_values :
+      S where type t = List( raw::NAMED_VALUE )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Expression 
+   package exp:  
+      S where type t = raw::exp
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Expressions 
+   package exps:  
+      S where type t = List( raw::exp )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Expression: <label_expression> ::= <id> = <exp> 
+   package label_expression:  
+      S where type t = labeled( raw::exp )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Expressions: <label_expressions> ::= <label_expression>, ..., <label_expression> 
+   package label_expressions:  
+      S where type t =  List( labeled( raw::exp ) )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Package Expressions 
+   package sexp:  
+      S where type t = raw::structexp
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Api Expressions 
+   package api_expression :
+      S where type t = raw::api_expression
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Type Expression 
+   package ty :
+      S where type t = raw::ty
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Type Expressions 
+   package tys :
+      S where type t = List( raw::ty )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Type: <labty> ::= id:  <ty> 
+   package labty:  
+      S where type t = labeled( raw::ty )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Types: <labtys> ::= <labty>, ..., <labty> 
+   package labtys:  
+      S where type t =  List( labeled( raw::ty ) )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Pattern 
+   package pat :
+      S where type t = raw::pat
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)= Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Patterns 
+   package pats :
+      S where type t = List( raw::pat )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Pattern: <labpat> ::= id = <pat> 
+   package labpat:  
+      S where type t = labeled( raw::pat )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Labeled Patterns: <labpats> ::= <labpat>, ..., <labpat> 
+   package labpats:  
+      S where type t =  List( labeled( raw::pat ) )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   # Constructor definition: <cons> of <ty> 
+   # or                      <cons>
+
+   package consbind :
+      S where type t = raw::consbind
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Constructor definitions: <consbind> | ... | <consbind> 
+   package consbinds :
+      S where type t = List( raw::consbind )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   # Sumtype definitions:          t = <consbinds> 
+   # or                    <tyvars> t = <consbinds>
+
+   package sumtype :
+      S where type t = raw::sumtype
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+ 
+   #  Sumtype definitions: <sumtype> and ... and <sumtype> 
+   package sumtypes :
+      S where type t = List( raw::sumtype )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   # Typebind:          t = <ty> 
+   # or       <tyvars> t = <ty>
+
+   package typebind :
+      S where type t = raw::typebind
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X) = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+
+   #  Typebinds: <tybind> and ... and <tybind> 
+   package typebinds :
+      S where type t = List( raw::typebind )
+          and type pp = pp::pp and type mr = Map::rule and type rr = Rewrite::rule 
+          and type fr(X)   = Fold::rule(X)
+          and type ar = App::rule and type sr = Subst::rule
+ 
+   # Constants hoisting 
+   #   (to prevent recomputation/redundancy in generated code) 
+
+   package constants :
+   api my constants:  
+           Void ->
+           { defineConst:    raw::exp -> raw::exp,
+             declareConsts:  raw::decl -> raw::decl 
+           }
+   end
+
+   #  Input/Output 
+   package io :
+   api
+      type filename = String
+      my read_string:  filename -> String
+      my read_lines:  filename -> List( String )
+      my read_lines' : filename -> List( String ) #  strip trailing nl 
+      my read_verbatim:  filename -> raw::decl  #  no parsing 
+
+      my write_string:  filename * String -> Void
+      my write_lines:  filename * List( String ) -> Void
+
+      my read_file:   filename -> raw::decl        #  Load an input file 
+
+      enum writeOpt = 
+        INFILE  of filename   
+      | OUTFILE of filename  
+      | EXT     of String
+      | AUTHOR  of String
+      | EMAIL   of String
+      | VERSION of String
+      | PROGRAM of String
+      | COMMENT of List( String )
+
+        # Write output file: 
+        # All options are, well, optional.  The options are used to 
+        # compose a comment in the header of the output file.
+        # If the output filename is not specified, then it is inferred from
+        # the input filename.  At least one of INFILE and OUTFILE should
+        # be specified.
+
+      my writeFile:  List( writeOpt ) * raw::decl -> Void 
+   end
+
+   #  Error handling 
+   exception MLGrinderErrorMsg of String
+   my error:     String -> Void
+   my warning:   String -> Void
+   my fail:      String -> X
+   my bug:       String /* module */ * String /* message */-> X
+
+   # The match compiler:
+   #
+   # This can be used to transform a program using conditional pattern
+   # matching, multiword_int::Int pattern literals, or SML/NJ's OR patterns,
+   # into legal SML 97 code.  
+   #
+   # A set of enum definitions must be specified as part of the input.
+   # The output contains a set of auxiliary definitions.  These must be
+   # spliced into the transformed program for that to compile. 
+
+   package match_compiler :
+   api
+       exception MATCH_COMPILER of String
+       my compile_case_pattern:  
+           { sumtypes: List( raw::decl ), #  enum definitions 
+            prog: raw::decl              #  program to transform 
+           } -> 
+           { prog: raw::decl,              #  transformed program 
+            literals: List( raw::decl )   #  Auxiliary literals definitions 
+           } 
+       my compileTypes:  List( raw::decl ) -> match_g::Env::env
+   end
+
+   # The lexer generator:
+   #
+   # This can be used to transform a program with case statements of
+   # the form:
+   # 
+   #    case lexer exp of
+   #      (re_1, p_1) => e_1
+   #    | (re_2, p_2) => e_2
+   #        ...
+   #    | (re_n, p_n) => e_n 
+   #
+   # into a lexical scanner.  re_1 ... re_n must be string literals, and
+   # will be treated as regular expressions.   
+
+   package lexer_generator :
+   api
+       exception LEXER_GENERATOR of String
+       my lexerGenerate:  
+            raw::decl           #  program to transform 
+            -> 
+           { prog: raw::decl,           #  transformed program 
+            literals: List( raw::decl )   #  Auxiliary literals definitions 
+           }
+   end
+
+   #  Miscellaneous 
+   my line_width:  REF( Int )            #  line width for pretty printing 
+   my asML:       pp::pp  -> String     #  pretty print as ML code 
+   my comment:    List( String ) -> raw::decl #  Create comment 
+   my silent:     REF( Bool )                #  suppress parser error messages 
+end 
+
+end

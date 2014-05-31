@@ -1,0 +1,1922 @@
+## type-junk.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+stipulate
+    package ctt =  core_type_types;		# core_type_types		is from   src/lib/compiler/front/typer-stuff/types/core-type-types.pkg
+    package ds  =  deep_syntax;			# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package ep  =  stamppath;			# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package err =  error_message;		# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package ip  =  inverse_path;		# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lms =  list_mergesort;		# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package ss  =  substring;			# substring			is from   src/lib/std/substring.pkg
+    package sta =  stamp;			# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sy  =  symbol;			# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syx =  symbolmapstack;		# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tdt =  type_declaration_types;	# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package vac =  variables_and_constructors;	# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;			# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+
+    package   type_junk
+    : (weak)  Type_Junk			# Type_Junk	is from   src/lib/compiler/front/typer-stuff/types/type-junk.api
+    {
+	make_rw_vector =   rw_vector::make_rw_vector;
+	sub            =   rw_vector::get;
+	update         =   rw_vector::set;
+
+	infix my 99  sub ;
+
+	my   -->   =   core_type_types::(-->);
+
+	infix my  --> ;
+
+	say        =   control_print::say;
+        debugging  =   typer_data_controls::type_junk_debugging;		#  REF FALSE 
+# debugging =  log::debugging;							#  REF FALSE 
+
+	fun bug msg
+            =
+            err::impossible("type_junk: " + msg);
+
+	fun equality_property_to_string p
+            =
+	    case p
+		#	      
+		tdt::e::NO            =>  "NO";
+		tdt::e::YES           =>  "YES";
+		tdt::e::INDETERMINATE =>  "INDETERMINATE";
+		tdt::e::CHUNK         =>  "CHUNK";
+		tdt::e::DATA          =>  "DATA";
+		tdt::e::UNDEF         =>  "UNDEF";
+		tdt::e::EQ_ABSTRACT   =>  "EQ_ABSTRACT";
+            esac;
+
+
+	# ************** operations to build typevars, VARtys **************
+
+	# Make a META type variable for a possibly
+        # agnostically- ("polymorphically-") typed expression.
+        #
+	# This function is local to this file:
+	#
+	fun make_meta_typevar  fn_nesting
+            =
+	    {
+		if *debugging  printf "src/lib/compiler/front/typer-stuff/types/type-junk.pkg: Creating META typevar fn_nesting==%d\n" fn_nesting; fi;
+
+		tdt::META_TYPEVAR
+		    {
+		      eq    => FALSE,
+		      fn_nesting
+		    };
+	    };
+
+	# Make a variable for an incompletely
+	# specified record (one where "..." was used):
+	#
+	fun make_incomplete_record_typevar (known_fields, fn_nesting)
+            =
+	    tdt::INCOMPLETE_RECORD_TYPEVAR
+                {
+                  eq           => FALSE,
+                  known_fields,
+                  fn_nesting
+                 };
+
+        # Given  'a return ("a", FALSE),			# Given  X return ("X", FALSE);
+        # given ''a return ("a", TRUE ):			# Given _X return ("X", TRUE );
+	#
+	fun extract_variable_name_information name
+            =
+	    {   name = ss::from_string name;			#  Convert String to Substring.
+
+	        # Strip leading '$' if any:									# 2011-03-05 CrT: This should be long obsolete, we should be able to drop this...? XXX BUGGO FIXME.
+                #
+		name
+                    =
+		    if  (ss::get (name, 0) ==  '$')   ss::drop_first 1 name;
+		    else                                               name;
+                    fi;
+            
+		my (name, eq)
+                    =
+		    if (  ss::get (name, 0) ==  '$'	#  Initial "$" signifies equality			# 2011-03-05 CrT: This should be long obsolete, we should be able to drop this...? XXX BUGGO FIXME.
+		       or ss::get (name, 0) ==  '_'	#  Initial "_" signifies equality
+                       )
+		         (ss::drop_first 1 name,  TRUE);
+		    else (                 name, FALSE);
+                    fi;
+            
+                ( ss::to_string name,			# Convert Substring back to String.
+                  eq					# TRUE iff this is an "equality" typevar.
+                );
+	    };
+
+	# This function is called exactly once, by  typecheck_typevar()  in
+	#     src/lib/compiler/front/typer/main/type-type.pkg
+	#
+	fun make_user_typevar (id:  sy::Symbol)
+            :
+            tdt::Typevar
+	    =
+	    {   (extract_variable_name_information (sy::name id))
+		    ->
+		    (name, eq);
+	    
+		tdt::USER_TYPEVAR
+                    {
+                      name       => sy::make_typevar_symbol  name,
+                      fn_nesting => tdt::infinity,
+                      eq
+                    };
+	    };
+
+
+
+	fun make_overloaded_literal_typevar (
+                kind:                tdt::Literal_Kind,
+                source_code_region:  line_number_db::Source_Code_Region,
+                stack:               List(String)
+            )
+            :
+            tdt::Typoid
+            =
+	    tdt::TYPEVAR_REF
+              (
+                tdt::make_typevar_ref
+                  (
+                    tdt::LITERAL_TYPEVAR { kind, source_code_region },
+                    stack
+              )   );
+
+
+
+	# This is called exactly once, from  copy_typescheme() in
+        #
+        #     src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+	#
+	fun make_overloaded_typevar_and_type (stack: List(String))
+            :
+            tdt::Typoid
+            =
+            tdt::TYPEVAR_REF
+              (
+                tdt::make_typevar_ref
+                  (
+                    tdt::OVERLOADED_TYPEVAR  FALSE,
+                    stack
+              )   );
+
+
+
+	# make_meta_typevar_and_type:
+	#
+	# This function returns a type that represents a new meta variable
+	# which does NOT appear in the "context" anywhere.  To do the same
+	# thing for a meta variable which will appear in the context (because,
+	# for example, we are going to assign the resulting type to a program
+	# variable), use make_meta_typevar_and_type with the appropriate fn_nesting.
+	#
+	fun make_meta_typevar_and_type
+            (
+              fn_nesting: Int,
+              stack:      List(String)
+            )
+            : tdt::Typoid
+            =
+            tdt::TYPEVAR_REF
+              (
+                tdt::make_typevar_ref
+                  (
+                    make_meta_typevar  fn_nesting,
+                    stack
+              )   );
+
+
+
+
+	# ************** base ops on types **************
+
+	fun bug_type (s: String, type)
+            =
+ 	    case type
+		#	      
+		tdt::SUM_TYPE          { namepath, ... } => bug (s + " SUM_TYPE "          + sy::name (ip::last namepath));
+		tdt::NAMED_TYPE        { namepath, ... } => bug (s + " NAMED_TYPE "        + sy::name (ip::last namepath));
+		tdt::TYPE_BY_STAMPPATH { namepath, ... } => bug (s + " TYPE_BY_STAMPPATH " + sy::name (ip::last namepath));
+		#
+		tdt::RECORD_TYPE _                  => bug (s + " RECORD_TYPE");
+		tdt::RECURSIVE_TYPE _               => bug (s + " RECURSIVE_TYPE");
+		tdt::FREE_TYPE _                    => bug (s + " FREE_TYPE");
+		tdt::ERRONEOUS_TYPE                 => bug (s + " ERRONEOUS_TYPE");
+            esac;
+
+	#  short (single symbol) name of type 
+
+	fun name_of_type (tdt::SUM_TYPE { namepath, ... } | tdt::NAMED_TYPE { namepath, ... } | tdt::TYPE_BY_STAMPPATH { namepath, ... } )
+		=>
+		ip::last namepath;
+
+	    name_of_type (tdt::RECORD_TYPE    _) => sy::make_type_symbol "<RECORD_TYPE>";
+	    name_of_type (tdt::RECURSIVE_TYPE _) => sy::make_type_symbol "<RECURSIVE_TYPE>";
+	    name_of_type (tdt::FREE_TYPE      _) => sy::make_type_symbol "<FREE_TYPE>";
+	    name_of_type  tdt::ERRONEOUS_TYPE    => sy::make_type_symbol "<ERRONEOUS_TYPE>";
+        end;
+
+	# Get the stamp of a type:
+	# 
+	fun stamp_of_type (tdt::SUM_TYPE { stamp, ... } | tdt::NAMED_TYPE { stamp, ... } ) => stamp;
+	    stamp_of_type type => bug_type("stamp_of_type", type);
+        end;
+
+	# Full path name of type,
+        # an inverse_path::path:
+	#
+	fun namepath_of_type
+                ( tdt::SUM_TYPE          { namepath, ... }
+                | tdt::NAMED_TYPE        { namepath, ... }
+                | tdt::TYPE_BY_STAMPPATH { namepath, ... }
+                )
+                => namepath;
+
+	    namepath_of_type tdt::ERRONEOUS_TYPE   => ip::INVERSE_PATH [sy::make_type_symbol "Error"];
+	    namepath_of_type type			=> bug_type("typepath", type);
+        end;
+
+	fun stamppath_of_type (tdt::TYPE_BY_STAMPPATH { stamppath, ... } ) => stamppath;
+	    stamppath_of_type type => bug_type("stamppath_of_type", type);
+        end;
+
+	fun arity_of_type (tdt::SUM_TYPE { arity, ... } | tdt::TYPE_BY_STAMPPATH   { arity, ... } ) =>  arity;
+	    arity_of_type (tdt::NAMED_TYPE { typescheme=>tdt::TYPESCHEME { arity, ... }, ... } ) =>  arity;
+	    arity_of_type (tdt::RECORD_TYPE l) => length l;
+	    arity_of_type (tdt::ERRONEOUS_TYPE) => 0;
+	    arity_of_type type => bug_type("arity_of_type", type);
+        end;
+
+	fun set_typepath (type, namepath)
+            =
+	    case type
+		#
+		tdt::SUM_TYPE   { namepath => _, stub => _,      stamp, arity, is_eqtype, kind }
+	    =>  tdt::SUM_TYPE   { namepath,      stub => NULL,   stamp, arity, is_eqtype, kind };
+
+		tdt::NAMED_TYPE { namepath=>_, typescheme, strict, stamp }
+	    =>  tdt::NAMED_TYPE { namepath,    typescheme, strict, stamp };
+
+		_   => bug_type("setTypeConstructorName", type);
+            esac;
+
+	fun eq_record_labels (NIL, NIL) => TRUE;
+	    eq_record_labels (x ! xs, y ! ys) => sy::eq (x, y) and eq_record_labels (xs, ys);
+	    eq_record_labels _ => FALSE;
+        end;
+
+
+	fun types_are_equal (tdt::SUM_TYPE g, tdt::SUM_TYPE g') =>   sta::same_stamp (g.stamp, g'.stamp);
+	    types_are_equal (tdt::ERRONEOUS_TYPE, _) => TRUE;
+	    types_are_equal (_, tdt::ERRONEOUS_TYPE) => TRUE;
+
+	    # This rule for PATHtypes is conservatively correct,
+	    # but is only an approximation:
+	    #
+	    types_are_equal ( tdt::TYPE_BY_STAMPPATH { stamppath=>ep,  ... },
+                             tdt::TYPE_BY_STAMPPATH { stamppath=>ep', ... }
+                           )
+                =>
+	        ep::same_stamppath (ep, ep');
+
+	    # This last case used for comparing tdt::NAMED_TYPE's, RECORD_TYPE's.
+	    # Also used in PPBasics to check data constructors of
+	    # a sumtype.  Used elsewhere?
+	    #
+	    types_are_equal ( tdt::RECORD_TYPE l1,
+                              tdt::RECORD_TYPE l2
+                            )
+                =>
+                eq_record_labels (l1, l2);
+
+	    types_are_equal _
+	        =>
+                FALSE;
+        end;
+
+		#  for now... 
+	fun make_constructor_typoid (tdt::ERRONEOUS_TYPE, _)
+                =>
+                tdt::WILDCARD_TYPOID;
+
+	    make_constructor_typoid (type as tdt::NAMED_TYPE { typescheme, strict, ... }, args)
+		=>
+		tdt::TYPCON_TYPOID (type, paired_lists::map
+				  (\\ (type, strict) = if strict  type; else tdt::WILDCARD_TYPOID; fi)
+				  (args, strict));
+
+	    make_constructor_typoid (type, args)
+	        =>
+                tdt::TYPCON_TYPOID (type, args);
+        end;
+
+
+	fun drop_resolved_typevars (tdt::TYPEVAR_REF { ref_typevar => tv as REF (tdt::RESOLVED_TYPEVAR type), ... }) :   tdt::Typoid
+		=>
+		{   pruned =  drop_resolved_typevars  type;
+		    #
+		    tv :=  tdt::RESOLVED_TYPEVAR pruned;
+		    #
+		    pruned;
+		};
+
+	    drop_resolved_typevars  type =>   type;
+        end;
+
+
+	fun same_typevar_ref
+            ( { id => _, ref_typevar => tv1: Ref( tdt::Typevar ) },
+              { id => _, ref_typevar => tv2: Ref( tdt::Typevar ) }
+            )
+            =
+            tv1 == tv2;
+
+	fun resolve_typevars_to_typescheme_slots (typevars: List( tdt::Typevar_Ref )) : Void
+            =
+            loop (typevars, 0)
+            where
+	        fun loop ([], _)
+                        =>
+                        ();
+
+		    loop ({ ref_typevar, id } ! rest, n)
+                        =>
+		        {   ref_typevar := tdt::RESOLVED_TYPEVAR (tdt::TYPESCHEME_ARG n);
+		            loop (rest, n+1);
+                        };
+                end;
+	    end;
+
+	fun resolve_typevars_to_typescheme_slots_1 (typevars: List( tdt::Typevar_Ref )):  tdt::Typescheme_Eqflags
+            =
+            loop (typevars, 0)
+            where
+	        fun loop ([], _)
+                        =>
+                        [];
+
+		    loop( { id, ref_typevar as REF (tdt::USER_TYPEVAR { eq, ... } ) } ! rest, n)
+			=>
+			{   ref_typevar := tdt::RESOLVED_TYPEVAR (tdt::TYPESCHEME_ARG n);
+			    eq ! loop (rest, n+1);
+			};
+
+		    loop _ =>  bug "resolve_typevars_to_typescheme_slots_1: tdt::USER_TYPEVAR";
+                end;
+	    end;
+
+	exception SHARE;
+
+
+	# This function should be merged soon with
+	# instantiate_if_typescheme    --zsh  XXX BUGGO FIXME **
+	#
+	fun apply_typescheme (tdt::TYPESCHEME { arity, body }, args)
+            =
+	    if (arity == 0)
+		#
+		body;
+	    else
+		substitute body
+		except
+		    SHARE => body;
+		    #
+		    INDEX_OUT_OF_BOUNDS => bug "apply_typescheme - not enough arguments";
+		end;
+	    fi
+	    where
+
+		# We assume that f fails on identity,
+		# i.e. f x raises SHARE instead of 
+		# returning x:
+		#
+		fun share_map f NIL
+			=>
+			raise exception SHARE;
+
+		    share_map f (x ! l)
+			=>
+			(f x) ! ((share_map f l) except SHARE = l)
+			except
+			    SHARE = x ! (share_map f l);
+		end;
+
+                fun substitute (tdt::TYPESCHEME_ARG n)
+                        =>
+                        list::nth (args, n);
+
+		    substitute (tdt::TYPCON_TYPOID (type, args))
+                        =>
+                        tdt::TYPCON_TYPOID (type, share_map substitute args);
+
+		    substitute (tdt::TYPEVAR_REF { id, ref_typevar as (REF (tdt::RESOLVED_TYPEVAR type)) } )
+                        =>
+                        substitute type;
+
+		    substitute _
+                        =>
+                        raise exception SHARE;
+                end;
+	    end;					# where
+
+	# Transform every
+        #     tdt::TYPCON_TYPOID.type
+	# in given type:
+	#
+	fun map_constructor_typoid_dot_type  transform
+            =
+            map_type
+            where
+	        fun map_type typoid
+                    =
+		    case typoid
+		        #
+			tdt::TYPCON_TYPOID (type, types)
+			    => 
+			    make_constructor_typoid
+			      (
+				transform  type,
+				map  map_type  types
+			      );
+
+			tdt::TYPESCHEME_TYPOID  { typescheme_eqflags,
+						  typescheme => tdt::TYPESCHEME { arity, body }
+						}
+			    =>
+			    tdt::TYPESCHEME_TYPOID  { typescheme_eqflags,
+						      typescheme
+							  =>
+							  tdt::TYPESCHEME { arity,
+									    body  => map_type body
+									  }
+						    };
+
+			tdt::TYPEVAR_REF { id, ref_typevar as REF (tdt::RESOLVED_TYPEVAR typoid) }
+			    =>
+			    map_type typoid;
+
+			_ => typoid;
+                    esac;
+	    end;
+
+
+	# Same as above, without constructing return value.
+	# Commented out because it is nowhere used -- 2009-07-18 CrT
+	#
+#	fun apply_constructor_type_dot_type  user_fn
+#            =
+#            apply_type
+#            where
+#
+#	        fun apply_type type
+#                    =
+#		    case type
+#		      
+#		         tdt::TYPCON_TYPOID (type, types)
+#			     =>
+#			     {   user_fn  type;
+#				 apply  apply_type  types;
+#			     };
+#
+#		         tdt::TYPESCHEME_TYPOID { typescheme_eqflags,
+#                                            typescheme => tdt::TYPESCHEME { arity, body }
+#                                          }
+#			     =>
+#			     apply_type  body;
+#
+#		         tdt::TYPEVAR_REF { id, ref_typevar as REF (tdt::RESOLVED_TYPEVAR type) }
+#			     =>
+#			     apply_type  type;
+#
+#		         _ => ();
+#                    esac;
+#	    end;
+
+
+	exception BAD_TYPE_REDUCTION;
+
+
+	fun reduce_typoid (tdt::TYPCON_TYPOID (tdt::NAMED_TYPE { typescheme, ... }, args))
+		=>
+		apply_typescheme (typescheme, args);
+
+	    reduce_typoid (tdt::TYPESCHEME_TYPOID { typescheme_eqflags =>  [],
+						    typescheme         =>  tdt::TYPESCHEME { arity=>0, body }
+						  }
+                          )
+		=>
+		body;
+
+	    reduce_typoid (tdt::TYPEVAR_REF { id, ref_typevar as REF (tdt::RESOLVED_TYPEVAR type) } )
+		=>
+		type;
+
+	    reduce_typoid _
+		=>
+		raise exception BAD_TYPE_REDUCTION;
+        end;
+
+	fun head_reduce_typoid  type
+            =
+            head_reduce_typoid (reduce_typoid  type)
+            except
+                BAD_TYPE_REDUCTION
+		    =
+		    type;
+
+	fun typoids_are_equal (typoid, typoid')
+            =
+            eq ( drop_resolved_typevars typoid,
+                 drop_resolved_typevars typoid'
+               )
+            where
+
+	        fun eq (tdt::TYPESCHEME_ARG i1, tdt::TYPESCHEME_ARG i2)
+			=>
+			i1 == i2;
+
+		    eq (tdt::TYPEVAR_REF  tv, tdt::TYPEVAR_REF tv')
+			=>
+			same_typevar_ref (tv, tv');
+
+		    eq (   typoid  as tdt::TYPCON_TYPOID (type,  args ),
+                           typoid' as tdt::TYPCON_TYPOID (type', args')
+                       )
+			=>
+			if   (types_are_equal (type, type'))
+			    
+			     paired_lists::all typoids_are_equal (args, args'); 
+			else
+			     eq (reduce_typoid typoid, typoid')
+			     except
+				 BAD_TYPE_REDUCTION
+				     =
+				     eq (typoid, reduce_typoid typoid')
+				     except
+					 BAD_TYPE_REDUCTION = FALSE;
+                        fi;
+
+		    eq (typoid1 as (tdt::TYPEVAR_REF _ | tdt::TYPESCHEME_ARG _), typoid2 as tdt::TYPCON_TYPOID _)
+                        =>
+		        eq (typoid1, reduce_typoid typoid2)
+		        except
+                            BAD_TYPE_REDUCTION
+				=
+				FALSE;
+
+
+		    eq (typoid1 as tdt::TYPCON_TYPOID _, typoid2 as (tdt::TYPEVAR_REF _ | tdt::TYPESCHEME_ARG _))
+                        =>
+		        eq (reduce_typoid typoid1, typoid2)
+		        except
+                            BAD_TYPE_REDUCTION
+				=
+				FALSE;
+
+
+		    eq (tdt::WILDCARD_TYPOID, _) => TRUE;
+		    eq(_, tdt::WILDCARD_TYPOID) => TRUE;
+		    eq _ => FALSE;
+                end;
+	    
+	    end;
+
+	stipulate
+
+	    #  Making dummy argument lists to be used in type_equality 
+
+												# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+	    make_fresh_stamp =   sta::make_fresh_stamp_maker ();
+
+	    fun make_dummy_typoid ()
+                =
+		tdt::TYPCON_TYPOID
+                  (
+                    tdt::SUM_TYPE {
+			#
+                        stamp       =>  make_fresh_stamp (),
+			namepath    =>  ip::INVERSE_PATH [ sy::make_type_symbol "Dummy" ],
+			arity       =>  0,
+			#
+                        is_eqtype   =>  REF tdt::e::YES,
+                        stub        =>  NULL,
+		        kind        =>  tdt::BASE core_basetype_numbers::basetype_number_truevoid
+                    },
+
+                    []
+                  );
+
+		 # Making dummy type is a temporary hack ! pt_void is not used
+		 # anywhere in the source language ... Requires major clean up 
+		 # in the future. (ZHONG)
+		 # David B MacQueen: shouldn't cause any problem here.  Only thing relevant
+		 # property of the dummy types is that they have different stamps
+		 # and their stamps should not agree with those of any "real" types.
+
+	    # precomputing dummy argument lists
+	    # -- perhaps a bit of over-optimization here. [dbm]
+
+	    fun makeargs (0, args) =>  args;
+	        makeargs (i, args) =>  makeargs (i - 1, make_dummy_typoid() ! args);
+            end;
+
+	    args10 = makeargs (10,[]);  #  10 dummys 
+	    args1  = [head args10];
+	    args2  = list::take_n (args10, 2);
+	    args3  = list::take_n (args10, 3);  #  rarely need more than 3 args 
+
+	 herein
+
+            fun dummyargs 0 =>  [];    
+		dummyargs 1 =>  args1;
+		dummyargs 2 =>  args2;
+		dummyargs 3 =>  args3;
+
+		dummyargs n
+		    =>
+		    if (n <= 10)
+		        
+			list::take_n (args10, n);     #  Should be plenty 
+		    else
+			makeargs (n - 10, args10);  #  But make new dummys if needed 
+                    fi;
+            end;
+	end;
+
+	# type_equality.  This definition deals only partially with types that
+	# contain PATHtypes.  There is no interpretation of the PATHtypes, but
+	# PATHtypes with the same stamppath will be seen as equal because of the
+	# definition on types_are_equal.
+	#
+	fun type_equality (tdt::ERRONEOUS_TYPE, _)   =>   TRUE;
+	    type_equality (_, tdt::ERRONEOUS_TYPE)   =>   TRUE;
+
+	    type_equality (t1, t2)
+		=>
+		{   a1 = arity_of_type t1;
+		    a2 = arity_of_type t2;
+
+		    if (a1 != a2)
+		        
+			FALSE;
+		    else
+			args = dummyargs a1;
+
+			typoids_are_equal
+			    ( make_constructor_typoid (t1, args),
+			      make_constructor_typoid (t2, args)
+			    );
+		    fi;
+		};
+        end;
+
+	#  Instantiating polytypes 
+	#
+# 2009-04-17 CrT: Following is never actually used.
+# Function  copy_typescheme()  in   src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+# has an almost identical function, however.
+#	fun make_type_args n
+#            = 
+#	    if   (n > 0)
+#	         make_meta_typevar_and_type() ! make_type_args (n - 1);
+#	    else [];
+#            fi;
+
+	default_typevar_property = FALSE;
+
+
+
+	fun make_typeagnostic_api 0
+                =>
+                [];
+
+	    make_typeagnostic_api n
+		=>
+		default_typevar_property ! make_typeagnostic_api (n - 1);
+        end;
+
+
+	fun sumtype_to_type (tdt::VALCON { typoid, is_constant, ... } )
+            =
+            f (typoid, is_constant)
+            where
+		fun f (tdt::TYPESCHEME_TYPOID { typescheme => tdt::TYPESCHEME { body, ... }, ... }, b)
+			=>
+			f (body, b);
+
+		    f (tdt::TYPCON_TYPOID (type, _), TRUE)
+			=>
+			type;
+
+		    f (tdt::TYPCON_TYPOID (_, [_, tdt::TYPCON_TYPOID (type, _) ] ), FALSE)
+			=>
+			type;
+
+		    f _ =>   bug "sumtype_to_type";
+                end;
+	    end;
+
+	fun boundargs n
+            = 
+            loop 0
+            where
+	        fun loop (i)
+                    =
+		    if   (i >= n)   NIL;
+		    else            tdt::TYPESCHEME_ARG i ! loop (i+1);
+                    fi;
+	    end;
+
+	fun sumtype_to_typoid (type, domain)
+            =
+	    {   arity =  arity_of_type  type;
+		#	    
+		case arity
+		    #		  
+		    0   =>  case domain
+
+				 NULL    =>         tdt::TYPCON_TYPOID (type, []);
+				 THE dom => dom --> tdt::TYPCON_TYPOID (type, []);
+			    esac;
+
+
+		   _ => tdt::TYPESCHEME_TYPOID {
+
+                             typescheme_eqflags
+                                 =>
+                                 make_typeagnostic_api  arity,
+
+			     typescheme
+                                 =>
+                                 tdt::TYPESCHEME {
+                                     arity,
+		                     body => case domain   NULL    =>         tdt::TYPCON_TYPOID  (type,  boundargs arity);
+						           THE dom => dom --> tdt::TYPCON_TYPOID  (type,  boundargs arity);
+                                             esac
+                                 }
+                         };
+                esac;
+	    };
+
+	# Matching a typescheme against a target type -- 
+        # used (only) when declaring overloadings in 
+	#
+        #     src/lib/compiler/front/typer/main/type-core-language.pkg
+	#
+	fun match_typescheme
+            ( tdt::TYPESCHEME { arity, body }:	tdt::Typescheme,
+              target:				tdt::Typoid
+            )
+            : tdt::Typoid
+            =
+	    {   tyenv =  make_rw_vector (arity, tdt::UNDEFINED_TYPOID);
+		#
+		fun match_tyvar (i: Int, type:  tdt::Typoid) : Void
+                    = 
+		    case (tyenv sub i)
+			#		      
+			tdt::UNDEFINED_TYPOID
+			    =>
+			    update (tyenv, i, type);
+
+			type' =>    if (not (typoids_are_equal (type, type')))   bug("src/lib/compiler/front/typer-stuff/types/type-junk.pkg: Inconsistent types in overload statement");	fi;
+                    esac;
+
+		fun match ( scheme: tdt::Typoid,
+                            target: tdt::Typoid
+                          )
+                    =
+		    case ( drop_resolved_typevars  scheme,
+                           drop_resolved_typevars  target
+                         )
+			#		      
+			(tdt::WILDCARD_TYPOID, _) => ();		#  Wildcards match any type 
+			(_, tdt::WILDCARD_TYPOID) => ();		#  Wildcards match any type 
+
+			((tdt::TYPESCHEME_ARG i), type)
+			    =>
+                            match_tyvar (i, type);
+
+			(       tdt::TYPCON_TYPOID (type1, args1),
+			  pt as tdt::TYPCON_TYPOID (type2, args2)
+			)
+			    =>
+			    if (types_are_equal (type1, type2))
+				#
+				paired_lists::apply match (args1, args2);
+			    else
+				match (reduce_typoid scheme, target)
+				except
+				    BAD_TYPE_REDUCTION
+					=
+					match (scheme, reduce_typoid pt)
+					except
+					    BAD_TYPE_REDUCTION
+						=
+						bug "match_typescheme, match -- types ";
+						#
+						# XXX BUGGO FIXME This error can be triggered by the stimulus program
+						#
+						#	    ## Bug stimulus from Hue White 2011-05-01 
+						#	    package mud { fun moo (i: Int, j: Int) = 1;   };        # The '1' should be '1.0'! 
+						#	    overloaded my / : ((X, X) -> Float) +=  (mud::moo); 
+						#
+						# We need to be producing a much better diagnostic message here! 
+			    fi;
+
+		        _ => bug "match_typescheme, match";
+                    esac;
+
+	    
+                case (drop_resolved_typevars  target)
+		    #		  
+		    tdt::TYPESCHEME_TYPOID { typescheme_eqflags,
+				       typescheme => tdt::TYPESCHEME { arity => arity', body => body' }
+				     }
+			=>
+			{   match (body, body');
+
+			    tdt::TYPESCHEME_TYPOID {
+
+				typescheme_eqflags,
+
+				typescheme => tdt::TYPESCHEME { arity => arity',
+							     #	
+							     body  => if (arity > 1)	ctt::tuple_typoid (rw_vector::fold_backward (!) NIL tyenv);
+								      else		tyenv sub 0;
+								      fi
+							   }
+			    };
+			};
+
+		    type => 
+			{   match (body, type);
+
+			    arity > 1   ??   ctt::tuple_typoid (rw_vector::fold_backward (!) NIL tyenv)
+					::   tyenv sub 0;
+			};
+                esac;
+	    };
+
+	recursive my  drop_macro_expanded_indirections_from_type
+                =
+		\\ t as tdt::TYPEVAR_REF { id => _, ref_typevar as REF (tdt::RESOLVED_TYPEVAR (tdt::TYPEVAR_REF { id => _, ref_typevar => REF v })) }
+		       =>
+		       {   ref_typevar := v;
+			   drop_macro_expanded_indirections_from_type t;
+		       };
+
+
+		   tdt::TYPEVAR_REF { id, ref_typevar as REF (tdt::INCOMPLETE_RECORD_TYPEVAR { known_fields, ... } ) }
+		       =>
+		       apply (drop_macro_expanded_indirections_from_type o #2) known_fields;
+
+
+		   tdt::TYPCON_TYPOID (type, tyl)
+		       =>
+		       apply drop_macro_expanded_indirections_from_type tyl;
+
+
+		   tdt::TYPESCHEME_TYPOID { typescheme => tdt::TYPESCHEME { body, ... }, ... }
+		       =>
+		       drop_macro_expanded_indirections_from_type body;
+
+		   _ => ();
+	end ;
+
+
+
+
+
+	# For background see the discussion near the top of
+        #
+	#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+        #
+	# If argument is not a tdt::TYPESCHEME_TYPOID, return it unchanged.
+        #
+	# Otherwise instantiate body of tdt::TYPESCHEME_TYPOID
+        # with new META type variables, returning the
+        # instantiated body and the list of fresh META
+        # type variables.
+        #
+	#
+	# We are invoked from:
+	#
+        #     resolve_overloaded_variable ()
+        #         in
+        #         src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+	#
+        #     try_unifying_pkg_with_api_type ()
+        #     unify_pkg_with_api_type ()
+        #         in
+        #         src/lib/compiler/front/typer/modules/api-match-g.pkg
+	#
+	#     compute_pattern_type ()
+	#     compute_expression_type ()
+        #         in
+        #         src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+	#
+	fun instantiate_if_typescheme
+                (
+                  tdt::TYPESCHEME_TYPOID
+                      {
+                        typescheme_eqflags,
+                        typescheme
+                      },
+		  symbolmapstack:		syx::Symbolmapstack,			# Only to support debugging.
+		  callstack:			List(String)				# Only to support debugging.
+                )
+                :
+                ( tdt::Typoid,
+                  List( tdt::Typoid )
+                )
+		=>
+		{   # Create N new META type variables given
+		    # a list of N boolean values specifying
+		    # the equality property for them:
+		    #
+                    fresh_meta_typevars
+                        =
+                        map  f  typescheme_eqflags
+                        where
+			    fun f eq
+                                =
+                                tdt::TYPEVAR_REF
+                                    (tdt::make_typevar_ref
+                                        ( tdt::META_TYPEVAR { fn_nesting => tdt::infinity, eq },
+                                          ["instantiate_if_typescheme  from  type-junk.pkg"]
+                                        )
+                                    );
+                        end;
+
+		    if *debugging
+			len = list::length fresh_meta_typevars;
+			if (len > 0)
+			    printf "instantiate_if_typescheme making %d fresh meta typevars  [type-junk.pkg]  callstack: %s\n" len (string::join "  " (reverse callstack));
+			fi;
+		    fi;
+
+		    ( apply_typescheme (typescheme, fresh_meta_typevars),
+		      fresh_meta_typevars
+		    );
+		};
+
+	    instantiate_if_typescheme  (type, _, _)
+		=>
+		(type, []);
+        end;
+
+
+	stipulate 
+	    exception CHECKEQ;
+	herein
+	    fun check_eq_type_api (type,  typescheme_eqflags: tdt::Typescheme_Eqflags)		# "_api" suffix maybe changed from "sig(nature)", maybe should be changed back. -- 2011-10-21 CrT
+                =
+		{   {   eqty  type;
+			TRUE;
+                    }
+                    where
+			fun eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+				=>
+				eqty type;
+
+			    eqty (tdt::TYPCON_TYPOID (tdt::NAMED_TYPE { typescheme, ... }, args))
+				=>
+				eqty (apply_typescheme (typescheme, args));
+
+			    eqty (tdt::TYPCON_TYPOID (tdt::SUM_TYPE { is_eqtype, ... }, args))
+				=>
+				case *is_eqtype
+				    #
+				    tdt::e::CHUNK		=>  ();
+				    tdt::e::YES			=>  apply eqty args;
+
+				    ( tdt::e::NO
+				    | tdt::e::EQ_ABSTRACT
+				    | tdt::e::INDETERMINATE
+				    )				=>  raise exception CHECKEQ;
+
+				    p				=>  bug ("check_eq_type_api: " + equality_property_to_string p);
+				esac;
+
+			    eqty (tdt::TYPCON_TYPOID (tdt::RECORD_TYPE _, args))
+				=>
+				apply eqty args;
+
+			    eqty (tdt::TYPESCHEME_ARG n)
+				=>
+				if (not (list::nth (typescheme_eqflags, n)))
+
+				     raise exception CHECKEQ;
+				fi;
+
+			    eqty _ => ();
+			end;
+		    end;
+		}
+		except CHECKEQ = FALSE;
+	end;
+
+	exception COMPARE_TYPES;
+
+	fun compare_type ( spec_type,
+                           spec_api:    tdt::Typescheme_Eqflags,
+                           actual_type,
+		           actual_api:  tdt::Typescheme_Eqflags,
+                           actual_arity
+                         )
+                         : Void
+            =
+            compare (spec_type, actual_type)
+            where
+	        type_vector = make_rw_vector (actual_arity, tdt::UNDEFINED_TYPOID);
+
+		fun compare (type1, type2)
+                    =
+                    compare'
+                      ( head_reduce_typoid type1,
+                        head_reduce_typoid type2
+                      )
+
+		also	    
+		fun compare'(tdt::WILDCARD_TYPOID, _) => ();
+		    compare'(_, tdt::WILDCARD_TYPOID) => ();
+
+		    compare'(type1, tdt::TYPESCHEME_ARG i)
+			=>
+			case (type_vector sub i)
+			    #
+			    tdt::UNDEFINED_TYPOID
+				=>
+				(   {   eq = list::nth (actual_api, i);
+					#
+					if  (eq and not (check_eq_type_api (type1, spec_api)))
+					    raise exception COMPARE_TYPES;
+					fi;
+
+					update (type_vector, i, type1);
+				    }
+				    except INDEX_OUT_OF_BOUNDS = ()
+				);
+
+			    type => if (not (typoids_are_equal (type1, type)))
+					#
+					raise exception COMPARE_TYPES;
+				    fi;
+                       esac;
+
+		    compare' (   tdt::TYPCON_TYPOID (type1, args1),
+                                 tdt::TYPCON_TYPOID (type2, args2)
+                             )
+			=>
+			if (types_are_equal (type1, type2))
+			    #
+			    paired_lists::apply compare (args1, args2);
+			else
+                            raise exception COMPARE_TYPES;
+                        fi;
+
+		   compare' _
+                       =>
+                       raise exception COMPARE_TYPES;
+                end; 
+	    end;
+
+
+
+	#  Return TRUE if package type > api type 
+	#
+	fun pkg_typoid_matches_api_typoid
+            {
+	      type_per_api:  tdt::Typoid,
+              type_per_pkg:  tdt::Typoid
+            }
+            : Bool
+            = 
+	    {   type_per_pkg   =   drop_resolved_typevars  type_per_pkg;					# Drop redundant tdt::RESOLVED_TYPEVAR indirections.
+		#	    
+                case type_per_api
+		    #		  
+		    tdt::TYPESCHEME_TYPOID
+                      {
+			typescheme_eqflags => eqflags,
+                        typescheme => tdt::TYPESCHEME { body, ... }
+                      }
+                        =>
+			case type_per_pkg
+			    #
+			    tdt::TYPESCHEME_TYPOID
+                              {
+				typescheme_eqflags =>  eqflags',
+				#
+				typescheme =>   tdt::TYPESCHEME { arity, body => body' }
+			      }
+				=>
+				{   compare_type (body, eqflags, body', eqflags', arity);
+				    TRUE;
+				};
+
+			    tdt::WILDCARD_TYPOID =>  TRUE;
+			    _                    =>  FALSE;
+			esac;
+
+
+		    tdt::WILDCARD_TYPOID
+                        =>
+                        TRUE;
+
+		    _   =>
+			case type_per_pkg
+			    #			  
+			    tdt::TYPESCHEME_TYPOID { typescheme_eqflags,
+					       typescheme => tdt::TYPESCHEME { arity, body }
+					     }
+				=>
+				{   compare_type (type_per_api, [], body, typescheme_eqflags, arity);
+				    TRUE;
+				};
+
+			    tdt::WILDCARD_TYPOID =>  TRUE;
+			    _                    =>  typoids_are_equal (type_per_api, type_per_pkg);
+			esac;
+                esac;
+	    }
+            except
+                COMPARE_TYPES
+                =
+                FALSE;
+
+	#  Given a single-type-variable type, extract out the tdt::Typevar_Ref 
+	#
+	fun typevar_of_typoid (tdt::TYPEVAR_REF (tv as { id, ref_typevar => REF (tdt::META_TYPEVAR              _) } )) =>   tv;
+	    typevar_of_typoid (tdt::TYPEVAR_REF (tv as { id, ref_typevar => REF (tdt::INCOMPLETE_RECORD_TYPEVAR _) } )) =>   tv;
+	    typevar_of_typoid (tdt::TYPEVAR_REF        { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t         ) }  ) =>   typevar_of_typoid t;
+
+	    typevar_of_typoid tdt::WILDCARD_TYPOID
+                =>
+                # Fake a tdt::Typevar_Ref:
+		#
+                tdt::make_typevar_ref
+                    ( make_meta_typevar  tdt::infinity,
+                      ["typevar_of_typoid  from  type-junk.pkg"]
+                    );
+
+	    typevar_of_typoid (tdt::TYPESCHEME_ARG i   )  =>   bug "typevar_of_typoid: TYPESCHEME_ARG";
+	    typevar_of_typoid (tdt::TYPCON_TYPOID(_,  _)) =>   bug "typevar_of_typoid: TYPCON_TYPE";
+	    typevar_of_typoid (tdt::TYPESCHEME_TYPOID _)  =>   bug "typevar_of_typoid: TYPESCHEME_TYPE";
+	    typevar_of_typoid  tdt::UNDEFINED_TYPOID      =>   bug "typevar_of_typoid: UNDEFINED_TYPE";
+	    typevar_of_typoid _                           =>   bug "typevar_of_typoid 124";
+        end; 
+
+	# get_recursive_typevar_map:  (Int, Type) -> (Int -> Bool) 
+	# See if a bound Typevar_Ref has occurred in some sumtypes, e::g. List(X).
+	# This is useful for representation analysis. This function probably
+	# will soon be obsolete. 
+	#
+	fun get_recursive_typevar_map (n, type)
+            =
+	    {   s = rw_vector::make_rw_vector (n, FALSE);
+
+		fun not_arrow type
+                    =
+                    not (types_are_equal (type, ctt::arrow_type));
+	       #  or types_are_equal (type, fate_type) 
+
+		fun special (type as tdt::SUM_TYPE { arity, ... } )
+			=>
+			arity != 0   and   not_arrow type;
+
+		    special (tdt::RECORD_TYPE _) => FALSE;
+		    special type => not_arrow type;
+                end;
+
+		fun scan (b, (tdt::TYPESCHEME_ARG n))
+			=>
+			if   b      (update (s, n, TRUE));   fi;
+
+
+		    scan (b, tdt::TYPCON_TYPOID (type, args))
+			=> 
+			{   nb = (special type) or b;
+			    #
+			    apply  (\\ t =  scan (nb, t))  args;
+			};
+
+		    scan (b, tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+			=>
+			scan (b, type);
+
+		    scan _ => ();
+                end;
+		                                                  
+                scan (FALSE, type);
+
+	    
+                \\ i =  (   rw_vector::get (s, i)
+                            except
+                                exceptions::INDEX_OUT_OF_BOUNDS
+                                    =
+			            bug "Strange things in type_junk::get_recursive_typevar_map"
+                        );
+	    };
+
+	fun label_is_greater_than (a, b)
+            =
+	    {   a' = sy::name a;
+                b' = sy::name b;
+
+		a0 = string::get (a', 0);
+                b0 = string::get (b', 0);
+	    
+                if (char::is_digit a0)
+		    
+		    if (char::is_digit b0)
+			(size a' > size b' or size a' == size b' and a' > b');
+		    else
+                        FALSE;
+                    fi;
+		else
+		    if (char::is_digit b0)
+			TRUE;
+		    else
+                        (a' > b');
+                    fi;
+                fi;
+	    };
+
+	#  Tests used to implement the value restriction 
+	#  Based on Ken Cline's version; allows refutable patterns 
+	#  Modified to support CAST, and special naming CASE_EXPRESSION. (ZHONG) 
+
+	# Modified to allow applications of lazy my rec Y combinators to
+	# be nonexpansive. (Taha, David B MacQueen)
+
+
+	# This function is invoked exactly one place
+	# in the codebase, by
+	#     type_core_language_declaration_g::declaration_type'()
+	# 	
+	fun is_value { inlining_data_says_it_is_pure }
+	    =
+	    is_val
+	    where
+
+		fun is_val (       ds::VARIABLE_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (       ds::VALCON_IN_EXPRESSION       _) =>  TRUE;
+		    is_val (   ds::INT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (   ds::UNT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val ( ds::FLOAT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (ds::STRING_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (  ds::CHAR_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (                ds::FN_EXPRESSION     _) =>  TRUE;
+		    is_val (   ds::RECORD_SELECTOR_EXPRESSION(_, e)) =>  is_val e;
+
+		    is_val (ds::RECORD_IN_EXPRESSION fields)
+			=>
+			fold_backward  (\\ ((_, expression), x) =  x and (is_val expression))
+				    TRUE
+				    fields;
+
+
+		    is_val (ds::VECTOR_IN_EXPRESSION (exps, _))
+			=>
+			fold_backward
+			    (\\ (expression, x) =  x and (is_val expression))
+			    TRUE
+			    exps;
+
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS NIL) => TRUE;
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS [e]) => is_val e;
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS _)   => FALSE;
+
+		    is_val (ds::APPLY_EXPRESSION { operator, operand })
+			=>
+			{   fun isrefdcon (tdt::VALCON { form=>vh::REFCELL_REP, ... } ) =>    TRUE;
+				isrefdcon _					        =>    FALSE;
+			    end;
+
+			    fun iscast (vac::PLAIN_VARIABLE { inlining_data, ... } )
+				    =>
+				    inlining_data_says_it_is_pure inlining_data;
+
+				iscast _
+				    =>
+				    FALSE;
+			    end;
+
+			    /*
+			    fun iscast (vac::PLAIN_VARIABLE { inlining_data, ... } ) = ii::pure_info (ii::fromExn inlining_data)
+			      | iscast _ = FALSE
+			     */
+
+			    # LAZY: The following function allows applications of the
+			    # fixed-point combinators generated for lazy my recs to
+			    # be non-expansive.
+
+			    fun issafe (vac::PLAIN_VARIABLE { path=>(symbol_path::SYMBOL_PATH [s]), ... } )
+				    => 
+				    case (string::explode (sy::name s))
+					#
+					'Y' ! '$' ! _ =>  TRUE;
+					_             =>  FALSE;
+				    esac;
+
+				issafe _
+				    =>
+				    FALSE;
+			    end;
+
+			    fun iscon (ds::VALCON_IN_EXPRESSION { valcon, ... }        ) =>  not (isrefdcon valcon);
+				iscon (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)    ) =>  iscon e;
+				iscon (ds::VARIABLE_IN_EXPRESSION { var => REF v, ... }) =>  (iscast v) or (issafe v);
+				iscon _ => FALSE;
+			    end;
+
+			    iscon operator   ??   is_val operand
+					     ::   FALSE;
+			};
+
+		    is_val (ds::TYPE_CONSTRAINT_EXPRESSION (e, _))
+			=>
+			is_val e;
+
+		    is_val (ds::CASE_EXPRESSION (e, (ds::CASE_RULE (p, _)) ! _, FALSE))
+			=> 
+			(is_val e) and (irrefutable p);				#  special bind CASEexps 
+
+		    is_val (ds::LET_EXPRESSION (ds::RECURSIVE_VALUE_DECLARATIONS _, e))
+			=>
+			(is_val e);							#  special NAMED_RECURSIVE_VALUE hacks 
+
+		    is_val (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)) => is_val e;
+		    is_val _ => FALSE;
+		end;
+	    end
+
+	#  Test if a case pattern is irrefutable --- complete 
+	#
+	also
+	fun irrefutable  case_rule_pattern
+	    = 
+	    g  case_rule_pattern
+	    where
+		fun udcon (tdt::VALCON { signature => vh::CONSTRUCTOR_SIGNATURE (x, y), ... } )
+			=>
+			(x+y) == 1;
+
+		    udcon _
+			=>
+			FALSE;
+		end;
+
+		fun g (ds::CONSTRUCTOR_PATTERN (dc, _))     =>    udcon dc;
+		    g (ds::APPLY_PATTERN (dc, _, p))   =>   (udcon dc) and (g p);
+
+		    g (ds::RECORD_PATTERN { fields => ps, ... } )
+			=> 
+			h ps
+			where
+			    fun h ((_, p) ! r)
+				    =>
+				    g p   ??   h r
+					  ::   FALSE;
+
+				h _ => TRUE;
+			    end;   
+			end;
+
+		    g (ds::TYPE_CONSTRAINT_PATTERN (p, _))  =>   g p;
+		    g (ds::AS_PATTERN (p1, p2))             =>   (g p1) and (g p2);
+		    g (ds::OR_PATTERN (p1, p2))             =>   (g p1) and (g p2);
+
+		    g (ds::VECTOR_PATTERN (ps, _))
+		       => 
+		       h ps
+		       where
+			   fun h (p ! r)
+				   =>
+				   g p   ??   h r
+					 ::   FALSE;
+
+			       h _ => TRUE;
+			   end;
+		       end;
+
+		    g _ => TRUE;
+		end;
+	    end;
+
+
+	fun is_variable_typoid (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+		=>
+		is_variable_typoid type;
+
+	    is_variable_typoid (tdt::TYPEVAR_REF _)
+		=>
+		TRUE;
+
+	    is_variable_typoid (_)
+		=>
+		FALSE;
+        end;
+
+
+	# sort_fields, map_unzip: Two utility functions used in type checking
+	# (type-core-language-declaration-g.pkg):
+	#
+	fun sort_fields fields
+            =
+	    lms::sort_list
+                      \\ ((ds::NUMBERED_LABEL { number=>n1, ... }, _),
+			  (ds::NUMBERED_LABEL { number=>n2, ... }, _)) => n1>n2;
+                      end
+		      fields;
+
+	# Given input List(X)
+        # and a function f: X -> (Y, Z),
+        # return (List(Y), List(Z))
+        # generated by applying f to all given x:
+	#
+	fun map_unzip f NIL
+		=>
+		(NIL, NIL);
+
+	    map_unzip f (first ! rest)
+		=>
+		{   my (x,  y )  =  f first;
+		    my (xs, ys)  =  map_unzip f rest;
+
+		    (x ! xs, y ! ys);
+		};
+        end;
+
+	fun fold_type_entire f
+            =
+	    {   fun fold_tc (type, b0)
+                    = 
+		    case type
+			#		      	
+			tdt::SUM_TYPE { kind, ... }
+			    =>
+			    case kind
+				#
+				tdt::SUMTYPE {   family => { members=>ms, ... }, ... }
+				    =>
+				    b0;
+
+			#       fold_forward (\\ ( { dcons, ... }, b) => fold_forward foldDcons b dcons) b0 ms 
+
+				tdt::ABSTRACT tc
+				    =>
+				    fold_tc (tc, b0);
+
+				_   =>   b0;
+			    esac;
+
+
+			tdt::NAMED_TYPE { typescheme => tdt::TYPESCHEME { arity, body }, ... }
+			    =>
+			    fold_type (body, b0);
+
+		        _ => b0;
+                    esac
+
+		also
+		fun fold_dcons ( { name, form, domain=>NULL }, b0)
+			=>
+			b0;
+
+		    fold_dcons ( { domain=>THE type, ... }, b0)
+			=>
+			fold_type (type, b0);
+                end 
+
+		also
+		fun fold_type (type, b0)
+                    =
+		    case type
+		      
+			tdt::TYPCON_TYPOID (tc, tl)
+			    => 
+			    {   b1 = f      (tc, b0);
+				b2 = fold_tc (tc, b1);
+
+				fold_forward fold_type b2 tl;
+			    };
+
+			tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body } }
+			    =>
+			    fold_type (body, b0);
+
+			tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) }
+			    =>
+			    fold_type (type, b0);
+
+			_ => b0;
+                    esac;
+	    
+                fold_type;
+	    };
+
+	fun map_type_entire f
+            =
+	    {   fun map_type type
+                    =
+		    case type
+		        #
+			tdt::TYPCON_TYPOID (tc, tl)
+			    =>
+			    make_constructor_typoid (f (map_tc, tc), map map_type tl);
+
+			tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body } }
+			    =>
+			    tdt::TYPESCHEME_TYPOID { typescheme_eqflags,
+					       typescheme => tdt::TYPESCHEME { arity,
+									    body  => map_type body
+									  }
+					     };
+
+			tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) }
+			    =>
+			    map_type type;
+
+			_ => type;
+                    esac
+
+		also
+		fun map_tc type
+                    = 
+		    case type
+			#		      
+			tdt::SUM_TYPE { stamp, arity, is_eqtype, namepath, kind, stub => _ }
+			    =>
+			    case kind
+				#
+				tdt::SUMTYPE { index, family=> { members, ... }, ... }
+				    =>
+				    type;
+
+			     /*
+			      *  XXX BUGGO FIXME The following code needs to be rewritten !!! (ZHONG)
+
+					    tdt::SUM_TYPE { stamp, arity, is_eqtype, namepath,
+						    kind=> tdt::SUMTYPE { index, members=>map mapMb members, 
+								   lambdatyc => REF NULL }}
+			     */
+
+				tdt::ABSTRACT tc
+				    =>
+				    tdt::SUM_TYPE
+				      { stamp,
+					arity,
+					is_eqtype,
+					namepath,
+					kind  =>  tdt::ABSTRACT (map_tc tc),
+					stub  =>  NULL
+				      };
+
+			       _ => type;
+			   esac;
+
+
+			tdt::NAMED_TYPE { stamp, strict, typescheme, namepath }
+			    => 
+			    tdt::NAMED_TYPE
+			      { stamp,
+				strict,
+				namepath,
+				typescheme =>  map_tf  typescheme
+			      };
+
+			_ => type;
+                    esac
+
+		also
+		fun map_mb { name_of_type, stamp, arity, dcons, lambdatyc }
+		    = 
+		    {   name_of_type,
+			stamp,
+			arity, 
+			dcons               => (map map_dcons dcons),
+			lambdatyc           => REF NULL
+		    }
+
+		also
+		fun map_dcons (x as { name, form, domain=>NULL } )
+			=> x;
+
+		    map_dcons (x as { name, form, domain=>THE type } )
+			=> 
+			{   name,
+			    domain => THE (map_type type),
+			    form
+			};
+                end 
+
+		also
+		fun map_tf (tdt::TYPESCHEME { arity, body } )
+		    = 
+		    tdt::TYPESCHEME { arity,
+				    body  => map_type body
+				  };
+
+	    
+                map_type;
+	    };
+
+
+	# Using a set implementation should suffice here,
+	# but I am using a binary dictionary instead. (ZHONG)
+	#
+	stipulate
+	    package typeset =  stamp_map;						# stamp_map	is from   src/lib/compiler/front/typer-stuff/basics/stampmap.pkg
+	herein
+
+	    Typeset
+                =
+                typeset::Map( tdt::Type );
+
+	    make_typeset
+                =
+                \\ () =  typeset::empty;
+
+
+
+	    fun insert_type_into_typeset (type as tdt::SUM_TYPE { stamp, ... }, typeset)
+		    => 
+		    typeset::set (typeset, stamp, type);
+
+	        insert_type_into_typeset _
+		    =>
+		    bug "unexpected types in insert_type_into_typeset";
+            end;
+
+
+
+	    fun is_in_typeset (tdt::SUM_TYPE { stamp, ... }, typeset)
+		    =>
+		    not_null (typeset::get (typeset, stamp));
+
+	        is_in_typeset _
+                    =>
+                    FALSE;
+            end;
+
+
+
+	    fun filter_typeset (type, typeset)
+		= 
+	        fold_type_entire pass1 (type, [])
+                where
+		    fun in_list (a ! rest, tc)
+			    =>
+			    if (types_are_equal (a, tc))
+			        TRUE;
+			    else
+                                in_list (rest, tc);
+                            fi;
+
+		        in_list ([], tc)
+                            =>
+                            FALSE;
+                    end;
+
+		    fun pass1 (tc, tset)
+			= 
+			if (is_in_typeset (tc, typeset))
+			    #
+			    if (in_list (tset, tc))       tset;
+			    else                     tc ! tset;
+			    fi;
+			else
+                            tset;
+                        fi;
+		end;
+
+	    /*
+	      filter_typeset = \\ x =>
+	      compile_statistics::do_phase (compile_statistics::make_phase "Compiler 034 filter_typeset") filter_typeset x
+	    */
+
+	end;
+
+
+
+	fun sumtype_sibling (n, type as tdt::SUM_TYPE { kind => tdt::SUMTYPE dt, ... } )
+		=>
+		{   dt -> { index, stamps, free_types, root, family as { members, ... } };
+
+		    if (n == index)
+		        type;
+		    else
+			(vector::get (members, n))
+			    ->
+			    { name_symbol,
+			      arity,
+			      valcons,
+			      is_eqtype,
+			      is_lazy,
+			      an_api
+			    };
+
+
+			stamp = vector::get (stamps, n);
+
+			tdt::SUM_TYPE { stamp,
+					arity,
+					is_eqtype,
+					stub     => NULL,
+					namepath => ip::INVERSE_PATH [ name_symbol ],
+					kind     => tdt::SUMTYPE  { index    => n,
+								    root     => NULL /* ! */,
+								    stamps,
+								    free_types,
+								    family
+								  }
+				    };
+		    fi;
+		};
+
+	    sumtype_sibling _
+                =>
+                bug "sumtype_sibling";
+        end;
+
+	# NOTE: this only works (perhaps) for sumtype declarations, but not           XXX BUGGO FIXME
+	# specifications. The reason: the root field is used to connect mutually
+	# recursive sumtype specifications together, its information cannot be
+	# fully recovered in sumtype_sibling. (ZHONG)
+	#
+	fun extract_sumtype (type as tdt::SUM_TYPE { kind => tdt::SUMTYPE dt, ... } )
+		=>
+		map make_sumtype
+                    valcons
+                where
+		    dt -> { index, stamps, free_types, root, family as { members, ... }};
+
+		    my { valcons, an_api, is_lazy, ... }
+			=
+			vector::get (members, index);
+
+		    fun expand_type (tdt::TYPE_BY_STAMPPATH _)
+			    =>
+			    bug "expandTypeConstructor: TYPE_BY_STAMPPATH"; #  use expandTypeConstructor? 
+
+		        expand_type (tdt::RECURSIVE_TYPE n)
+			    =>
+			    sumtype_sibling (n, type);
+
+		        expand_type (tdt::FREE_TYPE n)
+			    => 
+			    ((list::nth (free_types, n))
+			    except _
+			       =>
+			       bug "unexpected free_types in extract_sumtype"; end );
+
+		        expand_type type
+			    =>
+			    type;
+                    end;
+
+		    fun expand type
+			=
+			map_constructor_typoid_dot_type
+                            expand_type
+                            type;
+
+
+		    fun make_sumtype ( { name, form, domain } )
+			=
+			tdt::VALCON { name,
+				      form,
+				      signature => an_api,
+				      is_lazy,
+				      typoid => sumtype_to_typoid (type, null_or::map expand domain),
+				      is_constant      => case domain
+							       NULL => TRUE;
+							       _    => FALSE;
+							  esac
+				  };
+		end;
+
+	    extract_sumtype _
+		=>
+		bug "extract_sumtype";
+        end;
+
+	fun make_strict 0 =>  [];
+	    make_strict n =>  TRUE ! make_strict (n - 1);
+        end;
+
+	# Used in type_api for sumtype replication specs,
+        # where the type arg is expected to be
+        # either a SUM_TYPE/SUMTYPE
+        # or a TYPE_BY_STAMPPATH.
+	#
+	fun wrap_definition (type as tdt::NAMED_TYPE _, _)
+		=>
+		type;
+
+	    wrap_definition (type, s)
+		=>
+		{   arity =  arity_of_type type;
+		    name  =  name_of_type  type;
+		    args  =  boundargs arity;
+		    #
+		    tdt::NAMED_TYPE   { stamp      =>  s,
+					strict     =>  make_strict arity,
+					namepath   =>  ip::INVERSE_PATH [ name ],
+
+					typescheme => tdt::TYPESCHEME { arity,
+									body  => tdt::TYPCON_TYPOID (type, args)
+								      }
+				      };
+		};
+        end;
+
+
+	#  eta-reduce a type function: \args.tc args => tc 
+	#
+	fun unwrap_definition_1 (type as tdt::NAMED_TYPE  { typescheme => tdt::TYPESCHEME { body => tdt::TYPCON_TYPOID (type', args),
+							    				    arity
+						          				  },
+                                               		     ...
+                                           		  }
+                                )
+		=>
+		{   fun formals ((tdt::TYPESCHEME_ARG i) ! rest, j)
+			    =>
+			    (i == j)  ??  formals (rest, j+1)
+				      ::  FALSE;
+
+			formals (NIL, _) => TRUE;
+			formals _        => FALSE;
+		    end;
+
+		    (formals (args, 0))
+		       ??  THE type'
+		       ::  NULL;
+		};
+
+	    unwrap_definition_1 type
+                =>
+                NULL;
+        end;
+
+
+	# Closure under iterated eta-reduction 
+	#
+	fun unwrap_definition_star type
+            =
+	    case (unwrap_definition_1  type)
+		#
+		THE type' =>   unwrap_definition_star type';
+
+		NULL      =>   type;
+	    esac;
+
+    };			# package type_junk 
+end;			# stipulate
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

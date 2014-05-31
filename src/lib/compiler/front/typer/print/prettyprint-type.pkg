@@ -1,0 +1,1148 @@
+## prettyprint-type.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+#  modified to use Lib7 Lib pp. [dbm, 7/30/03]) 
+
+stipulate 
+    package pp  =  standard_prettyprint_mill;		# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package syx =  symbolmapstack;			# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tdt =  type_declaration_types;		# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+herein
+
+    api Prettyprint_Type {
+	#
+	type_formals
+	    :
+	    Int
+	 -> List( String );
+
+	typevar_ref_printname
+	    :
+	    tdt::Typevar_Ref
+	 -> String;
+
+	prettyprint_type
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Type
+	 -> Void;
+
+	prettyprint_typescheme
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typescheme
+	 -> Void; 
+
+	prettyprint_typoid
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typoid
+	 -> Void;
+
+	prettyprint_typevar_ref
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typevar_Ref
+	 -> Void;
+
+	prettyprint_sumtype_constructor_domain
+	    :
+	    ((Vector( tdt::Sumtype_Member ), List( tdt::Type )) )
+	 -> syx::Symbolmapstack 
+	 -> pp::Prettyprint_Mill
+	 -> tdt::Typoid
+	 -> Void;
+
+	prettyprint_sumtype_constructor_types
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Type
+	 -> Void;
+
+	reset_prettyprint_type
+	    :
+	    Void -> Void;
+
+	prettyprint_formals
+	    :
+	    pp::Prettyprint_Mill
+	 -> Int
+	 -> Void;
+
+	debugging:	Ref(  Bool );
+	unalias:	Ref(  Bool );
+    };
+end;
+
+stipulate 
+    package fis =  find_in_symbolmapstack;	# find_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/find-in-symbolmapstack.pkg
+    package ip  =  inverse_path;		# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package pp  =  standard_prettyprint_mill;	# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package sta =  stamp;			# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package syp =  symbol_path;			# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;		# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package ts  =  type_junk;			# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package mtt =  more_type_types;		# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package tdt =  type_declaration_types;	# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package uj  =  unparse_junk;		# unparse_junk			is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+    #
+    Pp = pp::Pp;    
+herein
+
+    package   prettyprint_type
+    : (weak)  Prettyprint_Type
+    {
+	debugging = REF FALSE;
+	unalias = REF TRUE;
+	#
+	fun bug s
+            =
+            error_message::impossible ("prettyprint_type: " + s);
+
+	#
+	fun by f x y
+	    =
+	    f y x;
+
+#	internals =   typer_control::internals;
+internals = log::internals;
+
+	unit_path = ip::extend
+			(
+			  ip::empty,
+			  symbol::make_type_symbol "Void"
+			);
+
+
+        # Map small integer 'k' to a type variable name.
+        # We name the first three X Y Z,
+        # then run through A B C ... W
+        # and then start in on AA, AB...	XXX BUGGO FIXME AA AB etc aren't legal syntax, need A_1 or A_a or such.
+	#
+	fun bound_typevar_name k
+	    =
+	    {   a =   char::to_int 'A';
+		#
+                case k
+		    #                  
+		    0 => "X";
+		    1 => "Y";
+		    2 => "Z";
+		    _ => 
+			if   (k < 26)
+			    #
+			    string::from_char (char::from_int (k + a - 3));
+			else
+			    implode [ char::from_int (int::(/) (k, 26) + a), 
+				      char::from_int (int::(%) (k, 26) + a)
+				    ];
+			fi;
+                esac;
+	    };
+
+	#
+	fun meta_tyvar_name' k
+	    =
+	    {   z =  char::to_int 'Z';	#  use reverse order for meta vars 
+		#
+		if (k < 26)
+		    #
+		    string::from_char (char::from_int (z - k));
+		else 
+		    implode [ char::from_int (z - (int::(/) (k, 26))), 
+			      char::from_int (z - (int::(%) (k, 26)))
+			    ];
+                fi;
+	    };
+	#
+	fun type_formals n
+	    =
+	    loop 0
+            where
+	        fun loop i
+		    =
+		    if (i >= n)   [];
+		    else 	  (bound_typevar_name i)  !  loop (i + 1);
+                    fi;
+	    end;
+	#
+	fun literal_kind_printname (lk: tdt::Literal_Kind)
+	    =
+	    case lk
+		#	      
+		tdt::INT    => "Int";      # or "INT" 
+		tdt::UNT    => "Unt";      # or "UNT" 
+		tdt::FLOAT  => "Float";    # or "FLOAT" 
+		tdt::CHAR   => "Char";     # or "CHAR" 
+		tdt::STRING => "String";	  # or "STRING" 
+            esac;
+
+	stipulate  #  WARNING -- compiler global variables 
+
+	    count = REF(-1);  
+
+	    meta_tyvars = REF([]: List( tdt::Typevar_Ref ));
+
+	herein
+
+	    fun meta_tyvar_name (typevar_ref as { id, ref_typevar }:  tdt::Typevar_Ref)
+		=
+		meta_tyvar_name' (find_or_add (*meta_tyvars, 0))
+                where
+		    fun find_or_add ([], _)
+			    =>
+			    {   meta_tyvars := typevar_ref ! *meta_tyvars;
+			        count := *count+1;
+			        *count;
+                            };
+
+		        find_or_add ({ id, ref_typevar => ref_typevar' } ! rest, k)
+			    =>
+			    ref_typevar == ref_typevar'
+			        ??   *count - k
+			        ::   find_or_add (rest, k+1);
+                    end;
+		end;
+	    #
+	    fun reset_prettyprint_type ()
+		=
+		{   count := -1;
+		    meta_tyvars := [];
+		};
+	end;
+	#
+	fun tv_head (eq, base)		# "tv" for "type variable"
+	    =
+	    (eq  ??  "'"
+		 ::   ""
+            )
+	    +
+	    base;
+	#
+	fun annotate (name, annotation, maybe_fn_nesting)
+	    =
+	    if *internals
+		#
+		cat ( name
+		    !  "."
+		    !  annotation
+		    !  case maybe_fn_nesting
+			   #	
+			   THE fn_nesting =>  ["[ fn_nesting == ", (int::to_string fn_nesting), "]"];
+			   NULL           =>  NIL;
+		       esac
+		    );
+	    else
+		name;
+            fi;
+	#
+	fun typevar_ref_printname'  (typevar_ref as { id, ref_typevar })
+	    =
+	    sprint_typevar  *ref_typevar
+            where
+	        fun sprint_typevar  typevar
+		    =
+		    case typevar
+			#		      
+			tdt::RESOLVED_TYPEVAR (tdt::TYPEVAR_REF (typevar_ref as { id, ref_typevar }) )
+			    =>
+			    {   (typevar_ref_printname'  typevar_ref)
+				    ->
+				    (printname, null_or_type);
+
+				( (sprintf "[id%d]" id) + "<tdt::RESOLVED_TYPEVAR \"" + printname + "\">",
+				  null_or_type
+				);
+			    };
+
+			tdt::RESOLVED_TYPEVAR  type
+			    =>
+			    ( (sprintf "[id%d]" id)  +  "<tdt::RESOLVED_TYPEVAR ?>",
+			      THE type
+			    );
+
+			tdt::META_TYPEVAR { fn_nesting, eq }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate ( meta_tyvar_name typevar_ref,
+						      "tdt::META_TYPEVAR",
+						      THE fn_nesting
+				      )             ),
+
+			      NULL
+			    );
+
+			tdt::INCOMPLETE_RECORD_TYPEVAR { fn_nesting, eq, known_fields }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate ( meta_tyvar_name  typevar_ref,
+						      "tdt::INCOMPLETE_RECORD_TYPEVAR",
+						      THE fn_nesting
+				      )             ),
+
+			      NULL
+			    );
+
+
+			tdt::USER_TYPEVAR { name, fn_nesting, eq }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate (symbol::name name, "tdt::USER_TYPEVAR", THE fn_nesting)),
+
+			      NULL
+			    );
+
+			tdt::LITERAL_TYPEVAR { kind, ... }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      annotate (literal_kind_printname kind, "tdt::LITERAL_TYPEVAR", NULL),
+
+			      NULL
+			    );
+
+			tdt::OVERLOADED_TYPEVAR eq
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate (meta_tyvar_name typevar_ref, "tdt::OVERLOADED_TYPEVAR", NULL)),
+
+			      NULL
+			    );
+
+			tdt::TYPEVAR_MARK _
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      "<TYPEVAR_MARK ?>",
+
+			      NULL
+			    );
+                    esac;
+	    end;
+
+	#
+	fun typevar_ref_printname  typevar_ref
+	    =
+	    {   (typevar_ref_printname'  typevar_ref)
+                    ->
+                    (printname, null_or_type);
+
+                printname;
+            };
+
+
+
+	/*
+	fun ppkind pp kind
+            =
+	    pp.lit
+	      (case kind
+		 of BASE _ => "BASE" | FORMAL => "FORMAL"
+		  | FLEXIBLE_TYPE _ => "FLEXIBLE_TYPE" | ABSTRACT _ => "ABSTYC"
+		  | SUMTYPE _ => "SUMTYPE" | TEMP => "TEMP")
+	*/
+	#
+	fun ppkind (pp:Pp) kind
+	    =
+	    pp.lit
+	       case kind
+		   # 
+		   tdt::BASE _	 	=> "BASE";
+		   tdt::FORMAL		=> "FORMAL";
+		   tdt::FLEXIBLE_TYPE _ => "FLEXIBLE";
+		   tdt::ABSTRACT _	=> "ABSTRACT";
+		   tdt::SUMTYPE _	=> "SUMTYPE";
+		   tdt::TEMP		=> "TEMP";
+              esac;
+	#
+	fun effective_path (path, type, symbolmapstack) : String
+	    =
+	    {   fun namepath_of_type ( tdt::SUM_TYPE          { namepath, ... }
+				  | tdt::NAMED_TYPE        { namepath, ... }
+				  | tdt::TYPE_BY_STAMPPATH { namepath, ... }
+				  )
+			=>
+			THE namepath;
+
+		    namepath_of_type _
+			=>
+			NULL;
+                end;
+		#
+		fun find (path, type)
+		    =
+		    (uj::find_path (path,
+			(\\ type' = ts::type_equality (type', type)),
+			(\\ x = fis::find_type_via_symbol_path (symbolmapstack, x,
+						(\\ _ = raise exception syx::UNBOUND))))
+                    );
+		#
+		fun search (path, type)
+		    =
+		    {   (find (path, type)) ->   (suffix, found);
+			#
+			if found
+			    (suffix, TRUE);
+			else
+			    if (not *unalias)
+				#
+				(suffix, FALSE);
+			    else
+				case (ts::unwrap_definition_1 type)
+				    #
+				    THE type'
+					=>
+					case (namepath_of_type type')
+					    #
+					    THE path'
+					        =>
+						{   (search (path', type')) ->   x as (suffix', found');
+						    #
+						    if found'      x;
+						    else           (suffix, FALSE);
+						    fi;
+						};
+
+					    NULL =>  (suffix, FALSE);
+					esac;
+
+				    NULL => (suffix, FALSE);
+				esac;
+			    fi;
+                        fi;
+		    };
+
+		(search (path, type)) ->   (suffix, found);
+                    
+		name =   syp::to_string (syp::SYMBOL_PATH suffix);
+
+		if found                name;
+		else /* "?." + */	name;		# 2008-01-02 CrT This seems more confusing than helpful, for the moment at least.
+		fi;
+	    };
+
+	arrow_stamp =  mtt::arrow_stamp;
+	#
+	fun strength  type
+	    =
+	    case type
+		#	      
+		tdt::TYPEVAR_REF   { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR  type') }
+		    =>
+		    strength (type');
+
+		tdt::TYPCON_TYPOID (type, args)
+		    =>
+		    case type
+			#
+			tdt::SUM_TYPE { stamp, kind => tdt::BASE _, ... }
+			    =>
+			    if (sta::same_stamp (stamp, arrow_stamp) ) 0;
+                            else                                       2;
+                            fi;
+
+			tdt::RECORD_TYPE (_ ! _)					#  excepting type Void
+			    => 
+			    if (tuples::is_tuple_type  type)
+				 1;
+			    else 2;
+			    fi;
+
+			_   => 2;
+		    esac;
+
+	        _ => 2;
+            esac;
+	#
+	fun prettyprint_eq_prop (pp:Pp) p
+	    =
+	    {   a =    case p
+			   tdt::e::NO            =>  "NO";
+			   tdt::e::YES           =>  "YES";
+			   tdt::e::INDETERMINATE =>  "INDETERMINATE";
+			   tdt::e::CHUNK         =>  "CHUNK";
+			   tdt::e::DATA          =>  "DATA";
+			   tdt::e::EQ_ABSTRACT   =>  "EQ_ABSTRACT";
+			   tdt::e::UNDEF         =>  "UNDEF";
+                       esac;
+
+		pp.lit a;
+	    };
+	#
+	fun prettyprint_inverse_path  (pp:Pp)  (inverse_path::INVERSE_PATH inverse_path: inverse_path::Inverse_Path)
+	    = 
+	    pp.lit (symbol_path::to_string (symbol_path::SYMBOL_PATH (reverse inverse_path)));
+	#
+	fun prettyprint_type'  symbolmapstack  (pp:Pp)  members_op
+	    =
+	    prettyprint_type''
+            where
+		#
+		fun prettyprint_type'' (type as tdt::SUM_TYPE { namepath, stamp, is_eqtype, kind, ... } )
+			=>
+			if *internals
+			    #
+			    pp::record pp "tdt::SUM_TYPE"
+			      [ ("namepath", 		{.	uj::unparse_inverse_path pp  namepath;		}),
+				("stamp",		{.	pp.lit (sta::to_short_string stamp);		}),
+				("kind",		{.	ppkind pp kind;					}),
+				("is_eqtype",		{.	prettyprint_eq_prop pp  *is_eqtype;		})
+			      ];
+
+			else
+			    pp.lit (effective_path (namepath, type, symbolmapstack));
+			fi;
+
+		    prettyprint_type'' (type as tdt::NAMED_TYPE { namepath, typescheme => tdt::TYPESCHEME { body, arity }, ... } )
+			=>
+			if *internals
+			    #	
+			    pp::record pp "tdt::NAMED_TYPE"
+			      [
+				("namepath",		{.	uj::unparse_inverse_path pp  namepath;		}),
+
+				("typescheme",		{.	pp::record pp "tdt::TYPESCHEME"
+								  [ ("arity",	{.	pp.lit (sprintf "%d" arity);			}),
+								    ("body",	{.	prettyprint_typoid  symbolmapstack  pp  body;	})
+								  ];
+							 }
+				),
+				("...",			{.	pp.lit "...";	})
+			      ];
+	
+			else
+			    pp.lit (effective_path (namepath, type, symbolmapstack));
+                        fi;
+
+		    prettyprint_type'' (tdt::RECORD_TYPE labels)
+			=>
+                        {
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.txt "{ ",
+				  separator  =>  \\ pp = {  pp.endlit ",";  pp.txt " ";  },
+				  back       =>  \\ pp = pp.lit "}",
+				  breakstyle =>  uj::ALIGN,
+				  print_one  =>  uj::unparse_symbol
+				}
+
+				labels;
+
+			};
+
+		    prettyprint_type'' (tdt::RECURSIVE_TYPE n)
+			=>
+			case members_op
+			    #			      
+			    THE (members, _)
+				=> 
+				{   (vector::get (members, n))
+					->
+					{ name_symbol, valcons, ... };
+
+				    pp.box {.
+					pp.lit (string::cat ["[[<RECURSIVE_TYPE ", int::to_string n, ">"]);
+					pp.txt " ";
+					uj::unparse_symbol pp  name_symbol;
+					pp.txt " ";
+					pp.lit "]]";
+				    };
+				};
+
+			    NULL =>   pp.lit (string::cat ["<RECURSIVE_TYPE ", int::to_string n, ">"]);
+			esac;
+
+		    prettyprint_type'' (tdt::FREE_TYPE n)
+			=>
+			case members_op
+			    #
+			    THE (_, free_types)
+				=> 
+				{   type =  (   list::nth (free_types, n)
+						except _
+						    =
+						    bug "unexpected free_types in prettyprintTypeConstructor"
+					    );
+
+				    pp.box' 0 0 {.
+					pp.lit (string::cat ["[[<FREE_TYPE ", int::to_string n, ">"]);
+					pp.txt " ";
+					prettyprint_type'' type;
+					pp.txt " ";
+					pp.lit "]]";
+				    };
+				};
+
+			    NULL =>   pp.lit (string::cat ["<FREE_TYPE ", int::to_string n, ">"]);
+                        esac;
+
+		    prettyprint_type'' (type as tdt::TYPE_BY_STAMPPATH { arity, stamppath, namepath } )
+			=>
+			if *internals
+			    #
+			    pp.box' 0 0 {.													pp.rulename "lptw18";
+				uj::unparse_inverse_path pp  namepath;
+				pp.txt " ";
+				pp.box' 0 0 {.
+				    pp.lit "[TYPE_BY_STAMPPATH;"; 
+				    pp.txt " ";
+				    pp.lit (stamppath::stamppath_to_string stamppath);
+				    pp.txt " ";
+				    pp.lit "]";
+				};
+			    };
+			else
+			    uj::unparse_inverse_path pp  namepath;
+                        fi;
+
+		    prettyprint_type'' tdt::ERRONEOUS_TYPE
+                        =>
+                        pp.lit "[E]";
+                end;
+
+	    end
+
+
+	also
+	fun prettyprint_typoid'  symbolmapstack  pp
+            (
+              typoid:		tdt::Typoid,
+              an_api:		tdt::Typescheme_Eqflags, 
+              members_op:	Null_Or( (Vector( tdt::Sumtype_Member ), List( tdt::Type )) )
+            )
+            : Void
+	    =
+	    prty typoid
+            where
+		#
+		fun prty typoid
+		    =
+{
+# if *log::debugging printf "prty/top...   -- prettyprint-type.pkg\n"; fi;
+result =
+		    case typoid
+			#		      
+			tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type') }
+			    =>
+			    {   pp.box' 0 0 {.
+				    pp.lit (sprintf "tdt::TYPEVAR_REF { id=>%d, ref_typevar => REF (tdt::RESOLVED_TYPEVAR:  " id);
+				    pp.ind 4;
+				    pp.txt " ";
+				    prty type';
+				    pp.ind 0;
+				    pp.cut ();
+				    pp.lit ") }";
+				};
+			    };
+
+			tdt::TYPEVAR_REF  (typevar_ref as { id, ... })
+			    =>
+			    {   pp.box' 0 0 {.
+				    pp.lit "tdt::TYPEVAR_REF { ";
+				    pp.ind 4;
+				    pp.txt " ";
+				    pp.lit (sprintf "id=>%d," id);
+				    pp.txt " ";
+				    pp.lit "ref_typevar => ";
+				    prettyprint_typevar_ref' typevar_ref;
+				    pp.ind 0;
+				    pp.txt " ";
+				    pp.lit "}";
+				};
+			    };
+
+			tdt::TYPESCHEME_ARG n
+			    =>
+			    {   eq =   list::nth (an_api, n) 
+				       except
+					   INDEX_OUT_OF_BOUNDS = FALSE;
+
+				pp.box' 0 0 {.													pp.rulename "lptw19";
+				    pp.lit "tdt::TYPESCHEME_ARG [[";
+				    pp.ind 4;
+				    pp.txt " ";
+				    pp.lit (tv_head (eq, (bound_typevar_name n)));
+				    pp.ind 0;
+				    pp.txt " ";
+				    pp.lit "]]";
+				};
+			    };
+
+			tdt::TYPCON_TYPOID (type, args)
+			    =>
+			    {   fun otherwise ()
+				    =
+				    {   pp.box' 0 0 {.													pp.rulename "lptw20";
+					    #
+					    prettyprint_type'  symbolmapstack  pp  members_op  type;
+						
+					    case args
+						#
+						[] => ();
+						_  => {   pp.txt " ";
+							  pp.box' 0 0 {.
+							      pp.lit "tdt::TYPCON_TYPOID [[";
+							      pp.ind 4;
+							      pp.txt " ";
+							      prettyprint_type_args args; 
+							      pp.ind 0;
+							      pp.txt " ";
+							      pp.lit "]]";
+							  };
+						      };
+					    esac;
+					};
+				    };
+
+				case type
+				    #
+				    tdt::SUM_TYPE { stamp, kind, ... }
+					=>
+					case kind
+					    #
+					    tdt::BASE _ 
+						=>
+						if (sta::same_stamp (stamp, arrow_stamp))
+						    #
+						    case args
+							#
+							[domain, range]
+							    =>
+							    {   pp.box' 0 -1 {.											pp.rulename "pprs70";
+								    #
+								    pp.lit "tdt::TYPCON_TYPOID [[";
+								    pp.ind 4;
+								    pp.txt " ";
+								    if (strength domain == 0)
+									#
+									pp.box {.										pp.rulename "pprs71";
+									    pp.lit "(";
+									    prty domain;
+									    pp.lit ")";
+									};
+								    else
+									prty domain;
+								    fi;
+
+								    pp.txt " -> ";
+
+								    prty range;
+
+								    pp.ind 0;
+								    pp.txt " ";
+								    pp.lit "]]";
+								};
+							    };
+
+							_   => bug "TYPCON_TYPE: arity";
+						    esac;
+						else
+						    pp.box' 0 0 {.													pp.rulename "pptw1";
+							pp.lit "tdt::TYPCON_TYPOID [[";
+							pp.ind 4;
+							pp.txt " ";
+
+							prettyprint_type'  symbolmapstack  pp  members_op  type;
+							pp.endlit ";";
+							pp.txt " ";
+
+							prettyprint_type_args args;
+
+							pp.ind 0;
+							pp.txt " ";
+							pp.lit "]]";
+						    };
+						fi;
+
+					    _   => otherwise ();
+					esac;
+
+				    tdt::RECORD_TYPE labels
+					=>
+					if (tuples::is_tuple_type  type)   prettyprint_tuplety args;
+					else                               prettyprint_recordty (labels, args);
+                                        fi;
+
+				    _ => otherwise ();
+				esac;
+			    };
+
+			tdt::TYPESCHEME_TYPOID { typescheme_eqflags =>  an_api,
+						 typescheme         =>  tdt::TYPESCHEME { arity, body }
+					       }
+			    => 
+			    {
+				pp.box' 0 0 {.													pp.rulename "ppt1";
+				    pp.lit "tdt::TYPESCHEME_TYPOID {";
+				    pp.ind 4;
+				    pp.txt " ";
+
+				    pp.lit (sprintf "arity => %d," arity);
+				    pp.txt " ";
+
+				    pp.box' 0 -1 {.
+					pp.lit "body";
+					pp.ind 4;
+					pp.lit " =>";
+					pp.txt " ";
+					prettyprint_typoid' symbolmapstack pp (body, an_api, members_op);
+				    };
+
+				    pp.ind 0;
+				    pp.txt " ";
+				    pp.lit "}";
+				};
+			    };
+
+			tdt::WILDCARD_TYPOID				# _  in surface syntax.
+			    =>
+			    pp.lit "tdt::WILDCARD_TYPOID";
+
+			tdt::UNDEFINED_TYPOID
+			    =>
+			    pp.lit "tdt::UNDEFINED_TYPOID";
+                    esac
+;
+# if *log::debugging printf "prty/bot...   -- prettyprint-type.pkg\n"; fi;
+result;
+}	
+	also
+		fun prettyprint_type_args []
+                        =>
+                        ();
+
+		    prettyprint_type_args [type]
+		        => 
+		        {   if (strength type <= 1)
+				#		                
+				pp.box' 0 -1 {.													pp.rulename "pptw2";
+				    pp.lit "("; 
+				    prty type; 
+				    pp.lit ")";
+				};
+		            else
+                                prty type;
+                            fi;
+
+		            pp.txt " ";
+                        };
+
+		    prettyprint_type_args tys
+			=>
+			uj::unparse_closed_sequence
+			    pp 
+			    { front      =>  \\ pp =  pp.lit "(",
+			      separator  =>  \\ pp =  {  pp.endlit ",";   pp.txt " ";  },
+			      back       =>  \\ pp =  pp.lit ")",
+			      breakstyle =>  uj::ALIGN, 
+			      print_one  =>  \\ _ =  \\ type =  prty type
+			    }
+			    tys;
+                end 
+
+		also
+		fun prettyprint_tuplety []
+                        =>
+                        pp.lit (effective_path (unit_path, tdt::RECORD_TYPE [], symbolmapstack));
+
+		    prettyprint_tuplety tys
+			=>
+                        {   pp.lit "(";
+			    #
+			    uj::unparse_sequence
+				pp
+				  { separator  => \\ pp =   {   pp.endlit ",";		# Was "* "
+								pp.txt " ";
+							    },
+				    breakstyle => uj::ALIGN,
+				    print_one  => (\\ _ =  \\ type = if (strength type <= 1)
+								    #
+								    pp.box' 0 -1 {.													pp.rulename "pptw3";
+									pp.lit "(";
+									prty type; 
+									pp.lit ")";
+								    };
+								else
+								    prty type;
+								fi
+					          )
+				  }
+				tys;
+
+			       pp.lit ")";
+		        };
+                end 
+
+		also
+		fun prettyprint_field (lab, type)
+		    =
+		    {   pp.box' 0 -1 {.													pp.rulename "pprs72";
+			    uj::unparse_symbol pp lab; 
+			    pp.lit ":";
+			    pp.ind 4;
+			    pp.txt " ";
+			    prty type;
+			};
+		    }
+
+		also
+		fun prettyprint_recordty ([],[])
+			=>
+			pp.lit (effective_path (unit_path, tdt::RECORD_TYPE [], symbolmapstack));
+			  #  this case should not occur 
+
+		    prettyprint_recordty (lab ! labels, arg ! args)
+			=>
+			{   pp.box' 0 0 {.													pp.rulename "pptw4";
+				pp.lit "{ ";
+				pp.ind 2;
+
+				prettyprint_field (lab, arg);
+
+				paired_lists::apply 
+				    (\\ field'
+					=
+					{   pp.endlit ",";
+					    pp.txt " ";
+					    prettyprint_field field';
+					}
+				    )
+				    (labels, args);
+
+				pp.ind 0;
+				pp.txt " ";
+				pp.lit "}";
+			    };
+			};
+
+		    prettyprint_recordty _
+			=>
+			bug "prettyprint_type::prettyprintRECORDty";
+                end 
+
+		also
+		fun prettyprint_typevar_ref' (typevar_ref as { id, ref_typevar => REF typevar }:  tdt::Typevar_Ref):   Void
+		    =
+		    {   printname =   typevar_ref_printname typevar_ref;
+			#
+			case typevar
+			    #			  
+			    tdt::INCOMPLETE_RECORD_TYPEVAR { fn_nesting, eq, known_fields }
+				=>
+				case known_fields
+				    #
+				    []  =>
+					{   pp.box' 0 -1 {.
+						pp.lit "tdt::INCOMPLETE_RECORD_TYPEVAR {";
+						pp.ind 2;
+						pp.lit printname;
+						pp.ind 0;
+						pp.txt " ";
+						pp.lit "}";
+					    };
+					};
+
+				    field' ! fields
+					=>
+					{   pp.box' 0 0 {.													pp.rulename "pptw5";
+						pp.lit "tdt::INCOMPLETE_RECORD_TYPEVAR{ ";
+						pp.ind 2;
+						prettyprint_field field';
+						apply (\\ x =  {   pp.endlit ",";
+								   pp.txt " ";
+								   prettyprint_field x;
+							       }
+						      )
+						     fields;
+						pp.endlit ";";
+						pp.txt " ";
+						pp.lit printname;
+						pp.ind 0;
+						pp.txt " ";
+						pp.lit "}";
+					    };
+					};
+				esac;
+
+			    _  => pp.lit printname;
+                        esac;
+		    };
+	    end				# where (fun prettyprint_typoid')
+
+	also
+	fun prettyprint_typoid
+            (symbolmapstack: syx::Symbolmapstack)
+            pp
+            (type:  tdt::Typoid)
+            :
+            Void
+	    = 
+	    {   pp.box' 0 -1 {.													pp.rulename "pptcw1";
+		    prettyprint_typoid' symbolmapstack pp (type,[], NULL);
+		};
+	    };
+
+	#
+	fun prettyprint_typevar_ref
+                (symbolmapstack:  syx::Symbolmapstack)
+                (pp:          pp::Prettyprint_Mill )
+                (typevar_ref:     tdt::Typevar_Ref)
+            :
+            Void
+	    =
+	    {   (typevar_ref_printname'  typevar_ref)
+		    ->
+		    (printname, null_or_type);
+
+		pp.box' 0 0 {.													pp.rulename "pptw6";
+		    pp.txt " typevar_ref:";
+		    pp.ind 4;
+		    pp.txt " ";
+
+		    pp.lit printname;
+
+		    case null_or_type
+			#
+			THE type => {   pp.txt " ";
+					pp.lit  "== ";
+					prettyprint_typoid  symbolmapstack  pp  type;
+				    };
+
+			NULL     => ();
+		    esac;
+		};
+            };
+
+	#
+	fun prettyprint_sumtype_constructor_domain
+		members
+               (symbolmapstack:  syx::Symbolmapstack)
+                pp
+               (type:         tdt::Typoid)
+	    #
+	    : Void
+	    = 
+	    {   pp.box' 0 -1 {.													pp.rulename "pptcw2";	# Does this box serve any purpose?
+		    prettyprint_typoid' symbolmapstack pp (type,[], THE members);
+		};
+	    };
+
+	#
+	fun prettyprint_type  symbolmapstack pp      type
+	    =
+	    prettyprint_type' symbolmapstack pp NULL type;
+
+	#
+	fun prettyprint_typescheme symbolmapstack pp (tdt::TYPESCHEME { arity, body } )
+	    =
+	    pp.box' 0 0 {.													pp.rulename "pptw7";
+		pp.lit "TYPESCHEME( {";
+		pp.ind 4;
+		pp.txt " ";
+
+		pp.txt "arity="; 
+		uj::unparse_int pp arity;
+		pp.endlit ",";
+		pp.txt " ";
+
+		pp.lit "body="; 
+		prettyprint_typoid  symbolmapstack  pp  body; 
+
+		pp.ind 0;
+		pp.txt " ";
+		pp.lit "} )";
+	    };
+	#
+	fun prettyprint_formals  pp
+	    =
+	    prettyprint_f
+            where
+	        fun prettyprint_f 0 =>  ();
+		    prettyprint_f 1 =>  pp.lit "(X)";			# 2008-01-03 CrT: Was " 'a"
+
+		    prettyprint_f n
+                        =>
+			uj::unparse_tuple
+			    pp
+			    (\\ pp =  \\ s =  pp.lit s)		# 2008-01-03 CrT: Was ("'" + s)
+			    (type_formals n);
+                end;
+	    end;
+
+	#
+	fun prettyprint_sumtype_constructor_types  symbolmapstack  (pp:Pp)  (tdt::SUM_TYPE { kind => tdt::SUMTYPE dt, ... } )
+		=>
+		{   dt             ->   { index, free_types, family=> { members, ... }, ... };
+		    #
+		    (vector::get (members, index)) ->   { valcons, ... };
+			
+
+		    pp.box' 0 -1 {.													pp.rulename "pprs73";
+			#
+			apply
+			    (\\ { name, domain, ... }
+				=
+				{
+				    pp.box' 0 -1 {.											pp.rulename "ppt2";
+					pp.lit (symbol::name name);
+					pp.txt ": ";
+
+					case domain
+					    #
+					    THE type => prettyprint_typoid'
+							    symbolmapstack
+							    pp
+							    (type,[], THE (members, free_types));
+
+					    NULL     => pp.lit "CONST";
+					esac;
+				    };	
+
+				    pp.txt " ";
+				}
+			    )
+			    valcons;
+		    };
+		};
+
+	    prettyprint_sumtype_constructor_types symbolmapstack pp _
+		=>
+		bug "prettyprint_sumtype_constructor_types";
+       end;
+    };						#  package prettyprint_type 
+end;						#  toplevel "stipulate"
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1991 by AT&T Bell Laboratories 
+## Copyright 2003 by The SML/NJ Fellowship 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

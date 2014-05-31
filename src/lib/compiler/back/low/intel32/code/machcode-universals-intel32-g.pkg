@@ -1,0 +1,637 @@
+## machcode-universals-intel32-g.pkg -- 32bit, intel32 instruction semantic properties
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+
+stipulate
+    package lbl =  codelabel;							# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   machcode_universals_intel32_g   (
+	#             ============================
+	#
+	package mcf: Machcode_Intel32;						# Machcode_Intel32		is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+	package tch: Treecode_Hash						# Treecode_Hash			is from   src/lib/compiler/back/low/treecode/treecode-hash.api
+		     where
+			 tcf == mcf::tcf;					# "tcf" == "treecode_form".
+
+	package tce: Treecode_Eval						# Treecode_Eval			is from   src/lib/compiler/back/low/treecode/treecode-eval.api
+		     where
+			 tcf == mcf::tcf;					# "tcf" == "treecode_form".
+    )
+    : (weak) Machcode_Universals						# Machcode_Universals		is from   src/lib/compiler/back/low/code/machcode-universals.api
+    {
+	# Export to client packages:
+	#	
+	package mcf =  mcf;							# "mcf" == "machcode_form" (abstract machine code).
+	package rgk =  mcf::rgk;						# "rgk" == "registerkinds".
+
+	stipulate
+	    package tcf =  mcf::tcf;						# "tcf" == "treecode_form".
+	herein
+
+	    exception NEGATE_CONDITIONAL;
+
+	    fun error msg
+		=
+		lem::error ("machcode_universals_intel32_g", msg);
+
+	    package k {
+		#
+		Kind = JUMP		# Branches, including returns.
+		     | NOP		# No-ops 
+		     | PLAIN		# Normal instructions 
+		     | COPY		# Parallel copy 
+		     | CALL		# Call instructions 
+		     | CALL_WITH_CUTS	# Call with cut edges 
+		     | PHI		# A phi node.    (For SSA -- static single assignment.) 
+		     | SINK		# A sink node.   (For SSA -- static single assignment.) 
+		     | SOURCE		# A source node. (For SSA -- static single assignment.) 
+		     ;
+	    };
+	
+	    Target = LABELLED  lbl::Codelabel
+		   | FALLTHROUGH
+		   | ESCAPES
+		   ;
+
+	    # ========================================================================
+	    #  Instruction Kinds
+	    # ========================================================================
+	    fun instruction_kind (mcf::NOTE { op, ... } )
+		    =>
+		    instruction_kind  op;
+
+		instruction_kind (mcf::COPY _)
+		    =>
+		    k::COPY;
+
+		instruction_kind (mcf::BASE_OP i)
+		    => 
+		    case i
+			#	 
+			mcf::CALL { cuts_to=>_ ! _, ... } => k::CALL_WITH_CUTS;
+			mcf::CALL   _ =>   k::CALL;
+			mcf::JMP    _ =>   k::JUMP;
+			mcf::JCC    _ =>   k::JUMP;
+			mcf::PHI    _ =>   k::PHI;
+			mcf::SOURCE _ =>   k::SOURCE;
+			mcf::SINK   _ =>   k::SINK;
+			mcf::RET    _ =>   k::JUMP;
+			mcf::INTO     =>   k::JUMP;
+			_            =>   k::PLAIN;
+		    esac;
+
+		instruction_kind _
+		    =>
+		    k::PLAIN;
+	    end;
+
+	    fun move_instruction (mcf::NOTE { op, ... } )
+		    =>
+		    move_instruction  op;
+
+		move_instruction (mcf::LIVE _) => FALSE;
+		move_instruction (mcf::DEAD _) => FALSE;
+		move_instruction (mcf::COPY _) => TRUE;
+
+		move_instruction (mcf::BASE_OP i)
+		    => 
+		    case i
+			#
+			mcf::MOVE   {  mv_op=>mcf::MOVL,  src=>mcf::DIRECT _,    dst=>mcf::RAMREG _,  ...  } =>  TRUE;
+			mcf::MOVE   {  mv_op=>mcf::MOVL,  src=>mcf::RAMREG _,    dst=>mcf::DIRECT _,  ...  } =>  TRUE;
+			mcf::FMOVE  {  fsize=>mcf::FP64,  src=>mcf::FPR _,       dst=>mcf::FPR _,     ...  } =>  TRUE;
+			mcf::FMOVE  {  fsize=>mcf::FP64,  src=>mcf::FPR _,       dst=>mcf::FDIRECT _, ...  } =>  TRUE;
+			mcf::FMOVE  {  fsize=>mcf::FP64,  src=>mcf::FDIRECT _,   dst=>mcf::FPR _,     ...  } =>  TRUE;
+			mcf::FMOVE  {  fsize=>mcf::FP64,  src=>mcf::FDIRECT _,   dst=>mcf::FDIRECT _, ...  } =>  TRUE;
+			_ => FALSE;
+		    esac;
+	    end;
+
+
+	    fun is_mem_move (mcf::BASE_OP i)
+		    => 
+		    case i
+			#
+			mcf::MOVE  { mv_op=>mcf::MOVL,  src=>mcf::DIRECT _, dst=>mcf::RAMREG _,  ... } => TRUE;
+			mcf::MOVE  { mv_op=>mcf::MOVL,  src=>mcf::RAMREG _, dst=>mcf::DIRECT _,  ... } => TRUE;
+			mcf::FMOVE { fsize=>mcf::FP64, src=>mcf::FPR _,     dst=>mcf::FPR _,     ... } => TRUE;
+			mcf::FMOVE { fsize=>mcf::FP64, src=>mcf::FPR _,     dst=>mcf::FDIRECT _, ... } => TRUE;
+			mcf::FMOVE { fsize=>mcf::FP64, src=>mcf::FDIRECT _, dst=>mcf::FPR _,     ... } => TRUE;
+			mcf::FMOVE { fsize=>mcf::FP64, src=>mcf::FDIRECT _, dst=>mcf::FDIRECT _, ... } => TRUE;
+
+			_ => FALSE;
+		    esac; 
+
+		is_mem_move _ => FALSE;
+	    end;
+
+
+	    fun mem_move (mcf::BASE_OP i)
+		    => 
+		    case i
+			mcf::MOVE  { src=>mcf::DIRECT rs,  dst=>mcf::RAMREG rd,  ... } => ([rd], [rs]);
+			mcf::MOVE  { src=>mcf::RAMREG rs,  dst=>mcf::DIRECT rd,  ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FPR rs,     dst=>mcf::FPR rd,     ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FDIRECT rs, dst=>mcf::FPR rd,     ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FPR rs,     dst=>mcf::FDIRECT rd, ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FDIRECT rs, dst=>mcf::FDIRECT rd, ... } => ([rd], [rs]);
+
+			 _ => error "memMove: INSTR";
+		   esac;
+
+	       mem_move _
+		   =>
+		   error "mem_move";
+	    end;
+
+	    nop =   \\ () =  mcf::nop;
+
+
+	   /*========================================================================
+	    *  Parallel Move
+	    *========================================================================*/
+
+	    fun move_tmp_r (mcf::NOTE { op, ... } ) => move_tmp_r  op;
+		move_tmp_r (mcf::COPY { kind => rkj::INT_REGISTER, tmp=>THE (mcf::DIRECT r), ... } ) => THE r;
+		move_tmp_r (mcf::COPY { kind => rkj::FLOAT_REGISTER, tmp=>THE (mcf::FDIRECT f), ... } ) => THE f;
+		move_tmp_r (mcf::COPY { kind => rkj::FLOAT_REGISTER, tmp=>THE (mcf::FPR f), ... } ) => THE f; 
+		move_tmp_r _ => NULL;
+	    end;
+
+	    fun move_dst_src (mcf::NOTE { op,       ... } ) =>  move_dst_src  op;
+		move_dst_src (mcf::COPY { src, dst, ... } ) =>  (dst, src);
+
+		move_dst_src (mcf::BASE_OP i)
+		    => 
+		    case i
+			mcf::MOVE  { src=>mcf::DIRECT  rs, dst=>mcf::RAMREG  rd, ... } => ([rd], [rs]);
+			mcf::MOVE  { src=>mcf::RAMREG  rs, dst=>mcf::DIRECT  rd, ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FPR     rs, dst=>mcf::FPR     rd, ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FDIRECT rs, dst=>mcf::FPR     rd, ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FPR     rs, dst=>mcf::FDIRECT rd, ... } => ([rd], [rs]);
+			mcf::FMOVE { src=>mcf::FDIRECT rs, dst=>mcf::FDIRECT rd, ... } => ([rd], [rs]);
+			#
+			 _ => error "move_dst_src";
+		   esac;
+
+		move_dst_src _
+		    =>
+		    error "move_dst_src";
+	    end;
+
+	    ######################################################################
+	    #  Branches and Calls/Returns
+	    ######################################################################
+
+	    fun branch_targets (mcf::NOTE { op, ... } )
+		    =>
+		    branch_targets  op;
+
+		branch_targets (mcf::BASE_OP i)
+		    => 
+		    case i
+			mcf::JMP(_, []) => [ESCAPES];
+			mcf::JMP(_, labs) => map LABELLED labs;
+			mcf::RET _ => [ESCAPES];
+			mcf::JCC { operand=>mcf::IMMED_LABEL (tcf::LABEL (lab)), ... } => 
+			   [FALLTHROUGH, LABELLED lab];
+			mcf::CALL { cuts_to, ... } => FALLTHROUGH ! map LABELLED cuts_to;
+			mcf::INTO => [ESCAPES];
+			 _ => error "branchTargets";
+		    esac;
+
+		branch_targets _
+		    =>
+		    error "branchTargets";
+	    end;
+
+
+	    fun jump label
+		=
+		mcf::jmp (mcf::IMMED_LABEL (tcf::LABEL label), [label]);
+
+
+	    exception NOT_IMPLEMENTED;
+
+
+	    fun set_jump_target (mcf::NOTE { note, op }, l)
+		    =>
+		    mcf::NOTE { note, op => set_jump_target (op, l) };
+
+		set_jump_target (mcf::BASE_OP (mcf::JMP (mcf::IMMED_LABEL _, _)), lab)
+		    =>
+		    jump lab;
+
+		set_jump_target _
+		    =>
+		    error "set_jump_target";
+	    end;
+
+
+	    fun set_branch_targets { op=>mcf::NOTE { note, op }, true, false }
+		    => 
+		    mcf::NOTE { note, op => set_branch_targets { op, true, false }};
+
+		set_branch_targets { op=>mcf::BASE_OP (mcf::JCC { cond, operand=>mcf::IMMED_LABEL _} ), true, ... }
+		    => 
+		    mcf::jcc { cond, operand=>mcf::IMMED_LABEL (tcf::LABEL true) };
+
+		set_branch_targets _
+		    =>
+		    error "set_branch_targets";
+	    end;
+
+
+	    fun negate_conditional (mcf::NOTE { op, note }, lab)
+		    =>
+		    mcf::NOTE { op => negate_conditional (op, lab), note };
+
+		negate_conditional (mcf::BASE_OP (mcf::JCC { cond, operand=>mcf::IMMED_LABEL (tcf::LABEL _) } ), lab)
+		    =>
+		    {   cond' = case cond
+				    mcf::EQ => mcf::NE;
+				    mcf::NE => mcf::EQ;
+				    mcf::LT => mcf::GE;
+				    mcf::LE => mcf::GT;
+				    mcf::GT => mcf::LE;
+				    mcf::GE => mcf::LT;
+				    mcf::BB => mcf::AE;
+				    mcf::BE => mcf::AA;
+				    mcf::AA => mcf::BE;
+				    mcf::AE => mcf::BB;
+				    mcf::CC => mcf::NC;
+				    mcf::NC => mcf::CC;
+				    mcf::PP => mcf::NP;
+				    mcf::NP => mcf::PP;
+				    mcf::OO => mcf::NO;
+				    mcf::NO => mcf::OO;
+				esac;
+
+			  mcf::BASE_OP (mcf::JCC { cond=>cond', operand=>mcf::IMMED_LABEL (tcf::LABEL lab) } );
+		    };
+
+		negate_conditional _
+		    =>
+		    error "negateConditional";
+	    end;
+
+	    immed_range =  { lo=> -1073741824, hi=>1073741823 };				# 64-bit issue?  In any case XXX SUCKO FIXME non-manifest constants.
+
+
+	    to_int1 =  one_word_int::from_multiword_int  o  int::to_multiword_int;
+
+
+	    fun load_immed { immed, t }
+		=
+		mcf::move { mv_op=>mcf::MOVL, src=>mcf::IMMED (to_int1 immed), dst=>mcf::DIRECT t };
+
+
+	    fun load_operand { operand, t }
+		=
+		mcf::move { mv_op=>mcf::MOVL, src=>operand, dst=>mcf::DIRECT t };
+
+
+
+	    ########################################################################
+	    #  Hashing and Equality on operands
+	    ########################################################################
+
+	    fun hash_operand (mcf::IMMED i)	 	=>  unt::from_int (one_word_int::to_int i);
+		hash_operand (mcf::IMMED_LABEL le)	=>  tch::hash le + 0u123;
+		hash_operand (mcf::RELATIVE i)	=>  unt::from_int i + 0u1232;
+		hash_operand (mcf::LABEL_EA le)	=>  tch::hash le + 0u44444;
+		hash_operand (mcf::DIRECT r)	=>  rkj::register_to_hashcode r;
+		hash_operand (mcf::RAMREG r)	=>  rkj::register_to_hashcode r + 0u2123;
+		hash_operand (mcf::ST f)		=>  rkj::register_to_hashcode f + 0u88;
+		hash_operand (mcf::FPR f)		=>  rkj::register_to_hashcode f + 0u881;
+		hash_operand (mcf::FDIRECT f)	=>  rkj::register_to_hashcode f + 0u31245;
+
+		hash_operand (mcf::DISPLACE { base, disp, ... } )
+		    => 
+		    hash_operand disp + rkj::register_to_hashcode base;
+
+		hash_operand (mcf::INDEXED { base, index, scale, disp, ... } )
+		    =>
+		    rkj::register_to_hashcode index + unt::from_int scale + hash_operand disp;
+	    end;
+
+	    fun eq_operand (mcf::IMMED a,       mcf::IMMED b)		=>   a == b;
+		eq_operand (mcf::IMMED_LABEL a, mcf::IMMED_LABEL b)	=>   tce::(====) (a, b);
+		eq_operand (mcf::RELATIVE a,    mcf::RELATIVE b)	=>   a == b;
+		eq_operand (mcf::LABEL_EA a,    mcf::LABEL_EA b)	=>   tce::(====) (a, b);
+		#
+		eq_operand (mcf::DIRECT a, mcf::DIRECT b)		=> rkj::codetemps_are_same_color (a, b);
+		eq_operand (mcf::RAMREG a, mcf::RAMREG b)		=> rkj::codetemps_are_same_color (a, b);
+		eq_operand (mcf::FDIRECT a, mcf::FDIRECT b)		=> rkj::codetemps_are_same_color (a, b);
+		eq_operand (mcf::ST a, mcf::ST b)			=> rkj::codetemps_are_same_color (a, b);
+		eq_operand (mcf::FPR a, mcf::FPR b)			=> rkj::codetemps_are_same_color (a, b);
+
+		eq_operand (mcf::DISPLACE { base=>a, disp=>b, ... }, mcf::DISPLACE { base=>c, disp=>d, ... } )
+		    =>
+		    rkj::codetemps_are_same_color (a, c) and eq_operand (b, d);
+
+		eq_operand (mcf::INDEXED { base=>a, index=>b, scale=>c, disp=>d, ... },
+		       mcf::INDEXED { base=>e, index=>f, scale=>g, disp=>h, ... } )
+		    =>
+		    rkj::codetemps_are_same_color (b, f) and c == g
+		    and same_cell_option (a, e) and eq_operand (d, h);
+
+		eq_operand _
+		    =>
+		    FALSE;
+	    end 
+
+	    also
+	    fun same_cell_option (NULL, NULL) => TRUE;
+		same_cell_option (THE x, THE y) => rkj::codetemps_are_same_color (x, y);
+		same_cell_option _ => FALSE;
+	    end;
+
+
+
+	    #########################################################################
+	    #  Definition and use -- mainly for register allocation.
+	    #########################################################################
+
+	    eax_pair = [rgk::edx, rgk::eax];
+
+	    fun def_use_r instruction
+		=
+		{   fun operand_acc (mcf::DIRECT r,				acc) =>         r ! acc;
+			operand_acc (mcf::RAMREG r,				acc) =>         r ! acc;
+			#
+			operand_acc (mcf::DISPLACE { base,                ... },	acc) =>      base ! acc;
+			operand_acc (mcf::INDEXED  { base=> THE b, index, ... },	acc) => b ! index ! acc;
+			operand_acc (mcf::INDEXED  { base=> NULL,  index, ... },	acc) =>     index ! acc;
+			#
+			operand_acc(_, acc) => acc;
+		    end;
+
+		    fun intel32def_use_r instruction
+			=
+			{   fun operand_use operand
+				=
+				operand_acc (operand, []);
+
+			    fun operand_use2 (src1, src2) =  ([], operand_acc (src1, operand_use src2));
+			    fun operand_use3 (x, y, z)    =  ([], operand_acc (x, operand_acc (y, operand_use y)));
+
+			    fun operand_def (mcf::DIRECT r) => [r];
+				operand_def (mcf::RAMREG r) => [r];
+				operand_def _ => [];
+			    end;
+
+			    fun multdiv { src, mult_div_op }
+				=
+				{   uses = operand_use src;
+
+				    case mult_div_op
+					#
+					(mcf::IDIVL1 | mcf::DIVL1) => (eax_pair, rgk::edx ! rgk::eax ! uses);
+					(mcf::IMULL1 | mcf::MULL1) => (eax_pair, rgk::eax ! uses);
+				    esac;
+				};
+
+			    fun unary operand = (operand_def operand, operand_use operand);
+			    fun cmptest { lsrc, rsrc } = ([], operand_acc (lsrc, operand_use rsrc));
+			    fun esp_only ()  = { sp = [rgk::stackptr_r];  (sp, sp); };
+			    fun push arg = ([rgk::stackptr_r], operand_acc (arg, [rgk::stackptr_r]));
+			    fun float operand = ([], operand_use operand);
+
+			    case instruction
+
+				mcf::JMP (operand, _)        => ([], operand_use operand);
+				mcf::JCC { operand, ... }      => ([], operand_use operand);
+				mcf::CALL { operand, defs, uses, ... } => 
+				    (rgk::get_int_codetemp_infos defs, operand_acc (operand, rgk::get_int_codetemp_infos uses));
+				mcf::MOVE { src, dst=>mcf::DIRECT r, ... } => ([r], operand_use src);
+				mcf::MOVE { src, dst=>mcf::RAMREG r, ... } => ([r], operand_use src);
+				mcf::MOVE { src, dst, ... } => ([], operand_acc (dst, operand_use src));
+				mcf::LEA { r32, address }      => ([r32], operand_use address);
+				( mcf::CMPL arg | mcf::CMPW arg | mcf::CMPB arg
+				 | mcf::TESTL arg | mcf::TESTW arg | mcf::TESTB arg ) => cmptest arg; 
+				mcf::BITOP { lsrc, rsrc, ... } => cmptest { lsrc, rsrc };
+
+				mcf::BINARY { bin_op=>mcf::XORL, src=>mcf::DIRECT rs, dst=>mcf::DIRECT rd, ... }
+				    =>   
+				    if (rkj::codetemps_are_same_color (rs, rd))  ([rd],[]);
+				    else                          ([rd],[rs, rd]);
+				    fi;
+
+				mcf::BINARY { src, dst, ... }
+				    =>   
+				    (operand_def dst, operand_acc (src, operand_use dst));
+
+				mcf::SHIFT { src, dst, count, ... }
+				    =>   
+				    ( operand_def dst, 
+				      operand_acc (count, operand_acc (src, operand_use dst))
+				    );
+
+				mcf::CMPXCHG { src, dst, ... }
+				    =>
+				    (rgk::eax ! operand_def dst, rgk::eax ! operand_acc (src, operand_use dst));
+
+				mcf::ENTER _             => ([rgk::esp, rgk::ebp], [rgk::esp, rgk::ebp]);
+				mcf::LEAVE               => ([rgk::esp, rgk::ebp], [rgk::esp, rgk::ebp]);
+				mcf::MULTDIV arg	      => multdiv arg;
+				mcf::MUL3 { src1, dst, ... } => ([dst], operand_use src1);
+
+				mcf::UNARY { operand, ... }    => unary operand;
+				mcf::SET { operand, ... }      => unary operand;
+				( mcf::PUSHL arg | mcf::PUSHW arg | mcf::PUSHB arg ) => push arg;
+				mcf::POP arg	      => (rgk::stackptr_r ! operand_def arg, [rgk::stackptr_r]);
+				mcf::PUSHFD	      => esp_only();
+				mcf::POPFD		      => esp_only();
+				mcf::CDQ		      => ([rgk::edx], [rgk::eax]);
+				mcf::FSTPT operand	      => float operand;
+				mcf::FSTPL operand	      => float operand;
+				mcf::FSTPS operand	      => float operand; 
+				mcf::FSTL operand	      => float operand;
+				mcf::FSTS operand	      => float operand; 
+				mcf::FLDL operand	      => float operand;
+				mcf::FLDS operand	      => float operand;
+				mcf::FILD operand           => float operand;
+				mcf::FILDL operand          => float operand;
+				mcf::FILDLL operand         => float operand;
+				mcf::FBINARY { src, ... }   => ([], operand_use src);
+				mcf::FIBINARY { src, ... }  => ([], operand_use src);
+				mcf::FENV { operand, ... }     => ([], operand_use operand);
+				mcf::FNSTSW	      => ([rgk::eax], []);
+				mcf::FUCOM operand          => float operand;
+				mcf::FUCOMP operand         => float operand;
+				mcf::FCOMI operand          => float operand;
+				mcf::FCOMIP operand         => float operand;
+				mcf::FUCOMI operand         => float operand;
+				mcf::FUCOMIP operand        => float operand;
+
+				mcf::FMOVE { src, dst, ... } => operand_use2 (src, dst); 
+				mcf::FILOAD { ea, dst, ... } => operand_use2 (ea, dst); 
+				mcf::FCMP { lsrc, rsrc, ... } => operand_use2 (lsrc, rsrc);
+				mcf::FBINOP { lsrc, rsrc, dst, ... } => operand_use3 (lsrc, rsrc, dst);
+				mcf::FIBINOP { lsrc, rsrc, dst, ... } => operand_use3 (lsrc, rsrc, dst);
+				mcf::FUNOP { src, dst, ... } => operand_use2 (src, dst);
+
+				mcf::SAHF		      => ([], [rgk::eax]);
+				mcf::LAHF		      => ([rgk::eax], []);
+				 # This sets the low order byte, 
+				 # do potentially it may define *and* use 
+
+				mcf::CMOV { src, dst, ... } => ([dst], operand_acc (src, [dst]));
+				_		      => ([], []);
+			    esac;
+			}; 
+
+		    case instruction
+			#
+			mcf::NOTE { op, ... } => def_use_r  op;
+			mcf::LIVE { regs, ... } => ([], rgk::get_int_codetemp_infos regs);
+			mcf::DEAD { regs, ... } =>     (rgk::get_int_codetemp_infos regs, []);
+
+			mcf::COPY { kind => rkj::INT_REGISTER, dst, src, tmp, ... }
+			    => 
+			    case tmp
+				#
+				NULL => (dst, src);
+				THE (mcf::DIRECT r) => (r ! dst, src);
+				THE (mcf::RAMREG r) => (r ! dst, src);
+				THE (ea) => (dst, operand_acc (ea, src));
+			    esac;
+
+			mcf::COPY _ => ([], []);
+			mcf::BASE_OP i  => intel32def_use_r i;
+		    esac;
+		};
+
+	    fun def_use_f instruction
+		=
+		{   fun intel32def_use_f instruction
+			=
+			{   fun do_operand (mcf::FDIRECT f) => [f];
+				do_operand (mcf::FPR f) => [f];
+				do_operand _ => [];
+			    end;
+
+			    fun operand_acc (mcf::FDIRECT f, acc) => f ! acc;
+				operand_acc (mcf::FPR f, acc) => f ! acc;
+				operand_acc(_, acc) => acc;
+			    end;
+
+			    fun fbinop (lsrc, rsrc, dst)
+				= 
+				{   def = do_operand dst;
+				    uses = operand_acc (lsrc, do_operand rsrc);
+				    (def, uses); 
+				};
+
+			    fcmp_tmp = [rgk::st 0];
+
+
+			    case instruction
+
+				mcf::FSTPT operand        => (do_operand operand, []);  
+				mcf::FSTPL operand	=> (do_operand operand, []);
+				mcf::FSTPS operand	=> (do_operand operand, []);
+				mcf::FSTL operand		=> (do_operand operand, []);
+				mcf::FSTS operand		=> (do_operand operand, []);
+
+				mcf::FLDT operand		=> ([], do_operand operand);
+				mcf::FLDL operand		=> ([], do_operand operand);
+				mcf::FLDS operand		=> ([], do_operand operand);
+				mcf::FUCOM operand        => ([], do_operand operand);
+				mcf::FUCOMP operand       => ([], do_operand operand);
+				mcf::FCOMI operand        => ([], do_operand operand);
+				mcf::FCOMIP operand       => ([], do_operand operand);
+				mcf::FUCOMI operand       => ([], do_operand operand);
+				mcf::FUCOMIP operand      => ([], do_operand operand);
+
+				mcf::CALL   { defs, uses, ... } => (rgk::get_float_codetemp_infos defs, rgk::get_float_codetemp_infos uses);
+				mcf::FBINARY { dst, src, ... }  => (do_operand dst, do_operand dst @ do_operand src);
+
+				mcf::FMOVE { src, dst, ... } => (do_operand dst, do_operand src); 
+				mcf::FILOAD { ea, dst, ... } => (do_operand dst, []); 
+				mcf::FCMP { lsrc, rsrc, ... } => (fcmp_tmp, operand_acc (lsrc, do_operand rsrc));
+				mcf::FBINOP { lsrc, rsrc, dst, ... } => fbinop (lsrc, rsrc, dst);
+				mcf::FIBINOP { lsrc, rsrc, dst, ... } => fbinop (lsrc, rsrc, dst);
+				mcf::FUNOP { src, dst, ... } => (do_operand dst, do_operand src);
+				_  => ([], []);
+			    esac;
+		    };
+
+		    case instruction
+			#
+			mcf::NOTE { op, ... } => def_use_f  op;
+
+			mcf::LIVE { regs, ... } => ([], rgk::get_float_codetemp_infos regs);
+			mcf::DEAD { regs, ... } => (    rgk::get_float_codetemp_infos regs, []);
+
+			mcf::COPY { kind => rkj::FLOAT_REGISTER, dst, src, tmp, ... }
+			    => 
+			    case tmp
+				NULL => (dst, src);
+				THE (mcf::FDIRECT f) => (f ! dst, src);
+				THE (mcf::FPR f) => (f ! dst, src);
+				_ => (dst, src);
+			    esac;
+
+			mcf::COPY _  => ([], []);
+			mcf::BASE_OP i => intel32def_use_f  i;
+		    esac;
+	      };
+
+	    fun def_use rkj::INT_REGISTER => def_use_r;
+		def_use rkj::FLOAT_REGISTER => def_use_f;
+		def_use _ => error "defUse";
+	    end;
+
+	    ##########################################################################	
+	    #  Annotations 
+	    ##########################################################################	
+
+	    fun get_notes (mcf::NOTE { op, note } )
+		    => 
+		    {   (get_notes  op) ->   (op, notes);
+			#
+			(op, note ! notes);
+		    };
+
+		get_notes op
+		    =>
+		    (op, []);
+	    end;
+
+	    fun annotate (op, note)
+		=
+		mcf::NOTE { op, note };
+
+	    ##########################################################################	
+	    #  Replicate an instruction
+	    ##########################################################################	
+
+	    fun replicate (mcf::NOTE { op, note } ) => mcf::NOTE { op => replicate op, note };
+	  /*
+	      | replicate (mcf::COPY { tmp=THE _, dst, src } ) =  
+		  mcf::COPY { tmp=THE (mcf::DIRECT (rgk::make_reg())), dst=dst, src=src }
+	      | replicate (mcf::FCOPY { tmp=THE _, dst, src } ) = 
+		  mcf::FCOPY { tmp=THE (mcf::FDIRECT (rgk::make_freg())), dst=dst, src=src }
+	  */
+	       replicate i => i;
+	    end;
+	end;
+    };
+end;
+
+
+## COPYRIGHT (c) 1997 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

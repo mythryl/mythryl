@@ -1,0 +1,128 @@
+
+# A top level generic and ties all the modules for global scheduling 
+# together.
+
+
+
+###            "You never change something by
+###             fighting the existing reality.
+###
+###             To change something, build a
+###             new model that makes the
+###             existing model obsolete."
+###
+###                      -- Buckminster Fuller
+
+
+
+generic package GlobalScheduler
+   (package ir:          LOWHALF_IR
+    package ddg:         SCHEDULER_DDG
+    package machcode_universals:   Machcode_Universals
+    package gc_rtl_props:    RTL_PROPERTIES
+    package viewer:      GLOBAL_SCHEDULER_DDG_VIEWER
+    package format_instruction:  FORMAT_INSTRUCTION
+    #  package rewrite:  Rewrite_Machine_Instructions 
+       sharing machcode_universals::I = ir::I = DDG::I = #  = Rewrite::I 
+               FormatInstruction::I = RTLProps::I
+       sharing Viewer::IR = IR
+       sharing Viewer::DDG = DDG
+   ) : Lowhalf_Ir_Improver =
+pkg
+   package ir         = IR
+   package machcode_controlflow_graph        = ir::machcode_controlflow_graph
+   package i          = ir::I
+   package SchedProps = DDG::SchedProps
+   package sl         = sorted_list
+   package g          = graph
+   package a          = rw_vector
+
+   package RegionBuilder = RegionBuilder (IR)
+
+   package DDGBuilder = 
+     SchedulerDDGBuilder
+     (package ddg        = DDG
+      package machcode_controlflow_graph        = machcode_controlflow_graph
+      package machcode_universals  = machcode_universals
+      package gc_rtl_props   = RTLProps
+     )
+   
+   package ListScheduler = 
+     ListScheduler
+       (package ir         = IR
+        package ddg        = DDG
+        package machcode_universals  = machcode_universals
+        package format_instruction = FormatInstruction
+        #  package rewrite    = Rewrite 
+       )
+
+   package GlobalCP = GlobalCriticalPath (DDG) 
+
+   package DAGScheduling = 
+     DAGScheduling
+       (package ListScheduler = ListScheduler
+        package DDGBuilder    = DDGBuilder
+        package viewer        = Viewer
+        package Ranks         = GlobalCP
+       )
+
+   package liveness = LivenessAnalysis (CFG)
+
+   type flowgraph = ir::IR
+
+   name = "global scheduling"
+
+   cpu = LowhalfControl::get_string "cpu"
+   my _ = cpu := "default"
+
+   fun computeLiveness (cpu_info, CFG as g::GRAPH mcg) = 
+   let my SchedProps::CPU_INFO { defUse=instructionDefUse, ... } = cpu_info
+       regmap = i::C.lookup (machcode_controlflow_graph::regmap CFG) 
+       fun defUse(_, machcode_controlflow_graph::BLOCK { instructions, ... } ) = 
+       let fun scan ([], def, uses) = (def, uses)
+             | scan (i . is, def, uses) =
+               let my (d, u) = instructionDefUse i
+                   u     = sl::uniq (map regmap u)
+                   u'    = sl::difference (u, def)
+                   use  = sl::merge (u', uses)
+                   d     = sl::uniq (map (\\ (r, l) => regmap r) d)
+                   d'    = sl::difference (d, use)
+                   def'  = sl::merge (d', def)
+               in  scan (is, def', use)
+               end
+       in  scan (reverse *instructions, [], [])
+       end
+
+       fun liveOut(_, block) = 
+             map regmap (i::C.Registerset::toCellList (machcode_controlflow_graph::liveOut block))
+
+       fun result { block=(_, machcode_controlflow_graph::BLOCK { annotations, ... } ), liveIn, liveOut } = 
+           annotations :=
+              DDG::LIVENESS.set ( { liveIn=liveIn, liveOut=liveOut }, *annotations)
+          
+   in  liveness::liveness { mcg=CFG, defUse=defUse, liveOut=liveOut, result=result }
+   end
+
+   fun run IR = 
+   let maxBlocks=100
+       maxInstrs=1000
+       minFreqRatio=0.01
+       traceOnly=FALSE
+       sideEntries=TRUE
+       internalBackEdges=FALSE
+       insertDummyBlocks=FALSE
+       parameters = { maxBlocks = maxBlocks,
+                     maxInstrs = maxInstrs,
+                     traceOnly = traceOnly,
+                     minFreqRatio = minFreqRatio,
+                     sideEntries = sideEntries,
+                     internalBackEdges = internalBackEdges,
+                     insertDummyBlocks = insertDummyBlocks
+                    }
+       cpu_info = SchedProps::info { backward=FALSE, cpu=SchedProps::cpu(*cpu) }
+   in  computeLiveness (cpu_info, IR);
+       RegionBuilder::regionBuilder parameters IR (DAGScheduling::schedule cpu_info);
+       IR
+   end
+
+end

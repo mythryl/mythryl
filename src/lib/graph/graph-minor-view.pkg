@@ -1,0 +1,259 @@
+# graph-minor-view.pkg
+#  Graph minor.
+#  Allows contraction of nodes.  
+#  Remove self-edges during contraction. 
+#  
+#  -- Allen Leung
+
+# Compiled by:
+#     src/lib/graph/graphs.lib
+
+stipulate
+    package odg =  oop_digraph;						# oop_digraph	is from   src/lib/graph/oop-digraph.pkg
+herein
+
+    api Graph_Minor_View {
+	#
+	minor:  odg::Digraph(N,E,G)					# Here N,E,G stand stead for the types of client-package-supplied records associated with (respectively) nodes, edges and graphs.
+		->
+		((N, N, List( odg::Edge( E ) )) -> N)
+		->
+		{ view:       odg::Digraph(N,E,G),
+		  union:     (odg::Node_Id, odg::Node_Id) -> Bool,
+		  same:      (odg::Node_Id, odg::Node_Id) -> Bool,
+		  partition:  odg::Node_Id -> List( odg::Node_Id )
+		};
+    };
+end;
+
+
+stipulate
+    package djs =  disjoint_sets_with_constant_time_union;		# disjoint_sets_with_constant_time_union	is from   src/lib/src/disjoint-sets-with-constant-time-union.pkg
+    package odg =  oop_digraph;						# oop_digraph					is from   src/lib/graph/oop-digraph.pkg
+    package rwv =  sparse_rw_vector;					# sparse_rw_vector				is from   src/lib/src/sparse-rw-vector.pkg
+herein
+
+    package   graph_minor_view
+    : (weak)  Graph_Minor_View						# Graph_Minor_View				is from   src/lib/graph/graph-minor-view.pkg
+    {
+
+
+	Node (N,E)
+	    = 
+	    NODE { key:    Int,
+		   data:   N,
+		   nodes:  List( odg::Node_Id ),
+		   next:   List( odg::Edge( E ) ),
+		   prior:   List( odg::Edge( E ) )
+		 };
+
+
+	fun minor (odg::DIGRAPH dig:  odg::Digraph( N, E, G) ) merge_nodes
+	    =
+	    { view, union, same, partition }
+	    where
+
+		fun unimplemented _
+		    =
+		    raise exception odg::READ_ONLY;
+
+		nnn   =  dig.capacity ();
+		table =  rwv::make_rw_vector'(nnn, \\ _ =  raise exception odg::NOT_FOUND);
+
+		fun get n
+		    =
+		    {   (djs::get (rwv::get (table, n)))
+			    ->
+			    NODE x;
+
+			x;
+		    };
+
+		dig.forall_nodes 
+		    (\\ (n, n')
+			=
+			rwv::set
+			  (
+			    table,
+			    n,
+			    djs::make_singleton_disjoint_set
+				(NODE
+				  { key   =>   n,
+				    data  =>   n',
+				    nodes =>  [n],
+				    next  =>  dig.out_edges n,
+				    prior =>  dig.in_edges  n
+				  }
+				)
+			  )
+		    );
+
+		fun same (i, j)
+		    =
+		    djs::equal (rwv::get (table, i), rwv::get (table, j));
+
+		fun partition i
+		    =
+		    .nodes (get i); 
+
+		size  =  REF (dig.size  ());
+		order =  REF (dig.order ());
+
+		fun out_edges n =   (get n).next;
+		fun in_edges  n =   (get n).prior;
+
+		fun prior n =  map #1 (in_edges  n);
+		fun next  n =  map #2 (out_edges n);
+
+		fun nodes ()
+		    = 
+		    collect (dig.nodes (),[])
+		    where
+			found =  rwv::make_rw_vector (10, FALSE);
+
+			fun collect ((node as (n, _)) ! nodes, nodes')
+				=>
+				if (rwv::get (found, n) )
+				    #
+				    collect (nodes, nodes');
+				else
+				    ns = partition n;
+				    apply  (\\ n = rwv::set (found, n, TRUE))  ns;
+				    collect (nodes, node ! nodes');
+				fi;
+
+			   collect([], nodes')
+			       =>
+			       nodes';
+			end;
+		    end;
+
+		fun edges ()
+		    =
+		    list::cat (
+			map' (nodes ())
+			     (\\ (n, _) =  out_edges n)
+			    
+		    );
+
+		fun has_edge (i, j)
+		    =
+		    list::exists
+			(\\ (_, j', _) =  j == j')
+			(out_edges i);
+
+		fun has_node  n
+		    =
+		    {   rwv::get (table, n);
+			TRUE;
+		    }
+		    except
+			odg::NOT_FOUND =  FALSE;
+
+		fun node_info n
+		    =
+		    .data (get n);
+
+		fun forall_nodes f =  apply f (nodes());
+		fun forall_edges f =  apply f (edges());
+
+		fun merge (NODE { key=>k1, data=>d1, next=>s1, prior=>p1, nodes=>n1 },
+			   NODE { key=>k2, data=>d2, next=>s2, prior=>p2, nodes=>n2 } )
+		    =
+		    node
+		    where
+
+			fun key i
+			    =
+			    .key (get i);
+
+			fun partition ([], others, self)
+				=>
+				(others, self);
+
+			    partition((e as (i, j, _)) ! es, others, self)
+				=>
+				{   k_i = key i;
+				    k_j = key j;
+
+				    if ((k_i == k1 or k_i == k2) and   
+					(k_j == k1 or k_j == k2)
+				       )
+					  partition (es, others, e ! self);  
+				    else  partition (es, e ! others, self);
+				    fi;
+				};
+			end;
+
+			my (s, s') =  partition (s1 @ s2,  [], []);
+			my (p, p') =  partition (p1 @ p2,  [], []);
+
+			node = NODE { key   => k1,
+				      data  => merge_nodes (d1, d2, s'),
+				      nodes => n1 @ n2, 
+				      next  => s,
+				      prior  => p
+				    }; 
+
+			order :=  *order - 1;
+			size  :=  *size - length s';
+
+		    end;
+
+		fun union (i, j)
+		    =
+		    djs::unify merge (rwv::get (table, i), rwv::get (table, j));
+
+		view =  odg::DIGRAPH
+			  {
+			    name            => dig.name,
+			    graph_info      => dig.graph_info,
+			    allot_node_id   => unimplemented,			# This sucks beyond belief -- total typesafety subversion. If you're not going to implement an API, write a new one dammit.  XXX BUGGO FIXME.
+			    add_node        => unimplemented,
+			    add_edge        => unimplemented,
+			    remove_node     => unimplemented,
+			    set_in_edges    => unimplemented,
+			    set_out_edges   => unimplemented,
+			    set_entries     => unimplemented,
+			    set_exits       => unimplemented,
+			    garbage_collect => unimplemented,
+			    nodes,
+			    edges,
+			    order           => {. *order; },
+			    size            => {. *size; },
+			    capacity        => dig.capacity,
+			    out_edges,
+			    in_edges,
+			    next,
+			    prior,
+			    has_edge,
+			    has_node,
+			    node_info,
+			    entries         => dig.entries,
+			    exits           => dig.exits,
+			    entry_edges     => dig.entry_edges,
+			    exit_edges      => dig.exit_edges,
+			    forall_nodes, 
+			    forall_edges
+			  };
+	    end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

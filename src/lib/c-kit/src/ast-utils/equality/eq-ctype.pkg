@@ -1,0 +1,192 @@
+## eq-ctype.pkg
+
+
+
+package EqCType /* : EQCTYPE */ = pkg
+
+  package Tid = Tid
+  package Pid = Pid
+  package b = Namings
+  package ct = c_type
+  use CT
+
+  exception eqFail
+
+  fun warning s = (print "Warning: EqCType: "; print s; print "\n")
+
+  fun myFold eq acc ([],[]) = acc
+    | myFold eq acc (f1 . fs1, f2 . fs2) =
+      myFold eq (eq acc (f1, f2)) (fs1, fs2)
+    | myFold eq acc _ = raise exception eqFail
+
+  fun eqList eq = myFold (\\ bool => \\ fs => bool and eq fs) TRUE
+
+  fun getCtypeNamings tidtabs maps ctPair =
+      case ctPair
+	of (Void, Void) => ()
+         | (Ellipses, Ellipses) => ()
+         | (Qual (q1, ct1), Qual (q2, ct2)) =>
+	      getCtypeNamings tidtabs maps (ct1, ct2)
+         | (Array (li1, ct1), Array (li2, ct2)) => 
+	       getCtypeNamings tidtabs maps (ct1, ct2)
+         | (Pointer ct1, Pointer ct2) =>
+	       getCtypeNamings tidtabs maps (ct1, ct2)
+         | (Function (ct1, cts1), Function (ct2, cts2)) => 
+	       getCtypesNamings tidtabs maps (ct1 . cts1, ct2 . cts2)
+         | (EnumRef tid1, EnumRef tid2) => getTidNamings tidtabs maps (tid1, tid2)
+         | (StructRef tid1, StructRef tid2) => getTidNamings tidtabs maps (tid1, tid2)
+         | (UnionRef tid1, UnionRef tid2) => getTidNamings tidtabs maps (tid1, tid2)
+         | (TypeRef tid1, TypeRef tid2) => getTidNamings tidtabs maps (tid1, tid2)
+	 | _ => ()
+
+  and getCtypesNamings tidtabs maps ctPairs = 
+      (map (getCtypeNamings tidtabs maps) (paired_lists::zip ctPairs); ())
+
+  and getTidNamings (tidtab1: Tables::tidtab, tidtab2: Tables::tidtab)
+                     (maps as (tidmap, pidmap)) (tid1, tid2) =
+      case Tidtab::find (tidmap, tid1)
+	of THE tid2' => ()
+         | NULL => case (Tidtab::find (tidtab1, tid1), Tidtab::find (tidtab2, tid2))
+	             of (THE { ntype=THE nct1, ... }, THE { ntype=THE nct2, ... } ) =>
+			 ( Tidtab::set (tidmap, tid1, tid2)
+			 ; getNamedCtypeNamings (tidtab1, tidtab2) maps (nct1, nct2)
+                         )
+		      | _ => Tidtab::set (tidmap, tid1, tid2)
+
+  and getNamedCtypeNamings tidtabs (maps as (tidmap, pidmap)) nctPair =
+      case nctPair
+	of (b::Struct (tid1, fields1), b::Struct (tid2, fields2)) =>
+	      let 
+		  fun getField () ((ct1, memOpt1: Null_Or( raw_syntax::member ), _),
+				   (ct2, memOpt2: Null_Or( raw_syntax::member ), _)) =
+		      ( getCtypeNamings tidtabs maps (ct1, ct2)
+		      ; case (memOpt1, memOpt2)
+			  of (THE { uid=pid1, ... }, THE { uid=pid2, ... } ) =>
+			      Pidtab::set (pidmap, pid1, pid2)
+			   | _ => ()
+		      )
+	      in
+		  ( Tidtab::set (tidmap, tid1, tid2)
+		  ; myFold getField () (fields1, fields2)
+		  )
+	      end
+	 | (b::Union (tid1, fields1), b::Union (tid2, fields2)) =>
+	      let 
+		  fun getField () ((ct1,{ uid=pid1, ... }:raw_syntax::member), (ct2,{ uid=pid2, ... }:raw_syntax::member)) =
+		      ( Pidtab::set (pidmap, pid1, pid2)
+		      ; getCtypeNamings tidtabs maps (ct1, ct2)
+		      )
+	      in
+		  ( Tidtab::set (tidmap, tid1, tid2)
+		  ; myFold getField () (fields1, fields2)
+		  )
+	      end
+          | (b::Enum (tid1, fields1), b::Enum (tid2, fields2)) =>
+		let fun getField () (( { uid=pid1, ... }:raw_syntax::member, _),
+				     ( { uid=pid2, ... }:raw_syntax::member, _)) =
+		    Pidtab::set (pidmap, pid1, pid2)
+		in
+		  ( Tidtab::set (tidmap, tid1, tid2)
+		  ; myFold getField () (fields1, fields2)
+		  )
+		end
+	  | (b::Typedef (tid1, ct1), b::Typedef (tid2, ct2)) =>
+		( Tidtab::set (tidmap, tid1, tid2)
+		; getCtypeNamings tidtabs (tidmap, pidmap)(ct1, ct2)
+		)
+	  | _ => ()
+
+  fun eqTid tidmap (tid1, tid2) =
+      case Tidtab::find (tidmap, tid1)
+	of NULL => ( warning ("tid ("$(Tid::to_string tid1)$") not found, reverting to simple equality test")
+		   ; Tid::equal (tid1, tid2)
+		   )
+         | THE tid1' => Tid::equal (tid1', tid2)
+
+  fun eqPid pidmap (pid1, pid2) =
+      case Pidtab::find (pidmap, pid1)
+	of NULL => ( warning ("pid ("$(Pid::to_string pid1)$") not found, reverting to simple equality test")
+		   ; Pid::equal (pid1, pid2)
+		   )
+         | THE pid1' => Pid::equal (pid1', pid2)
+
+  fun eqMem pidmap ( { uid=pid1, ... }:raw_syntax::member ,{ uid=pid2, ... }:raw_syntax::member) = eqPid pidmap (pid1, pid2)
+
+  fun eqMemOpt pidmap (NULL, NULL) = TRUE
+    | eqMemOpt pidmap (THE mem1, THE mem2) = eqMem pidmap (mem1, mem2)
+    | eqMemOpt pidmap _ = FALSE
+
+  fun eqCtype tidmap ctPair =
+      case ctPair
+	of (Void, Void) => TRUE
+         | (Ellipses, Ellipses) => TRUE
+         | (Qual (q1, ct1), Qual (q2, ct2)) =>
+	       if q1 == q2 then eqCtype tidmap (ct1, ct2)
+	       else FALSE
+         | (Numeric quad1, Numeric quad2) => quad1 = quad2
+         | (Array (li1, ct1), Array (li2, ct2)) => 
+	       if li1 == li2 then eqCtype tidmap (ct1, ct2) else FALSE
+         | (Pointer ct1, Pointer ct2) => eqCtype tidmap (ct1, ct2)
+         | (Function (ct1, cts1), Function (ct2, cts2)) => 
+	       eqCtypes tidmap (ct1 . cts1, ct2 . cts2)
+         | (EnumRef tid1, EnumRef tid2) => eqTid tidmap (tid1, tid2)
+         | (StructRef tid1, StructRef tid2) => eqTid tidmap (tid1, tid2)
+         | (UnionRef tid1, UnionRef tid2) => eqTid tidmap (tid1, tid2)
+         | (TypeRef tid1, TypeRef tid2) => eqTid tidmap (tid1, tid2)
+	 | _ => FALSE
+
+  and eqCtypes tidmap = eqList (eqCtype tidmap)
+     
+  and eqNamedCtype (pair as (tidmap, pidmap)) nctPair =
+      case nctPair
+	of (b::Struct (tid1, fields1), b::Struct (tid2, fields2)) =>
+	      let 
+		  fun eqField ((ct1, memOpt1, LIOpt1), (ct2, memOpt2, LIOpt2)) =
+		      LIOpt1 = LIOpt2
+		      and eqMemOpt pidmap (memOpt1, memOpt2)
+		      and eqCtype tidmap (ct1, ct2)
+		  eqFields = eqList eqField
+	      in eqTid tidmap (tid1, tid2) and eqFields (fields1, fields2)
+	      end
+	 | (b::Union (tid1, fields1), b::Union (tid2, fields2)) =>
+	      let 
+		  fun eqField ((ct1, mem1), (ct2, mem2)) =
+		      eqMem pidmap (mem1, mem2) and eqCtype tidmap (ct1, ct2)
+		  eqFields = eqList eqField
+	      in eqTid tidmap (tid1, tid2) and eqFields (fields1, fields2)
+	      end
+          | (b::Enum (tid1, fields1), b::Enum (tid2, fields2)) =>
+		let fun eqField ((mem1, li1), (mem2, li2)) =
+		      li1 = li2 and eqMem pidmap (mem1, mem2)
+		    eqFields = eqList eqField
+		in
+		    eqTid tidmap (tid1, tid2) and eqFields (fields1, fields2)
+		end
+	  | (b::Typedef (tid1, ct1), b::Typedef (tid2, ct2)) =>
+		eqTid tidmap (tid1, tid2) and eqCtype tidmap (ct1, ct2)
+	  | _ => FALSE
+
+end
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

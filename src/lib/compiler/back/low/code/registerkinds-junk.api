@@ -1,0 +1,397 @@
+## registerkinds-junk.api -- derived from  ~/src/sml/nj/smlnj-110.58/new/new/src/MLRISC/instructions/cells-basis.sig
+# Allen Leung (12/2/00)
+#
+# This updated api describes the abstractions on ``registers'', which
+# denote storage cells in the machine architecture, primarily integer
+# and floating point registers but also including condition code register
+# bits, "registers" implemented in main memory ram, and even control
+# dependencies.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+###             "Get and set methods are evil."
+###                          -- Allen Holub
+
+
+#########################################################		# This api should have its own file. XXX SUCKO FIXME.
+# Here we define an interface to lists of codetemps sorted
+# by color with duplicate colors dropped.  This is a fairly
+# specialized too used primarily within
+#
+#    src/lib/compiler/back/low/regor/liveness-g.pkg
+#
+# but also in other packages such as
+#
+#   src/lib/compiler/back/low/intel32/treecode/floating-point-code-intel32-g.pkg
+#   src/lib/compiler/back/low/sparc32/jmp/delay-slots-sparc32-g.pkg
+#
+# The implementation uses simple sorted-lists representation,
+# so all operations are O(N), pretty much.
+#
+# WARNING: Results are undefined if you change the
+#          codetemp colors while using this package.
+#
+api Colorset {
+    #
+    Codetemp_Info;
+    Colorset; 
+    #
+    empty_colorset:        Colorset;
+    #
+    make_colorset:	List(Codetemp_Info) -> Colorset;
+    #
+    add_codetemp_to_colorset:		(Codetemp_Info, Colorset) -> Colorset;
+    drop_codetemp_from_colorset:	(Codetemp_Info, Colorset) -> Colorset;
+    #
+    same_colorset:			(Colorset, Colorset) -> Bool;
+    not_same_colorset:			(Colorset, Colorset) -> Bool;
+
+    difference_of_colorsets:		(Colorset, Colorset) -> Colorset;
+    intersection_of_colorsets:		(Colorset, Colorset) -> Colorset;
+    union_of_colorsets:			(Colorset, Colorset) -> Colorset;
+
+    get_codetemps_in_colorset:		Colorset -> List(Codetemp_Info);				# This is a no-op in current implementation; we just return the sorted list.
+    colorset_is_empty:			Colorset -> Bool;
+
+    colorsets_intersection_is_empty:	(Colorset, Colorset) -> Bool;
+}; 
+
+
+
+#########################################################		# This api should have its own file. XXX SUCKO FIXME.
+# Lists of codetemps segregated by kind -- in
+# practice, floats vs ints.  This is a workhorse
+# datastructure used to track which codetemps are
+# live, dead, spilled, etc:
+#
+api Codetemplists {
+    #
+    Codetemp_Info;
+    Registerkind_Info;
+    Codetemplists; 
+
+    empty_codetemplists:   Codetemplists;												# We call add_codetemp_to_appropriate_kindlist on this to build up a codetemplists instance.
+
+    add_codetemp_to_appropriate_kindlist:	(Codetemp_Info, Codetemplists) -> Codetemplists;					# Add  given codetemp to   list for that kind (in practice, int or float).
+    drop_codetemp_from_codetemplists:		(Codetemp_Info, Codetemplists) -> Codetemplists;					# Drop given codetemp from list for that kind (in practice, int or float).
+    #
+    get_codetemps_for_kindinfo:			Registerkind_Info -> Codetemplists -> List(Codetemp_Info);				# Get list of all        codetemps of given kind (in practice, int or float).
+    replace_codetemps_for_kindinfo:		Registerkind_Info -> (Codetemplists, List(Codetemp_Info)) -> Codetemplists;		# Replace entire list of codetemps of given kind (in practice, int or float).
+    #
+    replace_this_by_that_in_codetemplists:	{ this: Codetemp_Info, that: Codetemp_Info } -> Codetemplists -> Codetemplists;		# This is a no-op if 'this' and 'that' are different kinds (e.g. float vs int).
+
+    get_all_codetemps_from_codetemplists:	Codetemplists -> List(Codetemp_Info);							# I.e., all float and int codetemps in one combined list.  (Just concatenates all internal lists and returns result.)
+
+    codetemplists_to_string:			Codetemplists -> String;
+};
+
+
+
+
+stipulate
+    package lem =  lowhalf_error_message;			# lowhalf_error_message	is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rwv =  rw_vector;					# rw_vector		is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    # This api is implemented (only) in:
+    #
+    #     src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    #
+    api Registerkinds_Junk {
+	#
+	Register_Size_In_Bits = Int;				# width in bits 
+	Universal_Register_Id = Int;				# Small-int unique across all of our "registers".
+	Interkind_Register_Id = Int;				# Small-int unique across all regular hardware registers.
+	Intrakind_Register_Id = Int;				# Small-int unique across all registers of one kind -- e.g. all float registers or all int registers.
+	    #
+	    # "Note: interkind_register_id and intrakind_register_id should probably
+	    #  be made into different sumtypes with different tags,
+	    #  but highcode currently boxes such values." -- Allen Leung
+
+
+	Registerkind_Names
+	    =
+	    REGISTERKIND_NAMES
+	      {
+		name:      String,
+		nickname:  String
+	      };
+
+	Registerkind						# This is an equality type.
+	  #
+	  =   INT_REGISTER					# General purpose register.
+	  | FLOAT_REGISTER					# Floating point register.
+	  |   RAM_BYTE						# 
+	  #
+	  | FLAGS_REGISTER					# We treat each condition-codes register bit as a separate 1-bit register.
+	  | CONTROL_DEPENDENCY					# Simplifies our code to treat control dependencies like register dependencies.
+	  | OTHER_REGISTER Ref( Registerkind_Names )		# Architecture-specific registers.
+	  ;
+
+	# These records summarize target-machine registerfile configuration.
+	# They get autogenerated into
+	#
+	#     src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+	#     src/lib/compiler/back/low/pwrpc32/code/registerkinds-pwrpc32.codemade.pkg
+	#     src/lib/compiler/back/low/sparc32/code/registerkinds-sparc32.codemade.pkg
+	# by
+	#     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-registerkinds-xxx-package.pkg
+	# from
+	#     src/lib/compiler/back/low/intel32/intel32.architecture-description
+	#     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description
+	#     src/lib/compiler/back/low/sparc32/sparc32.architecture-description
+	#
+	# and then referenced throughout the backend:
+	#
+	Registerkind_Info
+	    =
+	    REGISTERKIND_INFO 
+	      {
+		kind:			Registerkind,		# INT_REGISTER and FLOAT_REGISTER are the two we're usually interested in.
+
+		codetemps_made_count:	Ref( Int ),		# This basically tracks the number of nodes in the graph we'll be coloring in the register-allocator.
+								# This counter gets incremented by issue_codetemp_of_kind, issue_int_codetemp and issue_float_codetemp in   src/lib/compiler/back/low/code/registerkinds-g.pkg
+
+		min_register_id:	Int,			# The id range assigned to this hardware register kind. For examples look in
+		max_register_id:	Int,			#     src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+								#     src/lib/compiler/back/low/pwrpc32/code/registerkinds-pwrpc32.codemade.pkg
+								#     src/lib/compiler/back/low/sparc32/code/registerkinds-sparc32.codemade.pkg
+
+		to_string:		Interkind_Register_Id -> String,
+		sized_to_string:	(Interkind_Register_Id, Register_Size_In_Bits) -> String,
+
+		hardware_registers:     Ref(  rwv::Rw_Vector(Codetemp_Info) ),	# This lets us fetch the Codetemp_Info record for any desired
+										# hardware register in O(1) time -- see get_ith_hardware_register_of_kind in   src/lib/compiler/back/low/code/registerkinds-g.pkg
+										# It is initialized by create_and_initialize__hardware_registers__vector in same file.
+
+		always_zero_register:  	Null_Or( Interkind_Register_Id ),	# Register which is always zero, if this architecture has one, else NULL. (Intel32 and pwrpc32 have none, but sparc32 has one. This goes back at least to the CDC 6400...)
+
+		global_codetemps_created_so_far:		Ref( Int )
+		    #
+		    # This counter ranges from 0 -> max_global_codetemps -- the latter is defined at 256 in    src/lib/compiler/back/low/code/registerkinds-g.pkg
+		    #
+		    # It tracks allocation of global-codetemp
+		    # ids in the reserved range from
+		    #
+		    #     codetemp_id_if_above					# Currently 256 on all architectures.
+		    # to
+		    #     codetemp_id_if_above + max_global_codetemps -1	# Currently 511 -- max_global_codetemps is fixed at 256 in src/lib/compiler/back/low/code/registerkinds-g.pkg
+		    #
+		    # Since this reserved ID range is shared by all
+		    # codetemp kinds, the
+		    #
+		    #     global_codetemps_created_so_far
+		    #
+		    # allocation counter should be shared by all
+		    # rkj::REGISTERKIND_INFO records -- or, better,
+		    # just kept somewhere else entirely -- but this is
+		    # not currently done. XXX BUGGO FIXME.
+		    #
+		    # Since in practice we never make more than one
+		    # global codetemp, this bug is moot at the moment. 	
+		    #
+		    #
+		    # Background
+		    # ==========
+		    # It is sometimes desirable to allot global
+		    # codetemps that will get rewritten to something else,
+		    # such as the intel32 virtual frame pointer -- see   src/lib/compiler/back/low/omit-framepointer/free-up-framepointer-in-machcode.api
+		    # (Actually, that's currently the only example.)
+		    #	
+		    # Since these codetemps are never assigned a register by 
+		    # the register allocator, an unlimited number of these
+		    # can in principle be allocated, although currently
+		    # we only support 256 -- see max_global_codetemps above.
+	      }
+
+
+
+
+	# A codetemp represents an intermediate value in the code
+	# being compiled.
+	#
+        # The register allocator attempts to assign each codetemp
+        # a register;  failing that, it is given a spot in ram.
+	#	
+	# Hardware registers are partitioned into kinds like float
+	# and int by the computer architect;  codetemps are similarly
+	# partitioned according to the kind of register they can be
+	# assigned to.
+	#
+	# Each codetemp has an unique id that determines its identity.
+	# Its attributes include
+	#
+	#   1. Its color -- the hardware register it is allocated (if any).
+	#   2. Other client defined properties, 
+	#      represented as a property list of annotations.
+	#
+	#  Note that id and color are two distinct concepts; for example,
+	#  two different codetemps may have the same color (i.e., be
+	#  assigned to live in the same hardware register, at different times).
+	#
+	# Type Codetemp_Info is not an equality type.  We provide the function
+	# same_id for testing for register identity, and the function
+	# same_color for testing for color identity.  For most things,
+	# same_color is the right function to use.
+
+	also
+	Codetemp_Info
+	    =
+	    CODETEMP_INFO
+	      { id:	Universal_Register_Id,
+		color:	Ref( Codetemp_Color ),
+		kind:	Registerkind_Info,
+		notes:	Ref( note::Notes )
+	      }
+	also
+	Codetemp_Color
+	  = MACHINE  Interkind_Register_Id 
+	  | CODETEMP
+	  | ALIASED  Codetemp_Info 
+	  | SPILLED
+	  ;
+
+
+	# Basic functions on Registerkind values:
+	#
+	    name_of_registerkind:  Registerkind -> String;		# Name.
+	nickname_of_registerkind:  Registerkind -> String;		# Abbreviation.
+
+	make_registerkind:
+	    { name:	String,
+	      nickname: String
+	    }
+	    ->
+	    Registerkind;
+
+
+	# Basic functions on registers.
+	#
+	# Function interkind_register_id returns the current color of a node.
+	# The color of a codetemp is the same as its id.
+	# A spilled node is given a color of -1, so all spilled nodes have
+	# the same color.
+	#
+	# NOTE: distinction between interkind_register_id and intrakind_register_id:
+	# Function interkind_register_id returns interkind_register_id.  
+	# Physical registers in distinct register kinds are given disjoint
+	# interkind_register_ids.  So for example, the interkind_register_id
+	# for r0 and f0 in the Alpha are different. 
+	#
+	# The function intrakind_register_i, on the other hand, returns a
+	# register number of a register that starts from 0 for physical registers.
+	# So intrakind_register_id r0 == intrakind_register_id f0 == 0. 
+	# It behaves the same as interkind_register_id in other cases.
+	#
+	# The function hardware_register_id is the same as intrakind_register_id,
+	# except that it is an error to call it on a codetemp.
+	# As a rule, use interkind_register_id whenever possible.
+	# Function intrakind_register_id is used only if you have to deal with machine encoding.	# Maybe it should be renamed architectural_register_id or something?
+	#
+	#												# +++: All functions marked with +++ de-alias their register arguments.
+	universal_register_id_of:	Codetemp_Info -> Universal_Register_Id;				# 
+	interkind_register_id_of:	Codetemp_Info -> Interkind_Register_Id;				# +++ Unique across all register kinds -- no intreg and floatreg have same Interkind_Register_Id.  Returns -1 for SPILLED registers.
+	intrakind_register_id_of:	Codetemp_Info -> Intrakind_Register_Id;				# +++ Unique within a register kind, but (e.g.) there may be both an intreg 0 and a floatreg 0.    Returns -1 for SPILLED registers.
+	hardware_register_id_of:	Codetemp_Info -> Int;						# +++ Same as intrakind_register_id_of except throws an exception if called on a codetemp or spilled register.
+	#
+	registerkind_of:		Codetemp_Info -> Registerkind;       				#
+	#
+	same_id:			(Codetemp_Info, Codetemp_Info) -> Bool;    			# Compare Universal_Register_Id values -- equivalent to pointer equality.
+	follow_register_alias_chain:	Codetemp_Info -> Codetemp_Info;           			# +++  Used (only) in    src/lib/compiler/back/low/code/registerkinds-g.pkg
+	register_to_hashcode:		Codetemp_Info -> Unt;
+	codetemps_are_same_color:      (Codetemp_Info, Codetemp_Info) -> Bool;				# +++  Color identity
+	compare_registers_by_color:    (Codetemp_Info, Codetemp_Info) -> Order;				# +++ 
+	register_to_string:             Codetemp_Info -> String;					# +++ Prettyprint a register.
+	register_to_string':										# +++ Same, include size in string.
+	  { my_register:  		Codetemp_Info,							# Can't use 'register' because it is a keyword in architecture description language. thpt.
+	    size_in_bits: 		Register_Size_In_Bits
+	  } 
+	  ->
+	  String;
+
+
+
+	package cos: Colorset      where Codetemp_Info == Codetemp_Info;
+	package cls: Codetemplists where Codetemp_Info == Codetemp_Info also Registerkind_Info == Registerkind_Info;
+
+	# A common idiom -- sort a codetemps list
+	# by color and drop duplicated colors:
+	#
+	sortuniq_colored_codetemps: List(Codetemp_Info) -> List(Codetemp_Info);
+
+	# These annotations add extra definitions
+	# and uses to an instruction:
+	#
+	exception   DEF_USE
+		      { registerkind:   Registerkind,
+			defs:		List(Codetemp_Info),
+			uses:		List(Codetemp_Info)
+		      };
+
+	def_use:  note::Notekind
+		      { registerkind:   Registerkind,
+			defs:		List(Codetemp_Info),
+			uses:		List(Codetemp_Info)
+		      };
+
+
+	zero_length_rw_vector:  rwv::Rw_Vector(  Codetemp_Info );
+
+
+
+
+
+
+	#######################################################################################################################
+	# These three are for INTERNAL USE ONLY,
+	# for alias analysis -- don't use!
+	#
+	make_ram_register:	Interkind_Register_Id -> Codetemp_Info;
+	show:		Registerkind_Info -> Interkind_Register_Id -> String;
+	show_with_size:	Registerkind_Info -> (Interkind_Register_Id, Register_Size_In_Bits) -> String;
+
+
+
+
+
+	#######################################################################################################################
+	# The rest of this stuff is never referenced, so I've commented it out.
+	# I have no idea which parts are past mistakes that were being phased out,
+	# and which parts were future mistakes being phased in. -- 2011-03-13 CrT
+	#
+    #   register_is_constant:	    Codetemp_Info -> Bool;						#      Commented out because unused -- 2011-03-12 CrT
+    #   notes_of_register:		    Codetemp_Info -> Ref( note::Notes );    				#      Commented out because unused -- 2011-03-12 CrT
+    #   same_kind_of_register:	   (Codetemp_Info, Codetemp_Info) -> Bool;    				#      Commented out because unused -- 2011-03-12 CrT
+    #   same_register_up_to_aliasing:  (Codetemp_Info, Codetemp_Info) -> Bool;    				# +++  Commented out because unused -- 2011-03-12 CrT
+
+    #    set_color_alias_of_from_pseudoregister							#      Commented out because unused -- 2011-03-12 CrT
+    #	#
+    #	:     { from: Codetemp_Info, to: Codetemp_Info } -> Void;						#  +++ 
+    #	#
+    #	# Set the color of the 'from' register to be the same as
+    #	# the 'to' register.  The 'from' register MUST be a pseudo register,
+    #	# and cannot be of kind CONST.
+
+    #   # hashtable indexed by register id.  							#      Commented out because unused -- 2011-03-12 CrT
+    #   # IMPORTANT: this table is not indexed by color!
+    #   #												# Typelocked_Hashtable	is from   src/lib/src/typelocked-hashtable.api
+    #   package id_indexed_hashtable: Typelocked_Hashtable where key::Hash_Key == Codetemp_Info;
+    #   package iih:		   Typelocked_Hashtable where key::Hash_Key == Codetemp_Info;	# Abbreviation for previous.
+
+
+    #   # hashtable indexed by register color.    							#      Commented out because unused -- 2011-03-12 CrT
+    #   # IMPORTANT: this table is indexed by color!
+    #   # ALSO: DO NOT change the colors of the registers while using this table!
+    #   #
+    #   package color_indexed_hashtable:  Typelocked_Hashtable where  key::Hash_Key == Codetemp_Info;
+    #   package cih:                       Typelocked_Hashtable where  key::Hash_Key == Codetemp_Info;
+    };
+end;
+
+## Changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

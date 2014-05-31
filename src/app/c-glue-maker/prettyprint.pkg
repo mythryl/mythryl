@@ -1,0 +1,441 @@
+#
+# prettyprint.pkg - Some simple pretty-printing infrastructure for the c-glue-maker
+#          program.
+#
+
+# Compiled by:
+#     src/app/c-glue-maker/c-glue-maker.lib
+
+
+stipulate
+    package out =  plain_file_prettyprint_output_stream_avoiding_pointless_file_rewrites;				# plain_file_prettyprint_output_stream_avoiding_pointless_file_rewrites	is from   src/lib/prettyprint/big/src/out/plain-file-prettyprint-output-stream-avoiding-pointless-file-rewrites.pkg
+    package pp  =  plain_file_prettyprint_mill_avoiding_pointless_file_rewrites;					# plain_file_prettyprint_mill_avoiding_pointless_file_rewrites	is from   src/lib/prettyprint/big/src/plain-file-prettyprint-mill-avoiding-pointless-file-rewrites.pkg
+herein
+
+    package prettyprint {
+	#
+#	package pp
+#	    =
+#	    prettyprint_mill_g (											# prettyprint_mill_g					is from   src/lib/prettyprint/big/src/prettyprint-mill-g.pkg
+#		package ss  = traitless_text;										# traitless_text					is from   src/lib/prettyprint/big/src/traitless-text.pkg
+#		package out = out;
+#	    );
+
+	Mltype = ARROW                   (Mltype, Mltype )
+	       | TUPLE                      List( Mltype )
+	       | TYP  (String, List( Mltype ))
+	       | RECORD List             ((String, Mltype))
+	       ;
+
+	void = TUPLE [];
+
+	fun typ constructor_name											# "typ" == "type constructor": Convenience fn for constructors which take no arguments.
+	    =
+	    TYP (constructor_name, []);
+
+
+	# Prefixes "incomplete_struct_"/"incomplete_union_"/"incomplete_enum_" indicate incomplete
+	# struct/union/enum types, respectively.
+	# (Complete types use prefixes "struct_"/"union_"/"enum_".) 
+    # These are apparently never called:
+    #    fun incomplete_struct tag =   typ (cat ["incomplete_struct_", tag, "::Tag"]);
+    #    fun incomplete_union  tag =   typ (cat ["incomplete_union_",  tag, "::Tag"]);
+    #    fun incomplete_enum   tag =   typ (cat ["incomplete_enum_",   tag, "::Tag"]);
+
+	Tcontext =  C_STAR | C_ARROW | C_COMMA | C_CON;
+
+	fun simplify (TYP ("Void", []))
+		=>
+		void;
+
+	    simplify (TUPLE [t])
+		=>
+		simplify t;
+
+	    simplify (TYP ( chunk as ("chunk" | "chunk'"),
+
+			    [ TYP (  k as ( "schar"  | "uchar"
+						       | "sint"   | "uint"
+						       | "sshort" | "ushort"
+						       | "slong"  | "ulong"
+						       | "float"  | "double"
+						       | "voidptr"
+						       ),
+				     []
+				  ),
+			      c
+			    ]
+		     )    )
+		=>
+		TYP (cat [k, "_", chunk], [simplify c]);
+
+	    simplify (TYP (chunk as ("chunk" | "chunk'"),
+			    [TYP ("fptr", [f]), c]))
+		=>
+		TYP ("fptr_" + chunk, [simplify f, simplify c]);
+
+	    simplify (TYP (chunk as ("chunk" | "chunk'"),
+			    [TYP ("su", [s]), c]))
+		=>
+		TYP ("su_" + chunk, [simplify s, simplify c]);
+
+	    simplify (TYP ("dim::dim", [n, TYP (("dim::nonzero" | "nonzero"), [])]))
+		=>
+		TYP ("dim", [simplify n]);
+
+	    simplify (TYP ("dim::dec", []))
+		=>
+		TYP ("dec", []);
+
+	    simplify (TYP (k as ("dim::dg0" | "dim::dg1" | "dim::dg2" | "dim::dg3" |
+				  "dim::dg4" | "dim::dg5" | "dim::dg6" | "dim::dg7" |
+				  "dim::dg8" | "dim::dg9"), [n]))
+		=>
+		TYP (string::extract (k, 4, NULL), [simplify n]);
+
+	    simplify (ARROW (t1, t2)) =>  ARROW (simplify t1, simplify t2);
+	    simplify (TUPLE tl)       =>  TUPLE (map simplify tl);
+	    simplify (RECORD ml)      =>  RECORD (map' ml  (\\ (n, t) =  (n, simplify t)));
+	    simplify (TYP (k, tl))    =>  TYP (k, map simplify tl);
+	end;
+
+	fun unparse_type0 pp (t as ARROW _, c)
+		=>
+		{   fun loop (ARROW (x, y))
+			    =>
+			    {   unparse_type0 pp (x, C_ARROW);
+				pp::lit pp " ->";
+				pp::blank pp 1;
+				loop y;
+			    };
+
+		       loop t
+			   =>
+			   unparse_type0 pp (t, C_ARROW);
+		    end;
+
+		    parenthesize =    c != C_COMMA;
+
+		    pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+		    if parenthesize  pp::lit pp "("; fi;
+
+		    loop t;
+
+		    if parenthesize  pp::lit pp ")"; fi;
+		    pp::shut_box pp;
+		};
+
+	    unparse_type0 pp (TUPLE [], _)  =>  pp::lit pp "Void";
+	    unparse_type0 pp (TUPLE [t], c) =>  unparse_type0 pp (t, c);
+
+	    unparse_type0 pp (TUPLE type_list, c)
+		 =>
+		 {   fun loop []    =>  ();	#  Cannot happen 
+			 loop [type] =>  unparse_type0 pp (type, C_STAR);
+
+			 loop (type ! type_list)
+			     =>
+			     {   unparse_type0 pp (type, C_STAR);
+
+				 pp::lit pp ",";
+				 pp::blank pp 1;
+
+				 loop type_list;
+			     };
+		     end;
+
+    #		 parenthesize
+    #                     =
+    #		     case c    (C_STAR | C_CON)   =>   TRUE;
+    #			      (C_ARROW | C_COMMA) =>   FALSE;
+    #                    esac;
+
+		     parenthesize = TRUE;	# Now that we do "(type1, type2, ...") instead of "type1 * type2 * ..."
+
+		     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+
+		     if parenthesize  pp::lit pp "("; fi;
+
+		     loop type_list;
+
+		     if parenthesize  pp::lit pp ")"; fi;
+		     pp::shut_box pp;
+		 };
+
+	    unparse_type0 pp (RECORD [], _)
+		=>
+		pp::lit pp "{}";
+
+	    unparse_type0 pp (RECORD field_list, _)
+		=>
+		{   fun loop [] => ();		#  Cannot happen 
+
+			loop [(nam, type)]
+			    =>
+			    {   pp::lit pp (nam + " : ");
+				unparse_type0 pp (type, C_COMMA);
+			    };
+
+			loop ((field_name, field_type) ! field_list)
+			    =>
+			    {   pp::lit pp (field_name + " : ");
+				unparse_type0 pp (field_type, C_COMMA);
+				pp::lit pp ", ";
+				pp::blank pp 1;
+				loop field_list;
+			    };
+		    end;
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+		    pp::lit pp "{ ";
+
+		    loop field_list;
+
+		    pp::lit pp " }";
+		    pp::shut_box pp;
+		};
+
+	    unparse_type0 pp (TYP (constructor, []), _)		# Constructor which takes no args, print like "TRUE".
+		=>
+		pp::lit pp constructor;
+
+	    unparse_type0 pp (TYP (constructor, [type]), _)	# Constructor taking exactly one argument, print like "FOO String".
+		=>
+		{
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+		    pp::lit pp constructor;
+		    pp::blank pp 1;
+		    unparse_type0 pp (type, C_CON);
+		    pp::shut_box pp;
+		};
+
+	    unparse_type0 pp (TYP (constructor, type_list), _)	# Constructor taking two or more arguments, print like "FOO (String, Int)".
+		=>
+		{   fun loop []
+			    =>
+			   ();		#  Cannot happen 
+
+			loop [type]
+			    =>
+			    unparse_type0 pp (type, C_COMMA);
+
+			loop (type ! type_list)
+			    =>
+			    {   unparse_type0 pp (type, C_COMMA);
+				pp::lit pp ",";
+				pp::blank pp 1;
+				loop type_list;
+			    };
+		    end;
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+
+		    #
+		    pp::lit pp constructor;
+
+		    pp::blank pp 1;
+		    pp::lit pp "(";
+
+		    loop type_list;
+
+		    pp::lit pp ")";
+
+		    pp::shut_box pp;
+		};
+	end;
+
+	# Start with comma context 
+
+	fun unparse_type  pp t      =   unparse_type0 pp (simplify t, C_COMMA);
+	fun unparse_type' pp (t, c) =   unparse_type0 pp (simplify t, c);
+
+	Mlexp = ETUPLE   List Mlexp
+	      | ERECORD  List ((String, Mlexp))
+	      | EVAR     String
+	      | EAPP     (Mlexp, Mlexp)
+	      | ECONSTR  (Mlexp, Mltype)
+	      | ESEQ     (Mlexp, Mlexp);
+
+	Econtext			# "Econtext" == "expression context", likely. Ditto "EC" == "Expression Context".
+	    =
+	    EC_APP | EC_COMMA;
+
+	fun unparse_expression0 pp (ETUPLE [],  _) =>   pp::lit pp "()";
+	    unparse_expression0 pp (ETUPLE [x], c) =>   unparse_expression0 pp (x, c);
+
+	    unparse_expression0 pp (ETUPLE xl, _)
+		 =>
+		 {   fun loop []  =>  ();
+			 loop [x] =>  unparse_expression0 pp (x, EC_COMMA);
+
+			 loop (x ! xl)
+			     =>
+			     {   unparse_expression0 pp (x, EC_COMMA);
+				 pp::lit pp ", ";
+				 pp::blank pp 1;
+				 loop xl;
+			     };
+		     end;
+
+		     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+		     pp::lit pp "(";
+		     loop xl;
+		     pp::lit pp ")";
+		     pp::shut_box pp;
+		 };
+
+	    unparse_expression0 pp (ERECORD [], _)
+		=>
+		pp::lit pp "{}";
+
+	    unparse_expression0 pp (ERECORD xl, _)
+		=>
+		{   fun loop [] => ();
+
+			loop [(n, x)]
+			    =>
+			    {   pp::lit pp (n + " =");
+				pp::blank pp 1;
+			       unparse_expression0 pp (x, EC_COMMA);
+			    };
+
+			loop ((n, x) ! xl)
+			    =>
+			    {   pp::lit pp (n + " =");
+				pp::blank pp 1;
+
+				unparse_expression0 pp (x, EC_COMMA);
+
+				pp::lit pp ", ";
+				pp::blank pp 1;
+
+				loop xl;
+			    };
+		    end;
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+		    pp::lit pp "{ ";
+
+		    loop xl;
+
+		    pp::lit pp " }";
+		    pp::shut_box pp;
+		};
+
+	    unparse_expression0 pp (EVAR v, _)
+		=>
+		pp::lit pp v;
+
+	    unparse_expression0 pp (EAPP (x, y), c)
+		=>
+		{   fun loop (EAPP (x, y))
+			    =>
+			    {   loop x;
+				unparse_expression0 pp (y, EC_APP);
+				pp::blank pp 1;
+			    };
+
+			loop x
+			    =>
+			    {   unparse_expression0 pp (x, EC_APP);
+				pp::blank pp 1;
+				pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			    };
+		    end;
+
+		    parenthesize =   c == EC_APP;
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+		    if parenthesize  pp::lit pp "("; fi;
+
+		    loop x;
+
+		    unparse_expression0 pp (y, EC_APP);
+
+		    if parenthesize  pp::lit pp ")"; fi;
+		    pp::shut_box pp;
+		    pp::shut_box pp;
+		};
+
+	    unparse_expression0 pp (ECONSTR (x, t), c)
+		=>
+		{   parenthesize =   c == EC_APP;
+
+		    tc     =   if parenthesize  C_CON; else C_COMMA; fi;
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+		    if parenthesize  pp::lit pp "("; fi;
+
+		    unparse_expression0 pp (x, c);
+
+		    pp::nonbreakable_blanks pp 1;
+		    pp::lit pp ":";
+		    pp::blank pp 1;
+
+		    unparse_type' pp (t, tc);
+
+		    if parenthesize  pp::lit pp ")"; fi;
+		    pp::shut_box pp;
+		};
+
+	    unparse_expression0 pp (ESEQ (x, y), c)
+		=>
+		{   pp::lit pp "(";
+
+		    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+
+		    unparse_expression0 pp (x, EC_COMMA);
+
+		    pp::lit pp ";";
+		    pp::blank pp 1;
+
+		    unparse_expression0 pp (y, EC_COMMA);
+
+		    pp::lit pp ")";
+		    pp::shut_box pp;
+		};
+	end;
+
+	fun unparse_expression  pp x =   unparse_expression0 pp (x, EC_COMMA);
+	fun unparse_expression' pp x =   unparse_expression0 pp (x, EC_APP);
+
+	fun unparse_fun pp (name, args, body)
+	    =
+	    {   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+		pp::lit pp ("fun " + name);
+		pp::nonbreakable_blanks pp 1;
+
+		apply
+		    (\\ a =  { unparse_expression' pp a;   pp::blank pp 1; })
+		    args;
+
+		pp::lit pp "=  ";
+		pp::nonbreakable_blanks pp 1;
+		pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+		unparse_expression pp body;
+		pp::shut_box pp;
+		pp::shut_box pp;
+	   };
+    };
+end;
+
+# (C) 2001, Lucent Technologies, Bell Labs
+# author: Matthias Blume (blume@research.bell-labs.com)
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

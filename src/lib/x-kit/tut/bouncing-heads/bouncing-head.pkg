@@ -1,0 +1,238 @@
+## bouncing-head.pkg
+
+# Compiled by:
+#     src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.lib
+
+stipulate
+    include threadkit;				# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg =  xgeometry;			# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    package xc =  xclient;			# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package bd =  bounce_drawmaster;		# bounce_drawmaster	is from   src/lib/x-kit/tut/bouncing-heads/bounce-drawmaster.pkg
+    package hd =  head_pixmaps;			# head_pixmaps		is from   src/lib/x-kit/tut/bouncing-heads/head-pixmaps.pkg
+herein
+
+    package bouncing_head {
+	#
+	Plea_Mail
+	  = KILL               xg::Point
+	  | REDRAW_BALL  (Int, xg::Size)
+	  | KILL_ALL
+	  ;
+
+	updates_per_sec = 10.0;
+
+	stipulate
+
+	    # Clip a point to keep a ball in the window.
+	    # If we hit a wall then we adjust the velocity vector.
+	    #
+	    # The clipped point should be computed to lie
+	    # on the vector, but for now we assume small
+	    # vectors and just truncate the coordinates. 
+	    #
+	    fun clip
+                ( ball_radius,
+                  { wide, high }			# Window size in pixels.
+		)
+		=
+		{   max_x = wide - ball_radius;
+		    max_y = high - ball_radius;
+
+		    fun clip_coord (coord:  Int, delta, min_coord, max_coord)
+			= 
+			if   (coord <= min_coord)   (min_coord, -delta);
+			elif (coord >= max_coord)   (max_coord, -delta);
+			else                        (    coord,  delta);
+			fi;
+
+		    fun clip'
+			( { col=>x0,  row=>y0 },
+			  { col=>dx0, row=>dy0 }
+			)
+			=
+			{   my (x1, dx1) =  clip_coord (x0+dx0, dx0, ball_radius, max_x);
+			    my (y1, dy1) =  clip_coord (y0+dy0, dy0, ball_radius, max_y);
+
+			    ( { col=>x1,  row=>y1 },
+			      { col=>dx1, row=>dy1 }
+			    );
+			};
+
+		    clip';
+		};
+
+	    fun make_icon_fn window
+		=
+		{   ball_icons
+			=
+			map (xc::make_readonly_pixmap_from_clientside_pixmap (xc::screen_of_window  window))
+			    hd::head_data_list;
+
+		    n    = list::length ball_icons;
+
+		    slot = make_mailslot ();
+
+		    fun loop i
+			=
+			if (i == n)
+			    #
+			    loop 0;
+			else
+			    put_in_mailslot (slot, list::nth (ball_icons, i));
+			    loop (i+1);
+			fi;
+
+		    xlogger::make_thread  "make_icon"  {. loop 0; };
+
+		    {.  take_from_mailslot slot;  };
+		};
+
+	    delay' =  timeout_in'  (1000000.0 / updates_per_sec);
+	herein
+
+	    fun make_ball (window, mailcaster, draw_slot)
+		=
+		make_ball'
+		where 
+
+		  new_icon = make_icon_fn  window;
+
+		  fun make_ball'
+                      ( seqn,
+                        position,				# Ball position on window in pixels.
+                        velocity,				# Ball veloity  on window in pixels.
+                        window_size				# Drawing window size in pixels.
+		      )
+		      =
+		      {   ball_icon = new_icon ();
+
+			  ball_radius
+			      =
+			      {   my { size => { wide, ... }, ... }
+				      =
+				      xc::shape_of_ro_pixmap
+					  ball_icon;
+
+				  wide / 2;
+			      };
+
+			  offset = { col => ball_radius,
+				     row => ball_radius
+				   };
+
+			  fun draw_ball (seqn, position)
+			      =
+			      put_in_mailslot (draw_slot, bd::DRAW_BALL (seqn, ball_icon, xg::point::subtract (position, offset)));
+
+			  fun move_ball (seqn, old_position, new_position)
+			      =
+			      {   draw_ball (seqn, old_position);
+				  draw_ball (seqn, new_position);
+			      };
+
+			  clip_fn = clip (ball_radius, window_size);
+
+			  fun ball (from_mailcaster', position, velocity, clip_fn)
+			      =
+			      {   draw_ball (seqn, position);
+
+				  loop (seqn, position, velocity, clip_fn);
+			      }
+			      where
+				  fun loop (seqn, position, velocity, clip_fn)
+				       =
+				       do_one_mailop [
+
+					   delay'
+					       ==>
+					      {.   my (new_position, new_velocity)
+						       =
+						       clip_fn (position, velocity);
+
+						   if (position != new_position)
+						       #
+						       move_ball (seqn, position, new_position);
+						   fi;
+
+						   loop (seqn, new_position, new_velocity, clip_fn);
+					       },
+
+
+					   from_mailcaster'
+					       ==>
+					       \\ (KILL ({ col, row } ))
+						       =>
+						       {   death_zone
+							       =
+							       { col  =>  col - ball_radius,
+								 row  =>  row - ball_radius,
+								 #
+								 wide =>  2 * ball_radius,
+								 high =>  2 * ball_radius
+							       };
+
+							   if (xg::point::in_box (position, death_zone))   draw_ball (seqn, position);
+							   else                                            loop (seqn, position, velocity, clip_fn);
+							   fi;
+						       };
+
+						  (REDRAW_BALL (seqn', new_sz))
+						      =>
+						      {   clip_fn = clip (ball_radius, new_sz);
+
+							  my (new_position, _)
+							      =
+							      clip_fn (position, { col=>0, row=>0 } );
+
+							  draw_ball (seqn', position);
+
+							  loop (seqn', new_position, velocity, clip_fn);
+						     };
+
+						  KILL_ALL
+						      =>
+						      draw_ball (seqn, position);
+					       end
+				      ];
+
+			      end;
+
+			    xlogger::make_thread  "Ball"  {.
+				#
+				ball (receive' (make_readqueue  mailcaster), position, velocity, clip_fn);
+			    };
+
+			    ();
+			};					# fun make_ball'
+
+		  end;
+
+	end;				# stipulate
+    };					# package ball 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

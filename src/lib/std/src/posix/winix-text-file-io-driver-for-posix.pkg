@@ -1,0 +1,194 @@
+## winix-text-file-io-driver-for-posix.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+
+# This implements the UNIX version of the OS specific text primitive
+# IO package.  It is implemented by a trivial translation of the
+# binary operations (see winix-data-file-io-driver-for-posix--premicrothread.pkg).
+
+
+stipulate
+    package dio =  winix_data_file_io_driver_for_posix;				# winix_data_file_io_driver_for_posix				is from   src/lib/std/src/posix/winix-data-file-io-driver-for-posix.pkg
+    package iox =  io_exceptions;						# io_exceptions							is from   src/lib/std/src/io/io-exceptions.pkg
+    package md  =  maildrop;							# maildrop							is from   src/lib/src/lib/thread-kit/src/core-thread-kit/maildrop.pkg
+    package pf  =  posixlib;							# posixlib							is from   src/lib/std/src/psx/posixlib.pkg
+    package pos =  file_position;						# file_position							is from   src/lib/std/file-position.pkg
+    package rsc =  vector_slice_of_chars;					# vector_slice_of_chars						is from   src/lib/std/src/vector-slice-of-chars.pkg
+    package str =  string;							# string							is from   src/lib/std/string.pkg
+    package thk =  threadkit;							# threadkit							is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    package wsc =  rw_vector_slice_of_chars;					# rw_vector_slice_of_chars					is from   src/lib/std/src/rw-vector-slice-of-chars.pkg
+herein
+
+    package winix_text_file_io_driver_for_posix
+    : (weak)
+	api {
+
+	    include Winix_Extended_File_Io_Driver_For_Os;			# Winix_Extended_File_Io_Driver_For_Os			is from   src/lib/std/src/io/winix-extended-file-io-driver-for-os.api
+
+	    stdin:		Void   -> drv::Filereader;
+	    stdout:		Void   -> drv::Filewriter;
+	    stderr:		Void   -> drv::Filewriter;
+
+	    string_reader:	String -> drv::Filereader;
+	}
+    {
+	package drv = winix_base_text_file_io_driver_for_posix;			# winix_base_text_file_io_driver_for_posix			is from   src/lib/std/src/io/winix-base-text-file-io-driver-for-posix.pkg
+										# drv is exported to clients.
+	File_Descriptor = pf::File_Descriptor;
+
+	best_io_quantum = 4096;							# Reading and writing 4KB at a time should be reasonably efficient.
+
+	# If char::char is really one_byte_unt::word
+	# then very efficient versions of
+	# translate_in and translate_out are possible:
+	#
+	translate_in  =   unsafe::cast :   dio::drv::Filereader -> drv::Filereader;
+	translate_out =   unsafe::cast :   dio::drv::Filewriter -> drv::Filewriter;
+
+	fun open_for_read   fname =  translate_in  (dio::open_for_read   fname);
+	fun open_for_write  fname =  translate_out (dio::open_for_write  fname);
+	fun open_for_append fname =  translate_out (dio::open_for_append fname);
+
+	fun make_filereader args = translate_in  (dio::make_filereader args);
+	fun make_filewriter args = translate_out (dio::make_filewriter args);
+
+	fun stdin ()
+	    =
+	    make_filereader {
+		fd		=> pf::stdin,
+		filename	=> "<stdin>"
+	    };
+
+	fun stdout ()
+	    =
+	    make_filewriter {
+		fd		=> pf::stdout,
+		filename	=> "<stdout>",
+		append_mode	=> FALSE,			# XXX BUGGO FIXME  Should check! 
+		best_io_quantum
+	      };
+
+	fun stderr ()
+	    =
+	    make_filewriter {
+		fd		=> pf::stderr,
+		filename	=> "<stderr>",
+		append_mode	=> FALSE,			# XXX BUGGO FIXME  Should check! 
+		best_io_quantum
+	    };
+
+	fun string_reader  src
+	    =
+	    {   lock_maildrop =  md::make_full_maildrop ();
+		#
+		fun with_lock f x
+		    =
+		    {
+			md::take_from_maildrop  lock_maildrop;
+			#
+			f x
+			then
+			    md::put_in_maildrop (lock_maildrop, ());
+		    }
+		    except
+			x = {
+				md::put_in_maildrop (lock_maildrop, ());
+				#
+				raise exception x;
+			    };
+
+		pos    =  REF 0;
+		closed =  REF FALSE;
+
+		fun check_closed ()
+		    =
+		    if *closed
+			#
+			raise exception  iox::CLOSED_IO_STREAM;
+		    fi;
+
+		len  = str::length   src;
+		plen = pos::from_int len;
+
+		fun avail ()
+		    =
+		    len - *pos;
+
+		fun read_vector  n
+		    =
+		    {   p = *pos;
+			m = int::min (n, len-p);
+
+			check_closed ();
+			pos := p+m;
+
+			# NOTE: Could use unchecked operations here.
+
+			str::substring (src, p, m);
+		      };
+
+		fun get_file_position ()
+		    =
+		    {   check_closed ();
+			#
+			pos::from_int  *pos;
+		    };
+
+		fun set_file_position p
+		    =
+		    {   check_closed ();
+			#
+			if (p < 0 or p > plen)   raise exception INDEX_OUT_OF_BOUNDS;   fi;
+
+			pos :=  pos::to_int p;
+		    };
+
+		drv::FILEREADER
+		  {
+		    filename			=>  "<string>", 
+		    best_io_quantum		=>  len,
+
+		    read_vector			=>  with_lock read_vector,
+		    read_vector_mailop		=>  with_lock (thk::always' o read_vector),
+
+		    avail			=>  THE o avail,
+
+		    get_file_position		=>  THE (with_lock  get_file_position),
+		    set_file_position		=>  THE (with_lock  set_file_position),
+
+		    end_file_position		=>  THE (with_lock (\\ () = { check_closed();  plen; })),
+		    verify_file_position	=>  THE (with_lock get_file_position),
+
+		    close			=>  with_lock (\\ () = closed := TRUE),
+		    io_descriptor		=>  NULL
+		  };
+	      };
+
+    };								# package winix_text_file_io_driver_for_posix__premicrothread 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

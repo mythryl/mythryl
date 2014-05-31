@@ -1,0 +1,1040 @@
+## unparse-type.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+#  modified to use Lib7 Lib pp. [dbm, 7/30/03]) 
+
+stipulate 
+    package pp  =  standard_prettyprint_mill;		# standard_prettyprint_mill		is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package syx =  symbolmapstack;			# symbolmapstack			is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tdt =  type_declaration_types;		# type_declaration_types		is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+herein
+    api Unparse_Type {
+	#
+	type_formals
+	    :
+	    Int
+	 -> List( String );
+
+	typevar_ref_printname
+	    :
+	    tdt::Typevar_Ref
+	 -> String;
+
+	unparse_type
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Type
+	 -> Void;
+
+	unparse_typescheme
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typescheme
+	 -> Void; 
+
+	unparse_typoid
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typoid
+	 -> Void;
+
+	unparse_typevar_ref
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Typevar_Ref
+	 -> Void;
+
+	unparse_sumtype_constructor_domain
+	    :
+	    ((Vector( tdt::Sumtype_Member ), List( tdt::Type )) )
+	 -> syx::Symbolmapstack 
+	 -> pp::Prettyprint_Mill
+	 -> tdt::Typoid
+	 -> Void;
+
+	unparse_sumtype_constructor_types
+	    :
+	    syx::Symbolmapstack
+	 -> pp::Prettyprint_Mill 
+	 -> tdt::Type
+	 -> Void;
+
+	reset_unparse_type
+	    :
+	    Void -> Void;
+
+	unparse_formals
+	    :
+	    pp::Prettyprint_Mill
+	 -> Int
+	 -> Void;
+
+	debugging:  Ref( Bool );
+	unalias:    Ref( Bool );
+    };
+end;
+
+
+stipulate 
+    package ip  =  inverse_path;		# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package pp  =  standard_prettyprint_mill;	# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package sp  =  symbol_path;			# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;		# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package sta =  stamp;			# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package mtt =  more_type_types;		# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package tdt =  type_declaration_types;	# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package ts  =  type_junk;			# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package uj  =  unparse_junk; 		# unparse_junk			is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+    package tup =  tuples;			# tuples			is from   src/lib/compiler/front/typer-stuff/types/tuples.pkg
+    #
+    Pp = pp::Pp;
+herein
+
+
+    package   unparse_type
+    : (weak)  Unparse_Type
+    {
+	debugging = REF FALSE;
+	unalias   = REF TRUE;
+	#
+	fun bug s
+            =
+            error_message::impossible ("unparse_type: " + s);
+
+	#
+	fun by f x y
+	    =
+	    f y x;
+
+#	internals =   typer_control::internals;
+internals = log::internals;
+
+	unit_path
+            =
+            ip::extend
+                (
+                  ip::empty,
+                  symbol::make_type_symbol "Void"
+                );
+
+
+        # Map small integer 'k' to a type variable name.
+        # We name the first three X Y Z,
+        # then run through A B C ... W
+        # and then start in on AA, AB...	XXX BUGGO FIXME AA AB etc aren't legal syntax, need A_1 or A_a or such.
+	#
+	fun bound_typevar_name k
+	    =
+	    {   a =   char::to_int 'A';
+		#
+                case k
+		    #                  
+		    0 => "X";
+		    1 => "Y";
+		    2 => "Z";
+		    _ => 
+			 if (k < 26)
+			     #
+			     string::from_char (char::from_int (k + a - 3));
+			 else
+			     implode [ char::from_int (int::(/) (k, 26) + a), 
+				       char::from_int (int::(%) (k, 26) + a)
+				     ];
+			 fi;
+                esac;
+	    };
+
+	#
+	fun meta_tyvar_name' k
+	    =
+	    {
+#                2009-04-23 CrT: This is the old logic.
+#                It crashes the compiler ("BAD_CHAR" exception) for large k:
+#                a =  char::to_int 'a';	#  use reverse order for meta vars 
+#
+#		if   (k < 26)
+#		    
+#		     string::from_char (char::from_int (a + k));
+#		else 
+#		     implode [ char::from_int (a + (int::(/) (k, 26))), 
+#			       char::from_int (a + (int::(%) (k, 26)))
+#			     ];
+#                fi;
+		"meta" + int::to_string k;
+	    };
+	#
+	fun type_formals n
+	    =
+	    loop 0
+            where
+	        fun loop i
+		    =
+		    if (i >= n)   [];
+		    else 	  (bound_typevar_name i)  !  loop (i + 1);
+                    fi;
+	    end;
+	#
+	fun literal_kind_printname (lk: tdt::Literal_Kind)
+	    =
+	    case lk
+		#	      
+		tdt::INT    => "Int";       # or "INT" 
+		tdt::UNT    => "Unt";       # or "UNT" 
+		tdt::FLOAT  => "Float";     # or "FLOAT" 
+		tdt::CHAR   => "Char";      # or "CHAR" 
+		tdt::STRING => "String";    # or "STRING" 
+            esac;
+
+	stipulate  #  WARNING -- compiler global variables 
+	    count = REF(-1);  								# XXX BUGGO FIXME more icky thread-hostile mutable global state :-(
+
+	    meta_tyvars =   REF ([]:   List(tdt::Typevar_Ref));
+	herein
+
+	    fun meta_tyvar_name   (typevar_ref as { id, ref_typevar }:  tdt::Typevar_Ref)
+		=
+		meta_tyvar_name' (find_or_add (*meta_tyvars, 0))
+                where
+		    fun find_or_add ([], _)
+			    =>
+			    {   meta_tyvars := typevar_ref ! *meta_tyvars;
+			        count := *count+1;
+			        *count;
+                            };
+
+		        find_or_add ({ id, ref_typevar => ref_typevar' } ! rest, k)
+			    =>
+			    ref_typevar == ref_typevar'
+                                ??   *count - k
+			        ::   find_or_add (rest, k+1);
+                    end;
+		end;
+	    #
+	    fun reset_unparse_type ()
+		=
+		{   count := -1;
+		    meta_tyvars := [];
+		};
+	end;
+	#
+	fun tv_head (eq, base)		# "tv" for "type variable", "eq" for "equality type".
+	    =
+	    base
+            +
+	    (eq  ??  "(==)"
+	         ::   ""
+            );
+
+	#
+	fun annotate (name, annotation, maybe_fn_nesting)
+	    =
+	    if *internals
+		#
+		cat (  name
+			! "."
+			! annotation
+			! case maybe_fn_nesting
+			      #
+			      THE fn_nesting =>  ["( fn_nesting => ", (int::to_string fn_nesting), " )"];
+			      NULL           =>  NIL;
+			  esac
+		       );
+	    else
+		name;
+            fi;
+	#
+	fun typevar_ref_printname'  (typevar_ref as { id, ref_typevar })
+	    =
+	    sprint_typevar  *ref_typevar
+            where
+	        fun sprint_typevar  typevar
+		    =
+		    case typevar
+			#		      
+			tdt::RESOLVED_TYPEVAR (tdt::TYPEVAR_REF (typevar_ref as { id, ref_typevar }) )
+			    =>
+			    {   (typevar_ref_printname'  typevar_ref)
+				    ->
+				    (printname, null_or_type);
+
+				( (sprintf "[id%d]" id) /* + printname */,		# BOOJUM Commented out 2013-01-14 CrT because it was mainly making diffing harder.
+				  null_or_type
+				);
+			    };
+
+			tdt::RESOLVED_TYPEVAR  type
+			    =>
+			    ( (sprintf "[id%d]" id)  +  "<tdt::RESOLVED_TYPEVAR ?>",
+			      THE type
+			    );
+
+			tdt::META_TYPEVAR { fn_nesting, eq }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate ( meta_tyvar_name typevar_ref,
+						      "META",
+						      THE fn_nesting
+				      )             ),
+
+			      NULL
+			    );
+
+			tdt::INCOMPLETE_RECORD_TYPEVAR { fn_nesting, eq, known_fields }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate ( meta_tyvar_name  typevar_ref,
+						      "INCOMPLETE_RECORD",
+						      THE fn_nesting
+				      )             ),
+
+			      NULL
+			    );
+
+
+			tdt::USER_TYPEVAR { name, fn_nesting, eq }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate (symbol::name name, "USER", THE fn_nesting)),
+
+			      NULL
+			    );
+
+			tdt::LITERAL_TYPEVAR { kind, ... }
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      annotate (literal_kind_printname kind, "LITERAL", NULL),
+
+			      NULL
+			    );
+
+			tdt::OVERLOADED_TYPEVAR eq
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      tv_head (eq, annotate (meta_tyvar_name typevar_ref, "OVERLOADED", NULL)),
+
+			      NULL
+			    );
+
+			tdt::TYPEVAR_MARK _
+			    =>
+			    ( (sprintf "[id%d]" id)
+			      +
+			      "<tdt::TYPEVAR_MARK ?>",
+
+			      NULL
+			    );
+                    esac;
+	    end;
+
+	#
+	fun typevar_ref_printname  typevar_ref
+	    =
+	    {   (typevar_ref_printname'  typevar_ref)
+		    ->
+		    (printname, null_or_type);
+
+                printname;
+            };
+
+
+#	fun ppkind pp kind
+#            =
+#	     {   pps pp
+#	           case kind
+#		       tdt::BASE _ => "BASE";
+#                      tdt::FORMAL     => "FORMAL";
+#		       tdt::FLEXIBLE_TYPE _ => "FLEXIBLE_TYPE";
+#                      tdt::ABSTRACT _ => "ABSTYC";
+#		       tdt::SUMTYPE _ => "SUMTYPE";
+#                      tdt::TEMP => "TEMP"
+#                  esac;
+#            };
+#
+	#
+	fun ppkind  (pp:Pp)  kind
+	    =
+	    pp.lit
+	       case kind
+		   tdt::BASE _		=> "PRIM";
+		   tdt::FORMAL		=> "FORM";
+		   tdt::FLEXIBLE_TYPE _ => "FLEX";
+		   tdt::ABSTRACT _	=> "ABST";
+		   tdt::SUMTYPE _	=> "DATA";
+		   tdt::TEMP		=> "TEMP";
+              esac;
+	#
+	fun effective_path (path, type, symbolmapstack) : String
+	    =
+	    {   fun namepath_of_type ( tdt::SUM_TYPE          { namepath, ... }
+				  | tdt::NAMED_TYPE        { namepath, ... }
+				  | tdt::TYPE_BY_STAMPPATH { namepath, ... }
+				  )
+			=>
+			THE namepath;
+
+		    namepath_of_type _
+			=>
+			NULL;
+                end;
+		#
+		fun find (path, type)
+		    =
+		    (uj::find_path (path,
+			(\\ type' = ts::type_equality (type', type)),
+			(\\ x = find_in_symbolmapstack::find_type_via_symbol_path (symbolmapstack, x,
+						(\\ _ = raise exception syx::UNBOUND))))
+                    );
+		#
+		fun search (path, type)
+		    =
+		    {   (find (path, type)) ->   (suffix, found);
+			#
+			if found
+			    (suffix, TRUE);
+			else
+			    if (not *unalias)
+				#    
+				(suffix, FALSE);
+			    else
+				case (ts::unwrap_definition_1  type)
+				    #
+				    THE type' =>    case (namepath_of_type type')
+							#
+							THE path'
+							    =>
+							    {   (search (path', type'))
+								    ->
+								    x as (suffix', found');
+
+								if found'      x;
+								else           (suffix, FALSE);
+								fi;
+							    };
+
+							NULL => (suffix, FALSE);
+						    esac;
+
+				    NULL => (suffix, FALSE);
+				esac;
+			    fi;
+                        fi;
+		    };
+
+		(search (path, type)) ->   (suffix, found);
+
+		name =   sp::to_string (sp::SYMBOL_PATH suffix);
+
+		if found          name;
+		else /* "?." + */ name;
+		fi;				# 2008-01-02 CrT This seems more confusing than helpful, for the moment at least.
+	    };
+
+	arrow_stamp = mtt::arrow_stamp;
+
+	fun strength  type
+	    =
+	    case type
+		#
+		tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR  type') }
+		    =>
+		    strength  type';
+
+		tdt::TYPCON_TYPOID (type, args)
+		    =>
+		    case type
+			#
+			tdt::SUM_TYPE { stamp, kind => tdt::BASE _, ... }
+			    =>
+			    if (sta::same_stamp (stamp, arrow_stamp))    0;
+			    else                                         2;
+			    fi;
+
+			tdt::RECORD_TYPE (_ ! _)						# Excepting type Void
+			    => 
+			    if (tup::is_tuple_type  type)         1;
+			    else                                  2;
+                            fi;
+
+			_   => 2;
+		    esac;
+
+	        _ => 2;
+            esac;
+	#
+	fun unparse_eq_prop  (pp:Pp)  p
+	    =
+	    pp.lit a
+	    where
+	        a =    case p
+			   tdt::e::NO            =>  "EQ=NO";
+			   tdt::e::YES           =>  "EQ=YES";
+			   tdt::e::INDETERMINATE =>  "EQ=INDETERMINATE";
+			   tdt::e::CHUNK         =>  "EQ=CHUNK";
+			   tdt::e::DATA          =>  "EQ=DATA";
+			   tdt::e::EQ_ABSTRACT   =>  "EQ=ABSTRACT";
+			   tdt::e::UNDEF         =>  "EQ=UNDEF";
+                       esac;
+	    end;
+	#
+	fun unparse_inverse_path  (pp:Pp)  (inverse_path::INVERSE_PATH inverse_path: inverse_path::Inverse_Path)
+	    = 
+	    pp.lit (symbol_path::to_string (symbol_path::SYMBOL_PATH (reverse inverse_path)));
+	#
+	fun unparse_type'  symbolmapstack  (pp:Pp)  members_op
+	    =
+	    unparse_type''
+            where
+		#
+		fun unparse_type'' (type as tdt::SUM_TYPE { namepath, stamp, is_eqtype, kind, ... } )
+			=>
+			if *internals
+			    #
+			    pp.wrap' 0 2 {.					pp.rulename "utw1";
+				unparse_inverse_path  pp  namepath;
+				pp.lit "[";
+				pp.lit "tdt::SUM_TYPE ";   ppkind pp kind;   pp.endlit ";"; 
+				pp.lit (sta::to_short_string  stamp);
+				pp.endlit ";";
+				unparse_eq_prop  pp  *is_eqtype;
+				pp.lit "]";
+			    };
+			else
+			    pp.lit (effective_path (namepath, type, symbolmapstack));
+			fi;
+
+		    unparse_type'' (type as tdt::NAMED_TYPE { namepath, typescheme => tdt::TYPESCHEME { body, ... }, ... } )
+			=>
+			if *internals
+			    #
+			    pp.wrap' 0 2 {.					pp.rulename "utw2";
+				unparse_inverse_path  pp  namepath;
+				pp.lit "[";
+				pp.lit "tdt::NAMED_TYPE; "; 
+				unparse_typoid  symbolmapstack  pp  body;
+				pp.lit "]";
+			    };
+			else
+			    pp.lit (effective_path (namepath, type, symbolmapstack));
+                        fi;
+
+		    unparse_type'' (tdt::RECORD_TYPE labels)
+			=>
+			uj::unparse_closed_sequence
+			    #
+			    pp
+			    #
+			    { front      =>  \\ pp = pp.lit "{ ",
+			      separator  =>  \\ pp =  { pp.txt ", "; 
+						      },
+			      back       =>  \\ pp = pp.lit  "}",
+			      breakstyle =>  uj::WRAP,
+			      print_one  =>  uj::unparse_symbol
+			    }
+			    #
+			    labels;
+
+		    unparse_type'' (tdt::RECURSIVE_TYPE n)
+			=>
+			case members_op
+			    #
+			    THE (members, _)
+				=> 
+				{   (vector::get (members, n))
+					->
+					{ name_symbol, valcons, ... };
+
+				    uj::unparse_symbol  pp  name_symbol;
+				};
+
+			    NULL =>   pp.lit (string::cat ["<RECURSIVE_TYPE ", int::to_string n, ">"]);
+			esac;
+
+
+		    unparse_type'' (tdt::FREE_TYPE n)
+			=>
+			case members_op
+			    #			  
+			    THE (_, free_types)
+				=> 
+				{   type =  (   list::nth (free_types, n)
+						except _
+						    =
+						    bug "unexpected free_types in unparse_type''"
+					    );
+
+				     unparse_type'' type;
+				};
+
+			    NULL =>   pp.lit (string::cat ["<FREE_TYPE ", int::to_string n, ">"]);
+                        esac;
+
+		    unparse_type'' (tdt::TYPE_BY_STAMPPATH { arity, stamppath, namepath } )
+			=>
+			if *internals
+			    #
+			    pp.wrap' 0 2 {.					pp.rulename "utw3";
+				unparse_inverse_path pp  namepath;
+				pp.lit "[TYPE_BY_STAMPPATH; "; 
+				pp.lit (stamppath::stamppath_to_string stamppath);
+				pp.lit "]";
+			    };
+			else
+                            unparse_inverse_path pp  namepath;
+                        fi;
+
+		    unparse_type'' tdt::ERRONEOUS_TYPE
+                        =>
+                        pp.lit "[ERRONEOUS_TYPE]";
+                end;
+
+	    end
+
+
+	also
+	fun unparse_typoid'  symbolmapstack  pp
+            (
+              typoid:		tdt::Typoid,
+              an_api:		tdt::Typescheme_Eqflags, 
+              members_op:	Null_Or( (Vector( tdt::Sumtype_Member ), List( tdt::Type )) )
+            )
+            : Void
+	    =
+	    print_type  typoid
+	    where
+		#
+		fun print_type  typoid
+		    =
+		    case typoid
+			#		      
+			tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR  type') }
+			    =>
+			    print_type  type';
+
+			tdt::TYPEVAR_REF  typevar_ref
+			    =>
+			    unparse_typevar_ref' typevar_ref;
+
+			tdt::TYPESCHEME_ARG n
+			    =>
+			    {   eq =   list::nth (an_api, n) 
+				       except
+					   INDEX_OUT_OF_BOUNDS = FALSE;
+
+				pp.lit (tv_head (eq, (bound_typevar_name n)));
+			    };
+
+			tdt::TYPCON_TYPOID (type, args)
+			    =>
+			    {   fun otherwise ()
+				    =
+				    {   pp.wrap' 0 2 {.					pp.rulename "utw4";
+					    #
+					    unparse_type'  symbolmapstack  pp  members_op  type;
+
+					    case args
+						#
+						[] => ();
+
+						_  => {   pp.lit "(";
+							  pp.cut ();
+							  unparse_type_args args; 
+							  pp.lit ")";
+						      };
+					    esac;
+					};
+				    };
+
+				case type
+				    #	
+				    tdt::SUM_TYPE { stamp, kind, ... }
+					=>
+					case kind
+					    #
+					    tdt::BASE _ 
+						=>
+						if (sta::same_stamp (stamp, arrow_stamp))
+						    #
+						    case args
+							#
+							[domain, range]
+							    =>
+							    {   pp.box' 0 -1 {.					pp.rulename "utb1";
+								    #
+								    if (strength domain == 0)
+									#
+									pp.box {.				pp.rulename "utb1b";
+									    pp.lit "(";
+									    print_type domain;
+									    pp.lit ")";
+									};
+								    else
+									print_type domain;
+								    fi;
+
+								    pp.txt " ";
+								    pp.lit "-> ";
+								    print_type range;
+								};
+							    };
+
+							_   => bug "TYPCON_TYPE: arity";
+						    esac;
+						else
+						    pp.wrap' 0 2 {.						pp.rulename "utw5";
+							#
+							unparse_type'  symbolmapstack  pp  members_op  type;
+
+							case args
+							    #
+							    [] => ();
+
+							     _ => {   pp.lit "(";
+								      pp.cut ();
+								      unparse_type_args args;
+								      pp.lit ")";
+								  };
+							esac;
+
+						    };
+						fi;
+
+					    _   => otherwise ();
+					esac;
+
+				    tdt::RECORD_TYPE labels
+					=>
+					if (tup::is_tuple_type  type)
+					     unparse_tuplety args;
+					else unparse_recordty (labels, args);
+					fi;
+
+				    _ => otherwise ();
+				esac;
+			    };
+
+			tdt::TYPESCHEME_TYPOID { typescheme_eqflags => an_api,
+						 typescheme => tdt::TYPESCHEME { arity, body }
+					       }
+			    => 
+			    unparse_typoid' symbolmapstack pp (body, an_api, members_op);
+
+			tdt::WILDCARD_TYPOID
+			    =>
+			    pp.lit "_";
+
+			tdt::UNDEFINED_TYPOID
+			    =>
+			    pp.lit "undef";
+                    esac
+
+		also
+		fun unparse_type_args []
+                        =>
+                        ();
+
+		    unparse_type_args [type]
+		        => 
+		        {   if (strength type <= 1)
+				#
+				pp.wrap {.						pp.rulename "utw6";
+				    pp.lit "("; 
+				    print_type type; 
+				    pp.lit ")";
+				};
+			    else
+				print_type type;
+                            fi;
+
+		            pp.cut();
+                        };
+
+		    unparse_type_args tys
+			=>
+			uj::unparse_closed_sequence
+			    pp 
+			    { front      =>  \\ pp = pp.lit "(",
+			      separator  =>  \\ pp =  { pp.lit  ", ";
+							pp.cut();
+						      },
+			      back       =>  \\ pp = pp.lit ")",
+			      breakstyle =>  uj::WRAP, 
+			      print_one  =>  \\ _ =  \\ type =  print_type type
+			    }
+			    tys;
+                end 
+
+		also
+		fun unparse_tuplety []
+                        =>
+                        pp.lit (effective_path (unit_path, tdt::RECORD_TYPE [], symbolmapstack));
+
+		    unparse_tuplety tys
+			=>
+                        {   pp.lit "(";
+			    #
+			    uj::unparse_sequence
+			       pp
+			       { separator =>  \\ pp = {   pp.txt ", ";		# Was "* "
+						       },
+				 breakstyle =>  uj::WRAP,
+				 print_one  =>  (\\ _ =  \\ type =  if (strength type <= 1)
+									#
+									pp.wrap {.					pp.rulename "utw7";
+									    pp.lit "(";
+									    print_type type; 
+									    pp.lit ")";
+									};
+								    else
+									print_type type;
+								    fi
+					     )
+			       }
+			       tys;
+
+			    pp.lit ")";
+		        };
+                end 
+
+		also
+		fun unparse_field (lab, type)
+		    =
+		    {   pp.box' 0 -1 {.					pp.rulename "utb2";
+			    #
+			    uj::unparse_symbol pp lab; 
+			    pp.txt ": ";
+			    print_type type;
+			};
+		    }
+
+		also
+		fun unparse_recordty ([],[])
+			=>
+			pp.lit (effective_path (unit_path, tdt::RECORD_TYPE [], symbolmapstack));
+			  #  this case should not occur 
+
+		    unparse_recordty (lab ! labels, arg ! args)
+			=>
+			{   pp.wrap {.									pp.rulename "utw8";
+				#
+				pp.lit "{ ";
+				unparse_field (lab, arg);
+
+				paired_lists::apply 
+				    (\\ field'
+					=
+					{   pp.txt ", ";
+					    unparse_field field';
+					}
+				    )
+				    (labels, args);
+
+				pp.lit "}";
+			    };
+			};
+
+		    unparse_recordty _
+			=>
+			bug "unparse_type::prettyprintRECORDty";
+                end 
+
+		also
+		fun unparse_typevar_ref' (typevar_ref as { id, ref_typevar as REF typevar }:  tdt::Typevar_Ref):  Void
+		    =
+		    {   printname =   typevar_ref_printname  typevar_ref;
+			#
+			case typevar
+			    #			  
+			    tdt::INCOMPLETE_RECORD_TYPEVAR { fn_nesting, eq, known_fields }
+				=>
+				case known_fields
+				    #
+				    []  =>
+					{   pp.lit "{ ";
+					    pp.lit printname;
+					    pp.lit "}";
+					};
+
+				    field' ! fields
+					=>
+					{   pp.wrap {.					pp.rulename "utw9";
+						#
+						pp.lit "{ ";
+
+						unparse_field field';
+
+						apply (\\ x =  {   pp.txt ", ";
+								   unparse_field x;
+							       }
+						      )
+						     fields;
+
+						pp.endlit ";";
+
+						pp.txt " ";
+						pp.lit printname;
+						pp.lit "}";
+					    };
+					};
+				esac;
+
+			    _   =>  pp.lit printname;
+                        esac;
+		    };
+	    end				#  where (fun unparse_type')
+
+	also
+	fun unparse_typoid
+            (symbolmapstack: syx::Symbolmapstack)
+            pp
+            (type:  tdt::Typoid)
+            :
+            Void
+	    = 
+	    {   pp.cwrap {.							pp.rulename "utcw1";
+		    unparse_typoid'  symbolmapstack  pp  (type, [], NULL);
+		};
+	    };
+
+	#
+	fun unparse_typevar_ref
+                (symbolmapstack:	syx::Symbolmapstack)
+                (pp:			pp::Prettyprint_Mill )
+                (typevar_ref:		tdt::Typevar_Ref)
+            :
+            Void
+	    =
+	    {   (typevar_ref_printname'  typevar_ref)
+		    ->
+		    (printname, null_or_type);
+
+		pp.wrap {.					pp.rulename "utw10";
+		    #
+		    pp.lit " typevar_ref: ";
+		    pp.lit printname;
+
+		    case null_or_type
+			#
+			NULL     => ();
+
+			THE type => {   pp.lit " == ";
+					unparse_typoid  symbolmapstack  pp  type;
+				    };
+		    esac;
+		};
+            };
+
+	#
+	fun unparse_sumtype_constructor_domain members (symbolmapstack: syx::Symbolmapstack) pp (type: tdt::Typoid)
+	    : Void
+	    = 
+	    {   pp.cwrap {.							pp.rulename "utcw2";
+		    unparse_typoid' symbolmapstack pp (type,[], THE members);
+		};
+	    };
+
+	#
+	fun unparse_type  symbolmapstack pp      type
+	    =
+	    unparse_type' symbolmapstack pp NULL type;
+
+	#
+	fun unparse_typescheme symbolmapstack pp (tdt::TYPESCHEME { arity, body } )
+	    =
+	    pp.wrap' 0 2 {.					pp.rulename "utw11";
+		pp.lit "tdt::TYPESCHEME( { arity="; 
+		uj::unparse_int pp arity;   pp.txt ", ";
+		pp.cut();
+		pp.lit "body="; 
+		unparse_typoid  symbolmapstack  pp  body; 
+		pp.lit "} )";
+	    };
+	#
+	fun unparse_formals  pp
+	    =
+	    unparse_f
+            where
+	        fun unparse_f 0 =>  ();
+		    unparse_f 1 =>  pp.lit "(X)";			# 2008-01-03 CrT: Was " 'a"
+
+		    unparse_f n
+                        =>
+			uj::unparse_tuple
+			    pp
+			    (\\ pp =  \\ s =  pp.lit s)		# 2008-01-03 CrT: Was ("'" + s)
+			    (type_formals n);
+                end;
+	    end;
+
+	#
+	fun unparse_sumtype_constructor_types symbolmapstack pp (tdt::SUM_TYPE { kind => tdt::SUMTYPE dt, ... } )
+		=>
+		{   dt ->   { index, free_types, family=> { members, ... }, ... };
+		    #
+		    (vector::get (members, index)) ->    { valcons, ... };
+
+		    pp.box' 0 -1 {.					pp.rulename "utb3";
+			#
+			apply
+			    (\\ { name, domain, ... }
+				=
+				{   pp.lit (symbol::name name);
+				    pp.lit ": ";
+
+				    case domain
+					#
+					THE type => unparse_typoid'
+							symbolmapstack
+							pp
+							(type,[], THE (members, free_types));
+
+					NULL =>   pp.lit "CONST";
+				    esac;
+
+				    pp.txt " ";
+				}
+			    )
+			    valcons;
+		    };
+		};
+
+	    unparse_sumtype_constructor_types  symbolmapstack  pp  _
+		=>
+		bug "unparse_sumtype_constructor_types";
+       end;
+    };										#  package unparse_type 
+end;										#  toplevel "stipulate"
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1991 by AT&T Bell Laboratories 
+## Copyright 2003 by The SML/NJ Fellowship 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

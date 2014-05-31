@@ -1,0 +1,281 @@
+## codetemp-interference-graph.api
+#
+# The core datastructure for our register allocator.
+#
+# We provide here only short summary comments;
+# for more complete background see comments
+# (and paper referenced) in:
+#
+#     src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+# 
+#
+# Our codetemp interference graph package contains almost no code;
+# the package is in essence the "blackboard" upon which the various
+# parts of the register allocator share information.  As such, it
+# contains a grab-bag of otherwise unrelated values.
+#
+#
+# Nomenclature
+# ============
+# A "codetemp" is an intermediate results in the code, which we
+# would like if possible assign to a hardware register, for speed
+# of access.
+#
+# A pair of codetemps are said to "interfere" if they are ever both
+# "live" (hold a needed value) at the same point in time;  this is
+# significant because a pair of codetemps which interfere cannot be
+# assigned to the same hardware register.
+#
+# A "codetemp interference graph" is a graph with one node for each
+# codetemp in the relevant section of code and one edge between every
+# pair of nodes which "interfere" with each other in the above sense.
+#
+# This is the core datastructure of the modern register allocator;
+# the key goal is to "color" the graph (i.e. assign each codetemp
+# to a hardware register) such that no two codetemps of the same color
+# (i.e., stored in the same hardware register) are connected by an edge.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+
+stipulate
+    package geh =  graph_by_edge_hashtable;					# graph_by_edge_hashtable	is from   src/lib/std/src/graph-by-edge-hashtable.pkg
+    package iht =  int_hashtable;						# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;							# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    # This api is implemented in:
+    #
+    #     src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    #
+    api   Codetemp_Interference_Graph {
+	# ===========================
+	#
+
+
+	exception NODES;
+
+	Priority = Float;
+	Cost     = Float;
+
+	Program_Point								# This represents a program point in the program.
+	  =									# The last op in the block is numbered 1, i.e. the op
+	  {									# numbering is in reverse.  The number 0 is reserved for "live-out".
+	    block:	Int,
+	    op:		Int
+	  }; 
+
+	# Hashtable indexed by program point:
+	#
+	package ppt_hashtable:		Typelocked_Hashtable			# Typelocked_Hashtable	is from   src/lib/src/typelocked-hashtable.api
+	                        	where
+					    key::Hash_Key == Program_Point;
+
+	Frame_Offset     =  Int;
+	Logical_Spill_Id =  Int;
+
+	Spill_To
+	  = SPILL_TO_FRESH_FRAME_SLOT	Logical_Spill_Id			# Spill to a new frame location.
+	  | SPILL_TO_RAMREG		rkj::Codetemp_Info				# Spill to a ram register.
+	  ;
+
+	# Hashtable indexed by spill location:
+	#
+	package spill_loc_hashtable:   Typelocked_Hashtable			# Typelocked_Hashtable	is from   src/lib/src/typelocked-hashtable.api
+	                                where
+					    key::Hash_Key == Spill_To;
+
+	Mode = Unt;
+
+	Codetemp_Interference_Graph
+	    = 
+	    CODETEMP_INTERFERENCE_GRAPH
+	      {	
+		edge_hashtable:		Ref( geh::Graph_By_Edge_Hashtable ),			# Maps (node_id1, node_id2) -> TRUE iff edge exists in inteference graph. Redundant with interferes_with[] list on nodes.
+		node_hashtable:		iht::Hashtable( Node ),					# Maps node ID to node; serves as set-of-all-nodes.
+
+		hardware_registers_we_may_use:	Int,						# E.g. 6 int regs on intel32.  Number of colors for our graph-colorer -- this number is the center of our life during register allocation.
+												# For example   length   platform_register_info_intel32::available_int_registers
+												# or            length   platform_register_info_intel32::available_float_registers.
+												# These are from:          src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+												# This is used mainly in:  src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+
+		codetemp_id_if_above:	Int,							# 256 on Intel32. All "register" IDs >= this value belong to codetemps (which are what we allot onto physical registers like eax,ebx,...)
+
+		is_globally_allocated_register_or_codetemp:	Int -> Bool,						# Distinguishes registers allocated globally and statically by hand (e.g., esp and edi on intel32) from registers allocated locally by the register allocator.
+												# On intel32 these functions are defined in		src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+												# driven by (e.g.) global_int_registers list from	src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+												# We use this in					src/lib/compiler/back/low/regor/cluster-regor-g.pkg
+
+		pick_available_hardware_register:	{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Speedhack:  register is taken iff   register_is_taken[ register ] == true_value.
+		pick_available_hardware_registerpair:	{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Stillborn idea; field never used.
+		    #
+		    # When it comes time to actually assign a codetemp
+		    # to a particular hardware register, often we will
+		    # have several possiblities, which means we need some			# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+		    # strategy to make the decision.  This isn't rocket
+		    # science -- currently we just do a round-robin:
+		    # This gets used (only) in
+		    #
+		    #     src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+
+
+		register_is_taken:	rwv::Rw_Vector( Int ),
+		true_value:			   Ref( Int ),
+		    #
+		    # These are a speedhack.  When iterated_register_coalescing			# iterated_register_coalescing					is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+		    # calls pick_available_hardware_register from package
+		    # pick_available_hardware_register_by_round_robin_g				# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+		    # it passes a vector specifying which registers are
+		    # already taken.
+		    #
+		    # Rather than allot and initialize this vector on
+		    # every call, which would be slow, we allot it once in
+		    # solve_register_allocation_problems_by_iterated_coalescing_g		# solve_register_allocation_problems_by_iterated_coalescing_g	is from   src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+		    # and then cache it here.
+		    #
+		    # As a further speedhack, rather than clearing this vector each
+		    # call, which would also be slow, we switch our test from
+		    #
+		    #     register is taken iff    register_is_taken[ register ] == TRUE
+		    # to
+		    #     register is taken iff    register_is_taken[ register ] == true_value
+		    #
+		    # This way, just by incrementing true_value, we effectively set all
+		    # values in register_is_taken to false.
+
+		spill_flag:		Ref( Bool ),						# Info to undo a spill when an optimistic spill has occurred 
+
+		spilled_regs:		iht::Hashtable( Bool ), 				# Registers that have been spilled.
+		trail:			Ref( Trail_Info ),
+
+		show_reg:		rkj::Codetemp_Info -> String,				# How to pretty print a register. Currently always broken.
+
+		get_next_codetemp_id_to_allot:		Void -> Int,				# Highest codetemp id yet issued, +1.  In practical terms, this is currently about nodes_to_color + 512.
+
+		#  Dead copies 
+		dead_copies:		Ref(  List(  rkj::Codetemp_Info ) ),
+		copy_tmps:		Ref(  List(  Node ) ),
+		mem_moves:		Ref(  List(  Move ) ),
+		ramregs:		Ref(  List(  Node ) ),
+
+		spill_loc:		Ref( Int ),						#  spill locations 
+
+		span:			Ref( Null_Or( iht::Hashtable( Cost ) ) ),		#  span indexed by node id 
+
+		mode:			Mode,
+
+		pseudo_count:   Ref( Int )
+	      }
+
+	also
+	Move_Status = BRIGGS_MOVE			# Not yet coalesceable.
+		    | GEORGE_MOVE			# Not yet coalesceable.
+		    | COALESCED				# Coalesced.
+		    | CONSTRAINED			# Src and target intefere.
+		    | LOST				# Frozen moves.
+		    | WORKLIST				# On the move worklist.
+
+	also
+	Move =  MOVE_INT
+		  { src_reg:	Node,			# Source register of move 
+		    dst_reg:	Node,			# Destination register of move 
+		    cost:	Cost,			# Cost 
+		    status:	Ref( Move_Status ),	# Coalesced? 
+		    hicount:	Ref( Int )		# Neighbors of high degree 
+		   }
+
+
+
+	also
+	Node_Status
+	  #
+	  = CODETEMP					# Code temporary awaiting a register (or being spilled).
+	  | REMOVED					# Removed from the interference graph.
+	  | ALIASED  Node				# Coalesced.
+	  | COLORED  Int				# Colored.
+	  | RAMREG  (Int, rkj::Codetemp_Info)		# Register implemented in memory.
+	  | SPILL_LOC  Int				# Spilled at logical location.
+	  | SPILLED					# Spilled.
+	      #
+	      # Note on SPILLED:
+	      #  SPILLED -1 means that the spill location is still undetermined
+	      #  SPILLED c, c >= 0 means that c is a fixed "memory register"
+	      #  SPILLED c, c < -1 means that c is a logical spill location
+	      #                    assigned by the register allocator
+
+
+	also
+	Node =  NODE							# This represents one register in the register-interference graph.
+		  {
+		    id:			Int,				# Node ID.
+		    register:		rkj::Codetemp_Info,
+		    movecnt:		Ref( Int ),			# Moves this node is involved in 
+		    movelist:		Ref(  List(Move) ),		# Moves associated with this node 
+		    degree:		Ref( Int ),			# Current degree 
+		    color:		Ref( Node_Status ),		# Status 
+		    interferes_with:	Ref( List(Node) ),		# This is the list of nodes with which we cannot share a physical register (because we are live at the same time).
+		    priority:		Ref( Priority ),		# Priority 
+		    movecost:		Ref( Cost ),			# Mmove cost 
+		    #  pair:		Bool,				# Register pair? 
+		    defs:		Ref(  List(Program_Point) ), 
+		    uses:		Ref(  List(Program_Point) )
+		  }
+
+	also
+	Trail_Info = END
+		   | UNDO  (Node, Ref( Move_Status ), Trail_Info)
+		   ;
+
+
+
+	make_edge_hashtable
+	    :
+	    { hashchains_count_hint:	Int,
+	      max_codetemp_id:		Int
+	    }
+	    ->
+	    geh::Graph_By_Edge_Hashtable;
+
+
+
+	issue_codetemp_interference_graph
+	  :
+	  { node_hashtable:		iht::Hashtable( Node ),
+
+	    nodes_to_color:		Int,						# How many codetemps need to be assigned to hardware registers (or spilled)?
+											# This is essentially *rkj::REGISTERKIND_INFO.codetemps_made_count, which gets
+											# incremented by issue_int_codetemp (and kin) in   src/lib/compiler/back/low/code/registerkinds-g.pkg
+											# In concrete terms, this varies from one to thousands, with typical values in the dozens.
+											# Currently this gets used only once, to pre-size our edge_hashtable in src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+
+	    get_next_codetemp_id_to_allot:	Void -> Int,				# Highest codetemp id allotted, +1.  In practice this is roughly nodes_to_color + 512.
+
+	    hardware_registers_we_may_use:	Int,					# E.g. 6 int regs on intel32.  Number of colors for our graph-colorer -- this number is the center of our life during register allocation.
+
+	    codetemp_id_if_above:	Int,						# 256 on intel32. ids < this belong to physical registers; ids >= this belong to codetemps.
+	    is_globally_allocated_register_or_codetemp:	Int -> Bool,					# Distinguishes registers globally allocated by hand (e.g., esp and edi on intel32) from those managed by the register allocator.
+	    show_reg:			rkj::Codetemp_Info -> String,
+	    #	
+	    pick_available_hardware_register:		{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Speedhack: register is taken iff  register_is_taken[ register ] == true_value.
+	    pick_available_hardware_registerpair:	{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Stillborn idea; dummy value, never used.
+	    #	
+	    register_is_taken:		rwv::Rw_Vector( Int ),
+	    mode:			Mode,
+	    spill_loc:			Ref( Int ),
+	    ramregs:			List( rkj::Codetemp_Info )
+	  }
+	  ->
+	  Codetemp_Interference_Graph;
+
+    };
+end;
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

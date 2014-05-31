@@ -1,0 +1,527 @@
+# crc.pkg
+
+# Compiled by:
+#     src/lib/compiler/src/library/pickle.lib
+
+
+api Crc {
+
+    Crc;
+
+    zero: Crc;
+    append:  (Crc, Char) -> Crc;
+
+    bytes_per_crc:  Int;                       #  Size, in bytes, of CRC strings 
+
+    from_string:  String -> Crc;    #  Computes the CRC of a string 
+
+    to_string: Crc -> String;       #  Axiom:  from_string (to_string (x)) = x 
+    compare:  (Crc, Crc) -> Order;
+    combine: List( Crc ) ->Crc;
+    hash_to_int: Crc -> Int;
+    * : (Crc, Crc) -> Crc;
+    + : (Crc, Crc) -> Crc;          #  0 <= hashToInt bytes_per_crc          c < bytes_per_crc 
+
+    suffix: { start: Crc, finish: Crc, length: Int } -> Crc;
+
+    #   Suffix allows you to compute CRC of the string B
+    #	       when you already know the CRC's of A and AB
+    #
+    #	For any strings a, b,    test (a, b) = TRUE
+    #	  fun test (a, b) =
+    #	      let fun crcstring (start, a) = 
+    #			fold_backward (\\ (x, y)=>crc::append (y, x)) start (explode a)
+    #		  x = crcstring (crc::zero, a)
+    #		  y = crcstring (x, b)
+    #		  z = crcstring (crc::zero, b)
+    #		  z' = crc::suffix { start=x, finish=y, length=size b }
+    #	       in crc::to_string z = crc::to_string z'
+    #	      end
+    #
+    #      For a hash-consing application, I want to know the CRC of a string b
+    #      knowing only:
+    #
+    #	X = CRC of a
+    #	Y = CRC of a^b
+    #	bytes_per_crc = size of b  (in bytes)
+    #
+    #     The CRC of a string s is really a polynomial in the field ZF (2):
+    #
+    #	 (  Sum_i (s[i] * x^i)  )  mod P
+    #
+    #     where s[i] is the i'th bit of the string and P is a primitive polynomial;
+    #
+    #     then we can compute   Z = CRC of b  as follows:
+    #
+    #	Z = (X * x^(8bytes_per_crc) + Y) mod P
+    #
+    #      where addition (+) is in the field of polynomials over ZF (2).
+    #
+    #      Let's define this operation as  suffix { start=X, finish=Y, length=bytes_per_crc }
+    #      and we can do it in constant time (though the constant depends on the
+    #      size of the polynomial P).
+    #
+
+
+
+
+};
+
+stipulate
+    package vec =  vector;	# vector	is from   src/lib/std/src/vector.pkg
+herein
+
+    package crc
+          : Crc		# Crc	is from   src/lib/compiler/src/library/crc.pkg
+    {
+	wtoi = unt::to_int_x;
+	itow = unt::from_int;
+
+	# 128-bit CRC.  
+	# The call `append crc c' corresponds to eight steps of a shift register
+	# circuit, shifting in one bit of character c from the left in each step.
+	# See Figure 2.16 in Bertsekas and Gallager: Data Networks (1987), 
+	# or Figure 3-32 in Siewiorek and Swarz: The Theory and Practice 
+	# of Reliable System Design (Digital Press, 1982). 
+
+
+	Crc = { high: List( Int ), low: List( Int ), lowest: Int };
+		   #  Invariant: size (high @ reverse low @ [lowest]) = 16 
+
+	# The prime generator polynomial is 1 + x + x^2 + x^7 + x^128.
+	# Reversing the low coefficient bits we have 1110.0001 = 225
+
+	poly = 0u225;
+
+	table = vec::from_fn (256, init)
+		where
+		    fun init n
+			=
+			f (itow n, poly, 0u0)
+			where
+			    fun f (0u0, _, r) => wtoi r;
+				#
+				f (i, p, r) => if (unt::bitwise_and (i, 0u1) != 0u0)	f (unt::(>>) (i, 0u1), p+p, unt::bitwise_xor (p, r));
+					       else					f (unt::(>>) (i, 0u1), p+p, r);
+					       fi;
+			    end;
+		       end;
+		end
+		:
+		vec::Vector( Int );
+
+	bytes_per_crc = 16;
+
+	zero = { high => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], low => [0], lowest=>0 };
+
+	fun to_string { high, low, lowest }
+	    =
+	    implode (map char::from_int (high @ reverse low @ [lowest]));
+
+	fun append'( { high=>0 ! high', low, lowest }, c)
+		=>
+		{ high=>high', low=>lowest ! low, lowest=>c };
+
+	    append'( { high=>h ! high', low, lowest }, c)
+		=>
+		{ hilo = vec::get (table, h);
+		    hi = unt::(>>) (itow hilo, 0u8);
+		    lo = unt::bitwise_and (itow hilo, 0u255);
+		  { high=>high', low=> wtoi (unt::bitwise_xor (itow lowest, hi)) ! low, 
+		     lowest=>wtoi (unt::bitwise_xor (itow c, lo)) };
+		};
+
+	    append'( { high=>NIL, low, lowest }, c)
+		=> 
+		append'( { high=>reverse low, low=>NIL, lowest }, c);
+	end;
+
+
+	fun append (crc, c)
+	    =
+	    append'(crc, char::to_int c);
+
+	z14  =  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+	fun from_string s
+	    = 
+	    {   fun get i
+		    =
+		    char::to_int (string::get (s, i));
+
+		fun loop (high, i)
+		    =
+		    if   (i == 0)
+
+			 high;
+		    else
+			 i' = i - 1;
+			 loop((get i') ! high, i');
+		    fi;
+
+		len = size s;
+
+		if   (len >= 16)
+
+		     crc0 = { high=>loop (NIL, 14), low => [get 14], lowest=>get 15 };
+
+		     fun aloop (crc, i)
+			 =
+			 if   (i == len)
+			      crc;
+			 else aloop (append'(crc, get i), i+1);fi;
+
+		     aloop (crc0, 16);
+
+		else if   (len > 2)
+
+			  fun zloop (high, 0) => high;
+			      zloop (high, n) => zloop (0 ! high, n - 1);
+			  end;
+
+			  { high=>zloop (loop (NIL, len - 2), 16-len), low => [get (len - 2)],
+			    lowest=>get (len - 1)
+			  };
+
+		     else if   (len==2)
+			       { high=>z14, low => [get (0)], lowest=>get (1) };
+			  else if   (len==1)
+				    my { high, low, ... } = zero;
+				    { high, low, lowest=>get 0 };
+			       else zero;  fi;
+			  fi;
+		     fi;
+		fi;
+
+	    };
+
+       one = append'(zero, 1);
+
+       fun map2w f
+	   =
+	   paired_lists::map
+	       (\\ (a, b) = wtoi (f (itow a, itow b)));
+
+       fun xor ( { high=>h1, low=>l1, lowest=>x1 },
+		{ high=>h2, low=>l2, lowest=>x2 }
+	      )
+	   =
+	   { high   =>  map2w unt::bitwise_xor (h1 @ reverse l1, h2 @ reverse l2),
+	     low    =>  NIL,
+	     lowest =>  wtoi (unt::bitwise_xor (itow x1, itow x2))
+	   };
+
+    /* buggy
+       fun prod1 (x, y) =
+       let fun f (0, x, y, u) = u
+	     | f (n, x, y, u) = let odd = Bits::bitwise_and (y, 1)
+			   in f (n - 1, Bits::lshift (x, 1), Bits::rshift (y, 1),
+				Bits::bitwise_xor (u, Bits::bitwise_and(-odd, y)))
+			   end
+	in f (8, x, y, 0)
+       end
+    */
+
+       fun prod1 (x, 0)
+	       =>
+	       0;
+
+	   prod1 (x, y)
+	       =>
+	       {   u = prod1 (x, wtoi (unt::(>>) (itow y, 0u1)));
+		   odd = wtoi (unt::bitwise_and (itow y, 0u1));
+
+		   wtoi (unt::bitwise_xor (unt::(<<) (itow u, 0u1),
+			     unt::bitwise_and (itow x, itow (-odd))));
+	       };
+       end;
+
+       fun product (crc1, crc2)
+	   =
+	   {   fun expand crc
+		   =
+		   # List of bytes from low to high, dropping high zeros 
+
+		   {   fun f ( { high=>0 ! h', low, lowest }, NIL)
+			       => 
+			       f( { high=>h', low, lowest }, NIL);
+
+			   f( { high=>h ! h', low, lowest }, r)
+			       => 
+			       f( { high=>h', low, lowest }, h ! r);
+
+			   f( { high=>NIL, low=>NIL, lowest=>0 }, NIL)
+			       =>
+			       NIL;
+
+			   f( { high=>NIL, low=>NIL, lowest }, r)
+			       =>
+			       lowest ! r;
+
+			   f( { high=>NIL, low, lowest }, r)
+			       => 
+			       f( { high=>reverse low, low=>NIL, lowest }, r);
+		       end;
+
+		      f (crc, NIL);
+		   };
+
+	       fun prod_n (x, carry, lowest ! rest)
+		       =>
+		       {   hilo= prod1 (x, lowest);
+			    lo = unt::bitwise_and (itow hilo, 0u255);
+			    hi = unt::(>>) (itow hilo, 0u8);
+			  append'(prod_n (x, wtoi hi, rest),
+				    wtoi (unt::bitwise_xor (lo, itow carry)));
+			};
+
+		   prod_n (x, carry, NIL)
+		       =>
+		       append'(zero, carry);
+	       end;
+
+		fun prod_nn (x ! xx, yy)
+			=>
+			xor (prod_n (x, 0, yy), append'(prod_nn (xx, yy), 0));
+
+		    prod_nn (NIL, yy)
+			=>
+			zero;
+		end;
+
+		prod_nn (expand crc1, expand crc2);
+	    };
+
+       max = 64;  # Such that the "length" argument to "suffix" 
+		  # is never larger than 2^max
+
+       expsqr = {
+	   fun loop (i, v ! vl) =>
+	       if (i<max )
+		   /* precondition: v = append (one, zerostring (2^(i - 1)))
+		    * where zerostring (n) is a string of n null bytes 
+		    * postcondition: loop (i+1, append (one, zerostring (2^i)) ! v ! vl)
+		    */
+		   loop (i+1, product (v, v) ! v ! vl);
+	       else vec::from_list (reverse (v ! vl));fi;
+	      loop _ => raise exception FAIL "crc: internal error (expsqr)"; end;
+
+	   loop (1, [append'(one, 0)]);
+       };
+
+       fun odd (n)
+	   =
+	   unt::bitwise_and (itow n, 0u1) != 0u0;
+
+       fun shift (crc, n)
+	   =
+	   product (crc, scan (0, one))
+	   where
+	       fun scan (i, accum)
+		   = 
+		   {   j = wtoi (unt::(<<) (0u1, itow i));
+
+		       if (j > n)
+			    accum;
+		       elif (unt::bitwise_and (itow j, itow n) != 0u0)
+			    scan (i+1, product (accum, vec::get (expsqr, i)));
+		       else
+			    scan (i+1, accum);
+		       fi;
+		   };
+	   end;
+
+       fun suffix { start, finish, length=>n }
+	   =
+	   xor (shift (start, n), finish);
+
+
+    /*
+       fun hashToInt n { high, low, lowest } = 
+	let fun hashbyte (b, accum) = (accum*256 + b) mod n
+	 in accum (lowest, fold_backward hashbyte (fold_forward hashbyte 0 high) low)
+	end
+    */
+       fun hash_to_int { high, low, lowest }
+	   =
+	   {   my (*) = one_word_unt::(*);
+	       my (+) = one_word_unt::(+);
+
+	       fun hashbyte (b, accum: one_word_unt::Unt)
+		   = 
+		   (accum*0u65599 + one_word_unt::from_int b);
+
+	       h = hashbyte (lowest, fold_backward hashbyte (fold_forward hashbyte 0u0 high) low);
+
+	       one_word_unt::to_int (one_word_unt::(>>) (h * 0u65599, 0u2));
+	   };
+
+
+       fun compare ( { high=>ah ! ar, low=>al, lowest=>at },{ high=>bh ! br, low=>bl, lowest=>bt } )
+	       =>
+	       if    (ah        < bh)   LESS;
+	       elif  ((ah: Int) > bh)   GREATER;
+	       else                     compare( { high=>ar, low=>al, lowest=>at },{ high=>br, low=>bl, lowest=>bt } );
+	       fi;
+
+	   compare( { high=>NIL, low=>al as _ ! _, lowest=>at }, b)
+	       =>
+	       compare( { high=>reverse al, low=>NIL, lowest=>at }, b);
+
+	   compare (a,{ high=>NIL, low=>bl as _ ! _, lowest=>bt } )
+	       =>
+	       compare (a,{ high=>reverse bl, low=>NIL, lowest=>bt } );
+
+	   compare( { high=>NIL, low=>NIL, lowest=>at },{ high=>NIL, low=>NIL, lowest=>bt } )
+	       => 
+	       if   (at < (bt: Int))   LESS; 
+	       elif (at > bt       )   GREATER;
+	       else                    EQUAL;
+	       fi;
+
+	   compare _ => raise exception FAIL "crc: internal error (compare)";
+       end;
+
+    /*
+       fun { high=ah ! ar, low=al, lowest=at } < { high=bh ! br, low=bl, lowest=bt } =
+		     int::(<) (ah, bh)
+	     or ah=bh and
+		     { high=ar, low=al, lowest=at } < { high=br, low=bl, lowest=bt }
+	 | { high=NIL, low=al as _ ! _, lowest=at } < b =
+	       { high=reverse al, low=NIL, lowest=at } < b
+	 | a < { high=NIL, low=bl as _ ! _, lowest=bt } =
+		a < { high=reverse bl, low=NIL, lowest=bt }
+	 | { high=NIL, low=NIL, lowest=at } < { high=NIL, low=NIL, lowest=bt } = 
+		 int::(<) (at, bt)
+    */
+    /*   fun show crc = cat (map (\\ c => int::to_string (ord c) + " ") (explode (to_string crc)))
+    */
+
+       my   aaa: one_word_unt::Unt = 0uxff208489
+       also bbb: one_word_unt::Unt = 0uxf4872e10
+       also ccc: one_word_unt::Unt = 0ux402d619b
+       also ddd: one_word_unt::Unt = 0ux0bf359a7;
+
+
+       perm = #[
+	255, 254, 252, 251, 250, 248, 240, 245, 246, 238, 237, 244, 7, 189,
+	214, 236, 235, 20, 33, 8, 227, 14, 233, 178, 172, 60, 229, 133, 152,
+	19, 210, 203, 221, 208, 76, 18, 13, 199, 113, 62, 40, 190, 213, 194,
+	43, 181, 21, 15, 201, 162, 90, 186, 71, 117, 107, 70, 191, 5, 173, 44,
+	39, 12, 174, 183, 99, 11, 176, 163, 161, 72, 86, 105, 2, 83, 42, 52,
+	179, 135, 103, 110, 151, 58, 108, 96, 166, 25, 115, 66, 142, 10, 141,
+	48, 104, 34, 159, 120, 22, 140, 64, 82, 78, 68, 207, 125, 123, 150,
+	144, 138, 128, 139, 136, 114, 119, 53, 148, 185, 41, 124, 216, 143,
+	49, 92, 98, 51, 112, 73, 50, 63, 16, 46, 158, 126, 206, 122, 94, 132,
+	88, 184, 28, 84, 127, 156, 167, 223, 118, 89, 116, 17, 111, 121, 109,
+	77, 146, 61, 224, 101, 81, 218, 97, 188, 243, 155, 57, 102, 54, 129,
+	93, 192, 153, 106, 36, 145, 79, 31, 137, 26, 67, 85, 175, 80, 168, 65,
+	91, 1, 147, 149, 6, 29, 37, 69, 182, 165, 4, 74, 55, 47, 171, 169, 75,
+	134, 193, 195, 198, 131, 38, 180, 56, 196, 23, 154, 177, 200, 205, 27,
+	209, 95, 204, 160, 3, 30, 157, 32, 9, 212, 211, 45, 202, 170, 0, 219,
+	187, 87, 35, 100, 217, 232, 164, 228, 220, 197, 231, 215, 226, 130,
+	225, 234, 241, 239, 59, 230, 247, 24, 249, 242, 222, 253 ];
+
+
+      fun combine [] => zero;
+	 combine [crc] => crc;
+	 combine (crc1 ! crcs) => 
+	{ fun expand { high, low, lowest } = lowest ! low @ reverse high;
+	    fun mash (crc1, crc2) = fold_backward (\\ (c, x)=>append'(x, c); end ) crc1 (expand crc2);
+	    x = fold_backward mash crc1 crcs;
+
+	    fun w32 (a ! b ! c ! d ! rest) =>
+		  (one_word_unt::bitwise_xor((one_word_unt::(<<))(one_word_unt::from_int d, 0u24),
+		   one_word_unt::bitwise_xor((one_word_unt::(<<))(one_word_unt::from_int c, 0u16),
+		   one_word_unt::bitwise_xor((one_word_unt::(<<))(one_word_unt::from_int b, 0u8),
+			       one_word_unt::from_int a))),
+		   rest);
+	       w32 _ => raise exception FAIL "crc: internal error (w32)"; end;
+
+	    my (u0, r0) = w32 (expand x);
+	    my (u1, r1) = w32 r0;
+	    my (u2, r2) = w32 r1;
+	    my (u3, r3) = w32 r2;
+
+	    case r3
+
+		[] => ();  _ => raise exception FAIL "crc: internal error (w32 rest)";
+	    esac;
+
+	    v0 = one_word_unt::(+) (one_word_unt::(*) (u0, aaa), u1);
+	    v1 = one_word_unt::(+) (one_word_unt::(*) (u1, bbb), u2);
+	    v2 = one_word_unt::(+) (one_word_unt::(*) (u2, ccc), u3);
+	    v3 = one_word_unt::(+) (one_word_unt::(*) (u3, ddd), u0);
+
+	    fun byte (b, k)
+		= 
+		vec::get (perm,
+			   one_word_unt::to_int (one_word_unt::bitwise_and (0u255, one_word_unt::(>>) (b, unt::from_int k))));
+
+	    fun b32 (n, rest)
+		=
+		byte (n, 0) ! byte (n, 8) ! byte (n, 16) ! byte (n, 24)
+			       ! rest;
+
+	    x' = b32 (v3, b32 (v2, b32 (v1, b32 (v0, NIL))));
+
+	    case x'
+		#
+		y0 ! y1 ! y'
+		    =>
+		    { high   => y',
+		      low    => [y1],
+		      lowest => y0
+		    };
+
+		_ => raise exception FAIL "crc: internal error (y0, y1, y')";
+	    esac;
+
+	 }; end;
+
+       my (*) = product;
+       my (+) = xor;
+    };
+end;
+
+#   package Test = 
+#   pkg
+#    
+#   
+#    fun test (a, b) =
+#      let fun crcstring (a) = 
+#                 fold_forward (\\ (x, y)=>crc::append (y, x)) crc::zero (explode a)
+#          zeros = crcstring (implode (chr 1 ! map (\\ _ = chr 0) (explode b)))
+#          x = crcstring a
+#          y = crcstring b
+#          z = crcstring (a^b)
+#          z' = crc::(+) (crc::(*) (x, zeros), y)
+#      in crc::to_string z = crc::to_string z'
+#     end
+#   
+#   end
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# COPYRIGHT (c) 1994 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

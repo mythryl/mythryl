@@ -1,0 +1,370 @@
+The heapcleaner ("garbage collector") is responsible for reclaiming
+discarded chunks of memory.  Mythryl programs allot new memory
+at an extremely high rate -- typically about one word for every ten machine
+instructions executed[1] -- so prompt and efficient reclaimation
+of discarded datastructures is critically important in Mythryl.
+
+To understand how Mythryl cleans its heap, you must first understand
+how Mythryl organizes its heap;  this file assumes you have read and
+understood
+
+    src/A.HEAP.OVERVIEW
+
+The Mythryl heapcleaner is written in C because it must be able to
+function when there is insufficient free ram left for normal Mythryl
+code to run, and also because heapcleaning involves freely casting
+bits of ram to various different types, which is much easier in C
+than in Mythryl.
+
+
+The core two sourcefiles constituting the Mythryl heapcleaner are:
+
+    src/c/heapcleaner/heapclean-agegroup0.c
+    src/c/heapcleaner/heapclean-n-agegroups.c
+
+The first one cleans just agegroup0.  ("Minor" heapcleaning.)
+When it completes, agegroup0 is completely empty and allocation
+in it resumes from the beginning.  This routine is run roughly
+200 times per second.
+
+The second heapcleans one or more of the remaining heap agegroups.
+It runs much less frequently, and only immediately after running
+the first.
+
+
+The heapcleaner is invoked when a heap overflow check reveals
+that heap memory allocation has come dangerously close to the
+end of the generation-zero allocation buffer.  Heap limit checks
+and calls to the heapcleaner are inserted into compiled code by
+
+    src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+    src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+    src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+The C-level Mythryl heapcleaner code depends critically on support from
+the Mythryl compiler.  Specific sourcefiles involved include:
+
+pick_nextcode_fns_for_heaplimit_checks  src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+put_longjump_heapcleaner_calls          src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+put_heapcleaner_calls_for_package       "                                                                             "
+additional heap-exhausted testing:      src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+In more detail, the division of labor is:
+
+    src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+
+        Decides which functions should have heaplimit checks, and
+        marks them by changing their type from ALL_CALLS_KNOWN to
+        ALL_CALLS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK.
+
+        This is based initially on an analysis of the callgraph to
+        find the minimal number of vertices needed to ensure that
+        every cycle in the graph (i.e., every possible loop through
+        the code) contains at least one heaplimit check call.  
+        The actual graph algorithm is implemented in
+            src/lib/compiler/src/stuff/compute-minimum-feedback-vertex-set-of-digraph.pkg
+
+        Additional functions are flagged for heaplimit checks in order
+        to guarantee that no more than 1024 words of heap memory are
+        ever allocated between calls to the heaplimit check function.
+
+    src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+    src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg 
+
+There is also this stuff, which appears to be
+a mostly-unfinished project to associate
+heapcleaner info with every codetemp:
+                                   src/lib/compiler/back/low/heapcleaner-safety/per-codetemp-heapcleaner-info-template.api
+                                   src/lib/compiler/back/low/heapcleaner-safety/codetemps-with-heapcleaner-info.api
+                                   src/lib/compiler/back/low/heapcleaner-safety/codetemps-with-heapcleaner-info-g.pkg
+                                   src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.api
+                                   src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.pkg
+
+
+We distinguish two types of heapcleanings:
+
+  o "Minor" heapcleanings, which clean only agegroup0.
+
+  o "Major" heapcleanings, which clean also agegroup1
+    and perhaps additional agegroups -- in the limit,
+    all agegroups.
+
+Because agegroup0 has a totally different structure
+(no sibs) from later agegroups, we use different code
+to implement minor and major heapcleanings:
+
+    src/c/heapcleaner/heapclean-agegroup0.c
+    src/c/heapcleaner/heapclean-n-agegroups.c
+
+Some important properties and design goals of the
+heapcleaner and associated code and datastructures:
+
+  o The heapcleaner is always invoked at the start
+    of a Mythryl function.  This means that there
+    are no partially-initialized records on the
+    Mythryl heap that we need to worry about.
+    (This avoids some potential heapcleaner headaches.)
+
+  o Mythryl closures ("stackframes") are never modified
+    after being created. (This avoids more potential
+    heapcleaner headaches.)
+
+  o Heapcleaning will normally constitute something
+    roughly like 1/8 to 1/16 of total CPU time used.
+    (This depends heavily on the user code mix.)
+
+  o We always heapclean agegroups 0->n for some 'n';
+    we never clean an agegroup without also cleaning
+    all younger agegroups.
+
+  o Each agegroup0 buffer is about 256KB long.                  // See   DEFAULT_AGEGROUP0_BUFFER_BYTESIZE      in   src/c/h/runtime-configuration.h
+    (The main design consideration here is that the
+    buffer should fit within level-two cache.  
+    Contemporary Intel level-two cache sizes range
+    from 256KB to 1MB.)
+
+  o The design intention is that each agegroup be               // See  DEFAULT_AGEGROUP_SIZE_RATIO*            in   src/c/h/runtime-configuration.h
+    about 10X larger than the next-younger agegroup:
+
+        agegroup0:  About    1MB
+        agegroup1:  About   10MB
+        agegroup2:  About  100MB
+        agegroup3:  About 1000MB
+                 ...
+
+  o Correspondingly, we expect to heapclean each
+    agegroup only about 1/10 as many times as the
+    next-youngest agegroup.  We expect to heapclean:
+
+        agegroup0:  About 100 times per second.
+        agegroup1:  About  10 times per second.
+        agegroup2:  About   1 time  per second.
+                 ...
+
+  o According to actual timings we typically do minor
+    heapcleanings at the rate of about 200 per second.
+    (2011, 800MHz AMD Phenom(tm) II X6 1090T Processor
+    according to /proc/cpuinfo, during compile of the
+    Mythryl compiler.)
+
+  o At the end of a minor heapcleaning agegroup0 is
+    always completely empty.  At that point we reset
+        task.heap_allocation_pointer                            // See src/c/h/runtime-base.h
+    to  task.heap_allocation_buffer
+    and again allot ram linearly until we reach 
+        task.heap_allocation_limit.
+
+  o For the other agegroups, we promote each heapchunk
+    from one agegroup to the next after it has survived
+    two heapcleanings in its current agegroup.
+    To implement this we have in each sib a pointer 
+        fromspace.seniorchunks_end                                              // See struct sib in   src/c/h/heap.h
+    which tracks the boundary between the "old"
+    (survived one heapcleaning) and "young" chunks
+    within that sib.
+        As a special case, chunks in the oldest active
+    agegroup are always "young", since they are not
+    eligible to be promoted to an older agegroup.
+
+  o When running multicore, there is one agegroup0
+    per core (i.e., per posix thread -- "hostthread").
+    Each core can allot ram at full speed within
+    its private agegroup0 without need to synchronize
+    with other cores.
+
+  o All other heap agegroups are shared, which
+    means that all modifications to them must be
+    appropriately synchronized with other cores by
+    use of mutexes etc.
+
+  o When heapcleaning a given agegroup, we require
+    that the next agegroup have enough space to
+    guarantee that there will be no overflow problems.                  // See set_up_empty_tospace_buffers()   in   src/c/heapcleaner/heapclean-n-agegroups.c
+        In particular, agegroup0 is about 256KB,
+    almost all of which may wind up in any of the four
+    agegroup1 sibs, so we require that each agegroup1
+    sib have at least 256KB free space at the start
+    of a minor heapcleaning.
+        (This is almost always vast overkill in practice,
+    because agegroup0 is usually almost all garbage, but
+    it is much better to be safe than sorry here!)
+
+    More generally, when cleaning a given sib, we require that
+    the to-space buffer for it have enough space to hold:
+
+        1) All "young" chunks in the from-space buffer for that
+           sib. (A chunk is "young" in a sib if it has not yet
+           survived a heapcleaning in that sib.)  These will
+           potentially all get copied into to-space for the
+           sib, so there must be room enough to hold them all.
+
+        2) All "old" chunks in the from-space buffer for the
+           corresponding next-younger sib.  These will all
+           potentially get promoted to our sib, so we must
+           have sufficient room to hold all of them.
+
+        3) User code may be creating new chunk(s) in this sib.          // See src/c/heapcleaner/make-strings-and-vectors-etc.c
+           The to-space buffer must contain enough additional
+           space to allow this.
+
+  o In general every active sib must have valid to-space buffers
+    at all times, but from-space buffers need be valid only
+    while a heapcleaning is in progress.
+      With small ones it is most efficient to simply retain
+    from-space buffers between heapcleanings.
+      With large ones it is most efficient to return from-space
+    buffers to the host OS at the end of a heaplceaning and 
+    and re-allot them when next needed.				// See free_agegroup() in src/c/heapcleaner/heapcleaner-stuff.c
+      The policy on what "large" means in this context is set by
+    DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS
+    in src/c/h/runtime-configuration.h
+    (See additional comments there.)  Currently "large" means
+    1GB or above, roughly.
+
+
+
+
+Protecting Mythryl Heap Pointers in C Runtime Code
+==================================================
+
+A characteristic problem in garbage-collected languages is interaction
+between low-level C runtime/library code and the garbage collector.
+
+In particular, such C code may
+
+  o Have pointers into the garbage-collected heap and
+  o Do something to trigger a garbage collection.
+
+If so, we have two potential problems:
+
+ 1. If the C stack contains pointers into the garbage-collected heap
+    which the garbage collector does not know about, values which are
+    actually live may be treated as dead and garbage-collected.
+
+ 2. If the C stack contains pointers into the garbage-collected heap
+    which the garbage collector does not know about, those pointers
+    will not get updated properly when the garbage collector moves
+    values around in the heap.
+
+Either of these can result in very obscure heap corruption bugs
+resulting in fatal errors such as segfaults -- bugs requiring
+great effort to track down.
+
+To avoid perpetual flakiness, it is critically important to have
+a carefully engineered protocol to minimize the possibility of
+such problems by providing convenient, standard ways of coping
+with Mythryl-heap pointers embedded in C code.
+
+The SML/NJ codebase unfortunately lacks such a protocol;
+embedded heap pointers are typically "dealt" with just by
+adding a comment "this is a bug".  *wrygrin*
+
+As of 2012-02, the Mythryl codebase protocol for such problems
+consists of two parts:
+
+ 1. Every C runtime/library function which can trigger
+    a garbage collection has
+
+        __may_heapclean
+
+    appended to its name.
+
+    This provides an obvious red-flag warning to think
+    about Mythryl heap pointers embedded on the C stack
+    when calling such functions.
+
+    This also makes it fairly simple to identify the complete
+    set of such functions:  Any function containing a call
+    to a function foo__may_heapclean, should itself have a
+    name ending in __may_heapclean.
+
+
+ 2. Every C runtime/library function whose name ends in
+    __may_heapclean has a final arg
+
+        Roots* extra_args
+
+    This arg is a linklist of Mythryl heap pointers stored
+    on the C stack which must be passed to the garbage
+    collector if it is invoked.  The typedef for Roots is in
+
+        src/c/h/runtime-base.h
+
+    to whit:
+
+        typedef  struct roots  {  Val* root;  struct roots* next;  }  Roots;
+
+    This linklist will be augmented as appropriate by the fn
+    in question and passed to the heapcleaner if it is called,
+    and also to any fns which might call the heapcleaner.
+
+
+Example:
+
+In action, this protocol looks as follows,
+similar to that in  src/c/lib/posix-passwd/getpwuid.c
+
+    Val    some_fn__may_heapclean  (Task* task,  struct passwd*  info,  Roots* extra_roots) {
+        // ======================
+        //
+        Val pw_name  =  make_ascii_string_from_c_string__may_heapclean( task,          info->pw_name, extra_roots );              Roots roots1 = { &pw_name, extra_roots };
+        Val pw_uid   =  make_one_word_unt(                              task,  (Vunt) (info->pw_uid)              );              Roots roots2 = { &pw_uid,  &roots1 };
+        Val pw_gid   =  make_one_word_unt(                              task,  (Vunt) (info->pw_gid)              );              Roots roots3 = { &pw_gid,  &roots2 };
+        Val pw_dir   =  make_ascii_string_from_c_string__may_heapclean( task,          info->pw_dir,   &roots3    );              Roots roots4 = { &pw_dir,  &roots3 };
+        Val pw_shell =  make_ascii_string_from_c_string__may_heapclean( task,          info->pw_shell, &roots4    );
+
+        return make_five_slot_record(task,  pw_name, pw_uid, pw_gid, pw_dir, pw_shell  );
+    }
+
+Here the rightmost-column of code constructs the linklist
+of live Mythryl-heap pointers on the C stack, while the
+remaining code constructs those values and passes the
+live-heap-pointers-on-C-stack linklist to those functions
+which may directly or indirectly call the garbage collector,
+which in this case are the three calls to
+
+    make_ascii_string_from_c_string__may_heapclean
+
+Our 'extra_roots' argument contains any pre-existing live
+Mythryl heap pointers on the C stack;  we append new entries
+to that list as appropriate and pass it on in our turn to
+__may_heapclean fns we call.
+
+This solution is simple and efficient.  Like many C coding
+conventions, however, it does lack compiler support, and
+consequently requires a fairly fanatic attention to detail
+on the part of the C coder in order to achieve good results.
+
+
+
+========================================================
+Note [1]:
+
+Favoring creation of new values over modification of existing ones is
+one of the ways Mythryl programs minimize use of side-effects, which
+in turn minimizes opportunity for race-condition bugs in concurrent
+and parallel code.
+
+
+========================================================
+Two relevant papers out of many in the literature:
+
+     Space-Efficient Closure Reprentations
+     Zhong Shao, Andrew W Appel
+     1994, 12p
+     http://flint.cs.yale.edu/flint/publications/closure.ps.gz
+
+     Efficient and Safe-for-Space Closure Conversion
+     Zhong Shao, Andrew Appel
+     2000, 33p
+     http://flint.cs.yale.edu/flint/publications/escc.html 
+
+In general, google-scholar searching for papers by
+Andrew W Appel since 1990 is a good start on finding
+relevant papers.  (Appel was the original SML/NJ
+compiler designer/implementation expert, working with
+David MacQueen as SML language design/semantics expert.)
+
+Usually the code has evolved considerably relative to
+the description in the papers, so they are of limited
+use except as cultural/historical background.

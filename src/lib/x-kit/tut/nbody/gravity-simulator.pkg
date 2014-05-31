@@ -1,0 +1,200 @@
+## gravity-simulator.pkg
+#
+# Our (primitive) physics engine.  We run a thread which
+# regularly updates the positions of the planets according
+# to n-body gravitational interactions.
+#
+# Since this is a demo of concurrent programming not physics
+# we settle for a very naive  algorithm which (for example)
+# makes no attempt to adaptively increase the time resolution
+# when a particular planet is making a sharp turn; consequently
+# the results are numerically unstable and physically unrealistic.
+
+# Compiled by:
+#     src/lib/x-kit/tut/nbody/nbody-app.lib
+
+stipulate
+    include threadkit;						# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+herein
+
+    package   gravity_simulator
+    :         Gravity_Simulator					# Gravity_Simulator	is from   src/lib/x-kit/tut/nbody/gravity-simulator.api
+    {
+	package v {
+
+	    Vector = (Float, Float);
+
+	    zero = (0.0, 0.0);
+
+	    fun add ((x1, y1): Vector, (x2, y2)) =  (x1 + x2, y1 + y2);
+	    fun sub ((x1, y1): Vector, (x2, y2)) =  (x1 - x2, y1 - y2);
+
+	    fun neg ((x, y): Vector) = (-x, -y);
+
+	    fun scmul (c, (x, y): Vector) =  (c * x, c * y);
+
+	    fun sqnorm ((x, y): Vector) =  x * x + y * y;
+	    fun proj2d ((x, y): Vector) = { x, y };
+	};
+
+	Vector = v::Vector;
+
+	Planet(X)
+	  =
+	  { position:	Vector,
+	    velocity:	Vector,
+	    mass:	Float,
+	    user_data:	X
+	  };
+
+	Plea_Mail(X)
+	  = SET_SIMSECS_PER_SIMSTEP	Float
+	  | SET_SIMSTEPS_PER_50MS	Int
+	  | ADD_PLANET			Planet(X)
+	  | GET_PLANETS			Mailslot( List( Planet(X) ))
+	  | STOP
+	  ;
+
+	fun start { g, planets, simsecs_per_simstep, plea_slot, simsteps_per_50ms }
+	    =
+	    {   fun accels []
+			=>
+			[];
+
+		    accels [_]
+			=>
+			[v::zero];
+
+		    accels ( { position => ph,		# position
+                               velocity => vh,		# vector
+                               mass     => mh,		# mass
+                               user_data
+                             } ! tl
+                           )
+			=>
+			{
+			      fun addh (b, ab, (ah, atl))
+				  =
+				  {
+				      b ->  { position => pb, velocity => vb, mass => mb, user_data };
+
+				      distv = v::sub (pb, ph);
+				      dist2 = v::sqnorm distv;
+
+				      dist = math::sqrt dist2;
+
+				      geometry = g / (dist2 * dist);
+
+				      ah = v::add (ah, v::scmul (geometry * mb, distv));
+				      ab = v::sub (ab, v::scmul (geometry * mh, distv));
+
+				      (ah, ab ! atl);
+				  };
+
+			      my (ah, atl)
+				  =
+				  paired_lists::fold_backward
+				      addh
+				      (v::zero, [])
+				      (tl, accels tl);
+
+			      ah ! atl;
+			};
+		end;
+
+
+		fun do_gravity_simulation_step  (planets, simsecs_per_simstep)
+		    =
+		    paired_lists::map
+			one_planet
+			(planets, accels planets)
+		    where 
+			fun one_planet ( { position, velocity, mass, user_data }, acceleration)
+			    =
+			    { position =>  v::add (position, v::scmul (simsecs_per_simstep, velocity)),
+			      velocity =>  v::add (velocity, v::scmul (simsecs_per_simstep, acceleration)),
+			      mass,
+			      user_data
+			    };
+		    end;
+
+
+		# Do our once-every-50ms update of planetary positions.
+		# We assume that the host CPU speed and CPU load
+		# are sufficient to let us maintain this pace. *grin*
+		#
+		fun do_gravity_simulation_steps  simsteps_per_50ms  (planets, simsecs_per_simstep)
+		    =
+		    loop (simsteps_per_50ms, planets)
+		    where
+			fun loop (0, planets)
+				 =>
+				planets;			# Finished with current 50ms worth of gravity simulation.
+
+			    loop (n, planets)
+				=>
+				{   planets =  do_gravity_simulation_step  (planets, simsecs_per_simstep);
+				    #	
+				    loop (n - 1, planets);
+				};
+			end;
+		    end;
+
+
+		ms_50       = (time::from_milliseconds 50);
+
+
+
+		# Every 50ms we update all the planetary positions;
+		# between times, we respond to client requests.
+		#
+		# Reppy's original 1990 code just ran flat out, but
+		# it is nicer to run at a fixed wallclock rate
+		# independent of CPU speed or load.  By always timing
+		# out at times advancing by a steady 50ms per run we
+		# avoid any dependence on how long the gravity calculations
+		# take (so long as they finish in under 50ms), and also
+		# on CPU load etc:
+		#
+		fun loop (planets, simsecs_per_simstep, simsteps_per_50ms, next_update)
+		    =
+		    do_one_mailop [
+			#
+			take_from_mailslot' plea_slot
+			    ==>
+			    do_plea (planets, simsecs_per_simstep, simsteps_per_50ms, next_update),
+
+			timeout_at' next_update
+			    ==>
+			   {.   planets     =  do_gravity_simulation_steps  simsteps_per_50ms  (planets, simsecs_per_simstep);
+
+				(+) = time::(+);
+				#
+				loop (planets, simsecs_per_simstep, simsteps_per_50ms, next_update + ms_50);
+			    }
+		    ]
+
+		also
+		fun do_plea (planets, simsecs_per_simstep, simsteps_per_50ms, next_update) plea
+		    =
+		    case plea
+			#
+			SET_SIMSECS_PER_SIMSTEP simsecs_per_simstep             =>  loop (         planets,  simsecs_per_simstep, simsteps_per_50ms, next_update);
+			SET_SIMSTEPS_PER_50MS   simsteps_per_50ms               =>  loop (         planets,  simsecs_per_simstep, simsteps_per_50ms, next_update);
+			ADD_PLANET              planet                          =>  loop (planet ! planets,  simsecs_per_simstep, simsteps_per_50ms, next_update);
+			GET_PLANETS c    => {   put_in_mailslot (c, planets);       loop (         planets,  simsecs_per_simstep, simsteps_per_50ms, next_update);  };
+			STOP                                                    => ();
+		    esac;
+
+
+		make_thread  "gravity simulator"  {.
+		    #
+		    my (+) = time::(+);
+		    #
+		    next_update =  time::get_current_time_utc() + ms_50;
+		    #
+		    loop (planets, simsecs_per_simstep, simsteps_per_50ms, next_update);
+		};
+	    };												# fun start
+    };													# package   gravity_simulator
+end;

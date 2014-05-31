@@ -1,0 +1,194 @@
+# uncaught-exception-reporting.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+# This version of this module is adapted from
+# Cliff Krumvieda's utility for tracing
+# threadkit programs.
+#
+#   o A mechanism for reporting uncaught
+#     exceptions on a per thread basis.
+#
+# See also:
+#     src/lib/src/lib/thread-kit/src/lib/thread-deathwatch.pkg
+#     src/lib/src/lib/thread-kit/src/lib/logger.pkg
+
+
+
+stipulate
+    package lb7 =  lib7;							# lib7						is from   src/lib/std/lib7.pkg
+    package thd =  threadkit_debug;						# threadkit_debug				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
+    package th  =  microthread;							# microthread					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread.pkg
+    package tsc =  thread_scheduler_control;					# thread_scheduler_control			is from   src/lib/src/lib/thread-kit/src/posix/thread-scheduler-control.pkg
+    package tsr =  thread_scheduler_is_running;					# thread_scheduler_is_running			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler-is-running.pkg
+herein
+
+    package   uncaught_exception_reporting
+    : (weak)  Uncaught_Exception_Reporting					# Uncaught_Exception_Reporting			is from   src/lib/src/lib/thread-kit/src/lib/uncaught-exception-reporting.api
+    {
+	include threadkit;							# threadkit					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+
+
+
+	################################################################################
+	# Uncaught exception handling:
+	#
+	fun default_uncaught_exception_fn (thread, ex)
+	    =
+	    {   raised_at
+		    =
+		    case (lb7::exception_history ex)
+			#		  
+			[] =>  ["\n"];
+			l  =>  [" raised at ", list::last l, "\n"];
+		    esac;
+
+		thd::say_debug
+		  ( cat
+		      ( [ get_thread's_id_as_string  thread, " uncaught exception ",
+			  exception_name ex, " [", exception_message ex, "]"
+			]
+			@
+			raised_at
+		      )
+		  );
+	    };
+
+	default_uncaught_exception_action
+	    =
+	    REF default_uncaught_exception_fn;
+
+	uncaught_exception_actions
+	    =
+	    REF ([]:  List( (Microthread, Exception) -> Bool ));
+
+	#
+	fun set_default_uncaught_exception_action' action			# Sets the default uncaught-exception action. 
+	    =
+	    default_uncaught_exception_action
+		:=
+		action;
+
+
+	#
+	fun add_uncaught_exception_action' action				# Add an additional uncaught exception action.
+	    =									#
+	    uncaught_exception_actions						# If the action returns TRUE no further is taken.
+		:=								# This can be used to handle application-specific
+		action								# exceptions.
+		!
+		*uncaught_exception_actions;
+
+
+	#
+	fun reset_to_default_uncaught_exception_handling' ()			# Reset the default uncaught-exception
+	    =									# action to the system default and
+	    {   default_uncaught_exception_action				# remove any layered actions.
+		    :=
+		    default_uncaught_exception_fn;
+
+		uncaught_exception_actions
+		    :=
+		    [];
+	    };
+
+	update_uncaught_exception_imp_slot =   make_mailslot () :   Mailslot(Void -> Void);
+	    
+
+	fun start_uncaught_exception_imp ()
+	    =
+	    {
+# printf "start_uncaught_exception_imp/AAA              -- uncaught-exception-reporting.pkg\n";
+		error_queue = make_mailqueue (th::default_microthread);
+
+		# This function is installed as
+		# the default handler for threads.
+		# It sends the thread ID and uncaught
+		# exception to the exception imp.
+		#
+		fun microthreadr  the_exception
+		    =
+		    put_in_mailqueue (error_queue, (get_current_microthread(),  the_exception));
+
+		# Invoke the uncaught-exception actions
+		# on the uncaught exception:
+		#
+		fun handle_uncaught_exception arg
+		    =
+		    {   action_list    =          *uncaught_exception_actions;
+			default_action =  *default_uncaught_exception_action;
+
+			fun loop []              =>  default_action arg;
+			    loop (action ! rest) =>  if (not (action arg))  loop rest; fi;
+			end;
+
+			make_thread  "uncaught_exception tmp"  {.
+			    #
+			    loop  action_list
+			    except
+				_ = default_action arg;
+			};
+
+			();
+		    };
+
+
+
+
+		th::default_exception_handler
+		    :=
+		    microthreadr;
+
+
+		fun imp ()
+		    =
+		    for (;;) {
+			#
+			do_one_mailop [
+			    #			
+			    take_from_mailslot'  update_uncaught_exception_imp_slot
+				==>
+				(\\ f = f()),
+
+			    take_from_mailqueue'  error_queue
+				==>
+				handle_uncaught_exception
+			];
+		    };
+
+
+		make_thread  "uncaught_exception_imp"  imp;
+
+		();
+	    };
+
+	my _ = {   tsc::note_mailslot							# "my _ =" is needed because only declarations are syntactically allowed here.
+		     ( "thread-spy: update_uncaught_exception_imp_slot",
+		       update_uncaught_exception_imp_slot
+		     );
+
+		   tsc::note_imp
+		     {
+		       name => "thread-spy: uncaught-exception imp",
+		       #
+		       at_startup  => start_uncaught_exception_imp,
+		       at_shutdown => (\\ () = ())
+		     };
+	       };
+
+	stipulate
+	    #
+	    fun carefully f
+		=
+		if (tsr::thread_scheduler_is_running ())    put_in_mailslot (update_uncaught_exception_imp_slot, f);
+		else					    f ();
+		fi;
+	herein
+	    fun        set_default_uncaught_exception_action arg =  carefully  (\\ () =       set_default_uncaught_exception_action'   arg);
+	    fun                add_uncaught_exception_action arg =  carefully  (\\ () =               add_uncaught_exception_action'   arg);
+	    fun reset_to_default_uncaught_exception_handling ()  =  carefully  (\\ () =  reset_to_default_uncaught_exception_handling' () );
+	end;
+    };					# package uncaught_exception_reporting
+end;

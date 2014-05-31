@@ -1,0 +1,141 @@
+/*
+ * This module performs branches chaining 
+ *
+ * -- Allen Leung
+ */
+
+generic package   branch_chaining   (
+    #             ===============
+    #
+    package ir:         LOWHALF_IR
+
+    package machcode_universals:  Machcode_Universals
+
+    sharing ir::I = machcode_universals::I
+)
+
+: Lowhalf_Ir_Improver
+
+{
+
+   package ir   = IR
+   package machcode_controlflow_graph  = ir::machcode_controlflow_graph
+   package g    = graph
+   package util = ir::Util
+   package a    = rw_vector
+   package c    = ir::I.C
+
+   type flowgraph = ir::IR
+ 
+   name = "branch_chaining"
+
+   fun error msg = lowhalf_error_message::error("branch_chaining", msg)
+   
+   branchChainingCount = LowhalfControl::getCounter "branch-chaining-count"
+
+   fun run (IR as g::GRAPH mcg:  ir::IR) = 
+   let exception NoTarget
+       N = mcg.capacity ()
+
+       /* Performs branch chaining */  
+       branchMap = int_hashtable::make_hashtable (13, NoTarget)
+       addBranch = int_hashtable::set branchMap 
+       lookupBranch = int_hashtable::lookup branchMap
+
+       visited = a::rw_vector (N, -1)
+       stamp   = REF 0
+
+       changed = REF FALSE
+
+       fun isTrivialCopy (instruction) =  
+           let fun isTrivial([], []) = TRUE
+                 | isTrivial (d . ds, s . ss) =
+                   c::sameColor (d, s) and isTrivial (ds, ss)
+                 | isTrivial _ = error "isTrivialCopy"
+               my (dst, src) = machcode_universals::moveDstSrc instruction
+           in  isTrivial (dst, src) 
+           end
+
+       fun isNop (instruction) = 
+           case machcode_universals::instrKind instruction of
+             machcode_universals::IK_NOP => TRUE 
+           | machcode_universals::IK_COPY => isTrivialCopy (instruction) 
+           | _ => FALSE
+
+       fun isAllNop [] = TRUE
+         | isAllNop (i . is) = isNop i and isAllNop is
+
+       /* Given a blockId, finds out which block it really branches to
+        * eventually.  The visited rw_vector is to prevent looping in programs
+        * with self-loops.   If NO_BRANCH_CHAINING is set on a jump, we also
+        * terminate there. 
+        */ 
+       fun chase blockId = 
+       let st = *stamp
+           stamp := *stamp + 1;
+           fun follow blockId =
+               lookupBranch blockId 
+               except NoTarget =>
+               if a::sub (visited, blockId) == st then blockId
+               else
+                 (a::update (visited, blockId, st);
+                  case mcg.node_info blockId of
+                    machcode_controlflow_graph::BLOCK { instructions=REF [], ... } =>
+                       #  falls thru to next 
+                       (case mcg.out_edges blockId of 
+                          [(_, next, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::FALLSTHRU, ... } )] => 
+                             follow next 
+                        | _ => blockId /* terminates here */ 
+                       )
+                  | machcode_controlflow_graph::BLOCK { instructions=REF (instructions as jmp . rest), ... } =>
+                          #  may be a jump 
+                    let my (_, a) = machcode_universals::get_notes jmp
+                    in  if lowhalf_notes::NO_BRANCH_CHAINING.contains a then
+                            blockId #  no branch chaining! 
+                        else 
+                        (case mcg.out_edges blockId of
+                           [(_, next, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::JUMP, ... } )] => 
+                              if isAllNop rest then follow next 
+                              else blockId #  terminates here 
+                         | [(_, next, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::FALLSTHRU, ... } )] => 
+                              if isAllNop instructions then follow next
+                              else blockId #  terminates here 
+                         | _ => blockId #  terminates here 
+                        )
+                    end
+                 )
+           targetablockId = follow blockId
+       in  addBranch (blockId, targetablockId);
+           if blockId != targetablockId then 
+              (#  print "BRANCHING CHAINING\n"; 
+               branchChainingCount := *branchChainingCount + 1;
+               changed := TRUE) 
+           
+           targetablockId 
+       end
+
+       fun branchChaining (i, machcode_controlflow_graph::BLOCK { instructions=REF [], ... } ) = ()
+         | branchChaining (i, machcode_controlflow_graph::BLOCK { instructions=REF (jmp . _), ... } ) = 
+           if machcode_universals::instrKind jmp == machcode_universals::IK_JUMP then
+           let fun get (i, j, e as machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::JUMP, ... } ) = (i, chase j, e)
+                 | get (i, j, e as machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::BRANCH TRUE, ... } ) = (i, chase j, e)
+                 | get (i, j, e as machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::SWITCH _, ... } ) = (i, chase j, e) 
+                 | get e = e
+               out_edges = mcg.out_edges i
+           in  case out_edges of
+                 ([_] | [_, _]) =>
+                  let edges = map get out_edges
+                  in  mcg.set_out_edges (i, edges);
+                      Util::updateJumpLabel IR i
+                  end
+               | _ => () #  Can't do branch chaining on multiway jumps yet! 
+           end
+           else ()
+
+   in  mcg.forall_nodes branchChaining;
+       if *changed then (Util::removeUnreachableCode IR; ir::changed IR) 
+       IR
+   end
+
+};
+

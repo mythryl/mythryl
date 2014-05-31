@@ -1,0 +1,403 @@
+## dot-graphtree.pkg
+#
+# In-memory representation for "foo.dot" graph files.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# Implement the per-graph, per-node and per-edge
+# information maintained by the dot-graphtree
+# graphs used to hold raw graphs read from foo.dot
+# files, before planar layout is done.
+
+
+
+stipulate
+    package ex  =  exceptions;							# exceptions			is from   src/lib/std/exceptions.pkg
+    package f8b =  eight_byte_float;						# eight_byte_float		is from   src/lib/std/eight-byte-float.pkg
+    package fil =  file__premicrothread;					# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package gt  =  dot_graphtree_traits;					# dot_graphtree_traits		is from   src/lib/std/dot/dot-graphtree-traits.pkg
+    package xg  =  xgeometry;							# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package ag
+	=
+	traitful_graphtree_g (							# traitful_graphtree_g		is from   src/lib/std/graphtree/traitful-graphtree-g.pkg
+	    #
+	    Graph_Info = Ref( gt::Graph_Info );
+	    Edge_Info  = Ref( gt::Edge_Info  );
+	    Node_Info  = Ref (gt::Node_Info  );
+	);
+    #
+    package gio
+	=
+	dot_graph_io_g(								# dot_graph_io_g		is from   src/lib/std/dot/dot-graph-io-g.pkg
+	    #
+	    package io = file__premicrothread;
+	    package g = ag;
+	    #
+	    make_default_graph_info =  {. REF gt::default_graph_info; };
+	    make_default_node_info  =  {. REF gt::default_node_info;  };
+	    make_default_edge_info  =  {. REF gt::default_edge_info;  };
+	);
+herein
+
+    # This package gets referenced in:
+    #
+    #     src/lib/std/dot/planar-graphtree-traits.pkg
+    #     src/lib/std/dot/dotgraph-to-planargraph.pkg
+    #     src/lib/x-kit/tut/show-graph/show-graph-app.pkg
+    #
+    package   dot_graphtree
+    : (weak)  Dot_Graphtree							# Dot_Graphtree			is from   src/lib/std/dot/dot-graphtree.api
+    {
+	include ag;
+
+	include scanf;
+
+	# Define scan functions to extract point
+	# values etc out of ascii trait-value
+	# strings:
+	#
+	stipulate 
+
+	    # We need our scan_functions to be
+	    # 
+	    #     scan_foo: (String, stringoffset: Int) -> ([results], newstringoffset: Int)
+	    # 
+	    # We have them raise GRAPHTREE_ERROR
+	    # if string does not match given format.
+	    # 
+	    # Notes, resources:
+	    # 
+	    # Package scanf gives us:						# scanf				is from   src/lib/src/scanf.pkg
+	    #	    # "fnsscanf" == "scanf over functional streams":
+	    #	    fnsscanf
+	    #		:  (X -> Null_Or( (Char, X) ) )				# E.g., 'get' function fetching i-th char from input string.
+	    #		-> X							# E.g., next 'i' to read from input string.
+	    #		-> String						# Format string.
+	    #		-> Null_Or( (List( Printf_Arg ), X) );			# List of items extracted from input stream, plus any remaining input stream.
+	    # 
+	    # The fetch-ith-char fn for strings is:
+	    #       string::get:   (String, Int) -> Char;
+	    #                      raises INDEX_OUT_OF_BOUNDS if out of range.
+	    #
+	    fun scan
+		format_string					# E.g. "%d, %d"
+		(string, offset)				# E.g. ("12, 13", 0)
+		=
+		{   nextchar = make_nextchar string;
+
+		    case (scanf::fnsscanf nextchar offset format_string)
+			#
+			NULL =>
+			    raise exception GRAPHTREE_ERROR
+				(sprintf "Couldn't match format '%s' at offset %d in string '%s'"
+				    format_string  offset  string
+				);
+
+			THE result			# (values, newoffset)
+			    =>
+			    result;
+		    esac;
+		}
+		where
+		    fun make_nextchar  string
+			=
+			\\ i =
+			    {   char = string::get (string, i);
+				THE (char, i+1);
+			    }
+			    except INDEX_OUT_OF_BOUNDS = NULL;
+		end;
+	herein
+
+	    # (String, string_offset: Int) -> (i, j, new_string_offset: Int) 
+	    #
+	    fun scan_pt  (s, i)
+		=
+		case (scan "%d,%d"  (s, i))
+		    #
+		    ([ INT i, INT j], new_offset) =>  (i, j, new_offset);
+		    _			          =>  raise exception GRAPHTREE_ERROR (sprintf "Invalid point value at %d in %s" i s);	
+		esac;
+
+	    # (String, string_offset: Int) -> (i, j, new_string_offset: Int) 
+	    #
+	    # This is identical to scan_pt above except that
+	    # the format is "e,%d,%d" in stead of "%d,%d":
+	    #
+	    fun scan_arrow  (s, i)
+		=
+		case (scan "e,%d,%d"  (s, i))
+		    #
+		    ([ INT i, INT j], new_offset) =>  (i, j, new_offset);
+		    _			          =>  raise exception GRAPHTREE_ERROR (sprintf "Invalid arrow value at %d in %s" i s);	
+		esac;
+
+
+	    # (String, string_offset: Int) -> (f: Float, g: Float, new_string_offset: Int) 
+	    #
+	    # This is identical to scan_pt above except that
+	    # the format is "%f,%f" in stead of "%d,%d":
+	    #
+	    fun scan_size  (s, i)
+		=
+		case (scan "%f,%f"  (s, i))
+		    #
+		    ([ FLOAT f, FLOAT g], new_offset) =>  (f, g, new_offset);
+		    _			              =>  raise exception GRAPHTREE_ERROR (sprintf "Invalid size value at %d in %s" i s);	
+		esac;
+
+	    # (String, string_offset: Int) -> (i, j, wide, high, new_string_offset: Int) 
+	    #
+	    # This is identical to scan_pt above except that
+	    # the format is "%d,%d,%d,%d" in stead of "%d,%d":
+	    #
+	    fun scan_bbox  (s, i)				# "bbox" == "bounding box"
+		=
+		case (scan "%d,%d,%d,%d"  (s, i))
+		    #
+		    ([ INT i, INT j, INT k, INT l], new_offset) =>  (i, j, k, l, new_offset);
+		    _			                        =>  raise exception GRAPHTREE_ERROR (sprintf "Invalid bounding box value at %d in %s" i s);	
+		esac;
+	end;
+
+	fun scan_float string
+	    =
+	    case (f8b::from_string  string)
+		#
+		THE f =>    f;
+		#
+		NULL  =>    raise exception GRAPHTREE_ERROR
+				(sprintf "Not a valid float value: '%s'" string );
+	    esac;
+
+	offset = 18;				# In pixels.
+
+	fun shift ({ col, row }: xg::Point)
+	    =
+	    { col => col + offset,
+	      row => row + offset
+	    };
+
+	# Parse a possibly missing trait, substituting
+	# a default value if it is absent.
+	#
+	# Here 'parse_fn: String -> Foo' is some function
+	# from input strings to trait values:
+	#
+	fun parse_opt  parse_fn  (THE s,       _) =>  parse_fn s;		# Use explicitly provided trait value.
+	    parse_opt  parse_fn  (NULL,  default) =>  parse_fn default;		# Use default             trait value.
+	end;
+
+
+	fun set_traits g
+	    =
+	    {
+		fun min (r:  Float, r')
+		    =
+		    r <= r'  ??   r
+			     ::   r';
+
+		fun update (r, v)
+		    =
+		    r := v;
+
+
+		fun inch2ps r			# "inches to pixels" ?  (72 pixels/inch is common.)
+		    =
+		    f8b::truncate (72.0*r);
+
+
+		fun ps2inch i
+		    =
+		    (f8b::from_int i) / 72.0;
+
+
+		fun parse_label n "\\N" =>  n;
+		    parse_label n s     =>  s;
+		end;
+
+
+		fun parse_point (s, i)
+		    =
+		    {   my (x, y, i')
+			    =
+			    scan_pt (s, i);
+
+			({ col=>x, row=>y }, i');
+		    };
+
+
+		fun parse_edge NULL
+			=>
+			raise exception GRAPHTREE_ERROR "set_traits: no points on edge";
+
+		    parse_edge (THE e)
+			=>
+			{   (scan_arrow (e, 0))
+				->
+				( x: Int,
+				  y: Int,
+				  i: Int
+				);
+
+			    fun rd_points (l, i)
+				=
+				{   (scan_pt (e, i))
+					->
+					(x, y, i');
+
+				    rd_points ({ col=>x, row=>y } ! l, i');
+				}
+				except
+				    _ = reverse l;
+
+			    ({ col=>x, row=>y }, rd_points([], i));
+			};
+		end;
+
+
+		fun parse_shape "ellipse" =>  gt::ELLIPSE;
+		    parse_shape "diamond" =>  gt::DIAMOND;
+		    parse_shape _         =>  gt::BOX;
+		end;
+
+
+		fun parse_bbox NULL
+			=>
+			raise exception  GRAPHTREE_ERROR "set_traits: no bounding box";
+
+		    parse_bbox (THE r)
+			=>
+			{   (scan_bbox (r, 0))
+				->
+				(_, _, wide, high, _);
+
+			    { wide => wide + 2*offset,
+			      high => high + 2*offset
+			    };
+			};
+		end;
+
+
+		fun parse_size (THE w, THE h)
+			=>
+			{ wide =>  inch2ps (scan_float  w),
+			  high =>  inch2ps (scan_float  h)
+                        };
+
+		    parse_size _
+			=>
+			raise exception  GRAPHTREE_ERROR "set_traits: no node width/height";
+		end;
+
+
+		fun parse_scale (NULL, _)
+			=>
+			1.0;
+
+		    parse_scale (THE s, { wide, high } )
+			=>
+			{   my  ( rw: Float,		# "w" will be "wide" -- what is "r"? "rectangle"?
+				  rh: Float,		# "h" will be "high" -- what is "r"? "rectangle"?
+				  _:  Int
+				)
+				=
+				scan_size (s,0);
+
+			    rwid = ps2inch wide;
+			    rht  = ps2inch high;
+
+			    if (rwid <= rw and rht <= rh)   1.0;
+			    else                            min  (rw / rwid,  rh / rht);
+			    fi;
+			};
+		end;
+
+
+		fun set_graph g
+		    =
+		    {   get  =  get_trait (GRAPH_PART g);
+			#
+			bbox =  parse_bbox (get "bb");
+
+			info =  { name => graph_name g,
+				  bbox,
+				  scale => parse_scale (get "size", bbox)
+			        };
+
+			update (graph_info_of g, info);
+		    };
+
+
+		fun set_node  node
+		    =
+		    {   get = get_trait (NODE_PART node);
+
+			name =  node_name  node;
+
+			info = { center =>  shift (#1  (parse_opt (\\ s = parse_point (s, 0)) (get "pos", "0, 0"))),
+				 shape  =>  parse_opt   parse_shape                           (get "shape", "box"),
+				 label  =>  parse_opt  (parse_label name)                     (get "label", name),
+				 size   =>  parse_size (get "width", get "height")
+			       };
+
+			update  (node_info_of node,  info);
+		    };
+
+		fun set_edge  edge
+		    =
+		    {   get = get_trait (EDGE_PART edge);
+
+			my (arrow, points)
+			    =
+			    parse_edge (get "pos");
+
+			info = { points =>  map shift points,
+				 arrow  =>  shift arrow
+			       };
+
+			update  (edge_info_of edge,  info);
+		    };
+
+		set_graph g;
+		nodes_apply set_node g;
+		nodes_apply (\\ n = out_edges_apply set_edge (g, n)) g;
+	    };
+
+	fun read_graph  name
+	    =
+	    {   input_stream =  fil::open_for_read  name;
+		#
+		graph = (gio::read_graph input_stream)
+			except
+			    (e as GRAPHTREE_ERROR msg)
+				=>
+				{   fil::write (fil::stderr, "Exception Graph " + msg + "\n");
+				    raise exception e;
+				};
+
+			    e   => 
+				{   fil::write (fil::stderr, "Exception " + (ex::exception_name e) + "\n");
+				    raise exception e;
+				};
+			end;
+
+		fil::close_input  input_stream;
+
+		set_traits  graph;
+
+		graph;
+	    }
+	    except
+		(x as io_exceptions::IO _)
+		    =
+		    {   msg = ex::exception_name x;
+			#
+			fil::write (fil::stderr, "dot_graph::read_graph: " + msg + "\n");
+
+			raise exception x;
+		    };
+    };
+end;

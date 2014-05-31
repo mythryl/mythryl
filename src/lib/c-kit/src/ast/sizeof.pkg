@@ -1,0 +1,674 @@
+## sizeof.pkg
+
+# Compiled by:
+#     src/lib/c-kit/src/ast/ast.sublib
+
+# * rules for bit-fields:
+#   
+#    - cannot be more than sizeof an int (word)
+#    - can be zero (only if there is no id) : means fill to word 
+#    - need not have id
+#    - can straddle boundary of words (very implementation
+#      dependent); behavior specified by s::bitFieldAlignment.
+
+
+stipulate
+    package fil =  file__premicrothread;				# file__premicrothread	is from   src/lib/std/src/posix/file--premicrothread.pkg
+herein
+
+    package   sizeof
+    : (weak)  Sizeof							# Sizeof		is from   src/lib/c-kit/src/ast/sizeof.api
+    {
+	package tid = tid;
+	package b= namings;						# namings		is from   src/lib/c-kit/src/ast/bindings.pkg
+	package s= sizes;						# sizes			is from   src/lib/c-kit/src/ast/sizes.pkg
+	package tu= type_util;						# type_util		is from   src/lib/c-kit/src/ast/type-util.pkg
+	package type_check_control= config::type_check_control;		# config		is from   src/lib/c-kit/src/variants/ansi-c/config.pkg
+
+	package map
+	    =
+	    binary_map_g (
+		package {
+		    Key = tid::Uid;
+		    compare = tid::compare;
+		}
+	    );
+
+	warnings_ref =  REF TRUE;
+
+	fun warnings_on  () =  warnings_ref := TRUE;
+	fun warnings_off () =  warnings_ref := FALSE;
+
+	fun local_warning s
+	    =
+	    if *warnings_ref	 fil::print  s;	    fi;
+
+
+	# Ref used for memoization of sizeof values 
+	tid_size_align_map_ref
+	    =
+	    REF (map::empty:   map::Map { tab_opt:  Null_Or( List { member_opt: Null_Or( raw_syntax::Member ), bit_offset: Int } ),
+			      bits: Int, align: Int } );
+
+	fun reset ()
+	    = 
+	    tid_size_align_map_ref
+		:= 
+		(map::empty:   map::Map { tab_opt:   Null_Or( List { member_opt: Null_Or( raw_syntax::Member ), bit_offset: Int } ),
+			    bits: Int, align: Int } );
+
+	fun pad_to_boundary { bits, boundary }
+	    = 
+	    {   q = int::(%) (bits, boundary);
+
+		if   (q == 0   )   bits;
+			      else   bits + (boundary - q);   fi;
+	    };
+
+
+
+	# Used as a bogus return value:
+
+	default_int_layout
+	    = 
+	    {   my { bits, align }
+		    =
+		    sizes::default_sizes.int;
+
+		{ bits,
+		  align,
+		  tab_opt => NULL:   Null_Or( List { member_opt: Null_Or( raw_syntax::Member ),
+						     bit_offset: Int
+						   }
+					    )
+		};
+	    };
+
+	fun field_size_struct (sizes_err_warn_bug as { sizes, err, warn, bug } )
+			    tidtab (ctype, member_opt, THE li)
+		=>
+		{   errors
+			=
+			case (tu::get_core_type tidtab ctype)
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::FLOAT, _)
+				=>
+				err "Can't mix bitfield and float.";
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::DOUBLE, _)
+				=>
+				err "Can't mix bitfield and double.";
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::LONGDOUBLE, _)
+			       =>
+			       err "Can't mix bitfield and longdouble.";
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::CHAR, _)
+				=> 
+				if (type_check_control::iso_bitfield_restrictions)
+
+				     err "Can't mix bitfield and char in ISO/ANSI C."; 
+					#  (ISO spec, section 6.5.2.1, p60) 
+				fi;
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::SHORT, _)
+				=> 
+				if   (type_check_control::iso_bitfield_restrictions)
+
+				     err "Can't mix bitfield and short in ISO/ANSI C.";
+					#  (ISO spec, section 6.5.2.1, p60) 
+				fi;
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::LONG, _)
+				=> 
+				if   (type_check_control::iso_bitfield_restrictions)
+
+				     err "Can't mix bitfield and long in ISO/ANSI C.";
+				     #  (ISO spec, section 6.5.2.1, p60) 
+				fi;
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::LONGLONG, _)
+				=> 
+				if   (type_check_control::iso_bitfield_restrictions)
+
+				     err "Can't mix bitfield and long long in ISO/ANSI C.";
+				     #  (ISO spec, section 6.5.2.1, p60) 
+				fi;
+
+			    raw_syntax::NUMERIC(_, _, _, raw_syntax::INT, _)
+				=>
+				();
+
+			    raw_syntax::ENUM_REF _
+				=>
+				 if   (not type_check_control::allow_enum_bitfields)
+
+				      err "Enum not permitted in bitfield.";
+				 fi;
+
+			    _ => err "Bitfield must be numeric (char, short, int)";
+			esac;
+
+		    i = large_int::to_int li;
+
+		    my { bits, align, ... }
+			=
+			process sizes_err_warn_bug tidtab ctype;
+
+		    if   (i > bits)
+
+			 err "Width of field exceeds its type";
+		    fi;
+
+		    { member_opt,
+		      bitfield => THE i,
+		      size     => bits,
+		      align
+		    };
+		};
+
+	    field_size_struct sizes_err_warn_bug   tidtab   (ctype, member_opt, NULL)
+		=> 
+		{   my { bits, align, ... }
+			=
+			process sizes_err_warn_bug tidtab ctype;
+
+		    { member_opt, bitfield=>NULL, size=>bits, align };
+		};
+	end 
+
+	also
+	fun field_size_union sizes_err_warn_bug tidtab (ctype, member)
+		= 
+		{   my { bits, align, ... }
+			=
+			process sizes_err_warn_bug  tidtab  ctype;
+
+		    { bits, align };
+		}
+
+
+		# The basic idea is to process bit-fields in order from first to last,
+		# inserting padding as necessary, accumulating alignment constraints,
+		# and recording for each field the bit offset from the start of the struct.
+		# The alignment constraints of the underlying types of bit fields are propagated
+		# to the alignment constraints of the entire package (with some exceptions;
+		# see below).
+		#
+		# Although the standard only mandates bitfields with underlying type
+		# int (signed or unsigned), most compilers allow for bitfields
+		# of type char, short or long (possible signed or unsigned) as well.
+		# The difference is reflected in the alignment constraints.
+		#
+		# The basic algorithm is as follows.  There are two main variables
+		# a) alignmentSoFar: alignment constraint so far encountered
+		# b) nextBit: next bit to be allocated (starts with 0)
+		#             NB: corresponds to how many bits so far layed out in this struct
+		#
+		#
+		# To process a bitfield with type t and size b bits, where layout (t) = { size, align }
+		#
+		# if b>0 then
+		#	1. if b > size then indicate error.
+		#	2. alignmentSoFar := max (alignmentSoFar, align)
+		#	3. if (nextBit + b) div size != nextBit div size
+		#           # i.e. adding this field would cross a "size" boundary
+		#	       pad nextBit to next "size" boundary
+		#        4. struct[field] := nextBit
+		#	5. nextBit += b
+		#   else # B == 0
+		#        6. alignmentSoFar := max (alignmentSoFar, align)
+		#	7. pad nextBit to next "size" boundary
+		#
+		#	   ASSUMPTIONS: alignments are powers of 2
+		#
+		#   COMPLICATIONS:
+		#   A. Only allow int (int, unsigned, signed) bitfields.
+		#      This is controlled by the flag TypeCheckControl::ISO_bitfield_restrictions
+		#      (default = FALSE).
+		#      If set to TRUE, then an error is raised 
+		#      for bitfields with types other than int, unsigned, signed.
+		#      
+		#   B. Do unnamed bitfields contribute to alignment constraints?
+		#      Most compilers say no (except lcc).
+		#      This is controlled by the sizes::sml flag ignoreUnnamedBitFieldAlignment (default TRUE).
+		#      If set, then the alignment of unnamed bitfields is ignored (i.e. only
+		#      their size counts).
+		#         e.g.
+		#              struct X { int :8; char x; char y;}  sizeof (struct X) = 3 (TRUE) or 4 (FALSE)
+		#      
+		#   C. Are non bitfields packed with bitfields?
+		#      C1: Only pack bit fields (sizes.pkg flag: onlyPackBitFields)
+		#          if flag is TRUE, then start the current bitfield on a size boundary
+		#          unless previous field was a bitfield.
+		#	  e.g. struct X { char x; int z: 5;}   sizeof (struct X) = 4 (FALSE) or 8 (TRUE)
+		#
+		#	      C2: In theory there is a complementary variation involving non-bitfields after
+		#	          bitfields, but it is not clear what this might mean (although
+		#	  that's never stopped someone putting it into a c compiler), and 
+		#	  it isn't implemented in c-kit.
+		#
+		# ----------------------------------------------------------------
+		#  Old notes on unnamed length zero bit fields:
+		# 
+		# Haberson and Steele p 138 says
+		# "Specifying a (bit field) length of 0 for an unnamed bit field has a
+		#  special meaning - it indicates that the following component should
+		#  begin on the next boundary appropriate to its type.  ("Appropriate"
+		#  is not specified further; in ISO C, it is the next int-size unit.)"
+		#
+		# We implement the following (which seems to be what SGI cc and gcc do):
+		# Specifying a (bit field) length of 0 for an unnamed bit field indicates
+		# that the following component should be aligned according to the
+		# alignment constraints of the unnamed bit field.  (Of course if the
+		# next field has its own alignment constraints, e.g. is double, then
+		# the next fields alignment constraints must also be satisfied.)
+		#
+		# Note: this interpretation differs from ISO (and also K&R p 150) if
+		# char and short bit fields are involved e.g.
+		#
+		#       struct s { char a:  4;
+		#		  short:   0;
+		#		  char b:  2;
+		#		};
+
+
+	also
+	fun compute_field_struct { sizes: sizes::Sizes, err, warn, bug }
+	      { next_bit, alignment_so_far, last_field_was_bit_field,
+	       field'=> { member_opt, bitfield=>THE bits, size, align }}
+		=>
+		if   (bits > 0)
+
+
+		     next_bit  #  pad out if last field not bitfield and onlyPackBitFields
+			 = 
+			 if (sizes.only_pack_bit_fields and not last_field_was_bit_field)
+			      pad_to_boundary { bits=>next_bit, boundary=>size };
+			 else next_bit;fi;
+
+		     alignment_so_far     #  Accumulate alignment constraints 
+			 =
+			 case member_opt
+
+			      NULL =>    if   (sizes.ignore_unnamed_bit_field_alignment)
+					      alignment_so_far;
+					 else int::max (alignment_so_far, align);  fi;
+
+			      THE _ =>   int::max (alignment_so_far, align);
+			 esac;
+
+		     field_start_bit  #  pad out if we cross a "size" boundary
+			 = 
+			 if   ((next_bit + bits) / size == next_bit / size)
+			      next_bit;
+			 else pad_to_boundary { bits=>next_bit, boundary=>size };   fi;
+
+		     #  NB: checking for error case of (bits > size) is done in fieldSizeStruct 
+
+		     { field'=> { member_opt, bit_offset=>next_bit },
+		       next_bit=>next_bit + bits,
+		       alignment_so_far,
+		       last_field_was_bit_field=>TRUE
+		     };
+
+		else #  Bits = 0 
+
+		    alignment_so_far
+			=
+			if sizes.ignore_unnamed_bit_field_alignment
+			     alignment_so_far;
+			else int::max (alignment_so_far, align);   fi;
+
+		    next_bit = pad_to_boundary { bits=>next_bit, boundary=>size };
+
+		    case member_opt
+
+			 NULL =>  ();
+			 _    =>  err "Named bit-field has zero width";
+		    esac;
+
+		    { field'=> { member_opt, bit_offset=>next_bit },
+		      next_bit,
+		      alignment_so_far,
+		      last_field_was_bit_field=>TRUE
+		    };
+
+		fi;
+
+	    compute_field_struct { sizes, err, warn, bug }
+	      { next_bit, alignment_so_far, last_field_was_bit_field,
+	       field'=> { member_opt, bitfield=>NULL, size, align }}
+		=>
+		{   this_bit = pad_to_boundary { bits=>next_bit, boundary=>align };
+		    alignment_so_far = int::max (alignment_so_far, align);
+
+		    { field'=> { member_opt, bit_offset=>this_bit },
+		      next_bit=>this_bit + size,
+		      alignment_so_far,
+		      last_field_was_bit_field=>FALSE
+		    };
+		};
+	end 
+
+	also
+	fun compute_field_list_struct (sizes_err_warn_bug as { sizes, err, warn, bug } )
+				   tidtab field_list
+	    =
+	    {   l =  list::map (field_size_struct sizes_err_warn_bug tidtab) field_list;
+
+		fun foldfn (field', { tab, next_bit, alignment_so_far, last_field_was_bit_field } )
+		    =
+		    {   my { field', next_bit, alignment_so_far, last_field_was_bit_field }
+			    =
+			    compute_field_struct sizes_err_warn_bug {
+				next_bit,
+				alignment_so_far,
+				field',
+				last_field_was_bit_field
+			    };
+
+			{ tab => field' ! tab,
+			  next_bit,
+			  alignment_so_far,
+			  last_field_was_bit_field
+			};
+		    };
+
+		my { tab, next_bit, alignment_so_far, last_field_was_bit_field }
+		    =
+		    list::fold_forward
+
+			foldfn
+
+			{ tab                      =>  NIL,
+			  next_bit                 =>  0,
+			  alignment_so_far         =>  sizes.min_struct.align,
+			  last_field_was_bit_field =>  FALSE
+			}
+
+			l;
+
+	      { tab       => list::reverse tab,
+		align     => alignment_so_far,
+		next_bit
+	      };
+	    }
+
+
+	also
+	fun compute_field_list_union (sizes_err_warn_bug as { sizes, err, warn, bug } )
+				  tidtab field_list
+	    =
+	    {   l = list::map (field_size_union sizes_err_warn_bug tidtab)
+			       field_list;
+
+		fun foldfn ( { bits=>field_bits, align=>field_align }, { size, align } )
+		    =
+		    { size=>int::max (size, field_bits), align=>int::max (align, field_align) };
+		     #  Again, assume alignments are powers of 2 
+
+		fold_backward
+		    foldfn
+		    { size=>0, align=>sizes.min_union.align }
+		    l;
+	    }
+
+
+	also
+	fun process_tid (sizes_err_warn_bug as { sizes, err, warn, bug } )
+		       (tidtab: tables::Tidtab) tid
+	    =
+	    case (map::get (*tid_size_align_map_ref, tid))
+
+		 THE result
+		     =>
+		     result;
+
+		 NULL => 
+		     {   result
+			     =
+			     case (tidtab::find (tidtab, tid))
+
+				  THE { ntype=>THE (b::STRUCT (_, fields)), ... }
+				      =>
+				      { my { tab, next_bit, align, ... } =
+					      compute_field_list_struct sizes_err_warn_bug
+						 tidtab fields;
+					{ tab_opt=>THE tab, bits=>pad_to_boundary { bits=>next_bit, boundary=>align },
+					   align };
+				      };
+
+				 THE { ntype=>THE (b::UNION (_, fields)), ... }
+				      =>
+				      { my { size, align } =
+					      compute_field_list_union sizes_err_warn_bug
+						 tidtab fields;
+					{ tab_opt=>NULL,
+					   bits=>pad_to_boundary { bits=>size, boundary=>align },
+					   align };
+				      };
+
+				 THE { ntype=>THE (b::TYPEDEFX (_, type)), ... }
+				     =>
+				     process sizes_err_warn_bug tidtab type;
+
+				 THE { ntype=>THE (b::ENUM _), ... }
+				       =>
+				       { my { bits, align } = sizes.int;
+					 { tab_opt=>NULL, bits, align };
+				       };
+
+				 THE { ntype=>NULL, ... }
+				     =>
+				     { err
+				       "sizeof applied to a partial type";
+				      default_int_layout;};
+
+				 NULL  =>
+				   { bug
+				     "sizeof: missing type id in type-id map.";
+				    default_int_layout;};
+			     esac;
+
+			 tid_size_align_map_ref
+			     :=
+			     map::set (*tid_size_align_map_ref, tid, result);
+
+			 result;
+		     };
+	    esac
+
+	also
+	fun process (sizes_err_warn_bug as { sizes, err, warn, bug } ) tidtab type
+	    =
+	    case type
+
+		 raw_syntax::TYPE_REF tid
+		     =>
+		     process_tid sizes_err_warn_bug tidtab tid;
+
+		 (raw_syntax::STRUCT_REF tid | raw_syntax::UNION_REF tid)
+		     =>
+		     process_tid sizes_err_warn_bug tidtab tid;
+
+		 raw_syntax::ENUM_REF _
+		     => 
+		     {   my { bits, align } = sizes.int;
+
+			 { tab_opt=>NULL, bits, align };
+		     };
+
+		 raw_syntax::QUAL (_, type)
+		     =>
+		     process sizes_err_warn_bug tidtab type;
+
+		 raw_syntax::ARRAY (THE (n, _), type)
+		     =>
+		     {   my { tab_opt, bits=>size, align }
+			     =
+			     process sizes_err_warn_bug tidtab type;
+
+			 { tab_opt=>NULL, bits => (large_int::to_int n) * size, align };
+		     };
+
+		 raw_syntax::ARRAY (NULL, type)
+		     => 
+		     {   err "taking sizeof rw_vector whose size is unspecified: assuming unit size.\n";
+
+			 my { bits, align, ... }
+			     =
+			     process sizes_err_warn_bug tidtab type;
+
+			 { tab_opt => NULL, bits, align };
+		    };
+
+		 raw_syntax::POINTER _
+		     =>
+		     {   my { bits, align }
+			     =
+			     sizes.pointer;
+
+			 { tab_opt=>NULL, bits, align };
+		     };
+
+		 raw_syntax::NUMERIC (_, _, _, ik, _)
+		     =>
+		     {   my { char, short, int, long, longlong, float, double, longdouble, ... }
+			    =
+			    sizes;
+
+			 my { bits, align }
+			     =
+			     case ik
+
+				  raw_syntax::CHAR       => char;
+				  raw_syntax::SHORT      => short;
+				  raw_syntax::INT        => int;
+				  raw_syntax::LONG       => long;
+				  raw_syntax::LONGLONG   => longlong;
+				  raw_syntax::FLOAT      => float;
+				  raw_syntax::DOUBLE     => double;
+				  raw_syntax::LONGDOUBLE => longdouble;
+			     esac;
+			 { tab_opt=>NULL, bits, align };
+		     };
+
+		 raw_syntax::FUNCTION _
+		     => 
+		     {   my { bits, align }
+			     =
+			     sizes.pointer;
+
+			 { tab_opt=>NULL, bits, align };
+		     };
+
+		 raw_syntax::ERROR
+		     => 
+		     {   my { bits, align }
+			     =
+			     sizes.int;
+
+			 { tab_opt=>NULL, bits, align };
+		     };
+
+		  _ =>
+		    {   my { bits, align }
+			     =
+			     sizes.int;
+
+			err "invalid type to be sized: assuming int size.\n";
+
+			{ tab_opt=>NULL, bits, align };
+		    };
+	    esac;
+
+	fun to_bytes bits
+	    =
+	    if   ((bits % 8) == 0)
+
+		 bits / 8;
+	    else
+		 local_warning "Warning: to_bytes is rounding your bits.";
+		 bits / 8;
+	    fi;
+
+	fun byte_size_of sizes_err_warn_bug tidtab type
+	    =
+	    {   my { bits, align, ... }
+		    =
+		    process  sizes_err_warn_bug  tidtab  type;
+
+		{ bytes          =>  to_bytes  bits,
+		  byte_alignment =>  to_bytes  align
+		};
+	    };
+
+
+	fun bit_size_of sizes_err_warn_bug tidtab type
+	    =
+	    {   my { bits, align, ... }
+		    =
+		    process sizes_err_warn_bug tidtab type;
+
+		{ bits, bit_alignment=>align };
+	    };
+
+
+	fun field_offsets sizes_err_warn_bug tidtab type
+	    =
+	    .tab_opt (process sizes_err_warn_bug tidtab type);
+
+
+	fun equal_member ( { uid=>uid1, ... }: raw_syntax::Member, { uid=>uid2, ... }: raw_syntax::Member)
+	    =
+	    pid::equal (uid1, uid2);
+
+
+	fun get_field { sizes, err, warn, bug } (member,[])
+		=>
+		{   err "field not found";
+		    { member_opt => NULL, bit_offset=>0 };
+		};
+
+	    get_field sizes_err_warn_bug (member,{ member_opt=>NULL, ... } ! fields)
+		=>
+		get_field sizes_err_warn_bug (member, fields);
+
+	    get_field sizes_err_warn_bug (member, (field' as { member_opt=>THE member', bit_offset } ) ! fields)
+		=>
+		if    (equal_member (member, member'))
+
+		     field';
+		else
+		     get_field sizes_err_warn_bug (member, fields);
+		fi;
+	end;
+
+    }; #  package sizeof 
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

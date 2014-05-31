@@ -1,0 +1,418 @@
+## one-line-virtual-terminal.pkg
+#
+# Compare to:
+#     src/lib/x-kit/widget/text/virtual-terminal.pkg
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+
+###             "The problem with television is that
+###              the people must sit and keep their
+###              eyes glued on a screen: the average
+###              American family hasn't time for it."
+###
+###                      -- The New York Times, 1939
+
+
+# This package gets used in:
+#
+#     src/lib/x-kit/widget/text/string-editor.pkg
+
+stipulate
+    include threadkit;								# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package vc = rw_vector_of_chars;						# rw_vector_of_chars			is from   src/lib/std/rw-vector-of-chars.pkg
+    package wg = widget;							# widget				is from   src/lib/x-kit/widget/basic/widget.pkg
+    package xc =  xclient;							# xclient				is from   src/lib/x-kit/xclient/xclient.pkg
+    package xg =  xgeometry;							# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
+herein
+
+    package   one_line_virtual_terminal
+    : (weak)  One_Line_Virtual_Terminal						# One_Line_Virtual_Terminal		is from   src/lib/x-kit/widget/text/one-line-virtual-terminal.api
+    {
+	Fn_Table
+	    =
+	    { deletec: String -> Void,
+	      insert:  String -> Void,
+	      reset:   Void -> Void,
+
+	      set_cur_pos: Int -> Void,
+	      set_cursor:  Bool -> Void,
+	      set_size:    xg::Size -> Int
+	    };
+
+	One_Line_Virtual_Terminal
+	    =
+	    ( (Int -> xg::Size),
+	      (xg::Point -> Int), 
+	      ((xc::Window, xg::Size) -> Fn_Table)
+	    );
+
+	Plea_Mail
+	  #
+	  = SET_SIZE     xg::Size
+	  #
+	  | INSERT       String
+	  | DELETE       String
+	  #
+	  | SET_CUR_POS  Int
+	  | SET_CURSOR   Bool
+	  #
+	  | RESET
+	  ;
+
+	fun make_one_line_virtual_terminal
+		#
+		root
+		#
+		(foreground, background)
+	    =
+	    {   screen =  wg::screen_of  root;
+
+		default_background_color =  xc::white;
+		default_foreground_color =  xc::black;
+
+		forec = case foreground   
+			    #
+			    THE c => c;
+			    NULL  => default_foreground_color;
+			esac;
+
+		pen    =  xc::make_pen [xc::p::FOREGROUND (xc::rgb8_from_rgb forec)];
+		bltpen =  xc::make_pen [];		#  workaround for blt op bug.  XXX BUGGO FIXME
+
+		font_name = "9x15";
+		font = wg::open_font root font_name;
+
+		my { ascent=>font_ascent, descent => font_descent }
+		    =
+		    xc::font_high font;
+
+		font_high = font_ascent + font_descent;
+
+		my xc::CHAR_INFO { left_bearing=>lb, char_width=>fontw, ... }
+		    = 
+		    xc::char_info_of font (char::to_int 'A');
+
+		col_delta = 1;
+		endpad    = 2;
+
+		fun num_chars x
+		    =
+		    (x - endpad) / fontw;
+
+		fun realize (window, given_size as { wide, high } )
+		    =
+		    {   plea_slot =  make_mailslot ();
+			reply_slot   =  make_mailslot (); 
+
+			from =  xc::FROM_WINDOW  window;
+			to   =  xc::drawable_of_window  window;
+
+			fun text arg
+			    =
+			    xc::draw_transparent_string  to pen font arg;
+
+			fun draw_cursor pen p
+			    =
+			    {   col = p * fontw;
+
+				xc::draw_seg  to  pen
+                                  ( ( { col, row=>0             },
+                                      { col, row=>font_high - 1 }
+                                    ) : xg::Line
+				  );
+			    };
+
+			fun copy (r, p)
+			    =
+			    xc::pixel_blt_mailop  to bltpen { from, from_box=>r, to_pos=>p };
+
+			my (clear, cursor_off)
+			    =
+			    case background   
+				#
+				NULL  => ( xc::clear_box  to,
+					   \\ p = xc::clear_box  to  ({ col=>p*fontw, row=>0, wide=>1, high=>font_high } )
+					 );
+
+				THE rgb =>
+                                    {   clrpen =  xc::make_pen  [xc::p::FOREGROUND (xc::rgb8_from_rgb rgb)];
+
+					( xc::fill_box to clrpen,
+					  draw_cursor clrpen
+					);
+				    };
+			    esac;
+
+			cursor_on = draw_cursor pen;
+
+			fun main (len, { wide, high } )
+			    =
+			    loop (0, FALSE)
+			    where
+				buf = vc::make_rw_vector (len, ' ');
+
+				fun clear_buf ()
+				    =
+				    cb (len - 1)
+				    where
+					fun cb 0 =>   vc::set (buf, 0, ' ');
+					    cb i => { vc::set (buf, i, ' ');   cb (i - 1); };
+					end;
+				    end;
+
+				fun del_buf (p, c)
+				    =
+				    {
+					fun shft i
+					    = 
+					    if   (i != len)
+
+						 vc::set (buf, i - 1, vc::get (buf, i));
+						 shft (i+1);
+					    fi;
+
+					shft p;
+
+					size c == 1   ??   vc::set (buf, len - 1, string::get (c, 0))
+						      ::   vc::set (buf, len - 1, ' '               );
+				    };
+
+				fun ins_buf (p, c)
+				    =
+				    {
+					fun shft i
+					     = 
+					     if   (i != p)
+
+						  vc::set (buf, i, vc::get (buf, i - 1));
+						  shft (i - 1);
+					     fi;
+
+					shft (len - 1);
+					vc::set (buf, p, c);
+				    };
+
+				fun ins_str_buf (p, s)
+				    =
+				    {
+					slen = size s;
+					endp = p + slen - 1;
+
+					fun shft i
+					    = 
+					    if   (i == endp)
+
+						 vc::set (buf, i, vc::get (buf, i-slen));
+						 shft (i - 1);
+					    fi;
+
+					fun do_update (p, i)
+					    = 
+					    {   vc::set (buf, p, (string::get (s, i)));
+						do_update (p+1, i+1);
+					    };
+
+					shft (len - 1);
+
+					(do_update (p, 0))
+					except
+					    ord = ();
+				    };
+
+				fun redraw (p, on_off)
+				    =
+				    {   text ({ col=>0, row=>font_ascent }, vc::to_vector buf);
+
+					on_off   ?:   cursor_on p;
+				    };
+
+				fun loop (curp, on_off)
+				    = 
+				    case (take_from_mailslot  plea_slot)
+					#
+					SET_SIZE (size as { wide, high } )
+					    =>
+					    {
+						len' = num_chars wide;
+
+						put_in_mailslot  (reply_slot,  len');
+
+						main (len', size);
+					    };
+
+					INSERT s
+					    => 
+					    if (curp >= len)
+						#
+						loop (curp, on_off);
+					    else 
+						case (size s)
+						    #
+						    0 => loop (curp, on_off);
+
+						    1 => {   col = curp*fontw;
+								   bw = (len - curp - 1)*fontw + endpad;
+
+							     ins_buf (curp, string::get (s, 0));
+
+							     base_mailop = copy ({ col, row=>0, wide=>bw, high }, { col=>col+fontw, row=>0 } );
+
+							     clear ({ col, row=>0, wide=>fontw, high } );
+							     text ({ col, row=>font_ascent }, s);
+
+							     case (block_until_mailop_fires  base_mailop)
+								 #
+								 [] => ();
+								 _  => redraw (curp+1, on_off);
+							     esac;
+
+
+							     loop (curp+1, on_off);
+							 };
+
+						    slen =>
+							 {   count = int::min (slen, len - curp);
+
+							     col   = curp*fontw;
+							     space = count*fontw;
+							     bw    = (len - curp - count)*fontw + endpad;
+
+							     ins_str_buf (curp, substring (s, 0, count));
+
+							     base_mailop = copy ({ col, row=>0, wide=>bw, high }, { col=>col+space, row=>0 } );
+
+							     clear ({ col, row=>0, wide=>space, high } );
+							     text ({ col, row=>font_ascent }, substring (s, 0, count));
+
+							     case (block_until_mailop_fires  base_mailop)
+								 #
+								 [] => ();
+								 _  => redraw (curp+count, on_off);
+							     esac;
+
+							     loop (curp+count, on_off);
+							 };
+						esac;
+					    fi;
+
+				   SET_CUR_POS curp'
+				       =>
+				       if (curp' >= 0 and curp' <= len)
+
+					    if on_off 
+						cursor_off curp;
+						cursor_on curp';
+					    fi;
+
+					    loop (curp', on_off);
+				       else
+					    loop (curp, on_off);
+				       fi;
+
+				   SET_CURSOR on_off'
+				       => 
+				       {
+					   if (on_off' != on_off )
+					       #
+					       if on_off'  cursor_on  curp;
+					       else        cursor_off curp;
+					       fi;
+					   fi;
+
+					   loop (curp, on_off');
+				       };
+
+				   RESET
+				       =>
+				       {   clear ({ col=>0, row=>0, wide, high } );
+					   clear_buf ();
+					   loop (0, FALSE);
+				       };
+
+				   DELETE c
+				       =>
+				       if  (curp > 0)
+
+					   col    = curp*fontw;
+					   endcol = (len - 1)*fontw;
+
+					   del_buf (curp, c);
+
+					   base_mailop = copy ({ col, row=>0, wide=>wide-col, high }, { col=>col-fontw, row=>0 } );
+
+					   if (curp == len)   clear ({ col=>endcol + 1,  row=>0,  wide=>wide-endcol, high } );
+					   else               clear ({ col=>endcol,      row=>0,  wide=>wide-endcol, high } );
+					   fi;
+
+					   if (size c == 1)
+
+						text ({ col=>endcol, row=>font_ascent }, c);
+					   fi;
+
+					   case (block_until_mailop_fires  base_mailop)
+					       #
+					       [] => ();
+					       _  => redraw (curp - 1, on_off);
+					   esac;
+
+					   loop (curp - 1, on_off);
+				       else
+					   loop (curp, on_off);
+				       fi;
+				esac;
+			    end;
+
+
+			xlogger::make_thread  "txtwin"   {. main (num_chars wide, given_size); (); };
+
+			{ set_size    =>  \\ size =  { put_in_mailslot  (plea_slot, SET_SIZE size);   take_from_mailslot  reply_slot; },
+			  set_cur_pos =>  \\ v  =      put_in_mailslot  (plea_slot, SET_CUR_POS v),
+			  set_cursor  =>  \\ v  =      put_in_mailslot  (plea_slot, SET_CURSOR v),
+			  insert      =>  \\ c  =      put_in_mailslot  (plea_slot, INSERT c),
+			  reset       =>  \\ () =      put_in_mailslot  (plea_slot, RESET),
+			  deletec     =>  \\ c  =      put_in_mailslot  (plea_slot, DELETE c)
+			};
+		    };
+
+		fun pttochar ({ col, row } )
+		    =
+		   (col + col_delta) / fontw;
+
+		fun sizer n
+		    =
+		    { high=>font_high, wide=>n*fontw + endpad };
+
+		(sizer, pttochar, realize);
+	    };
+
+    };						# one_line_virtual_terminal
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991 by AT&T Bell Laboratories  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,174 @@
+## adl-gen-delay.pkg
+#
+# Generate the <architecture>DelaySlots generic.
+# This package contains information about delay slot filling 
+
+
+
+###                   "We are not interested in the fact
+###                    that the brain has the consistency
+###                    of cold porridge."
+###
+###                                    -- Alan Turing
+
+
+
+stipulate
+    package ard =  architecture_description;				# architecture_description				is from   src/lib/compiler/back/low/tools/arch/architecture-description.pkg
+    package mst =  adl_symboltable;					# adl_symboltable					is from   src/lib/compiler/back/low/tools/arch/adl-symboltable.pkg
+    package raw =  adl_raw_syntax_form;					# adl_raw_syntax_form					is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.pkg
+    package rsj =  adl_raw_syntax_junk;					# adl_raw_syntax_junk					is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-junk.pkg
+herein
+
+    package   MDGenDelaySlots
+    : (weak)  Make_Sourcecode_For_Package				# Make_Sourcecode_For_Package	is from   src/lib/compiler/back/low/tools/arch/make-sourcecode-for-package.api
+    {
+
+
+	include raw;
+	include rsj;
+
+	fun delay DELAY_NONE     =>  ID "D_NONE";
+	    delay DELAY_ERROR    =>  ID "D_ERROR";
+	    delay DELAY_ALWAYS   =>  ID "D_ALWAYS";
+	    delay DELAY_TAKEN    =>  ID "D_TAKEN";
+	    delay DELAY_NONTAKEN =>  ID "D_FALLTHRU";
+	    #
+	    delay (DELAY_IF (BRANCHforwards,  x, y)) =>  IF_EXPRESSION (ID "backward", delay y, delay x);
+	    delay (DELAY_IF (BRANCHbackwards, x, y)) =>  IF_EXPRESSION (ID "backward", delay x, delay y);
+	end
+
+	also
+	fun flag FLAGoff =>  BOOLexp FALSE;
+	    flag FLAGon  =>  BOOLexp TRUE;
+	    #
+	    flag (FLAGid (id, TRUE,  e)) =>  AND (ID id, e);
+	    flag (FLAGid (id, FALSE, e)) =>  AND (APPLY("not", ID id), e);
+	end;
+
+	fun delay_slot_entry (nop, n, nOn, nOff)
+	    =
+	    RECORD_IN_EXPRESSION [ ("nop", nop), ("n", n), ("nOn", nOn), ("nOff", nOff) ];
+
+	default_delay_slot
+	    =
+	    delay_slot_entry (TRUE, FALSE, delay DELAY_ERROR, delay DELAY_NONE);
+
+	fun make_sourcecode_for_package  architecture_description
+	    =
+	    ard::coder architecture_description "jmp/DelaySlots"
+	      [ ard::make_generic architecture_description "DelaySlots" args sig_name str_body
+	      ]
+	    where
+		# Name of the generic and its api:
+		# 
+		str_name =  ard::strname architecture_description "DelaySlots"; 
+		sig_name =  "Delay_Slot_Properties";
+
+		instructions =  ard::base_ops_of architecture_description;		# The instruction set. 
+
+		symboltable = mst::empty;			# The symboltable.
+
+		# Arguments to the generic:
+		#
+		args =
+		    ["package i:  " + ard::strname architecture_description "INSTR",
+		     "package p:  Machcode_Universals", 
+		     "   where I = I"
+		    ];
+
+		fun mk_fun (name, args, x, body, default)
+		    = 
+		    FUN_DECL
+		      [ FUN
+			  ( name,
+			    [ CLAUSE
+				( [ RECORD_PATTERN  ( map  (\\ x = (x, IDPAT x))  args,
+						      NULL,
+						      FALSE
+						    )
+				  ],
+
+				  LET_EXPRESSION
+				    ( [ FUN_DECL
+					  [ FUN
+					      ( name,
+						[ CLAUSE ( [ IDPAT x ],
+							   NULL,
+							   CASE_EXPRESSION
+							     ( ID x,
+							       body @ [ CLAUSE ([WILDCARD_PATTERN], NULL, default) ]
+							     )
+							 )
+						]
+					      )
+					  ]
+				      ],
+				      [APPLY_EXPRESSION (ID name, ID x)]
+				    )
+				)
+			    ]
+			  )
+		      ];
+
+		# Function to extract the properties about delay slot:
+		#
+		delay_slot
+		    = 
+		    mk_fun ("delay_slot",["instruction", "backward"], "instruction", g instructions, default_delay_slot)
+		    where
+			fun mk_pattern cons
+			    =
+			    mst::cons_to_pattern { prefix="I", cons=cons };
+
+			fun g [] =>   [];
+			    #
+			    g (CONSTRUCTOR_DEF { delayslot=(_, DELAY_NONE), nop=FLAGoff, nullified=FLAGoff, ... } ! cbs)
+				=> 
+				g cbs;
+
+			    g ((c as CONSTRUCTOR_DEF { id, delayslot=(d1, d2), nop, nullified, ... } ) ! cbs)
+				=> 
+				CLAUSE ( [mk_pattern c],
+					 NULL,
+					 delay_slot_entry (flag nop, flag nullified, delay d1, delay d2)) ! g cbs;
+			end;
+		    end;
+
+		enable_delay_slot = dummy_fun "enableDelaySlot";		# Function to enable/disable a delay slot.
+
+		conflict = dummy_fun "conflict";				# Function to check whether two delay slots have conflicts.
+
+		# Function to check if a instruction is a delay slot candidate:
+		#
+		delay_slot_candidate
+		    = 
+		    mk_fun ("delaySlotCandidate", ["jmp", "delaySlot"], "delaySlot", g instructions, TRUE)
+		    where
+			fun g  []                                                       =>  [];
+			    g  (     CONSTRUCTOR_DEF { delayslot_candidate=>NULL,  ... }   ! cbs) =>  g cbs:
+			    g ((c as CONSTRUCTOR_DEF { delayslot_candidate=>THE e, ... } ) ! cbs) =>  CLAUSE ([mst::cons_to_pattern { prefix="I", cons=c } ], NULL, e) ! g cbs;
+			end;
+		    end;
+
+		set_target = dummy_fun "setTarget";				# Function to set the target of a branch. 
+
+		# The generic:
+		# 
+		str_body
+		    = 
+		    [ @@@ [ "package i = I",
+			    "enum delay_slot = D_NONE | D_ERROR | D_ALWAYS | D_TAKEN | D_FALLTHRU ",
+			    ""
+			  ],
+		      ERRORfun str_name,
+		      delay_slot,
+		      enable_delay_slot,
+		      conflict,
+		      delay_slot_candidate,
+		      set_target
+		    ];
+
+	    end;
+    };
+end;											# stipulate

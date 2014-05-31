@@ -1,0 +1,687 @@
+# nextcode-ccalls-g.pkg
+#
+# This module now contains all the code which handles C-Calls.
+# I've moved Matthias' ccall code from translate_nextcode_to_treecode_g into here and added
+# my own hacks for handling re-entrant C calls.
+#
+# On the implementation of reentrant C calls, or why it is a hack
+# ---------------------------------------------------------------
+#
+# For reentrant C call, we need a way of flushing/restoring the Mythryl state 
+# to/from the task_state data package and preserving all live values.
+# Determining the set of live values is a bit tricky and I handle it
+# by doing a liveness analysis.  Ideally, the nextcode phases should be able
+# to do the liveness part for us, but after spending weeks 
+# looking at the source and asking questions with no one answering,
+# I've decided that I've had enough: I need this working NOW 
+# so I going to do it the stupid way.  At least this way it is 
+# completely self-contained and doesn't involve any nextcode hacking.
+# If in the future someone gets the right info it should be redone in the
+# right way.									XXX BUGGO FIXME
+# 
+# The code for saving/restoring live values is quite similar to what
+# the cleaning is doing, but I'm deathly afraid of merging it into the
+# cleaning code, because the cleaning handling code had taken me a
+# long time to  get right.  It is an angry slumbering power which will visit
+# its  horrible wraths on all who dares to disturb it.
+#
+# On saving/restoring lib7 state
+# ----------------------------
+#
+# The Mythryl state must be threaded into a reentrant C call because the C call
+# may invoke Mythryl code internally before it returns.   Saving the state means
+# two things:
+#
+#   1. Making sure all the live values are properly saved and restored 
+#      (and properly tagged so that the gc can find them) 
+#
+#   2. Making sure global registers such as heap_allocation_pointer are properly
+#      single threaded through the calls.
+#
+# The Mythryl state is defined in the runtime struct task.
+# For our purposes, the relevant fields are these:
+#                              
+#  Val   *heap_allocation_pointer;					# We allot heap memory by advancing this pointer.
+#  Val   *heap_allocation_limit;					# We call the heapcleaner when heap_allocation_pointer reaches this point.
+#  Val    argument;
+#  Val    fate;
+#  Val    closure;
+#  Val    link_register;
+#  Val    program_counter;              
+#  Val    exception_fate;
+#  Val    thread;
+#  Val    callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
+#  Val    heap_changelog;    
+#  Val    fault_exception;    
+#  Vunt         faulting_program_counter;    
+#  Val   *real_heap_allocation_limit;     						# Sometimes we zero the heap_allocation_limit to trigger the heapcleaner; this records the real limit.
+#  Bool         software_generated_periodic_event_is_pending;     
+#  Bool         in_software_generated_periodic_event_handler;    
+#
+# To make a ccall reentrant we flush the following registers back into
+# the task record:
+#
+#     heap_allocation_pointer      --
+#     heap_allocation_limit       --
+#     heap_changelog   --
+#     thread           --
+#     exception_fate   --
+#
+# All all untagged values are packed into a single record
+#     argument         --
+#     fate             --
+# 
+#
+# --- Allen Leung
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+###                 "On the subject of stars, all investigations
+###                  which are not ultimately reducible to simple
+###                  visual observations are necessarily denied to us.
+###                  We shall never be able by any means to study
+###                  their chemical composition."
+###
+###                                  -- August Compte, 1835
+
+
+# We are invoked (only) by:
+#
+#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+								# Machine_Properties			is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate
+    package cty =  ctypes;					# ctypes				is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package ncf =  nextcode_form;				# nextcode_form				is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package lem =  lowhalf_error_message;			# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lms =  list_mergesort;				# list_mergesort			is from   src/lib/src/list-mergesort.pkg
+    package rkj =  registerkinds_junk; 				# registerkinds_junk			is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package set =  int_red_black_set;				# int_red_black_set			is from   src/lib/src/int-red-black-set.pkg
+herein								# (Typed set for liveness.)
+
+    generic package   nextcode_c_calls_g   (
+	#             ==================
+	#
+	package mp:  Machine_Properties;			# Typically					  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+
+	package pri: Platform_Register_Info			# Platform_Register_Info		is from   src/lib/compiler/back/low/main/nextcode/platform-register-info.api
+		     where					# "tcf" == "treecode_form".
+			 tcf::rgn == nextcode_ramregions;
+
+	package rgk: Registerkinds;				# Registerkinds				is from   src/lib/compiler/back/low/code/registerkinds.api
+
+	package t2m: Translate_Treecode_To_Machcode		# Translate_Treecode_To_Machcode	is from   src/lib/compiler/back/low/treecode/translate-treecode-to-machcode.api
+		     where
+			 tcs::tcf == pri::tcf;			# "tcf" == "treecode_form".
+
+	package cal: Ccalls					# Ccalls				is from   src/lib/compiler/back/low/ccalls/ccalls.api
+		     where
+			 tcf == pri::tcf;			# "tcf" == "treecode_form".
+    )
+
+    : (weak) api { 
+	      ccall:  
+		  { treecode_to_machcode_stream:	t2m::Treecode_Codebuffer,			# Treecode stream 
+		    #
+		    get_int_reg_for_ncfval:		ncf::Value -> pri::tcf::Int_Expression,		# Look up integer Variable 
+		    get_float_reg_for_ncfvar:		ncf::Value -> pri::tcf::Float_Expression,	# Look up float   Variable 
+		    #
+		    get_ncftype_for_codetemp:		ncf::Codetemp -> ncf::Type,			# Variable -> cty 
+		    #
+		    hap_offset:				Int,                      			# Top-of-heap offset relative to current heap_allocation_pointer register.  ("hap_offset" == "heap_allocation_pointer offset".)
+		    use_virtual_framepointer:		Bool                    			# Virtual frame pointer.
+		  }
+		  -> 
+		  #  Arguments to RAW_C_CALL 
+		  #
+		  ( ncf::Rcc_Kind,									# Fast vs re-entrant.
+		    #
+                    String,										# library/function_name
+                    cty::Cfun_Type,									# C function type -- redundant with other args.
+		    #
+                    List( ncf::Value ), 								# Args.
+		    List( (ncf::Codetemp, ncf::Type) ),							# Where to stash results.
+		    #
+                    ncf::Instruction									# Next instruction to execute.
+		  )
+		  ->
+		  # Return:
+		  #	 
+		  { result:    List( pri::tcf::Expression ),						# Result(s).
+		    hap_offset:  Int              		        				# Updated top-of-heap offset relative to current heap_allocation_pointer register.
+		  };
+	   }
+    {
+
+	stipulate
+	    package tcs =  t2m::tcs;								# "tcs" == "treecode_stream".
+	    package tcf =  tcs::tcf;		      						# "tcf" == "treecode_form".
+	    package rgn =  tcf::rgn;								# "rgn" == "region" -- Aliasing info 
+	    package tag =  mp::heap_tags;							# Mythryl heapchunk tagwords.
+	herein
+
+	    fun error msg
+		=
+		lem::error ("nextcode-calls", msg);
+
+	    # Needs to change these when we put in 64-bit support		# XXX BUGGO FIXME
+	    #
+	    ity = 32;		#  Size of integer width 
+	    pty = 32;		#  Size of pointer 
+
+	    address_type = pri::address_width;
+
+	    #
+	    # Utilities
+
+
+	    # A nextcode register may be implemented as a physical 
+	    # register or a memory location.  This function assign
+	    # moves a value v into a register or a memory location.
+	    #
+	    fun assign (tcf::CODETEMP_INFO (type, r),        v) =>   tcf::LOAD_INT_REGISTER (type, r, v);
+		assign (tcf::LOAD (type, ea, mem), v) =>   tcf::STORE_INT (type, ea, v, mem);
+		assign _                            =>   error "assign";
+	    end;
+
+	    fun li i =   tcf::LITERAL (tcf::mi::from_int   (ity, i));
+	    fun lw w =   tcf::LITERAL (tcf::mi::from_unt1 (ity, w));
+
+	    #
+	    # Convert chunk descriptor to int 
+
+	    dtoi = large_unt::to_int;
+
+
+	    fun ea (r, 0) => r;
+		ea (r, n) => tcf::ADD (address_type, r, li n);
+	    end;
+
+	    fun same_reg_as x y
+		=
+		rkj::same_id (x, y);
+
+
+	    #
+	    # Set abbreviations
+
+	    infix my 70  \/ ;
+	    infix my 80  /\ ;
+	 #  infix my 60  -- ;
+
+	    ooo         = set::empty;
+	    my (\/)     = set::union;
+
+	    fun unions ss
+		=
+		fold_backward (\/) ooo ss;
+
+	    fun def (w, s)
+		=
+		set::drop (s, w);
+
+
+	    # liveness analysis:
+	    # given a nextcode expression e,
+	    # return the set of highcode_variables that are live.
+	    #
+	    fun liveness e
+		=
+		{   fun use (ncf::CODETEMP v, s) =>  set::add (s, v);
+			use (_,               s) =>  s;
+		    end;
+
+		    fun uses ([],       s) =>  s;
+			uses (v ! vs,   s) =>  uses (vs, use(v, s));
+		    end;
+
+		    case e
+			#	
+			ncf::TAIL_CALL		    { fn, args }              =>  uses (fn ! args, ooo);
+			ncf::JUMPTABLE		    { i, nexts, ... }           =>  use(i, unions (map liveness nexts));
+			#
+			ncf::GET_FIELD_I	    { record, to_temp, next, ... } =>  use(record, def (to_temp, liveness next));
+			ncf::GET_ADDRESS_OF_FIELD_I { record, to_temp, next, ... } =>  use(record, def (to_temp, liveness next));
+			#
+			ncf::DEFINE_RECORD	    { fields, to_temp, next, ... } =>  uses((map #1 fields), def (to_temp, liveness next));
+			#
+			ncf::STORE_TO_RAM	    { args,            next, ... } =>  uses (args,               liveness next);
+			ncf::FETCH_FROM_RAM	    { args, to_temp,   next, ... } =>  uses (args, def (to_temp, liveness next));
+			#
+			ncf::ARITH		    { args, to_temp,   next, ... } =>  uses (args, def (to_temp, liveness next));
+			ncf::PURE		    { args, to_temp,   next, ... } =>  uses (args, def (to_temp, liveness next));
+			#
+			ncf::IF_THEN_ELSE     { args, then_next, else_next, ... } =>  uses (args, liveness then_next \/ liveness else_next);
+			ncf::DEFINE_FUNS _                                      =>  error "ncf::DEFINE_FNS in nextcode_c_calls_g::liveness";
+			#	
+			ncf::RAW_C_CALL { args, to_ttemps, next, ... }
+			    =>
+			    uses
+			      ( args,
+                                fold_forward
+				    (\\ ((w, _), s) = def (w, s))
+                                    (liveness next)
+				    to_ttemps
+                              );
+		    esac;
+		};
+
+
+	    # Pack live values into records.
+	    #
+	    # 1. Untagged stuff like INT1t or FLTt are packed into an unboxed record 
+	    #    with record tag four_byte_aligned_nonpointer_data_btag.  Small stuff goes first so that there 
+	    #    will be at most one hole in the record due to alignment.
+	    # 2. Tagged stuff goes into a normal record with pairs_and_records_btag.
+	    #
+	    # NOTE: live values include only the highcode_variables, not global registers
+	    #       like the heap pointer, base pointer, current exception pointer,
+	    #       etc.  
+	    #
+	    fun save_live_highcode_variables { emit, get_ncftype_for_codetemp, get_int_reg_for_ncfval, get_float_reg_for_ncfvar } (w, expression, hap_offset)	# THIS FUNCTION IS NEVER REFERENCED <==============================
+		= 
+		{   lll = liveness expression;		#  Compute liveness 
+		    lll = def (w, lll);			#  Remove the Variable that the RAW_C_CALL defines 
+		    lll = set::vals_list lll;		#  in list form 
+
+
+		    #  Store a record item:
+		    #
+		    fun store (v, size, FALSE) offset
+			    =>
+			    tcf::STORE_INT (size, ea (pri::heap_allocation_pointer, offset), get_int_reg_for_ncfval v, rgn::memory);
+
+			store (v, size, TRUE) offset
+			    =>
+			    tcf::STORE_FLOAT (size, ea (pri::heap_allocation_pointer, offset), get_float_reg_for_ncfvar v, rgn::memory);
+		    end;
+
+
+		    # Reload a record item 
+		    #
+		    fun reload (size, FALSE) (v, record, offset)
+			    =>
+			    tcf::LOAD_INT_REGISTER (size, v, tcf::LOAD (size, ea (record, offset), rgn::memory));
+
+			reload (size, TRUE) (v, record, offset)
+			    =>
+			    tcf::LOAD_FLOAT_REGISTER (size, v, tcf::FLOAD (size, ea (record, offset), rgn::memory));
+		    end;
+
+
+		    # Partition the live values
+		    # into tagged and untagged:
+		    #
+		    fun partition ([], tagged, untagged)
+			    =>
+			    (tagged, untagged);
+
+			partition (v ! vl, tagged, untagged)
+			    =>
+			    {   t        =  get_ncftype_for_codetemp v;
+				size     =  ncf::size_in_bits t;
+				tag      =  ncf::is_tagged t;
+				is_float =  ncf::is_float t;
+				store    =  store (v, size, is_float);
+				load     =  reload   (size, is_float);
+
+				if tag   partition (vl, (store, load, size) ! tagged, untagged);
+				else     partition (vl, tagged, (store, load, size) ! untagged);
+				fi;
+			    };
+		    end;
+
+
+		    (partition (lll, [], []))
+			->
+		        (tagged, untagged);
+
+
+		    # Sort by non-decreasing size: 
+		    #
+		    sort_by_size
+			=
+			lms::sort_list
+			    #
+			    (\\ ((_, _, x), (_, _, y)) =  x > y);
+
+
+		    #  Determine offset: 
+		    #
+		    fun assign_offset ([], ls, hap_offset)
+			    =>
+			    (reverse ls, hap_offset);
+
+			assign_offset ((v as  (_, _, size)) ! vl, ls, hap_offset)
+			    => 
+			    case size
+				#
+				32 => assign_offset (vl, (v, hap_offset) ! ls, hap_offset+4);				# 64-bit issue: '4' == bytes-per-word.
+
+				64 =>   {   hap_offset  =   if (hap_offset % 8 == 4)   hap_offset + 4;			# 64-bit issue: '4' == bytes-per-word.
+						            else                       hap_offset;
+						            fi;
+
+					    assign_offset (vl, (v, hap_offset) ! ls, hap_offset+8);				# possible 64-bit issue: '8' may be 2*bytes-per-word.
+				        };
+
+				_  =>   error "assign_offset";
+			    esac;
+		    end;
+
+		      tagged =  sort_by_size    tagged;
+		    untagged =  sort_by_size  untagged;
+
+		    ();
+		};
+
+
+	    # This function generates code to save the Mythryl state.
+	    #
+	    fun save_restore_task ()
+		=
+		();
+
+
+	    # This is the main entry point for C calls.
+	    # It takes the following things as arguments.
+	    #   1. A treecode->machcode codebuffer. 
+	    #   2. get_int_reg_for_ncfval:   Variable -> int_expression
+	    #   3. get_float_reg_for_ncfvar:  Variable -> float_expression
+	    #   4. get_ncftype_for_codetemp:    Variable -> cty
+	    #   5. use_virtual_framepointer:       using virtual frame pointer?
+	    #   6. hap_offset:  top-of-heap byte offset relative to heap_allocation_pointer register.
+	    #   7. arguments to RAW_C_CALL
+	    # The function emits the call code and returns:
+	    #   1. result    --- return value of call
+	    #   2. hap_offset  --- the updated top-of-heap byte offset relative to heap_allocation_pointer register.
+	    #
+	    fun ccall
+		{ treecode_to_machcode_stream =>  (buf: t2m::Treecode_Codebuffer),
+		  get_int_reg_for_ncfval,
+		  get_float_reg_for_ncfvar,
+		  get_ncftype_for_codetemp,
+		  use_virtual_framepointer, 
+		  hap_offset
+		} 
+		( reentrant,
+		  linkage,
+		  p,
+		  vl,
+		  wtl,
+		  e
+		)
+		=
+		{   my  { return_type, parameter_types, ... }
+			=
+			p:  cty::Cfun_Type;
+
+
+		    fun build_args vl
+			= 
+			{
+    #			include ctypes;
+
+			    fun m (cty::DOUBLE, v ! vl)
+				    =>
+				    ([cal::FARG (get_float_reg_for_ncfvar v)], vl);
+
+				m (cty::FLOAT, v ! vl)
+				    =>
+				    ([cal::FARG (tcf::FLOAT_TO_FLOAT (32, 64, get_float_reg_for_ncfvar v))], vl);
+
+				m (( cty::UNSIGNED ( cty::CHAR
+						     | cty::SHORT
+						     | cty::INT
+						     | cty::LONG
+						     )
+				   | cty::SIGNED   ( cty::CHAR
+						     | cty::SHORT
+						     | cty::INT
+						     | cty::LONG
+						     )
+				   | cty::PTR
+				   ),
+				   v ! vl
+				  )
+				    =>
+				    ([cal::ARG (get_int_reg_for_ncfval v)], vl);
+
+				m ( ( cty::STRUCT _
+				    | cty::UNION _
+				    ),
+				    v ! vl
+				  )
+				    =>
+				    ([cal::ARG (get_int_reg_for_ncfval v)], vl);		     #  pass struct using the pointer to its beginning 
+
+				m ( ( cty::SIGNED   cty::LONG_LONG
+				    | cty::UNSIGNED cty::LONG_LONG
+				    ),
+				    v ! vl
+				  )
+				    =>
+				    {   fun field' off
+					    =
+					    tcf::LOAD (ity, tcf::LOAD (pty, ea (get_int_reg_for_ncfval v, off), rgn::memory), rgn::memory);
+
+					([cal::ARG (field' 4), cal::ARG (field' 0)], vl);
+				    };
+
+				m (cty::LONG_DOUBLE, _)
+				    =>
+				    error "RAW_C_CALL: unexpected long double argument";
+
+				m (cty::ARRAY _, _) => error "RAW_C_CALL: unexpected array argument";
+				m (cty::VOID, _   ) => error "RAW_C_CALL: unexpected void argument";
+				m (_, []            ) => error "RAW_C_CALL: not enough Mythryl7 args";
+			    end 
+
+			    also
+			    fun ml (tl, vl)
+				=
+				{   fun one (t, (ral, vl))
+					=
+					{   (m (t, vl)) ->   (a, vl');
+					    #
+					    (a @ ral, vl');
+					};
+
+				    my  (ral, vl')
+					=
+					fold_forward one ([], vl) tl;
+
+				    (reverse ral, vl');
+			       };
+
+			    case (ml (parameter_types, vl))
+				#
+				(al, []) =>  al;
+				_        =>  error "RAW_C_CALLS: too many Mythryl7 args";
+			    esac;
+
+			};                                        #  Build_args 
+
+		    my  (f, sr, a)
+			=
+			case (return_type, vl)
+			    #
+			    ((cty::STRUCT _ | cty::UNION _), fv ! srv ! avl)
+				=>
+				{   s =   get_int_reg_for_ncfval srv;
+
+				    ( get_int_reg_for_ncfval fv,
+				      \\ _ = s,
+				      build_args avl
+				    );
+				};
+
+			    (_, fv ! avl)
+				=>
+				( get_int_reg_for_ncfval fv,
+				  \\ _ = error "RAW_C_CALL: unexpected struct return",
+				  build_args avl
+				);
+
+			    _   => error "RAW_C_CALL: prototype/arglist mismatch";
+			esac;
+
+		    fun srd defs
+			=
+			loop (defs, [], [])
+			where
+			    fun loop ([], s, r)
+				    =>
+				    { save => s, restore => r };
+
+				loop (tcf::INT_EXPRESSION (tcf::CODETEMP_INFO (type, g)) ! l, s, r)
+				    =>
+				    if (list::exists (same_reg_as g) pri::ccall_caller_save_r)
+					#
+					t =   rgk::make_int_codetemp_info ();
+
+					loop (l, tcf::MOVE_INT_REGISTERS (type, [t], [g]) ! s,
+						 tcf::MOVE_INT_REGISTERS (type, [g], [t]) ! r);
+
+				    else
+					loop (l, s, r);
+				   fi;
+
+				loop (tcf::FLOAT_EXPRESSION (tcf::CODETEMP_INFO_FLOAT (type, f)) ! l, s, r)
+				    =>
+				    if (list::exists (same_reg_as f) pri::ccall_caller_save_f)
+					#
+					t =   rgk::make_float_codetemp_info ();
+
+					loop (l, tcf::MOVE_FLOAT_REGISTERS (type, [t], [f]) ! s,
+						 tcf::MOVE_FLOAT_REGISTERS (type, [f], [t]) ! r);
+				    else
+					loop (l, s, r);
+				    fi;
+
+			       loop _
+				    =>
+				    error "save_restore_global_registers: unexpected def";
+			    end;
+			end;				#  srd 
+
+		    param_allot
+			=
+			case (mp::ccall_prealloc_argspace_in_bytes)
+			    #
+			    NULL => (\\ { szb, align } =  FALSE);
+			    #
+			    THE s => (\\ { szb, align }
+					  =
+					  if (szb > s )
+					      error "argument list in C-call too big";
+					  else
+					      TRUE;
+					  fi);
+			esac;
+
+		    my  { callseq, result }
+			=
+			cal::make_inline_c_call
+			    { name         => f,
+			      fn_prototype => p,
+			      struct_ret   => sr,
+			      save_restore_global_registers => srd,
+			      param_allot,
+			      call_comment => THE ("C prototype is: " + cprototype::c_prototype_to_string p),
+			      args => a
+			    };
+
+		    fun with_hostthread f
+			=
+			{   framepointer =   pri::framepointer use_virtual_framepointer;
+
+			    task     =   tcf::LOAD (address_type, ea (framepointer, mp::task_offset), rgn::stack);
+
+			    hostthread  =   tcf::LOAD (address_type, ea (task, mp::hostthread_offtask), rgn::memory);
+			    hostthread' =   tcf::CODETEMP_INFO  (address_type, rgk::make_int_codetemp_info ());
+
+			    in_lib7  =   tcf::LOAD (ity, ea (hostthread', mp::in_lib7off_vsp), rgn::memory);
+
+			    limit_ptr_mask
+				=
+				tcf::LOAD (32, ea (hostthread', mp::limit_ptr_mask_off_vsp),
+					rgn::memory);
+
+			    #  Move hostthread to its register:
+			    #
+			    buf.put_op (assign (hostthread', hostthread));
+
+			    f { in_lib7, limit_ptr_mask };
+
+			};						# fun with_hostthread
+
+		    #  Prepare to leave Mythryl
+		    #
+		    with_hostthread (\\ { in_lib7, limit_ptr_mask }
+				=
+				{   buf.put_op (assign (limit_ptr_mask, lw 0uxffffffff));				#  Set ccall_limit_pointer_mask to -1 	XXX BUGGO FIXME this hardwires an assumed wordsize!
+				    #
+				    buf.put_op (assign (in_lib7, lw 0u0));						#  Set vp_inLib7 to 0 
+				}
+			     );
+
+
+		    # Now do the actual call! 
+		    #
+		    apply  buf.put_op  callseq;
+
+
+		    # Return to Mythryl, restore proper heap_allocation_limit pointer: 
+		    #
+		    with_hostthread (\\ { in_lib7, limit_ptr_mask }
+				=
+				{   buf.put_op (assign (in_lib7, lw 0u1));						#  set vp_inLib7 back to 1 
+
+				    buf.put_op (assign (pri::heap_allocation_limit  use_virtual_framepointer,
+					       tcf::BITWISE_AND (pty, limit_ptr_mask,
+							    pri::heap_allocation_limit  use_virtual_framepointer)));	#  heap_allocation_limit := heap_allocation_limit & ccall_limit_pointer_mask 
+				}
+			     );
+
+		    #  Find result: 
+		    #
+		    result = 
+			case (result, return_type)
+			    #
+			    (([] | [_]), (cty::VOID | cty::STRUCT _ | cty::UNION _))
+				=>
+				[];
+			    #
+			    ([], _)                                       =>   error "RAW_C_CALL: unexpectedly few results";
+			    ([     tcf::FLOAT_EXPRESSION x], cty::FLOAT ) =>   [tcf::FLOAT_EXPRESSION (tcf::FLOAT_TO_FLOAT (64, 32, x))];
+			    ([r as tcf::FLOAT_EXPRESSION x], cty::DOUBLE) =>   [r];
+			    ([     tcf::FLOAT_EXPRESSION _], _)           =>   error "RAW_C_CALL: unexpected floating point result";
+
+			    #
+			    ( [ r1 as tcf::INT_EXPRESSION _,
+				r2 as tcf::INT_EXPRESSION _
+			      ],
+
+			      ( cty::SIGNED   cty::LONG_LONG 
+			      | cty::UNSIGNED cty::LONG_LONG
+			      )
+			    )
+				 =>
+				 [r1, r2];
+
+			    ([r as tcf::INT_EXPRESSION x], _)
+				=>
+				[r];					#  more sanity checking here ?  XXX BUGGO FIXME
+
+			   _ => error "RAW_C_CALL: unexpectedly many results";
+		       esac;
+
+		    { result, hap_offset };
+		};								# fun ccall 
+
+	end;
+    };									# generic package nextcode_c_calls_g 
+end;

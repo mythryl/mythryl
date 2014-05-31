@@ -1,0 +1,473 @@
+## adl-raw-syntax-translation.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/tools/sml-ast.lib
+
+# Translation from one sort to another
+
+
+
+###                "Above the cloud with its shadow
+###                 is the star with its light.
+###                 Above all things reverence thyself."
+###
+###                                -- Pythagoras
+
+
+
+stipulate
+    package htb =  hashtable;								# hashtable					is from   src/lib/src/hashtable.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package spp =  simple_prettyprinter;						# simple_prettyprinter				is from   src/lib/prettyprint/simple/simple-prettyprinter.pkg
+    package rrs =  adl_rewrite_raw_syntax_parsetree;					# adl_rewrite_raw_syntax_parsetree		is from   src/lib/compiler/back/low/tools/adl-syntax/adl-rewrite-raw-syntax-parsetree.pkg
+    package raw =  adl_raw_syntax_form;							# adl_raw_syntax_form				is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.pkg
+    package rsu =  adl_raw_syntax_unparser;						# adl_raw_syntax_unparser			is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.pkg
+herein
+
+    # This package is referenced in:
+    #     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages.pkg
+    #     src/lib/c-glue/ml-grinder/ml-grinder.pkg
+    #     src/lib/compiler/back/low/tools/rewrite-generator/glue.pkg
+
+    package  adl_raw_syntax_translation
+    : (weak) Adl_Raw_Syntax_Translation							# Adl_Raw_Syntax_Translation			is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-translation.api
+    {
+	fun error msg
+	    =
+	    lem::error("adl_raw_syntax_translation", msg);
+
+	Map(X) =  { orig_name:  raw::Id,
+		    new_name:   raw::Id,
+		    type:       raw::Type
+		   }
+		   -> X;
+
+	Folder(X)
+	    =
+	    ( { orig_name:  raw::Id,
+		new_name:   raw::Id,
+		type:	    raw::Type
+              },
+	      X
+	    )
+	    -> X;
+
+	fun id x =   raw::ID_IN_EXPRESSION (raw::IDENT ([], x));
+
+	exception NO_NAME;
+
+	# Treat a type expression as a pattern
+	# and compute its set of  variable namings.
+	# Duplicates are given unique suffixes.  
+
+	fun namings_in_type  type
+	    = 
+	    {   names_hashtable
+		    =
+		    htb::make_hashtable
+			(hash_string::hash_string, (==))
+			{ size_hint => 32,  not_found_exception => NO_NAME };
+
+		variables = REF 0;
+
+		fun enter_name id
+		    = 
+		    {   variables := *variables + 1;
+			#
+			(htb::look_up  names_hashtable  id)
+			    ->
+			    (_, total_count);
+
+			total_count := *total_count + 1;
+		    }
+		    except
+			_ =  htb::set names_hashtable (id, (REF 0, REF 1));
+
+		fun enter (raw::IDTY    (raw::IDENT(_, id))) => enter_name id;
+		    enter (raw::TYVARTY (raw::VARTV id)) => enter_name id;
+		    enter (raw::APPTY   (raw::IDENT(_, id), _)) => enter_name id;
+		    enter (raw::REGISTER_TYPE id) => enter_name id;						# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+		    enter (raw::TUPLETY tys) => apply enter tys;
+		    enter (raw::RECORDTY ltys) => apply (\\ (id, _) = enter_name id) ltys;
+		    enter t => error("namingsInType: " + spp::prettyprint_expression_to_string (rsu::type t));
+		end;
+
+		strip_ticks =   string::map  \\ '\'' => 't';
+                                                  c  => c;
+                                             end; 
+
+		fun get_name id 
+		    = 
+		    {   (htb::look_up  names_hashtable  id)
+			    ->
+			    (current_count, total_count);
+
+			strip_ticks(
+			    if   (*total_count == 1)
+
+				 id; #  use the same name 
+			    else 
+				 current_count := *current_count + 1;
+				 id + int::to_string *current_count;
+			    fi
+			);
+		    };
+	      enter type;
+		(*variables, get_name);
+	    };
+
+
+	# Translate a type into a pattern expression
+
+	fun map_ty_to_pattern f' type
+	    =
+	    {   my (_, get_name) = namings_in_type type;
+
+		fun f (id, type)
+		    =
+		    f'{ orig_name=>id, new_name=>get_name id, type };
+
+		fun g (raw::IDTY (raw::IDENT(_, id)), type) => f (id, type);
+		    g (raw::TYVARTY (raw::VARTV id), type) => f (id, type);
+		    g (raw::APPTY (raw::IDENT(_, id), _), type) => f (id, type);
+		    g (raw::REGISTER_TYPE id, type) => f (id, type);				# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+		    g (raw::TUPLETY tys, _) => raw::TUPLEPAT (map g' tys);
+		    g (raw::RECORDTY ltys, _) => raw::RECORD_PATTERN (map h ltys, FALSE);
+		    g (t, _) => error("tyToPattern: " + spp::prettyprint_expression_to_string (rsu::type t));
+		end 
+
+		also
+		fun g' t = g (t, t)
+
+		also
+		fun h (lab, type) = (lab, f (lab, type));
+
+		g' type;
+	    };
+
+	fun fold_type f' x type
+	    =
+	    {   my (_, get_name) = namings_in_type type;
+
+		fun f (id, type, x)
+		    =
+		    f'( { orig_name=>id, new_name=>get_name id, type }, x);
+
+		fun g (raw::IDTY (raw::IDENT(_, id)), type, x) => f (id, type, x);
+		    g (raw::TYVARTY (raw::VARTV id), type, x) => f (id, type, x);
+		    g (raw::APPTY (raw::IDENT(_, id), _), type, x) => f (id, type, x);
+		    g (raw::REGISTER_TYPE id, type, x) => f (id, type, x);
+		    g (raw::TUPLETY tys, type, x) => fold_backward g' x (reverse tys);
+		    g (raw::RECORDTY ltys, type, x) => fold_backward h x (reverse ltys);
+		    g (t, type, x) => error("foldTyNamings: " + spp::prettyprint_expression_to_string (rsu::type t));
+		end 
+
+		also
+		fun g'(t, x) = g (t, t, x)
+
+		also
+		fun h ((lab, type), x) = f (lab, type, x);
+
+		g'(type, x);
+	    };
+
+	fun fold_cons f x (raw::CONSTRUCTOR { type => NULL,     ... } ) =>  x;
+	    fold_cons f x (raw::CONSTRUCTOR { type => THE type, ... } ) =>  fold_type f x type;
+	end;
+
+
+	# Translate a type into an expression
+	#
+	fun map_ty_to_expression f' type
+	    =
+	    {   my (_, get_name) = namings_in_type type;
+
+		fun f (id, type)
+		    =
+		    f'{ orig_name=>id, new_name=>get_name id, type };
+
+		fun g (raw::IDTY (raw::IDENT(_, id)), type) => f (id, type);
+		    g (raw::TYVARTY (raw::VARTV id), type) => f (id, type);
+		    g (raw::APPTY (raw::IDENT(_, id), _), type) => f (id, type);
+		    g (raw::REGISTER_TYPE id, type) => f (id, type);						# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+		    g (raw::TUPLETY tys, type) => raw::TUPLE_IN_EXPRESSION (map g' tys);
+		    g (raw::RECORDTY ltys, type) => raw::RECORD_IN_EXPRESSION (map h ltys);
+		    g (t, _) => error("tyToPattern: " + spp::prettyprint_expression_to_string (rsu::type t));
+		end 
+
+		also
+		fun g' t = g (t, t)
+
+		also
+		fun h (lab, type) = (lab, f (lab, type));
+
+		g' type; 
+	    };
+
+
+	# Translate a constructor into a pattern:
+	#
+	fun map_cons_to_pattern { prefix, id } (raw::CONSTRUCTOR { name, type, ... } )
+	    =
+	    raw::CONSPAT (raw::IDENT (prefix, name), null_or::map (map_ty_to_pattern id) type);
+
+
+	# Translate a constructor into an expression:
+	#
+	fun map_cons_to_expression { prefix, id } (raw::CONSTRUCTOR { name, type, ... } )
+	    =
+	    raw::CONSTRUCTOR_IN_EXPRESSION (raw::IDENT (prefix, name), null_or::map (map_ty_to_expression id) type);
+
+
+	fun map_cons_arg_to_expression id (raw::CONSTRUCTOR { type => NULL,     ... } ) =>   raw::TUPLE_IN_EXPRESSION [];
+	    map_cons_arg_to_expression id (raw::CONSTRUCTOR { type => THE type, ... } ) =>   map_ty_to_expression id type;
+	end;
+
+
+	fun map_cons_to_clause { prefix, pattern, expression } cons
+	    = 
+	    raw::CLAUSE
+	      (
+		[ pattern (map_cons_to_pattern 
+			      { prefix,
+				id => \\ { new_name, ... } = raw::IDPAT new_name
+			      }
+			      cons
+			  )
+		],
+		NULL,
+		expression
+	      );
+
+	fun cons_namings cons
+	    =
+	    {   fun enter ( { new_name, orig_name, type }, namings)
+		    =
+		    (new_name, type) ! namings;
+
+		namings = fold_cons enter [] cons; 
+
+		fun look_up (the_id:  raw::Id)
+		    =
+		    find namings
+		    where
+			fun find ((b as (x, t)) ! bs) => if (x == the_id ) (id x, t); else find bs;fi; 
+			    find [] => raise exception NO_NAME;
+			end;
+		    end;
+
+		look_up;
+	    };
+
+	#  Simplification:
+	#
+	stipulate
+
+	    fun has_namings ps
+		= 
+		{   namings = REF FALSE;
+
+		    fun rewrite_pattern_node _ (p as raw::IDPAT x) => { namings := TRUE; p;}; 
+			rewrite_pattern_node _ p => p;
+		    end;
+
+		    apply
+			(\\ p
+			    =
+			    {   
+				fns.rewrite_pattern_parsetree   p
+				where
+				    fns =  rrs::make_raw_syntax_parsetree_rewriters [ rrs::REWRITE_PATTERN_NODE rewrite_pattern_node ];
+				end;
+
+				();
+			    }
+			)
+			ps;
+
+		    *namings;
+		};
+
+	    fun all_the_same []
+		    =>
+		    TRUE;
+
+		all_the_same (x ! xs)
+		    =>
+		    list::all
+			(\\ x' =  x == x')
+			xs;
+	    end;
+
+	    exception DO_NOT_APPLY;
+
+	    fun reduce_expression ===> (expression as raw::CASE_EXPRESSION (e,[]))
+		    =>
+		    expression;
+
+		reduce_expression ===> (raw::SEQUENTIAL_EXPRESSIONS es)
+		    =>
+		    (raw::SEQUENTIAL_EXPRESSIONS
+			(fold_backward
+			    \\ (raw::TUPLE_IN_EXPRESSION [], es)                =>   es;
+				(raw::SEQUENTIAL_EXPRESSIONS [], es) =>   es;
+				(e, es)                            =>   e ! es;
+			    end 
+			     [] es)
+		    );
+
+		reduce_expression ===> (expression as raw::CASE_EXPRESSION (e, all_cs as (c as raw::CLAUSE (p1, NULL, e1)) ! cs))
+		    => 
+		    {   ps' =   fold_backward  collect  []  (c ! cs)
+				where
+				    fun collect (raw::CLAUSE ([p], NULL, e), ps')
+					    =>
+					    ins ps'
+					    where
+						fun ins ((ps, e') ! ps')
+							=> 
+							if (e == e' )   (p ! ps, e )  !      ps';
+							else            (    ps, e')  !  ins ps';
+							fi;
+
+						    ins [] =>   [ ([p], e) ];
+						end;
+					    end;
+
+					collect _ =>   error "Unsupported case in reduce_expression/collect.";
+				    end;
+				end;
+
+
+			fun or_pattern [p]
+				=>
+				p;
+
+			    or_pattern ps
+				=>
+				if  (list::all
+					#
+					\\  raw::WILDCARD_PATTERN => TRUE;
+					    _                     => FALSE;
+					end
+					#
+					ps
+				    )
+				    #
+				    raw::WILDCARD_PATTERN;
+				else
+				    raw::OR_PATTERN ps;
+				fi;
+			end;  
+
+			fun tuplepat [p] =>  p;
+			    tuplepat ps  =>  raw::TUPLEPAT  ps;
+			end;
+
+
+			fun join ([p], e)
+				=>
+				raw::CLAUSE([p], NULL, e);
+
+			    join (ps, e)
+				=> 
+				{   xs = map   \\ raw::TUPLEPAT (p ! ps) =>  (p, ps);
+						  _                    =>  raise exception DO_NOT_APPLY;
+					       end
+
+					       ps;
+
+				    first_pats = map #1 xs;
+				    rest_pats  = map #2 xs;
+
+				    if (all_the_same (map tuplepat rest_pats))
+					# 
+					raw::CLAUSE([tuplepat (or_pattern first_pats ! head rest_pats)], NULL, e);
+				    else
+					raise exception DO_NOT_APPLY;
+				    fi;
+				}
+				except
+				    DO_NOT_APPLY =   raw::CLAUSE ([or_pattern ps], NULL, e);
+			end;
+
+			cs = map join (reverse ps');
+
+			case cs
+			    #
+			    [raw::CLAUSE([raw::TUPLEPAT []], NULL, body)]            =>  body;
+			    [raw::CLAUSE([_], NULL, body as raw::LIST_IN_EXPRESSION([], NULL))] =>  body;
+			    #
+			    [raw::CLAUSE([raw::TUPLEPAT ps], NULL, body)]
+				=> 
+				if (not (has_namings ps))
+				    #
+				    body;
+				else
+				    fun elim_or  (pattern as raw::OR_PATTERN p)
+					    =>
+					    if (has_namings p)   pattern;
+					    else                 raw::WILDCARD_PATTERN;
+					    fi;
+
+					 elim_or  pattern
+					    =>
+					    pattern;
+				    end;
+
+				    raw::CASE_EXPRESSION (e,
+					[raw::CLAUSE([raw::TUPLEPAT (map elim_or ps)], NULL, body)]);
+				fi;
+
+			    [raw::CLAUSE (ps, NULL, body)]
+				=> 
+				if (has_namings ps)   raw::CASE_EXPRESSION (e, cs);
+				else                  body;
+				fi;
+
+			    _ => raw::CASE_EXPRESSION (e, cs);
+			esac; 
+		    };
+
+		reduce_expression ===> (expression as raw::IF_EXPRESSION (a, b, c))
+		    =>
+		    if (b == c)   b;
+		    else          expression;
+		    fi;
+
+		reduce_expression ===> e
+		    =>
+		    e;
+	    end;
+
+	    simplifier
+		= 
+		rrs::make_raw_syntax_parsetree_rewriters [ rrs::REWRITE_EXPRESSION_NODE reduce_expression ];
+	herein
+
+	    simplify_expression  =  simplifier.rewrite_expression_parsetree;
+	    simplify_declaration =  simplifier.rewrite_declaration_parsetree;
+	    simplify_pattern     =  simplifier.rewrite_pattern_parsetree;
+	    simplify_sexp        =  simplifier.rewrite_statement_parsetree;
+	    simplify_type        =  simplifier.rewrite_type_parsetree;
+
+	    fun strip_marks  d										# Drop line number information from a declaration.
+		=
+		{   fun rewrite_declaration_node ===> (raw::SOURCE_CODE_REGION_FOR_DECLARATION (_, d))
+			    =>
+			    d;
+
+			rewrite_declaration_node ===> d
+			    =>
+			    d;
+		    end;
+
+
+		    fns.rewrite_declaration_parsetree  d
+		    where	
+		        fns =  rrs::make_raw_syntax_parsetree_rewriters [ rrs::REWRITE_DECLARATION_NODE rewrite_declaration_node ];
+		    end;
+		};
+	end;												# stipulate
+    };													# package   adl_raw_syntax_translation
+end;													# stipulate

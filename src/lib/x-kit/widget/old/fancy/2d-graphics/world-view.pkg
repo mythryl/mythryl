@@ -1,0 +1,367 @@
+## world-view.pkg
+## COPYRIGHT (c) 1994 AT&T Bell Laboratories.
+
+
+
+api WORLD_VIEW =
+  api
+    type view
+
+/* DEBUG *
+my prView:  view -> Void
+* DEBUG */
+
+    my makeView:  {
+	    minX: real, maxX: real, minY: real, maxY: real, scale: real,
+	    wid: Int, ht: Int
+	  } -> view
+
+    my pixelsPerInch:  view -> real
+	# return the pixel scaling factor of the view (i.e., # of pixels
+	# per inch).
+
+
+    my scale:  view -> real
+	# return the scaling factor (i.e., the number of inches on the screen
+	# per inch in world coordinates).
+
+
+    my hScrollView:  (view * real) -> (view * Int)
+    my vScrollView:  (view * real) -> (view * Int)
+	# Scroll a view horizontally or vertically; the amount is given as a
+	# percentage of the visible whole.  Return the number of pixels to scroll
+	# and the new view.
+
+
+    my zoomView:     (view * real) -> view
+	# Zoom a view: a zoom of 1.0 is no change; a zoom of 2.0 doubles the size
+	# of chunks in the view (i.e., zooms in), while a zoom of 0.5 halves
+	# the size of chunks in the view.  This will not zoom out beyond the
+	# view's bounding box.
+
+
+    my viewSize:  view -> { top: real, vSize: real, left: real, hSize: real }
+	# return the size and position of the view as a percentage of the
+	# total horizontal and vertical dimensions of the world.
+
+
+    my viewBBox:  view -> { minX:  real, maxX:  real, minY:  real, maxY:  real }
+	#  return the bounding box of the view 
+
+    my viewVBox:  view -> { minX:  real, maxX:  real, minY:  real, maxY:  real }
+	#  return the visible box 
+
+    my uCoordToPixel:  (view * real * real) -> Geometry::point
+    my uCoordToSize:   (view * real * real) -> Geometry::size
+    my pixelToUCoord:  (view * Geometry::point) -> (real * real)
+	#  mappings from universal to screen coordinates, and back 
+
+    my scaleFontSz:  (view * Int) -> Int
+	# given a font size (in points) return the appropriate font size
+	# for the current view.
+
+
+    my pixelRadius:   view -> real
+	#  return the radius of a pixel in universal coordinates 
+
+  end;
+
+package WorldView:  WORLD_VIEW =
+  pkg
+
+    package T2D = Transform2D
+
+    # the following data package describes a view; it consists of the
+    # "world" (defined by left, right, top & bottom), and a sub-region
+    # of the world (defined by viewX, viewY, viewWid, viewHt).  In
+    # addition, information about the mapping onto a window of pixels is
+    # maintained.
+
+    type view = {
+	winWid:  Int,		#  the size of the view in pixels. 
+	winHt:  Int,
+	left:  real,		#  the bounding box of the world, in 
+	right:  real,		#  universal coordinates 
+	top:  real,
+	bottom:  real,
+	scale:  real,		#  the current scaling factor 
+	pixelScale:  real,	#  the current scaling factor; this is the 
+				#  number of pixels per universal coordinate 
+	viewX:  real,		#  the center of the view in universal 
+	viewY:  real,		#  Coordinates. 
+	viewWid:  real,		#  the size of the view in universal 
+	viewHt:  real,		#  Coordinates. 
+	xform:  T2D::xform	#  the transformation matrix that maps universal 
+				#  Coordinates to pixel coordinates 
+      }
+
+/* DEBUG *
+local use Debug in
+fun prView (v:  view) = (
+      prf ("  WINDOW: (%d, %d), scale = %f, pixelScale = %f\n", [
+	  f::INT v.winWid, f::INT v.winHt, f::REAL v.scale, f::REAL v.pixelScale
+	]);
+      prf ("  WORLD: l = %f, r = %f, t = %f, b = %f\n", [
+	  f::REAL v.left, f::REAL v.right, f::REAL v.top, f::REAL v.bottom
+	]);
+      prf ("  VIEW: x = %f, y = %f, wid = %f, ht = %f\n", [
+	  f::REAL v.viewX, f::REAL v.viewY, f::REAL v.viewWid, f::REAL v.viewHt
+	]))
+end
+* DEBUG */
+
+    # Real utility functions:
+    #
+    fun min (x:  real, y) = if (x < y) then x else y
+    fun max (x:  real, y) = if (x > y) then x else y
+    fun round x = floor (x + 0.5)
+    #
+    fun worldWid (v:  view) = (v.right - v.left)
+    fun worldHt (v:  view) = (v.top - v.bottom)
+
+    # Return the transformation matrix that maps universal coordinates to
+    # pixel coordinates:
+    #
+    fun transform { scale, viewX, viewY, viewWid, viewHt } = let
+	  hw = 0.5*viewWid and hh = 0.5*viewHt
+	  in
+	    T2D::translate (scale*hw, scale*hh,
+	      T2D::scale (scale, -scale,
+		T2D::translate (-viewX, -viewY,
+		  T2D::id)))
+	  end
+
+    # Given a view, ensure that the world's
+    # bounding box is contained in the
+    # view box; if not, grow the world.
+    #
+    fun growWorld (v:  view) = let
+	  fun bbox (pos, wid) = let half = 0.5*wid
+		in
+		  (pos-half, pos+half)
+		end
+	  my (viewLeft, viewRight) = bbox (v.viewX, v.viewWid)
+	  my (viewBot, viewTop) = bbox (v.viewY, v.viewHt)
+	  in
+	    if ((viewLeft < v.left) or (v.right < viewRight)
+	    or (viewBot < v.bottom) or (v.top < viewTop))
+	      then {
+		  winWid	= v.winWid,
+		  winHt		= v.winHt,
+		  left		= min (v.left, viewLeft),
+		  right		= max (v.right, viewRight),
+		  top		= max (v.top, viewTop),
+		  bottom	= min (v.bottom, viewBot),
+		  scale		= v.scale,
+		  pixelScale	= v.pixelScale,
+		  viewX		= v.viewX,
+		  viewY		= v.viewY,
+		  viewWid	= v.viewWid,
+		  viewHt	= v.viewHt,
+		  xform		= v.xform
+		}
+	      else v
+	  end
+
+  /* given the world bounding box, view size in pixels, and initial scaling
+   * factor, create a view centered on the world.
+   */
+    fun makeView { minX, maxX, minY, maxY, scale, wid, ht } = let
+	  worldWid = maxX - minX and worldHt = maxY - minY
+	#  size of viewing area in universal coordinates 
+	  viewWid = (real wid) / scale
+	  viewHt = (real ht) / scale
+	#  Center of world 
+	  viewX = minX + (0.5 * worldWid)
+	  viewY = minY + (0.5 * worldHt)
+	#  if necessary, extend the world to cover the view 
+	  worldWid = max (worldWid, viewWid)
+	  worldHt = max (worldHt, viewHt)
+	  in
+	    { winWid	= wid,
+	      winHt	= ht,
+	      left	= viewX - (0.5 * worldWid),
+	      right	= viewX + (0.5 * worldWid),
+	      top	= viewY + (0.5 * worldHt),
+	      bottom	= viewY - (0.5 * worldHt),
+	      scale	= 1.0,
+	      pixelScale= scale,
+	      viewX	= viewX,
+	      viewY	= viewY,
+	      viewWid	= viewWid,
+	      viewHt	= viewHt,
+	      xform	= transform {
+		  scale = scale, viewX = viewX, viewY = viewY,
+		  viewWid = viewWid, viewHt = viewHt
+		}
+	    }
+	  end
+
+  /* return the pixel scaling factor of the view (i.e., # of pixels
+   * per inch).
+   */
+    fun pixelsPerInch (v:  view) = v.pixelScale
+
+  /* return the scaling factor (i.e., the number of inches on the screen
+   * per inch in world coordinates).
+   */
+    fun scale (v:  view) = v.scale
+
+  #  move the view in universal coordinates 
+    fun moveView (v:  view, dx, dy) = let
+	  fun clip (x, lo, hi) =
+		if (x < lo) then lo else if (hi < x) then hi else x
+	  hw = 0.5*v.viewWid and hh = 0.5*v.viewHt
+	  viewX = clip (v.viewX + dx, v.left+hw, v.right-hw)
+	  viewY = clip (v.viewY + dy, v.bottom+hh, v.top-hh)
+	  in
+	    { winWid	= v.winWid,
+	      winHt	= v.winHt,
+	      left	= v.left,
+	      right	= v.right,
+	      top	= v.top,
+	      bottom	= v.bottom,
+	      scale	= v.scale,
+	      pixelScale= v.pixelScale,
+	      viewX	= viewX,
+	      viewY	= viewY,
+	      viewWid	= v.viewWid,
+	      viewHt	= v.viewHt,
+	      xform	= transform {
+		  scale = v.pixelScale, viewX = viewX, viewY = viewY,
+		  viewWid = v.viewWid, viewHt = v.viewHt
+	        }
+	    }
+	  end
+
+    # Scroll a view horizontally; the amount is given as a percentage of the
+    # visible whole.  Return the number of pixels to scroll, and the new view.
+    #
+    fun hScrollView (v:  view, pDelta) = let
+	  delta = pDelta * v.viewWid
+	  v' = moveView (v, delta, 0.0)
+	  in
+	    (v', round((v'.viewX - v.viewX) * v'.pixelScale))
+	  end
+
+    # Scroll a view vertically; the amount is given as a percentage of the
+    # whole.  Return the number of pixels to scroll, and the new view.
+    #
+    fun vScrollView (v:  view, pDelta) = let
+	  delta = pDelta * v.viewWid
+	  v' = moveView (v, 0.0, delta)
+	  in
+	    (v', round((v'.viewY - v.viewY) * v'.pixelScale))
+	  end
+
+    # Zoom a view: a zoom of 1.0 is no change; a zoom of 2.0 doubles the size
+    # of chunks in the view (i.e., zooms in), while a zoom of 0.5 halves
+    # the size of chunks in the view.  This will not zoom out beyond the
+    # view's bounding box.
+    #
+    fun zoomView (v:  view, zoom) = let
+	  zoomInv = 1.0 / zoom
+	  pixelScale = v.pixelScale * zoom
+	  viewWid = v.viewWid * zoomInv
+	  viewHt = v.viewHt * zoomInv
+	  in
+	    growWorld {
+		winWid		= v.winWid,
+		winHt		= v.winHt,
+		left		= v.left,
+		right		= v.right,
+		top		= v.top,
+		bottom		= v.bottom,
+		scale		= zoom * v.scale,
+		pixelScale	= pixelScale,
+		viewX		= v.viewX,
+		viewY		= v.viewY,
+		viewWid		= viewWid,
+		viewHt		= viewHt,
+		xform		= transform {
+		    scale = pixelScale, viewX = v.viewX, viewY = v.viewY,
+		    viewWid = viewWid, viewHt = viewHt
+		  }
+	      }
+	  end #  zoomView 
+
+  /* return the size of the view as a percentage of the total horizontal
+   * and vertical dimensions of the world.
+   */
+    fun viewSize (v:  view) = let
+	  wwInv = 1.0 / worldWid v and vw = v.viewWid
+	  whInv = 1.0 / worldHt v and vh = v.viewHt
+	  in
+	    { top = (v.top - (v.viewY + 0.5*vh)) * whInv,
+	      vSize = vh * whInv,
+	      left = ((v.viewX - 0.5*vw) - v.left) * wwInv,
+	      hSize = vw * wwInv
+	    }
+	  end
+
+  #  return the bounding box of the view 
+    fun viewBBox (v:  view) = {
+	    minX = v.left, maxX = v.right,
+	    minY = v.bottom, maxY = v.top
+	  }
+
+  #  return the visible box 
+    fun viewVBox (v:  view) = let
+	  dx = 0.5 * v.viewWid and dy = 0.5 * v.viewHt
+	  in
+	    { minX = v.viewX - dx, maxX = v.viewX + dx,
+	      minY = v.viewY - dy, maxY = v.viewY + dy
+	    }
+	  end
+
+  #  map a universal coordinate to pixel coordinates 
+    fun uCoordToPixel (v:  view, x, y) = let
+	  my (x, y) = T2D::pixelize (x, y, v.xform)
+	  in
+	    Geometry::PT { x=x, y=y }
+	  end
+
+  /* map a universal coordinate to a size in pixels; this is like the
+   * uCoordToPixel conversion, except that no translation is done.
+   */
+    fun uCoordToSize ( { pixelScale, ... } : view, x, y) = geometry::SIZE {
+	    wid = round (pixelScale * x), ht = round (pixelScale * y)
+	  }
+
+  #  map a pixel coordinate to universal coordinates 
+    fun pixelToUCoord (v:  view, Geometry::PT { x, y } ) =
+	  T2D::transform (real x, real y, T2D::inverse v.xform)
+
+  /* given a font size (in points) return the appropriate font size
+   * for the current view.
+   */
+    fun scaleFontSz (v:  view, ptSz) = round (real ptSz * v.scale)
+
+  #  return the radius of a pixel 
+    fun pixelRadius (v:  view) = 0.5 / v.pixelScale
+
+  end; #  WorldView 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

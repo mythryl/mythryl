@@ -1,0 +1,3084 @@
+## compile-in-dependency-order-g.pkg -- makelib dependency graph walks.
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+###########################################
+# See overview comments at bottom of file.
+###########################################
+
+
+# RUNTIME INVOCATION CONTEXT
+#
+#     Our main two entrypoints are
+#
+#         compile_near_tome_after_dependencies
+#         make_dependency_order_compile_fns
+#
+#     Both are invoked by both bootstrap and standard compiler:
+#
+#         src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#         src/app/makelib/main/makelib-g.pkg
+#
+#
+#
+# KNOWN GOTCHAS
+#
+#     This generic currently maintains a
+#     lot of persistent state, which must be explicitly
+#     reset by our client before each new compile, and
+#     which (for now) precludes using multiple threads
+#     to run multiple compiles in parallel within a
+#     single process.		XXX BUGGO FIXME
+
+
+
+
+###                      "In software as elsewhere,
+###                       good engineering is whatever
+###                       gets the job done without
+###                       calling attention to itself."
+###
+###                           -- Citadel 2.21 release notes, 1982
+
+
+
+stipulate
+    #
+    package acf =  anormcode_form;				# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package ad  =  anchor_dictionary;				# anchor_dictionary				is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package bio =  data_file__premicrothread;			# data_file__premicrothread			is from   src/lib/std/src/posix/data-file--premicrothread.pkg
+    package bsx =  browse_symbolmapstack;			# browse_symbolmapstack				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/browse.pkg
+    package cf  =  compiledfile;				# compiledfile					is from   src/lib/compiler/execution/compiledfile/compiledfile.pkg
+    package coc =  global_controls::compiler;			# global_controls				is from   src/lib/compiler/toplevel/main/global-controls.pkg
+    package cor =  core_hack;					# core_hack					is from   src/app/makelib/compile/core-hack.pkg
+    package cps =  compiler_state;				# compiler_state				is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
+    package cs  =  code_segment;				# code_segment					is from   src/lib/compiler/execution/code-segments/code-segment.pkg
+    package cst =  compile_statistics;				# compile_statistics				is from   src/lib/compiler/front/basics/stats/compile-statistics.pkg
+    package ctl =  global_controls;				# global_controls				is from   src/lib/compiler/toplevel/main/global-controls.pkg
+    package cx  =  compilation_exception;			# compilation_exception				is from   src/lib/compiler/front/basics/map/compilation-exception.pkg
+    package ds  =  deep_syntax;					# deep_syntax					is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package err =  error_message;				# error_message					is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fil =  file__premicrothread;			# file__premicrothread				is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package idg =  indegrees_of_library_dependency_graph;	# indegrees_of_library_dependency_graph		is from   src/app/makelib/depend/indegrees-of-library-dependency-graph.pkg
+    package im  =  inlining_mapstack;				# inlining_mapstack				is from   src/lib/compiler/toplevel/compiler-state/inlining-mapstack.pkg
+    package imt =  import_tree;					# import_tree					is from   src/lib/compiler/execution/main/import-tree.pkg
+    package is  =  interprocess_signals;			# interprocess_signals				is from   src/lib/std/src/nj/interprocess-signals.pkg
+    package lg  =  inter_library_dependency_graph;		# inter_library_dependency_graph		is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package mcv =  mythryl_compiler_version;			# mythryl_compiler_version			is from   src/lib/core/internal/mythryl-compiler-version.pkg
+    package mld =  makelib_defaults;				# makelib_defaults				is from   src/app/makelib/stuff/makelib-defaults.pkg
+    package mtq =  makelib_thread_boss;				# makelib_thread_boss				is from   src/app/makelib/concurrency/makelib-thread-boss.pkg
+    package mmz =  memoize;					# memoize					is from   src/lib/std/memoize.pkg
+    package ms  =  makelib_state;				# makelib_state					is from   src/app/makelib/main/makelib-state.pkg
+    package myp =  mythryl_parser;				# mythryl_parser				is from   src/lib/compiler/front/parser/main/mythryl-parser.pkg
+    package nor =  null_or;					# null_or					is from   src/lib/std/src/null-or.pkg
+    package ns  =  number_string;				# number_string					is from   src/lib/std/src/number-string.pkg
+    package pcd =  per_compile_data;				# per_compile_data				is from   src/lib/compiler/front/typer-stuff/main/per-compile-data.pkg
+    package ph  =  picklehash;					# picklehash					is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package phs =  picklehash_set;				# picklehash_set				is from   src/app/makelib/stuff/picklehash-set.pkg
+    package pkj =  pickler_junk;				# pickler_junk					is from   src/lib/compiler/front/semantic/pickle/pickler-junk.pkg
+    package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill			is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package prs =  prettyprint_raw_syntax;			# prettyprint_raw_syntax			is from   src/lib/compiler/front/typer/print/prettyprint-raw-syntax.pkg
+    package psx =  posixlib;					# posixlib					is from   src/lib/std/src/psx/posixlib.pkg
+    package rm  =  rehash_module;				# rehash_module					is from   src/lib/compiler/front/semantic/pickle/rehash-module.pkg
+    package raw =  raw_syntax;					# raw_syntax					is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package s2m =  collect_all_modtrees_in_symbolmapstack;	# collect_all_modtrees_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/collect-all-modtrees-in-symbolmapstack.pkg
+    package sci =  sourcecode_info;				# sourcecode_info				is from   src/lib/compiler/front/basics/source/sourcecode-info.pkg
+    package sg  =  intra_library_dependency_graph;		# intra_library_dependency_graph		is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package spn =  spawn__premicrothread;			# spawn__premicrothread				is from   src/lib/std/src/posix/spawn--premicrothread.pkg
+    package sps =  source_path_set;				# source_path_set				is from   src/app/makelib/paths/source-path-set.pkg
+    package str =  string;					# string					is from   src/lib/std/string.pkg
+    package sym =  symbol_map;					# symbol_map					is from   src/app/makelib/stuff/symbol-map.pkg
+    package sys =  symbol_set;					# symbol_set					is from   src/app/makelib/stuff/symbol-set.pkg
+    package syx =  symbolmapstack;				# symbolmapstack				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tlt =  thawedlib_tome;				# thawedlib_tome				is from   src/app/makelib/compilable/thawedlib-tome.pkg
+    package ts  =  timestamp;					# timestamp					is from   src/app/makelib/paths/timestamp.pkg
+    package ttm =  thawedlib_tome_map;				# thawedlib_tome_map				is from   src/app/makelib/compilable/thawedlib-tome-map.pkg
+    package ucs =  unparse_code_and_data_segments;		# unparse_code_and_data_segments		is from   src/lib/compiler/execution/code-segments/unparse-code-and-data-segments.pkg
+    package upj =  unpickler_junk;				# unpickler_junk				is from   src/lib/compiler/front/semantic/pickle/unpickler-junk.pkg
+    package urs =  unparse_raw_syntax;				# unparse_raw_syntax				is from   src/lib/compiler/front/typer/print/unparse-raw-syntax.pkg
+    package vub =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package wnx =  winix__premicrothread;			# winix__premicrothread				is from   src/lib/std/winix--premicrothread.pkg
+    package xns =  exceptions;					# exceptions					is from   src/lib/std/exceptions.pkg
+    #
+    Pp = pp::Pp;
+
+    # Per-package table of exported symbols (functions, types...)
+    # and of exported inlinable functions:
+    #
+    Tome_Exports
+         =
+         { symbolmapstack:    syx::Symbolmapstack,
+           inlining_mapstack:  im::Picklehash_To_Anormcode_Mapstack
+         };
+
+    Fat_Tomes_Compile_Result						# Used only internally, for clarity and brevity.
+	=
+	{ tome_exports_thunk:	Void ->  Tome_Exports,
+	  #
+	  picklehashes:	phs::Set
+	};
+herein
+
+								# Mythryl_Compiler				is from   src/lib/compiler/toplevel/compiler/mythryl-compiler.api
+								# Freezefile_Roster				is from   src/app/makelib/freezefile/freezefile-roster-g.pkg
+								# freezefile_roster_g				is from   src/app/makelib/freezefile/freezefile-roster-g.pkg
+								# file__premicrothread				is from   src/lib/std/src/posix/file--premicrothread.pkg
+
+
+    # This generic is invoked in two places:
+    #
+    #         src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+    #         src/app/makelib/main/makelib-g.pkg
+    #
+    #     which is to say, in the definitions of both the
+    #     bootstrap and production compilers.
+    #
+    # Compile-time arguments:
+    #
+    #
+    #     read_eval_print_from_stream:
+    #         #
+    #         When we're invoked by
+    #             src/app/makelib/main/makelib-g.pkg
+    #         this is a simple wrapper for the global
+    #             read_eval_print_from_stream_hook
+    #         there, which is initialized to
+    #             read_eval_print_from_stream
+    #         which comes ultimately from
+    #             src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+    #
+    #         When we're invoked by
+    #             src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+    #         we get its argument
+    #             read_eval_print_from_stream_hook
+    #         supplied to it by
+    #             src/lib/core/mythryl-compiler-compiler/mythryl-compiler-compiler-for-intel32-posix.pkg
+    #         (and kin) as
+    #             mythryl_compiler::interact::read_eval_print_from_stream;
+    #
+    #         I think that comes out the same, give or take
+    #         indirection through the hook ref.
+    #
+    #
+    #
+    generic package   compile_in_dependency_order_g   (
+	#             =============================
+	#									# mythryl_compiler_for_intel32_posix		is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-intel32-posix.pkg
+	#									# mythryl_compiler_for_intel32_win32		is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-intel32-win32.pkg
+	#									# mythryl_compiler_for_pwrpc32			is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-pwrpc32.pkg
+	#									# mythryl_compiler_for_sparc32			is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-sparc32.pkg
+	#									# Mythryl_Compiler				is from   src/lib/compiler/toplevel/compiler/mythryl-compiler.api
+	#
+        package myc:  	Mythryl_Compiler;					# "myc"  == "mythryl_compiler".
+	#									# We use this to compile a "raw::Declaration" down to a .compiled file.
+	#									# (This is a generic argument because it varies by target architecture,
+	#									# but I suspect it should be a runtime OOP argument instead. Ditto ffr. -- 2011-09-19 CrT)
+	#
+	package ffr:	Freezefile_Roster;					# "ffr" == "freezefile_roster".
+	#
+	read_eval_print_from_stream:	fil::Input_Stream -> Void;
+    )
+    :
+    Compile_In_Dependency_Order							# Compile_In_Dependency_Order			is from   src/app/makelib/compile/compile-in-dependency-order.api
+    {
+	stipulate
+	    package r2x =  myc::translate_raw_syntax_to_execode;
+	herein
+
+
+	    Thawedlib_Tome_Watcher
+		 =
+		 ms::Makelib_State
+		 ->
+		 tlt::Thawedlib_Tome
+		 ->
+		 Void;
+
+
+	    Compiledfile_Sink
+	      =
+	      { key:    tlt::Thawedlib_Tome,
+		#
+		value:  { compiledfile:		cf::Compiledfile,
+			  component_bytesizes:	cf::Component_Bytesizes
+			}
+	      }
+	      ->
+	      Void;
+
+
+
+
+
+	    #######################################################
+	    #             exports_picklehash_cache__local
+	    #
+	    # Mythryl package sealing restricts
+	    # the visible exports of a package to
+	    # just those present in a given API.
+	    #
+	    # To implement this, we frequently wind up taking
+	    # a symbol table (representing the exports of a
+	    # compiled .pkg file, or more precisely, of one
+	    #     package foo { ... };
+	    # clause) and masking it to (logically) contain
+	    # only the symbols in a given 'exports_mask' symbol set
+	    # (representing the symbols from a given compiled
+	    #     api Foo { ... };
+	    # clause).
+	    #
+	    # Doing so changes the symbol table's picklehash,
+	    # forcing us to recompute this, which is a
+	    # moderately expensive operation.
+	    #
+	    # To avoid repeating such computations pointlessly,
+	    # we keep a cache of their results and re-use
+	    # rather than re-computing them were possible:
+	    ########################################################
+	    #
+	    package psm					# "psm" == "picklehash + symbolset map"
+		=
+		map_g (					# map_g		def in    src/app/makelib/stuff/map-g.pkg
+		    #
+		    package {
+			#
+			Key = (ph::Picklehash, sys::Set);
+			#	
+			fun compare ((u, f), (u', f'))
+			    =
+			    case (ph::compare (u, u'))
+				#
+				EQUAL   =>  sys::compare (f, f');
+				unequal =>  unequal;
+			    esac;
+		    }
+		);
+
+	    exports_picklehash_cache__local							# More icky thread-hostile global mutable state :(        XXX BUGGO FIXME.
+		=
+		REF (psm::empty: psm::Map( ph::Picklehash ));
+
+
+
+
+
+
+
+	    ########################################################
+	    #                   symbol_and_inlining_mapstacks_etc_map
+	    #
+	    # 'symbol_and_inlining_mapstacks_etc_map'
+	    # is our core "state-of-the-compilation"
+	    # datastructure. It maps
+	    #         Thawedlib_Tome
+	    # records representing what we knew about a sourcefile
+	    # before compiling it to
+	    #         Tome_Exports_Etc
+	    # records representing what we learned about that
+	    # a sourcefile by compiling it.
+	    #
+	    Tome_Exports_Etc
+		=
+		{ symbol_and_inlining_mapstacks:	sg::Tome_Compile_Result,	# See   src/app/makelib/depend/intra-library-dependency-graph.pkg
+		  compiledfile_timestamp:		ts::Timestamp,         
+		  picklehash_set:			phs::Set
+		};
+		#
+		# compiledfile_timestamp:
+		#    If this is older than the source file
+		#    last-modification time, then the compiledfile
+		#    is outdated and we need to recompile.
+		#
+		# picklehash_set:
+		#    This contains hashes of all the compiledfile
+		#    components ("pickles").  If recompiling the
+		#    sourcecode yields an identical picklehash set
+		#    then the compiled code is identical (to extremely
+		#    high probability!) and we do not need to recompile
+		#    tomes dependent on this one.
+	    #
+	    symbol_and_inlining_mapstacks_etc_map__local						# More icky thread-hostile global mutable state :-/        XXX BUGGO FIXME.
+		=
+		REF (ttm::empty:  ttm::Map( Tome_Exports_Etc ));
+
+	    #
+	    fun clear_state ()
+		=
+		{   if (mld::debug.get ())     printf "compile-dependency-graph-walk-g: clear_state/TOP     [makelib::debug]\n";	fi;
+		    #
+		    symbol_and_inlining_mapstacks_etc_map__local	:=   ttm::empty;
+		    #
+		    exports_picklehash_cache__local		:=   psm::empty;
+		};
+													# Tome_Exports_Etc	def is  above.
+													# exports_picklehash_cache__local is defined above.
+	    #
+	    fun symbol_and_inlining_mapstacks_are_current
+		(
+		  symbol_and_inlining_mapstacks_etc:	Tome_Exports_Etc,
+		  provided_picklehashes,
+		  thawedlib_tome
+		)
+		=
+		not (
+		    ts::needs_update
+		      {
+			source =>  tlt::sourcefile_timestamp_of  thawedlib_tome,			# Last-modified time of our foo.api / foo.pkg sourcefile.
+			target =>  symbol_and_inlining_mapstacks_etc.compiledfile_timestamp		# Creation-time timestamp for corresponding compiledfile.
+		      }
+		)
+		and
+		phs::equal (
+		    provided_picklehashes,
+		    symbol_and_inlining_mapstacks_etc.picklehash_set
+		);
+
+
+
+	    #
+	    fun make_symbol_and_inlining_mapstacks_etc
+		(
+		  compiledfile:			cf::Compiledfile,
+		  compiledfile_timestamp:	ts::Timestamp,
+		  context_symbolmapstack:	syx::Symbolmapstack
+		)
+		=
+		{ symbol_and_inlining_mapstacks	=>  symbol_and_inlining_mapstacks:	sg::Tome_Compile_Result,
+		  compiledfile_timestamp	=>  compiledfile_timestamp:		ts::Timestamp,
+		  picklehash_set		=>  picklehash_set:			phs::Set  	
+		}
+		where
+		    fun symbolmapstack_thunk ()
+			=
+			{   # Here we stash the implicit parameters
+			    #
+			    #     compiledfile
+			    #     context_symbolmapstack
+			    #
+			    # to produce a   symbolmapstack_thunk   which can later
+			    # generate compilefile's symbol table when/if required:
+
+			    modmap0 =   ffr::get ();					# Global roster of freezefiles.
+
+			    context_stampmapstack
+				=
+				s2m::collect_all_modtrees_in_symbolmapstack' (context_symbolmapstack, modmap0);
+									      ######################	
+			    (cf::pickle_of_symbolmapstack  compiledfile)
+				->			   ############
+				{ picklehash, pickle };
+
+			    upj::unpickle_symbolmapstack					# This will fill in modtree entries per   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+				(\\ _ =  context_stampmapstack)
+				(picklehash, pickle);
+
+			};
+
+		    #
+		    fun inlining_mapstack_thunk ()
+			=
+			{   # Much as above, here we stash the implicit parameter
+			    #
+			    #     compiledfile
+			    #
+			    # to produce an   inlining_mapstack_thunk   which can later
+			    # generate compilefile's inlining table when/if required:
+
+			    (cf::pickle_of_inlinables  compiledfile)
+				->		       ############	 
+				{ pickle, ... };
+
+			    inlinables_list
+				=
+				if (vub::length pickle != 0)   upj::unpickle_highcode  pickle;
+				else   	                       NULL;
+				fi;
+
+			    im::make_inlining_mapstack
+			      (
+				cf::hash_of_pickled_exports   compiledfile,
+				inlinables_list
+			      );
+			};
+
+
+		    my  symbol_and_inlining_mapstacks:	sg::Tome_Compile_Result
+			=
+			{ symbolmapstack_thunk		=>  mmz::memoize  symbolmapstack_thunk,
+			  inlining_mapstack_thunk	=>  mmz::memoize  inlining_mapstack_thunk,
+			  #
+			  symbolmapstack_picklehash	=>  cf::hash_of_symbolmapstack_pickle	compiledfile,
+			  inlining_mapstack_picklehash	=>  cf::hash_of_pickled_inlinables	compiledfile,
+			  compiledfile_version		=>  cf::get_compiledfile_version	compiledfile
+			};
+
+		    my  picklehash_set:	phs::Set
+			=
+			phs::add_list (phs::empty,   cf::picklehash_list  compiledfile);
+
+		end;											# fun make_symbol_and_inlining_mapstacks_etc 
+
+
+	    #
+	    fun picklehash_set (p1, p2)
+		=
+		phs::add (phs::singleton p1, p2);
+
+
+	    ######################################################
+	    # A typical source file S makes direct
+	    # and indirect reference to types, values
+	    # and functions from many other sourcefiles,
+	    # collectively termed its "dependencies".
+	    #
+	    # Before S can be compiled, all of its
+	    # dependencies must be compiled, and the
+	    # resulting symbol and inlining tables
+	    # combined to produce the environment
+	    # in which S can be compiled.
+	    #
+	    # Also, if a given dependency D is sealed
+	    # against some API, we must filter D's
+	    # exports to reveal only those symbols
+	    # permitted by the API before combining
+	    # with the exports from other dependencies.
+	    #
+	    # For efficiency, symbol and inlining tables
+	    # are exported lazily as thunks which construct
+	    # those tables only if and when actually needed.
+	    #
+	    # To avoid wasting time and space by evaluating
+	    # any such thunk more than once, we also memo-ize
+	    # these thunks as we combine them to produce
+	    # the overall compilation environment for S.
+	    #
+	    # When we filter a symbol table we change its
+	    # picklehash and must compute a new one.  This
+	    # is an expensive operation, likely to be
+	    # repeated during a make, so we keep a cache,
+	    # exports_picklehash_cache__local, and when
+	    # possible re-use rather than re-compute.
+	    #
+	    # Below are two routines which handle this
+	    # processing of dependency exports, one for the
+	    # filtered case and one for the unfiltered:
+	    #
+	    #     fun memoize_unfiltered_dependency_exports
+	    #     fun memoize___filtered_dependency_exports
+	    #
+	    # One of the two will be called for each
+	    # dependency.
+	    ######################################################
+
+
+	    #
+	    fun memoize_unfiltered_dependency_exports  (symbol_and_inlining_mapstacks:  sg::Tome_Compile_Result)
+		=
+		{
+		    symbol_and_inlining_mapstacks
+		      ->
+		      { symbolmapstack_thunk,
+			inlining_mapstack_thunk,
+			#	
+			symbolmapstack_picklehash,
+			inlining_mapstack_picklehash,
+			#
+			compiledfile_version
+		      };
+
+
+		    symbolmapstack_thunk'
+			=
+			mmz::memoize  symbolmapstack_thunk;
+
+
+		    { tome_exports_thunk
+			  =>
+			  \\ ()
+			      =
+			      { symbolmapstack    =>  symbolmapstack_thunk'   (),
+				inlining_mapstack =>  inlining_mapstack_thunk ()
+			      },
+
+		      picklehashes
+			  =>
+			  picklehash_set
+			     ( symbolmapstack_picklehash,
+			       inlining_mapstack_picklehash
+			     )
+		    };
+		};
+
+	    #
+	    fun memoize___filtered_dependency_exports (symbol_and_inlining_mapstacks, symbol_set)
+		=
+		{   fun required_filtering  symbol_set  symbolmapstack
+			=
+			# Even if a the exports from a dependency
+			# are sealed against an API, it may be that
+			# explicit filtering of the exports is not
+			# needed, because all exported symbols are
+			# allowed visibility by the API.
+			#
+			# Here we check for this case, so as to avoid
+			# wasted explicit filtering, returning NULL
+			# if no filtering is required, and otherwise
+			# THE filtering symbol set:
+			#
+			{
+			    domain
+				=
+				sys::add_list
+				  (
+				    sys::empty,
+				    bsx::catalog  symbolmapstack
+				  );
+
+			    symbol_set'
+				=
+				sys::intersection
+				  (
+				    symbol_set,
+				    domain
+				  );
+
+			    sys::equal (domain, symbol_set')
+				##
+				??  NULL
+				::  THE symbol_set';
+			};
+
+		    symbol_and_inlining_mapstacks									# unpack exports from compiled dependency.
+		      ->
+		      { symbolmapstack_thunk,
+			inlining_mapstack_thunk,
+			#
+			symbolmapstack_picklehash,
+			inlining_mapstack_picklehash,
+			#
+			compiledfile_version
+		      };
+
+
+		    # We cannot filter a symbol table
+		    # (or even decide not to filter it)
+		    # without constructing it explicitly,
+		    # so at this point we must force the
+		    # symbol table thunk:
+		    #
+		    symbolmapstack
+			=
+			symbolmapstack_thunk ();
+
+
+		    # If in fact no filtering is required, we
+		    # can essentially revert to the unfiltered
+		    # case (above):
+		    #
+		    case (required_filtering  symbol_set  symbolmapstack)
+			#		  
+			NULL =>												# No exported symbol table filtering needed.
+			    { picklehashes
+				  =>
+				  picklehash_set
+				      ( symbolmapstack_picklehash,
+					inlining_mapstack_picklehash
+				      ),
+
+			       tome_exports_thunk
+				   =>
+				   \\ ()
+				       =
+				       { symbolmapstack,
+					 inlining_mapstack => inlining_mapstack_thunk ()
+				       }
+			    };
+
+			THE symbol_set											# Exported symbol table must be filtered per API.
+			    =>
+			    {   symbolmapstack'										# Construct filtered version of exports symbol table.
+				    =
+				    syx::filter
+					( symbolmapstack,
+					  sys::vals_list  symbol_set
+					);
+
+
+				# If an appropriate filtered symbol table picklehash
+				# is already in our cache we can just re-use it,
+				# otherwise we must compute the new one from scratch:
+				#
+				key = (symbolmapstack_picklehash, symbol_set);						# key for searching the cache.
+				#
+				symbolmapstack_picklehash'
+				    =
+				    case (psm::get (*exports_picklehash_cache__local, key))
+					#
+					# Found a cached exports record, just return it:
+					#
+					THE symbolmapstack_picklehash'
+					 => symbolmapstack_picklehash';
+
+					NULL =>
+					    # No cached exports record, construct one:
+					    #
+					    {   # Filtering a symbol table changes
+						# its hash, so compute the new one:
+						#
+						symbolmapstack_picklehash'
+						    =
+						    rm::rehash_module
+						      {
+							symbolmapstack      =>  symbolmapstack',
+							original_picklehash =>  symbolmapstack_picklehash,
+							compiledfile_version
+						      };
+															# exports_picklehash_cache__local is defined above
+						# Enter new exports picklehash into our cache:
+						#
+						exports_picklehash_cache__local
+						    :=
+						    psm::set (
+							*exports_picklehash_cache__local,
+							key,
+							symbolmapstack_picklehash'
+						    );
+
+						symbolmapstack_picklehash';
+					    };
+				    esac;
+
+				# Construct	
+				#
+				{ picklehashes
+				      =>
+				      picklehash_set (symbolmapstack_picklehash', inlining_mapstack_picklehash),
+
+				  tome_exports_thunk
+				      =>
+				      \\ ()
+					  =
+					  { symbolmapstack    =>  symbolmapstack',
+					    inlining_mapstack =>  inlining_mapstack_thunk ()
+					  }
+				};
+			   };
+		    esac;
+		};							#  fun memoize___filtered_dependency_exports 
+
+	    #
+	    fun symbol_and_inlining_mapstacks_atop
+		(
+		  { symbolmapstack => symbolmapstack,  inlining_mapstack => inlining_mapstack  },
+		  { symbolmapstack => symbolmapstack', inlining_mapstack => inlining_mapstack' }
+		)
+		=
+		# Combine two symbol+inlining tablepairs,
+		# with the first pair logically atop the
+		# second (i.e., searched first):
+		#
+		{ symbolmapstack
+		      =>
+		      syx::consolidate_lazy (
+			  syx::atop
+			      (symbolmapstack, symbolmapstack')
+		      ),
+
+		  inlining_mapstack
+		      =>
+		      im::atop
+			  (inlining_mapstack, inlining_mapstack')      #  "Let's not do stale picklehashes here..." 
+		};
+
+
+
+	    empty_fat_tomes_compile_result
+		=
+		{ picklehashes
+		      =>
+		      phs::empty,
+
+		  tome_exports_thunk
+		      =>
+		      \\ ()
+			  =
+			  { symbolmapstack    =>   syx::empty,
+			    inlining_mapstack =>   im::empty
+			  }
+		};
+
+	    #
+	    fun layer ( { tome_exports_thunk => sait_thunk,  picklehashes => hashes  },
+			{ tome_exports_thunk => sait_thunk', picklehashes => hashes' }
+		      )
+		=
+		# Combine two sets of dependency exports.
+		#
+		# This is always an assymetric operation
+		# in which one shadows the other in case
+		# of conflicting symbol definitions.
+		#
+		# As usual, we do things lazily to avoid
+		# explicitly constructing the result
+		# unless or until provably necessary:
+		#
+		{ tome_exports_thunk
+		      =>
+		      {.  symbol_and_inlining_mapstacks_atop (
+			      sait_thunk  (),
+			      sait_thunk' ()
+			  );
+		       },
+
+		  picklehashes
+		      =>
+		      phs::union (hashes, hashes')
+		};
+
+
+
+
+	    exception ABORT;
+		#
+		#    "I would rather not use an exception here, but short of
+		#      a better implementation of concurrency I see no choice."
+		#               -- Matthias Blume
+		#
+		# The problem is that at each node we sequentially wait for the
+		# children nodes.  But the scheduler might (and probably will)
+		# let a child run that we are not currently waiting for, so an
+		# error there will not result in "wait"  returning immediately
+		# as it should for clean error recovery.
+		# Using the exception avoids having to implement a
+		# "wait for any child -- whichever finishes first" kind of call:
+
+
+	    #
+	    fun wait_for_thread_to_finish_then_return_result_running_at_priority
+		    #
+		    (makelib_state: ms::Makelib_State)
+		    #
+		    priority
+		    #
+		    (compile_thread,  THE symbol_and_inlining_mapstacks)					# makelib_thread		is from   src/app/makelib/concurrency/makelib-thread-boss.pkg
+		    =>
+		    #										
+		    # We're given a symbol-plus-inlining-mapstack pair,
+		    # plus a thread which represents a compile-in-progress,
+		    # which will return another such tablepair when finished.
+		    #
+		    # Wait for the compile to complete, then
+		    # return the combination of the two tablepairs:
+		    #										
+		    case (mtq::wait_for_thread_to_finish_then_return_result_running_at_priority
+			      #	
+			      makelib_state.makelib_session.makelib_thread_boss
+			      priority
+			      compile_thread
+                         )
+			#		  
+			THE symbol_and_inlining_mapstacks'							# Success, return combination of the two symbol tables.
+			    =>
+			    THE (layer (symbol_and_inlining_mapstacks',
+					symbol_and_inlining_mapstacks
+				)      );
+
+			NULL =>  NULL;										# Compile returned NULL, so we do too.
+		    esac;
+
+		wait_for_thread_to_finish_then_return_result_running_at_priority  makelib_state  priority  (compile_thread, NULL)			# Ok, actually we were NOT given input symbol-plus-inlining tableplair.
+		    =>
+		    {   mtq::wait_for_thread_to_finish_then_return_result_running_at_priority
+			    #
+			    makelib_state.makelib_session.makelib_thread_boss
+			    priority
+			    compile_thread;			# Wait for the compile to finish.
+			#
+			NULL;											# NULL input, so NULL output.
+		    };
+
+	    end;
+	    #
+	    fun make_tome_compilers
+		  {
+		    maybe_drop_thawedlib_tome_from_linker_map,							# A hook letting us notify the linker when we re/compile a file -- a dummy or
+		    #												# drop_thawedlib_tome_from_linker_map()   from   src/app/makelib/compile/link-in-dependency-order-g.pkg
+		    #	
+		    set__compiledfile__for__thawedlib_tome,							# A dummy or else compiledfile_cache::set__compiledfile__for__thawedlib_tome, which caches a copy in ram. 
+		    #
+		    compile_priority_of_thawedlib_tome								# Prioritizes a sourcefile compile by number of files depending on it. Defined below as   fun compile_priority_of_thawedlib_tome
+		  }
+		= 
+		{ compile_tome_tin_after_dependencies =>  compile_tome_tin_after_dependencies:		ms::Makelib_State  ->  sg::Tome_Tin  ->  Null_Or( sg::Tome_Compile_Result ),
+		  compile_fat_tome_after_dependencies =>  compile_fat_tome_after_dependencies:		ms::Makelib_State  ->  lg::Fat_Tome  ->  Null_Or( Fat_Tomes_Compile_Result )
+		}
+		where
+		    # We have two levels of compile-dependency graphs,
+		    # one which records which complete libraries have
+		    # compile dependencies on which other complete
+		    # libraries, and then one per library recording
+		    # which individual sourcefiles have compile
+		    # dependencies upon other individual sourcefiles.
+		    #
+		    # Here we walk an intra-library individual-sourcefile
+		    # level dependency graph compiling sourcefiles in
+		    # post-order, so that each sourcefile is compiled
+		    # only after all the libraries it needs have been
+		    # compiled (thus making available the relevant type
+		    # declarations etc):
+
+
+		    compiles_started
+			=
+			REF  ttm::empty;
+			#
+			# We use 'compiles_started' to keep track
+			# of which .compiled files we've already compiled
+			# (or are in the process of compiling).
+			# 
+			# We use thawedlib_tome records as keys, to
+			# represent the individual .compiled files.
+			# 
+			# The values are memoized fates
+			# representing compiles already fired off.
+
+
+		    ######################################################################################33
+		    # To process the mutually recursive
+		    # compiledfile dependency-graph
+		    # sumtypes defined in
+		    #
+		    #     src/app/makelib/depend/intra-library-dependency-graph.pkg
+		    #
+		    # we here define a matching set of
+		    # mutually recursive functions,
+		    # one per type.
+
+		    #
+		    fun compile_masked_tome_after_dependencies
+			    #
+			    (makelib_state: ms::Makelib_State)
+			    #
+			    ({ exports_mask, tome_tin }: sg::Masked_Tome)
+			=
+			# The only thing distinguishing a far tome
+			# (.api/.pkg file in another library) from a
+			# near tome (.api/.pkg file in current library)
+			# is the export_mask symbol-set, so the only
+			# work we can't delegate here is applying
+			# that symbol-set to the result:
+			#
+			case ( compile_tome_tin_after_dependencies  makelib_state  tome_tin,
+			       exports_mask
+			     )
+			    #		      
+			    (THE symbol_and_inlining_mapstacks, THE symbol_set) =>  THE (memoize___filtered_dependency_exports  (symbol_and_inlining_mapstacks, symbol_set));
+			    (THE symbol_and_inlining_mapstacks, NULL          ) =>  THE (memoize_unfiltered_dependency_exports  (symbol_and_inlining_mapstacks            ));
+			    (NULL,             _                              ) =>  NULL;
+			esac
+
+		    # fun compile_tome_tin_after_dependencies:
+		    #
+		    # Since 'tome_tin' is a trivial wrapper around
+		    # the two possibilities of
+		    #     TOME_IN_FROZENLIB					# A  this.pkg.compiled  file which is     stored in a  foo.lib.frozen  freezefile.
+		    #     TOME_IN_THAWEDLIB   					# A  this.pkg.compiled  file which is NOT stored in a  foo.lib.frozen  freezefile.
+		    # our work here is just trivially delegating
+		    # as appropriate:
+		    #
+		    also
+		    fun compile_tome_tin_after_dependencies           makelib_state  (sg::TOME_IN_THAWEDLIB thawedlib_tome)
+			    =>  compile_thawedlib_tome_tin	      makelib_state                         thawedlib_tome;		# Delegate the compile.
+
+			compile_tome_tin_after_dependencies           makelib_state  (sg::TOME_IN_FROZENLIB r)				# We never recompile anything in a frozen
+			    =>														# library so we have nothing to do here.
+			    THE r.symbol_and_inlining_mapstacks;
+		    end 
+
+
+		    also
+		    fun compile_thawedlib_tome_tin
+			    #
+			    makelib_state
+			    #
+			    (sg::THAWEDLIB_TOME_TIN  tin_to_compile)							# 'tin_to_compile' is what we're compiling:  { thawedlib_tome, near_imports, far_imports }
+			=
+			# Here's where the buck stops:
+			# compiling a thawedilb tome in the
+			# current library.
+			#
+			{
+			    timestamp_of_youngest_sourcefile_in_library							# We compute this value in this file;  it (only) gets used in   src/app/makelib/main/makelib-g.pkg
+				=
+				makelib_state.timestamp_of_youngest_sourcefile_in_library;
+
+			    compiledfile_name										# "foo.pkg.compiled" or such -- name of diskfile in which to save compile result.
+				=
+				tlt::make_compiledfile_name   tin_to_compile.thawedlib_tome;
+
+
+			    temporary_compiledfile_name									# To minimize risk of leaving mangled .compiled files on disk, we write to a temporary
+				=											# filename at first, and rename to final filename only when file is complete.
+				sprintf "%s.%d.tmp"
+				    #
+				    compiledfile_name
+				    #
+				    (wnx::process::get_process_id ());
+
+
+
+			    # Start a compile running for this sourcefile
+			    # unless we have already done so:
+			    #
+			    case (ttm::get  (*compiles_started, tin_to_compile.thawedlib_tome))
+				#			  
+				THE compile_dependencies_then_sourcefile_thread						# We already started a compile of this sourcefile.
+				    =>
+				    # Wait for existing file to complete,
+				    # then return its result:
+				    #
+				    nor::map
+					#
+					.symbol_and_inlining_mapstacks
+					#
+					(mtq::wait_for_thread_to_finish_then_return_result
+					    #
+					    makelib_state.makelib_session.makelib_thread_boss
+					    #
+					    compile_dependencies_then_sourcefile_thread
+					);
+
+				NULL =>											# We have not run a compile for this sourcefile.
+				    {   # Fire off an asynchronous compile:
+					#
+					compile_dependencies_then_sourcefile_thread
+					    =
+					    mtq::make_makelib_thread
+						#
+						makelib_state.makelib_session.makelib_thread_boss
+						#
+					       {.   compile_dependencies_then_sourcefile ()				# <===== Here's the beef in the burger.
+						    then
+							tlt::forget_raw_declaration_and_sourcecode_info
+							    #
+							    tin_to_compile.thawedlib_tome;
+							    #
+							    # "We have not processed this file before,
+							    #  so we should remove its parsetree afterward." -- Matthias Blume
+						};
+
+					# Remember that we have a compile
+					# running on this file:
+					#
+					compiles_started
+					    :=
+					    ttm::set
+					      ( *compiles_started,
+						tin_to_compile.thawedlib_tome,
+						compile_dependencies_then_sourcefile_thread
+					      );
+
+															# thawedlib_tome_map	is from   src/app/makelib/compilable/thawedlib-tome-map.pkg
+
+					# Wait for compile to finish.
+					#
+					# We wait at minimal priority so that we don't get
+					# priority over threads that may have to clean up
+					# after errors:
+					#
+					nor::map
+					    #
+					    .symbol_and_inlining_mapstacks
+					    #
+					    (mtq::wait_for_thread_to_finish_then_return_result
+						#
+						makelib_state.makelib_session.makelib_thread_boss
+						#
+						compile_dependencies_then_sourcefile_thread
+					    );
+				    };
+			    esac
+			    where
+				#####################################################################
+				# Now we define
+				#
+				#    fun compile_dependencies_then_sourcefile ()
+				#
+				# To do that, we first need about 800 lines of support code:   *grin*
+				#####################################################################
+
+				#
+				fun print_codesegment_components_bytesizes  stream  (component_bytesizes: cf::Component_Bytesizes)
+				    = 
+				    # Print the size-in-bytes of each of the
+				    # four major components of an compiledfile --
+				    # code, data, pickled symbol table and
+				    # pickled inlining table:
+				    #
+				    {
+					sizes_report
+					    =
+					    cat ( "["
+						  !
+						  #1 (fold_backward
+							 maybe_add_size_info
+							 (["bytes]\n"], "")					# (initial_results_list, separator)
+							 [  (          .code_bytesize, "code"	       ),
+							    (          .data_bytesize, "data"	       ),
+							    (.symbolmapstack_bytesize, "symbolmapstack"),
+							    (    .inlinables_bytesize, "inlinables"    )
+							 ]
+						     )
+						)
+						where
+						    fun maybe_add_size_info ((selector, label), (results, separator))
+							=
+							case (selector  component_bytesizes)		# 'selector' is one of .code_bytesize / .data_bytesize / .symbolmapstack_bytesize / .inlinables_bytesize
+							    #
+							    0 => (results, separator);			# Do not report zero-length segments.
+							    #
+							    n => (   (   label				# 'label' is onde of  "code" / "data" / "dictionary" / "inlinable".
+								     !   ": "
+								     !   int::to_string  n		# Number of bytes in segment.
+								     !   separator			# ", " or "".
+								     !   " "
+								     !   results			# list-of-strings result accumulator.
+								     ),
+								     ", "
+								 );
+							esac;
+
+						end;
+
+					fil::write (stream, sizes_report);
+					fil::flush stream;   
+				    };
+
+
+				#
+				fun unparse_codesegment_components_bytesizes
+					(pp:                  pp::Prettyprint_Mill)
+					(component_bytesizes: cf::Component_Bytesizes)
+				    = 
+				    {
+					pp.txt "\n\nCode segment byte sizes:\n";
+
+					sizes_report
+					    =
+					    cat
+						(fold_backward
+						    info
+						    ["\n"]
+						    [  (          .code_bytesize, "code"          ),
+						       (          .data_bytesize, "data"          ),
+						       (.symbolmapstack_bytesize, "symbolmapstack"),
+						       (    .inlinables_bytesize, "inlinables"    )
+						    ]
+						)
+					    where
+						fun info ((selector, label), result_so_far)
+						    =
+						    (   int::to_string  (selector component_bytesizes)	# Number of bytes in segment. selector is one of .code_bytesize / .data_bytesize / .symbolmapstack_bytesize / .inlinables_bytesize
+						    !   " "
+						    !   label						# "code"/"data"/"dictionary"/"inlinable".
+						    !   " bytes\n"
+						    !   result_so_far					# list-of-strings result accumulator.
+						    );
+					    end;
+
+					pp.lit  sizes_report;
+				    };
+
+
+
+				#
+				fun announce_compile  ()
+				    =
+				    # List the source and (sometimes object) file
+				    # to keep the guy at the console awake.
+				    #	
+				    # We don't do this if we're a subprocess
+				    # because the primary process will treat any
+				    # output from us as a sign of trouble and will
+				    # respond by killing us and re-doing the compile
+				    # itself:
+				    #
+				    {
+					fil::say {.
+					    cat [
+						"       compile-in-dependency-order-g.pkg:   Compiling source file   ",
+						(ns::pad_right ' ' 50 (ad::os_string' (tlt::sourcepath_of  tin_to_compile.thawedlib_tome)))
+				#		"\tto object file   ",				# Dropped these two for now because they mostly add clutter.
+				#		compiledfile_name,				# May want to restore these when cross-compiling, since the
+											    # object file name is then less predictable. -- 2010-10-23 CrT
+					    ];
+					};
+# This is mostly a test of the new note_in_ramlog call -- 2012-10-12 CrT
+					fil::note_in_ramlog {. 
+					    cat [
+						"compile-in-dependency-order-g.pkg:   Compiling source file   ",
+						(ad::os_string' (tlt::sourcepath_of  tin_to_compile.thawedlib_tome))
+					    ];
+					};
+				    };
+
+				#
+				fun announce_compiledfile_load    (component_bytesizes: cf::Component_Bytesizes)
+				    =
+				    fil::say {. cat ["       compile-in-dependency-order-g.pkg:   Loading                 ", (ad::os_string'  (tlt::sourcepath_of tin_to_compile.thawedlib_tome)), ".compiled"]; };
+
+				#
+				fun announce_compiledfile_receipt  (component_bytesizes: cf::Component_Bytesizes)
+				    =
+				    {   fil::say {. cat  ["     compile-in-dependency-order-g.pkg:   Receiving               ", (tlt::describe_thawedlib_tome tin_to_compile.thawedlib_tome), "\n"]; };
+					#
+					print_codesegment_components_bytesizes  fil::stdout component_bytesizes;
+				    };
+
+				#
+				fun handle_compile_error ()
+				    =
+				    if makelib_state.makelib_session.keep_going_after_compile_errors   NULL;
+				    else							       raise exception ABORT;
+				    fi;
+
+				#
+				fun parse_and_compile_one_file
+					(
+					  symbolmapstack:	syx::Symbolmapstack,					# These first two args constitute the exports from
+					  inlining_mapstack:    im::Picklehash_To_Anormcode_Mapstack,			# the apis and packages we (tin_to_compile) reference.
+					  picklehashes,
+					  crossmodule_inlining_aggressiveness						# From (tlt::attributes_of tin_to_compile.thawedlib_tome): ctl::Localsetting =  Null_Or( Null_Or(Int) );
+					)
+					# We also get from our enclosing
+					# 'compile_thawedlib_tome_tin' fn the critical args:
+					#
+					#     makelib_state		# Global compile configuration/policy/preferences stuff.
+					#
+					#     tin_to_compile		# The record for the sourcefile we're actually compiling.
+					#				# Its structure is from sg::Thawedlib_Tome_Tin, viz:
+					#				#   {
+					#				#     thawedlib_tome:		tlt::Thawedlib_Tome,
+					#				#     near_imports:		List( Thawedlib_Tome_Tin ),			# Referenced .api and .pkg files in the same library -- ie, built by same .lib file.
+					#				#     far_imports:		List( Masked_Tome  )				# Referenced .api and .pkg files in other libraries. A thawedlib may refer to both thawed and frozen libs.
+					#				#   }
+				    =
+				    #
+				    {
+# printf "parse_and_compile_one_file/TOP --   compile-in-dependency-order-g.pkg\n";
+				        fun maybe_compile_and_run_mythryl_codestring
+						#
+						pre_or_post			# Either "pre" or "post", for human narration. 
+						#
+						(THE mythryl_source_code)	# Ascii string containing literal Mythryl source code to compile and run.
+						=>
+						    # This fun is a little hack to support the makelib tools
+						    # pre_compile_code / postcompile_code facility, which
+						    # allows the tool to specify some source code to be
+						    # compiled immediately before ("pre") or after ("post")
+						    # the main body of code to be compiled by the tool.
+						    #
+						    # It is used (for example) to implement the sourcefile directives
+						    #	
+						    #     #DO set_control "compiler::verbose_compile_log" "TRUE";
+						    #     #DO set_control "compiler::trap_int_overflow" "TRUE";
+						    #     #DO set_control "compiler::check_vector_index_bounds" "FALSE"; 
+						    #
+						    # mentioned (respectively) in
+						    #
+						    #    http://mythryl.org/my-Pre-Compile_Code.html
+						    #    http://mythryl.org/my-Int_Overflow_Checking.html
+						    #    http://mythryl.org/my-Vector_Index_Bounds_Checking.html
+						    #
+						    # (For the details of that mechanism search for
+						    # "pre_compile_code_strings" in this file.)
+						    #
+						    # Here we take care of the mechanics of actually
+						    # compiling and running these code fragments:
+						    {
+#						    fil::say [								# This is too much verbosity to go to the console.
+#							"       compile-in-dependency-order-g.pkg:   ",				# It would be worth writing to the compile log, however.
+#							case pre_or_post
+#							    #
+#							    "pre" => "Pre-compile user code:  ";
+#							    _     => "Post-compile user code: ";
+#							esac,
+#							mythryl_source_code,
+#							"\n"
+#						    ];
+								# say		is from   src/lib/std/src/io/say.pkg
+								# safely	is from   src/lib/std/safely.pkg
+
+						    was_interactive      =  *myp::print_interactive_prompts;
+						    was_unparsing_result =  *myp::unparse_result;
+
+						    myp::print_interactive_prompts  :=  FALSE;					# Suppresses a   print "\n";   in src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+						    myp::unparse_result		    :=  FALSE;					# Suppresses printing of result of evaluated expression.
+
+						    safely::do									# This should be a supported, exported 'eval' function.
+							{
+							  open_it  =>   {. fil::open_string  mythryl_source_code; },
+							  close_it =>   fil::close_input,
+							  cleanup  =>   \\ _  =  {   myp::print_interactive_prompts := was_interactive; }
+							}
+							read_eval_print_from_stream;						# Ultimately from   src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+																# unless someone has reset   read_eval_print_from_stream_hook   in   src/app/makelib/main/makelib-g.pkg
+
+						    myp::print_interactive_prompts  :=  was_interactive;			# Restore bloodybedamned global variables to original state.
+						    myp::unparse_result		    :=  was_unparsing_result;
+						};
+
+					    maybe_compile_and_run_mythryl_codestring  _  NULL
+						=>
+						();										# No configuration code supplied, so nothing to do.
+					end;
+
+
+					# A helper fn to remove all PRE_COMPILE_CODE entries
+					# from a list of declarations and return the remaining
+					# declarations plus the extracted strings.
+					# 
+					# PRE_COMPILE_CODE entries derive from "#DO ...;" statements,
+					# which the grammar in    src/lib/compiler/front/parser/yacc/mythryl.grammar
+					# allows only at toplevel, so we don't have to walk the entire
+					# parsetree, we need only recursively rewrite the toplevel
+					# raw::SOURCE_CODE_REGION_FOR_DECLARATION and
+					# raw::SEQUENTIAL_DECLARATIONS nodes.
+					#
+					# The arg pattern is (input, output, output):
+					#	
+					fun split ([], declarations, pre_compile_code_strings)							# Done --
+						=>												# return 
+						( (reverse declarations),									# declarations with PRE_COMPILE_CODEs removed,
+						  (reverse pre_compile_code_strings)								# plus the PRE_COMPILE_CODE strings.
+						);
+
+					    split ( raw::SOURCE_CODE_REGION_FOR_DECLARATION  (declaration, source_code_region)  !  rest,
+						    declarations,
+						    pre_compile_code_strings
+						  )
+						=>
+						{   (split_off_pre_compile_code  declaration)
+							->
+							(declaration', pre_compile_code_strings');
+
+						    split  (rest, declaration' ! declarations, (reverse pre_compile_code_strings') @ pre_compile_code_strings);
+						};
+
+					    split (raw::PRE_COMPILE_CODE string ! rest,  declarations,  pre_compile_code_strings)		# Add 'string' to pre_compile_codes and continue.
+						=>
+						split  (rest,  declarations,  string ! pre_compile_code_strings);
+
+					    split (raw::SEQUENTIAL_DECLARATIONS subdecs ! rest,  declarations,  pre_compile_code_strings)	# Recursively process the sub-SEQUENTIAL_DECLARATIONS.
+						=>
+						{   (split (subdecs, [], []))
+							->
+							(declarations', pre_compile_code_strings');
+
+						    split ( rest,
+							    declarations'              @  declarations,
+							    pre_compile_code_strings'  @  pre_compile_code_strings
+							  );
+						};
+
+					    split (other ! rest,   declarations,  pre_compile_code_strings)					# Add 'other' to result declarations and continue.
+						=>
+						split  (rest,  other ! declarations,  pre_compile_code_strings);
+					end
+
+					# Wrapper fn which removes PRE_COMPILE_CODE entries from
+					# a raw::Declaration list, returning both the filtered list
+					# and also the removed strings:
+					#
+					also
+					fun split_off_pre_compile_code  (raw::SEQUENTIAL_DECLARATIONS  declarations)
+						=>
+						{   (split (declarations, [], []))
+							->
+							(declarations', pre_compile_code_strings);
+
+						    ( raw::SEQUENTIAL_DECLARATIONS declarations',
+						      pre_compile_code_strings
+						    );
+						};
+
+					    split_off_pre_compile_code  (raw::SOURCE_CODE_REGION_FOR_DECLARATION  (declaration, source_code_region))
+						=>
+						{   (split_off_pre_compile_code  declaration)
+							->
+							(declaration, pre_compile_code_strings);
+
+						    ( raw::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, source_code_region),
+						      pre_compile_code_strings
+						    );
+						};
+
+					    split_off_pre_compile_code  (raw::PRE_COMPILE_CODE  pre_compile_code_string)
+						=>
+						( raw::SEQUENTIAL_DECLARATIONS [],								# Any no-op declaration will do here.
+						  [ pre_compile_code_string ]
+						);
+
+					    split_off_pre_compile_code  other									# This case can't happen -- parse_all_declarations_in_file () always returns
+						=>												# raw::SEQUENTIAL_DECLARATIONS in   src/lib/compiler/front/parser/main/parse-mythryl.pkg 
+						(other, []);
+					end;
+
+					#
+					fun write_compiledfile_to_disk  compiledfile
+					    =
+					    # Given 'compiledfile' (the in-hand result
+					    # of compiling one sourcefile), write it to
+					    # disk to create the actual .compiled file						# A Mythryl 'foo.pkg.compiled' file corresponds to a Linux 'foo.o' file.
+					    # recording the result of the compile.						# A Mythryl 'foo.lib.frozen'   file corresponds to a Linux 'foo.a' or 'foo.so' file.
+					    #
+					    {   fun verbosely_write_compiledfile_to_stream
+							#
+							stream
+						    =
+						    {   component_bytesizes
+							    =
+							    cf::write_compiledfile
+							      { 
+								compiledfile,							# Compiledfile to write.
+								stream,								# Diskfile to write it to.
+								drop_symbol_and_inlining_mapstacks =>  FALSE,			# We keep full symbol table info in foo.pkg.compiled files.
+																# We drop it only in foo.lib.frozen files -- see src/app/makelib/freezefile/freezefile-g.pkg
+								architecture => myc::target_architecture,			# PWRPC32/SPARC32/INTEL32.  Used last (cf::read_compiledfile) to avoid linking in compiled code for
+																# an inappropriate machine architecture.
+								compiler_version_id						# Something like:      [110, 58, 3, 0, 2].	First two go into .compiled file 'magic'
+								    =>								# to prevent mixing code from incompatible compiler versions.
+								    mcv::mythryl_compiler_version.compiler_version_id
+							      };
+
+						     #  print_codesegment_components_bytesizes  component_bytesizes;		# 2006-09-10 CrT:  This is just clutter for now. 
+							component_bytesizes;
+						    };
+						#
+						fun cleanup _
+						    =
+						    wnx::file::remove_file							# Remove any half-built .compiled file.
+							temporary_compiledfile_name						# 'foo.pkg.compiled.12345.tmp'
+						    except
+							_ = ();
+
+						maybe_drop_thawedlib_tome_from_linker_map					# Notify 'maybe_drop_thawedlib_tome_from_linker_map'
+						    #										# that we're about to re/create the .compiled file
+						    makelib_state								# for our sourcefile.  In practice it is a dummy or else
+						    #										#
+						    tin_to_compile.thawedlib_tome;						#     drop_thawedlib_tome_from_linker_map
+																# from
+						    										#     src/app/makelib/compile/link-in-dependency-order-g.pkg
+						    										#
+						    										# This lets the linker flush from cache any stale
+						    										# versions of that .compiled file, or whatever.
+						    
+
+																# thawedlib_tome was an arg to fun 'compile_thawedlib_tome_tin'
+																# originally supplied as an arg to  make_dependency_order_compile_fns
+																#
+																#     in   src/app/makelib/main/makelib-g.pkg
+																#     or   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+																#
+																# safely	is from   src/lib/std/safely.pkg
+																# autodir	is from   src/app/makelib/stuff/autodir.pkg
+
+						(   safely::do
+							{ open_it   =>  {. autodir::open_binary_output  temporary_compiledfile_name; },
+							  close_it  =>  bio::close_output,
+							  cleanup
+							}
+							verbosely_write_compiledfile_to_stream
+						    then
+							{   ts::set_last_file_modification_time
+							      (
+								temporary_compiledfile_name,
+								#
+								tlt::sourcefile_timestamp_of  tin_to_compile.thawedlib_tome
+							      );
+
+							    wnx::file::rename_file						# Make .compiled file writes effectively atomic
+								{								# by renaming them to final filename only
+								  from =>  temporary_compiledfile_name,				# once they are completely written out.
+								  to   =>            compiledfile_name				#
+								};
+							}
+						)
+						except
+						    any_exception
+							=
+							{   fun ppb (pp:Pp)							# "pps" == "prettyprint stream".
+								=
+								{   pp.newline();
+								    pp.lit (xns::exception_message  any_exception);
+								};
+
+							    tlt::error
+								makelib_state
+								tin_to_compile.thawedlib_tome
+								err::WARNING
+								("failed to write " + temporary_compiledfile_name)
+								ppb;
+
+							    { code_bytesize           => 0,
+							      data_bytesize           => 0,
+							      symbolmapstack_bytesize => 0,
+							      inlinables_bytesize     => 0
+							    };
+							};
+					    };						#  \\ write_compiledfile_to_disk  
+
+	# XXX SUCKO DELETEME
+					unparse_generic
+					    =
+					    print_raw_syntax_tree_as_nada::print_declaration_as_nada;
+
+					  # print_raw_syntax_tree_as_nada	is from   src/lib/compiler/front/typer/print/print-raw-syntax-as-nada.pkg
+
+
+					# Get the raw::Declaration  parsetree for the file
+					# we're compiling. It may already be cached in ram.
+					# If not, thawedlib-tome will parse the sourcefile
+					# for us during this call:
+					#
+# printf "parse_and_compile_one_file/AAA (above main 'case') --   compile-in-dependency-order-g.pkg\n";
+					case (tlt::find_raw_declaration_and_sourcecode_info
+						 #
+						 makelib_state								# makelib_state was an arg to fun 'compile_thawedlib_tome_tin'
+						 NULL									# Or, to prettyprint every file parsed: (THE (symbolmapstack, unparse_generic))
+						 tin_to_compile.thawedlib_tome						# 'tin_to_compile' was an arg to fun 'compile_thawedlib_tome_tin'
+					     )
+					    #
+					    NULL => handle_compile_error ();						# Syntax errors, couldn't parse sourcefile. 
+					    #
+					    THE ( raw_declaration:   	raw::Declaration,
+						  sourcecode_info:	sci::Sourcecode_Info
+						)
+						=>
+						{
+						    (split_off_pre_compile_code  raw_declaration)			# Remove all raw::PRE_COMPILE_CODE instances from raw_declaration
+							->								# and return their string values separately.  These are produced
+							(raw_declaration, pre_compile_code_strings);			# by    '#DO ... ;' sourcecode statements -- see src/lib/compiler/front/parser/yacc/mythryl.grammar
+
+
+						    # Maybe replace 'xcore' symbol with
+						    # '_Core' symbol throughout parsetree.
+						    # This is an obscure internal kludge
+						    # we use to set up the original
+						    # pervasive dictionary:						# explicit_core_symbol is set (only) in
+						    #									#     src/app/makelib/mythryl-compiler-compiler/process-mythryl-primordial-library.pkg
+						    raw_declaration
+							=
+							case ((tlt::attributes_of  tin_to_compile.thawedlib_tome).explicit_core_symbol)
+							    #
+							    NULL            =>  raw_declaration;			# The usual case.
+							    #
+							    THE core_symbol =>  cor::substitute_symbol_in_raw_declaration
+									          ( raw_declaration, core_symbol );
+							esac;
+						    
+
+						    top_level_pkg_etc_defs_jar						# Set of packages, generics etc currently
+							=								# defined at the interactive toplevel.
+							cps::get_top_level_pkg_etc_defs_jar ();
+
+
+						    previous_controller_settings					# Save all current controller settings,
+							=								# so we can restore them when done.
+							map
+							    (\\ controller =  controller.save_controller_state ())	# Return value is a thunk which when run sets controller back to saved value.
+							    #
+							    (tlt::controllers_of   tin_to_compile.thawedlib_tome);	# 'controllers' is a hack to set controllers       
+															# (essentially, unix commandline switches) to a new
+															# value for just the duration of this compile.
+															# It is more support for the makelib 'tools' code. (If our switches weren't global variables, this would be only half as ugly...)
+
+						    previous_top_level_pkg_etc_defs					# Ditto with defined packages, apis etc.
+							=
+							top_level_pkg_etc_defs_jar.get_mapstack_set ();
+
+
+						    #
+						    fun restore_previous_global_compiler_state  _			# Restore original controller settings
+							=								# and known packages/generics.
+							{   top_level_pkg_etc_defs_jar.set_mapstack_set			# We use a safely::do to ensure that this gets
+								#							# called if for any reason we bomb out of the
+								previous_top_level_pkg_etc_defs;			# following work () fn, which is the heart of
+							    #								# parse_and_compile_one_file.
+							    apply  (\\ r =  r ())  previous_controller_settings;	
+							};								
+
+						    #
+						    fun run_precompile_code_for_this_tome ()				# Evaluate all the   #DO ... ;   statements etc for file.
+							=
+							{
+							    # Run any pre-compile code from .lib file.
+							    # This is typically used to set compile switches:
+							    #
+							    maybe_compile_and_run_mythryl_codestring
+								#
+								"pre"
+								(tlt::pre_compile_code_of   tin_to_compile.thawedlib_tome);
+
+							    # Run any pre-compile code from source file.  Again, this is
+							    # typically used to set compile switches via something like
+							    #
+							    #     set_control  "mythryl_parser::show_interactive_result_types" "TRUE";
+							    #
+							    apply
+								(\\ pre_compile_code_string =  maybe_compile_and_run_mythryl_codestring  "pre"  (THE (pre_compile_code_string + ";")))
+								pre_compile_code_strings;
+							};
+
+
+						    #
+						    fun show_compile_phase_runtimes_for   filename			# Should switch to using a   #DO ... ;   for this (now that we have them) and delete this fn.  XXX SUCKO FIXME.
+							=
+							str::is_suffix  "foo.pkg"  filename;
+						#	str::is_suffix  "make-nextcode-closures-g.pkg"  filename;	# Ran this for awhile and was getting Heisenbug style
+															# heap corruption during compiler compiles, stuff like
+															#    bin/mythryld: Fatal error: unexpected fault, signal = 11, code = 0x42862b1a
+															# and
+															#    bin/mythryld: Fatal error -- bad rw_vector tag 0x1c, chunk = 0x46220004, tagword = 0x746573
+															# I need to write some serious heap-corruption debugging support at some point,
+															# but now is not the time. XXX BUGGO FIXME -- 2011-09-01 CrT
+
+						    #
+						    fun maybe_open_compile_logfile  source_file_name
+							=
+							if (not (mld::make_compile_logs.get ()))
+							    #
+							    NULL;
+							else
+							    pp  = pp::make_standard_prettyprint_mill  (cat [  source_file_name, ".compile.log" ])  [];
+
+#							    pps = pp.pp;
+
+							    if (not *coc::verbose_compile_log)
+								#
+								pp.newline();
+								pp.newline();
+								pp.lit  "This is a concise compile log.";					pp.newline();
+								pp.lit  "To get a verbose compile log, put the line";				pp.newline();
+																		pp.newline();
+								pp.lit  "    #DO set_control \"compiler::verbose_compile_log\" \"TRUE\";";	pp.newline();
+																		pp.newline();
+								pp.lit  "at the top of your sourcefile.";					pp.newline();
+								pp.newline();
+
+# pp.lit  "Next is raw syntax tree for foo:";
+# pp.newline();
+# foo = printf_format_string_to_raw_syntax::make_anonymous_curried_function ("%d %6.2f %-15s\n", 12, 13); 
+# urs::unparse_expression
+#     (symbolmapstack, NULL)
+#     pp
+#     (raw::PRE_FIXITY_EXPRESSION foo, 1000);
+# pp.lit  "Done raw syntax tree for foo:";
+# pp.newline();
+
+								pp::flush_prettyprint_mill  pp;
+							    else
+								pp.newline();
+								pp.newline();
+								pp.lit "This is a verbose compile log.";					pp.newline();
+								pp.lit   "To get a concise compile log, remove the line";			pp.newline();
+																			pp.newline();
+								pp.lit   "    #DO set_control \"compiler::verbose_compile_log\" \"TRUE\";";	pp.newline();
+																			pp.newline();
+								pp.lit   "from your sourcefile (or set it to FALSE instead of TRUE).";	pp.newline();
+
+
+								pp.newline();
+								pp.lit   "(Following printed by src/lib/compiler/toplevel/main/compile-in-dependency-order-g.pkg.)";
+								pp.newline();
+
+								pp.newline();
+								pp.newline();
+								pp.newline();
+								pp.lit   "Raw syntax tree unparsed:";
+								pp.newline();
+
+								urs::unparse_declaration
+								    #
+								    (symbolmapstack, THE sourcecode_info)
+								    pp
+								    (raw_declaration, 1000);
+
+
+								pp.newline();
+								pp.newline();
+								pp.newline();
+								pp.lit   "Raw syntax tree prettyprinted (source code region records mostly suppressed for brevity):";
+								pp.newline();
+
+								prs::prettyprint_declaration
+								    #
+								    (symbolmapstack, THE sourcecode_info)
+								    pp
+								    (raw_declaration, 1000);
+
+
+# pp.newline();
+# pp.lit   "Above fiddledeedee \\";
+# pp.newline();
+# fun fiddledeedee arg1 arg2 arg3 = sfprintf::printf' "%d %6.2f %-15s\n" [ sfprintf::INT arg1, sfprintf::FLOAT arg2, sfprintf::STRING arg3 ];
+# pp.newline();
+# pp.lit   "Below fiddledeedee \\";
+# pp.newline();
+# pp.newline();
+# pp.lit   "Starting raw syntax tree for foo:";
+# pp.newline();
+# foo = printf_format_string_to_raw_syntax::make_anonymous_curried_function ("%d %6.2f %-15s\n", 12, 13); 
+# urs::unparse_expression
+#     (symbolmapstack, NULL)
+#     pp
+#     (raw::PRE_FIXITY_EXPRESSION foo, 1000);
+# pp.newline();
+# pp.lit   "Done raw syntax tree for foo.";
+# pp.newline();
+								pp::flush_prettyprint_mill  pp;
+							    fi;
+
+							    THE pp;
+							fi;
+
+						    fun wrap_up_compile_logfile_if_open
+							    #
+							    logfile_prettyprinter_or_null
+							    component_bytesizes
+							    compiledfile_version
+							    inline_expression
+							    symbolmapstack_picklehash
+							    inlinables_picklehash
+							    code_and_data_segments
+							=
+							# Wrap up compile log (if any):
+							#
+							case logfile_prettyprinter_or_null
+							    #
+							    NULL   =>   ();
+							    #
+							    THE pp =>
+								{
+#								    pp = pp.pp;
+
+								    if *coc::verbose_compile_log
+									#
+									pp.newline();
+									pp.newline();
+									pp.lit   "(Following printed by src/app/makelib/compile/compile-in-dependency-order-g.pkg.)";
+									pp.newline();
+
+									unparse_codesegment_components_bytesizes   pp   component_bytesizes;
+
+									pp.newline();
+									pp.newline();
+									pp.lit   "compiledfile_version: ";
+									pp.lit   compiledfile_version;
+
+									pp.newline();
+									pp.newline();
+									pp.lit   "Compiled code saved in: ";
+									pp.lit   compiledfile_name;
+
+									pp.newline();
+									pp.newline();
+									pp.lit   "inline_expression: ";
+									pp.lit   case inline_expression
+											       NULL => "NULL";
+											       _    => "(non-NULL)";
+											   esac;
+
+									pp.newline();
+									pp.newline();
+									pp.lit   "Symbol table picklehash: ";
+									pp.lit   (ph::to_hex symbolmapstack_picklehash);
+									pp.newline();
+									pp.lit   "Inlinables   picklehash: ";
+									pp.lit   (ph::to_hex inlinables_picklehash);
+
+
+
+									ucs::unparse_code_and_data_segments   pp   code_and_data_segments;
+								    fi;
+
+								    pp.flush ();
+								    pp.close ();
+								};
+							esac;
+
+						    #
+						    fun compile_one_preparsed_file ()
+							=
+							# Here at last we arrive at the beating heart of
+							#
+							#     fun parse_and_compile_one_file
+							#
+							# and thus
+							#
+							#     fun compile_thawedlib_tome_tin
+							#
+							# and ultimately
+							#
+							#     fun make_tome_compilers
+							#
+							# itself:
+							#
+							{   err =  err::errors  sourcecode_info;				# 'sourcecode_info' was extracted from 'thawedlib_tome', above.
+							    #
+							    fun raise_compile_exception_if_compile_errors_found   (phase: String): Void
+								=
+								if (err::saw_errors  err)   raise exception  cx::COMPILE (phase + " failed");   fi;
+
+
+if *log::debugging   printf "compile_one_preparsed_file/top...  [compile-in-dependency-order-g.pkg]\n";  fi;
+							    run_precompile_code_for_this_tome ();				# Evaluate all the   #DO ... ;   statements etc for file.
+
+							    sourcecode_info.saw_errors :=   FALSE;				# Clear error flag -- could still be set from earlier run.  (Damn all global state to hell...)
+
+							    source_file_name =   ad::os_string'  (tlt::sourcepath_of  tin_to_compile.thawedlib_tome);
+
+							    # For which files should we show per-compile-phase CPU usage?
+							    # This can be a LOT of spew, so we usually enable it only
+							    # for a specific file of interest:
+							    #
+							    cst::say_begin        :=  FALSE;						# To reduce clutter, don't announce start of each phase.
+							    cst::say_when_nonzero :=  FALSE;						# To reduce clutter, don't show phases which take 0.00 seconds.
+							    cst::say_end          :=  (show_compile_phase_runtimes_for  source_file_name);
+
+							    logfile_prettyprinter_or_null =  maybe_open_compile_logfile  source_file_name;
+
+							    #						# mythryl_compiler_for_intel32_posix		is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-intel32-posix.pkg
+							    #
+							    my  per_compile_data:      pcd::Per_Compile_Data( ds::Declaration )
+								=
+								r2x::make_per_compile_data						#										
+								  {									# What's the point of this?  We pass 'sourcecode_info'				
+								    sourcecode_info,							# separately anyhow, and 'transform' is always					
+								    #									# null.  That leaves just the (here implicit) stamp generator.			
+								    transform =>  \\ x = x,						# Should be either expanded or eliminated. XXX BUGGO FIXME			
+								    #									#										
+								    prettyprinter_or_null						# (Much) later: But it also contains global information				
+									=>								#               repository variables like 'saw_errors'.  And this may		
+									*coc::verbose_compile_log					#               be where all the various icky thread-hostile global mutables	
+									    ?? logfile_prettyprinter_or_null				#               should be moved.						
+									    :: NULL
+								  };
+
+
+
+							    crossmodule_inlining_aggressiveness
+								=
+								(ctl::inline::get'   crossmodule_inlining_aggressiveness):	Null_Or(Int);
+
+							    compiledfile_version				# Somthing like:  "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
+								=
+								tlt::get_compiledfile_version  tin_to_compile.thawedlib_tome:	String;
+
+														# Translate_Raw_Syntax_To_Execode_0	is from   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode.api
+														# translate_raw_syntax_to_execode_g	is from   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+														# mythryl_compiler_for_intel32_posix	is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-for-intel32-posix.pkg
+
+							    ################################################################
+							    # This is the central call of makelib,
+							    # where we actually compile a raw
+							    # syntax tree all the way down to
+							    # executable binary code:	We do this one other place:    src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+							    #				
+if *log::debugging   printf "calling translate_raw_syntax_to_execode...  [compile-in-dependency-order-g.pkg]\n"; fi;
+							    (r2x::translate_raw_syntax_to_execode
+							      {
+								raw_declaration		=> raw_declaration:		raw::Declaration,					# Parsetree we're compiling.
+								sourcecode_info		=> sourcecode_info:		sci::Sourcecode_Info,					# File we're compiling.
+								#
+								symbolmapstack		=> symbolmapstack:		syx::Symbolmapstack,					# These two args constitute the exports
+								inlining_mapstack	=> inlining_mapstack:		im::Picklehash_To_Anormcode_Mapstack,			# from the compiledfiles upon which we depend.
+								#
+								per_compile_data	=> per_compile_data:		pcd::Per_Compile_Data( ds::Declaration ),
+								#
+								compiledfile_version	=> compiledfile_version:	String,
+								#
+								crossmodule_inlining_aggressiveness	=> crossmodule_inlining_aggressiveness:	Null_Or( Int ),
+								#
+								handle_compile_errors	=> raise_compile_exception_if_compile_errors_found
+							      }
+							    )
+								->		# Unpack results of compile:
+
+								{ code_and_data_segments    => code_and_data_segments:	cs::Code_And_Data_Segments,	# Compiled binary code plus interpreted bytecode to regenerate literals vector.
+								  new_symbolmapstack        => new_symbolmapstack:	syx::Symbolmapstack,		# 'symbolmapstack' above plus stuff from 'raw_declaration'.  Not used.
+								  export_picklehash         => export_picklehash:       Null_Or( ph::Picklehash ),
+								  inline_expression         => inline_expression:       Null_Or( acf::Function ),	# A-normal code for inlining into other modules.
+								  import_trees              => import_trees:            List( imt::Import_Tree ),	# import_tree:  How to find our imports at linktime.
+								  symbolmapstack_picklehash,
+								  pickle => symbolmapstack_pickle,
+								  ...
+								 };
+if *log::debugging   printf "called  translate_raw_syntax_to_execode.    [compile-in-dependency-order-g.pkg]\n";  fi;
+							    #
+							    #
+							    ################################################################
+
+
+
+							    # The 'inline_expression' returned by the compiler
+							    # contains anormcode-form ("A-normal" machine-independent
+							    # code for exported functions worth inlining in
+							    # other modules. (This is usually disabled at present.)
+							    #
+							    # This will become part of the exported state
+							    # of the module, so we pickle it now for inclusion
+							    # in the .compiled file:
+							    #
+							    (pkj::pickle_highcode_program   inline_expression)
+								->
+								{ picklehash =>  inlinables_picklehash,
+								  pickle     =>  inlinables_pickle
+								};
+										       # byte		is from   src/lib/std/src/byte.pkg
+
+
+							    #
+							    inlinables_pickle
+								=
+								case inline_expression
+								    #
+								    NULL  =>  byte::string_to_bytes "";			# If        inline_expression   is NULL
+								    #							# change    inlinables_pickle   to an empty bytestring:
+								    THE _ =>  inlinables_pickle;			# else do nothing.
+								esac;
+
+
+							    # Wrap compile results neatly.  This
+							    # essentially generates the in-ram
+							    # representation of the .compiled diskfile
+							    # which we are about to write:
+							    #
+							    compiledfile
+								=
+								cf::make_compiledfile				# fun make_compiledfile x =  COMPILEDFILE x;
+								  {
+								    import_trees,
+								    export_picklehash,
+								    compiledfile_version,
+								    code_and_data_segments,
+								    #
+								    picklehash_list => phs::vals_list   picklehashes,		# picklehashes was an arg to fun 'parse_and_compile_one_file'
+								    #
+								    symbolmapstack  =>  { pickle     =>  symbolmapstack_pickle,
+											  picklehash =>  symbolmapstack_picklehash
+											},
+								    #
+								    inlinables	    =>  { pickle     =>  inlinables_pickle,
+											  picklehash =>  inlinables_picklehash
+											}
+								  };
+
+
+							    # Another layer of wrapping of compile results.
+							    #
+							    # This one is mostly about computing picklehashes
+							    # and setting up thunks for later access to the
+							    # symbol and inlining tables.
+							    #
+							    # This is our actual return result from
+							    #     compile_one_preparsed_file ()
+							    #
+							    symbol_and_inlining_mapstacks_etc
+								=
+								make_symbol_and_inlining_mapstacks_etc
+								  (
+								    compiledfile,
+								    tlt::sourcefile_timestamp_of   tin_to_compile.thawedlib_tome,
+								    symbolmapstack
+								  );
+
+							    maybe_compile_and_run_mythryl_codestring				# Run any funky per-file post-compile code from .lib file.
+								"post"
+								(tlt::postcompile_code_of   tin_to_compile.thawedlib_tome);
+
+							    restore_previous_global_compiler_state ();
+
+							    (write_compiledfile_to_disk  compiledfile)				# Write the actual   foo.api.compiled   or   foo.pkg.compiled   file.
+								->
+								component_bytesizes;	
+
+							    wrap_up_compile_logfile_if_open
+								logfile_prettyprinter_or_null
+								component_bytesizes
+								compiledfile_version
+								inline_expression
+								symbolmapstack_picklehash
+								inlinables_picklehash
+								code_and_data_segments;
+							    
+							    
+							    # (Usually) cache .compiled file in memory:
+							    #
+							    set__compiledfile__for__thawedlib_tome				# When set__compiledfile__for__thawedlib_tome is not a dummy,
+							      {									# it is compiledfile_cache::set__compiledfile__for__thawedlib_tome,
+								key   =>    tin_to_compile.thawedlib_tome,			# which caches a copy of the .compiled file contents in memory,
+								#								# on the presumption we may shortly want it.
+								value =>    { compiledfile,
+									      component_bytesizes
+									    }
+							      };
+
+							    THE symbol_and_inlining_mapstacks_etc;
+							};									# fun compile_one_preparsed_file
+
+						safely::do
+						  {
+						    open_it  =>   \\ () = (),
+						    close_it =>   \\ () = (),
+						    cleanup  =>   restore_previous_global_compiler_state
+						  }
+						  compile_one_preparsed_file;
+
+						}
+						except
+						    (err::COMPILE_ERROR | cx::COMPILE _)
+						    =
+						    handle_compile_error ();
+					esac;               # At this point we handle only
+							    # explicit compiler bugs and ordinary
+							    # compilation errors because for those
+							    # there will already have been
+							    # explanatory messages.  Everything
+							    # else "falls through" and will be
+							    # treated at top level.
+
+				    };												# fun parse_and_compile_one_file 
+
+				#
+				fun compile_dependencies_then_sourcefile ()
+				    =
+				    {
+					# In this file we compute the most recent edit
+					# of any sourcefile in the library.  This information
+					# is (only) used at one point, in   src/app/makelib/main/makelib-g.pkg
+					#
+					timestamp_of_youngest_sourcefile_in_library
+					    :=
+					    ts::max (
+						#
+					       *timestamp_of_youngest_sourcefile_in_library,				# This ref is ultimately from makelib_state.
+						#
+						tlt::sourcefile_timestamp_of   tin_to_compile.thawedlib_tome
+					    );
+
+					# In the hope of increasing compile-job parallelism,
+					# we try to compile first those sourcefiles on which
+					# many other files depend:
+					#
+					compile_priority =  compile_priority_of_thawedlib_tome   tin_to_compile.thawedlib_tome;
+
+
+					#####################################################
+					# Our thawedlib_tome isn't in our 'compiles_started'
+					# so we're going to have schedule a compile for it.
+					#
+					# But before we can compile it, we must make sure
+					# that everything it depends upon has been compiled,
+					# to ensure that all the type declarations etc that
+					# it needs will be available at compile time.
+					#####################################################
+
+					# Fire up compiles of all our far
+					# dependencies, which is to say,
+					# all .compiled files in other libraries
+					# from which we import something:
+					#
+					far_dependency_compile_threads
+					    =
+					    map'
+						tin_to_compile.far_imports										# 'tin_to_compile' is from 'fun compile_thawedlib_tome_tin' argument.
+						#
+						(\\ (masked_tome:  sg::Masked_Tome)
+						    =
+						    mtq::make_makelib_thread
+							#
+							makelib_state.makelib_session.makelib_thread_boss
+							#
+							{. compile_masked_tome_after_dependencies  makelib_state  masked_tome; }
+						);
+
+					# Similarly, fire up compiles of all
+					# our local dependencies, which is
+					# to say, all .api/.pkg files in this library
+					# from which we import something:
+					#
+					near_dependency_compile_threads
+					    =
+					    map'
+						tin_to_compile.near_imports
+						#
+						(\\ thawedlib_tome_tin
+						    =
+						    mtq::make_makelib_thread
+							#
+							makelib_state.makelib_session.makelib_thread_boss
+							#
+							{. compile_thawedlib_tome_tin_after_dependencies  thawedlib_tome_tin; })
+					    where
+						fun compile_thawedlib_tome_tin_after_dependencies  (thawedlib_tome:  sg::Thawedlib_Tome_Tin)
+						    =
+						    nor::map
+							memoize_unfiltered_dependency_exports
+							(compile_thawedlib_tome_tin  makelib_state  thawedlib_tome);
+
+					    end;
+
+
+					# Wait for all the above compiles to complete,
+					# accumulating and combining their exports:
+					#
+					combined_symbol_and_inlining_mapstacks
+					    =
+					    fold_forward
+						#
+						(wait_for_thread_to_finish_then_return_result_running_at_priority				# fn-to-apply
+						    #
+						    makelib_state
+						    compile_priority
+						)
+						#
+						(fold_forward											# initial val for outer fold_forward
+						    (wait_for_thread_to_finish_then_return_result_running_at_priority				# fn-to-apply
+							#
+							makelib_state
+							compile_priority
+						    )
+						    (THE  empty_fat_tomes_compile_result)							# initial val
+						    far_dependency_compile_threads								# list to process
+						)
+						#
+						near_dependency_compile_threads;								# list to process
+
+
+					case combined_symbol_and_inlining_mapstacks
+					    #				      
+					    NULL => NULL;	# We can't compile our sourcefile because
+								# one or more of the sourcefiles it depends upon
+								# failed to compile.
+
+					    THE { tome_exports_thunk, picklehashes }
+						=>
+						{   # We have successfully compiled all imports
+						    # needed by tin_to_compile. (Which might be none.)
+						    #
+						    # Now we need to find/make compiled-code
+						    # for tin_to_compile's source-code.
+						    #
+						    # If we've compiled this sourcefile
+						    # recently, we may have the needed
+						    # compiled-code cached in memory.
+						    #
+						    # If not, we'll have to either load
+						    # the compiled code from its .compiled file,
+						    # if any, or else generate it by
+						    # compiling the source code.
+						    #
+						    # We start by checking our in-memory
+						    # compiled-code cache:	
+						    #		
+						    case (ttm::get  (*symbol_and_inlining_mapstacks_etc_map__local, tin_to_compile.thawedlib_tome))
+							#
+							NULL =>   must_load_or_compile_compiledfile ();				# No appropriate object code in our in-memory cache.
+
+							THE symbol_and_inlining_mapstacks					# Found matching compiled code in ram.	       
+							    =>									# Use it unless the sourcefile has been	       
+							    if (symbol_and_inlining_mapstacks_are_current			# modified since the compiledfile was compiled.
+								  (							
+								    symbol_and_inlining_mapstacks,			
+								    picklehashes,
+								    tin_to_compile.thawedlib_tome
+								  )
+							    )
+								THE symbol_and_inlining_mapstacks;				# Use cached object code.
+							    else
+								must_load_or_compile_compiledfile ();				# Don't use cached object code.
+							    fi;
+						    esac
+						    where
+							fun must_load_or_compile_compiledfile ()
+							    =
+							    # Our in-memory cache doesn't contain
+							    # usable compiled code for our sourcefile
+							    # so we must either load a .compiled file
+							    # (if one exists), or else actually
+							    # compile the sourcefile:
+							    #
+							    case (load_else_compile_compiledfile ())
+								#
+								THE symbol_and_inlining_mapstacks
+								    =>
+								    # Cache then return our compiled code:
+								    #
+								    {   symbol_and_inlining_mapstacks_etc_map__local
+									    :=
+									    ttm::set
+									      ( *symbol_and_inlining_mapstacks_etc_map__local,	# Map.
+										tin_to_compile.thawedlib_tome,			# Key.
+										symbol_and_inlining_mapstacks			# Val.
+									      );
+
+								        THE symbol_and_inlining_mapstacks;
+								    };
+
+								NULL => NULL;							# Sourcefile doesn't compile -- give up.
+							    esac
+							    where
+								#
+								fun load_else_compile_compiledfile ()				# Get compiled code for our sourcefile,	
+								    =								# by just reading it off disk if we can,
+								    # If anything goes wrong loading				# by actually compiling it if we must.  
+								    # the .compiled file, we re/compile it.
+								    #
+								    # Compiling may mean compiling it
+								    # in a subprocess, and if so, we
+								    # must load the resulting .compiled.
+								    #
+								    # If the second load also goes wrong,
+								    # we recompile locally to gather error
+								    # messages and make everything look
+								    # "normal", which is to say local
+								    # within this process:
+								    #
+								    load_else_compile_compiledfile'
+                                                                      {
+									ok_to_try_compiling_in_subprocess => TRUE,
+									#
+									compile_it => parse_and_compile_file_after_removing_any_pre_existing_compiledfile
+								      }
+								    where
+
+									# As a general policy, we avoid actually
+									# constructing symbol and inlining tables
+									# until we're sure we need them.
+									#
+									# We now definitely need the tables constituting
+									# the combined exports from our dependencies,
+									# so we go ahead and build them explicitly:
+									#
+									(tome_exports_thunk ())
+									    ->
+									    { symbolmapstack, inlining_mapstack };
+
+									# Unpack some relevant information
+									# about the file to be compiled:
+									#
+									(tlt::attributes_of   tin_to_compile.thawedlib_tome)
+									    ->
+									    { crossmodule_inlining_aggressiveness, extra_static_compile_dictionary, ... };
+
+
+
+
+									# If an 'extra_static_compile_dictionary' was
+									# supplied, fold it into our symbol table.
+									#
+									# This is an obscure special-case hack used (only) in
+									#
+									#     src/app/makelib/mythryl-compiler-compiler/process-mythryl-primordial-library.pkg
+									#
+									# where it serves to supply modules flagged as "primitive" in
+									#
+									#     src/lib/core/init/init.cmi
+									#
+									# with access to   base_types_and_ops   from
+									#
+									#     src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+									#
+									# which contains various foundation-of-the-universe things
+									# like 'Bool' which must be predefined in order to bootstrap
+									# everything else:
+									#
+									symbolmapstack
+									    =
+									    case extra_static_compile_dictionary
+										#
+										NULL		    =>  symbolmapstack;					# Normal case.
+										THE symbolmapstack' =>  syx::atop (symbolmapstack, symbolmapstack');	# Special case for "primitive" modules.
+									    esac;
+
+
+									# We need compiled code for some "foo.api" or "foo.pkg" sourcefile.
+									# If we've already generated a matching "foo.pkg.compiled" file
+									# just read it into memory, otherwise compile "foo.pkg" to
+									# generate the required compiled code:
+									#	
+									fun load_else_compile_compiledfile'
+									      {
+										ok_to_try_compiling_in_subprocess,	# TRUE unless we've already tried it and it didn't work.
+										compile_it				# A fn to re/compile the file -- in practice "parse_and_compile_file_after_removing_any_pre_existing_compiledfile".
+									      }
+									    =
+									    case (load_compiledfile ())
+										#
+										NULL => 
+										    if (not *coc::compile_in_subprocesses
+										    or  not ok_to_try_compiling_in_subprocess)
+											#
+											if ok_to_try_compiling_in_subprocess   announce_compile ();	fi;	# Announce only if we have not already done so.
+
+											compile_it ();
+										    else
+											announce_compile ();
+
+											# If we had lots of compile parallelism it would make sense
+											# to put a throttle here to limit the number of parallel
+											# compile (sub-)processes, to avoid thrashing the system.
+											#
+											# In practice at present we max out at twelve subprocesses
+											# "make compiler" and on user programs probably much less so
+											# at present I'm not worrying about this.
+											#
+											# As eventual provision for such throttling I have provided in
+											# in Makelib_Thread_Boss	src/app/makelib/concurrency/makelib-thread-boss.pkg
+											# the currently-unused fields
+											#
+											#    cores_in_use:		Ref( Int ),
+											#    core_wait_queue:		Ref( Thread_Vim( Void ) )
+											#
+											# NB: Currently the best way of getting a
+											# cores-available count appears to be:
+											#
+											#     core_count =  posixlib::sysconf  "NPROCESSORS_ONLN";
+											#
+											case (spn::fork_process [ spn::REDIRECT_STDERR_TO_STDOUT_IN_CHILD TRUE ]) 
+											    #
+											    THE process			# We are the parent process from the fork().
+											        =>
+											        {   pid =  spn::process_id_of  process;
+												    # 
+
+												    # Here's a little bookkeeping just to track how many
+												    # subprocesses we're running at a given time.  This
+												    # is just to amuse the developer at the console during
+												    # development -- it isn't used in software:
+												    #
+												    ms = makelib_state;
+												    ses = ms.makelib_session;
+												    mtq = ses.makelib_thread_boss;
+												    cores_in_use = mtq::get_cores_in_use mtq;
+												    cores_in_use = cores_in_use + 1;
+ 												    mtq::set_cores_in_use  (mtq, cores_in_use);
+												    # fil::say {. sprintf "cores_in_use now d=%d" cores_in_use; }; # Normally commented out to reduce console noise during compiles.
+
+												    (spn::get_stdout_from_child_as_text_stream  process)
+													->
+													pipe_input_stream;
+
+
+												    run_child_and_abort_on_any_unexpected_output ()
+												    where
+													fun run_child_and_abort_on_any_unexpected_output ()
+													    =
+													    {
+														case (mtq::read_line_from_unix_pipe
+															 #
+															 makelib_state.makelib_session.makelib_thread_boss
+															 pipe_input_stream
+														     )
+
+														    THE "XYZZY-PLUGH-DONE\n"	# Subprocess compile finished successfully.
+															=>
+															{   log::note {. "Read 'done' line from client. -- load_else_compile_compiledfile'/run_child_and_abort_on_any_unexpected_output in src/app/makelib/compile/compile-in-dependency-order-g.pkg"; };
+															    cores_in_use =  mtq::get_cores_in_use  makelib_state.makelib_session.makelib_thread_boss;
+															    cores_in_use = cores_in_use - 1;
+															    mtq::set_cores_in_use (makelib_state.makelib_session.makelib_thread_boss, cores_in_use);
+															    spn::reap process;	# Prevent zombie processes from accumulating in process table.
+															    ();
+															};
+
+														    THE line			# We interpret any other output from subprocess as indicating a failed compile.
+															=>
+															{   # printf "%s\t\t(pid=%d)\n" (str::chomp line) pid;			# Sometimes diagnostically useful, usually just noise.
+															    spn::kill (process, is::SIGHUP);					# Force subprocess to exit if it is hung.
+															    spn::reap process;							# Prevent zombie processes from accumulating in process table.
+															    wnx::file::remove_file   compiledfile_name except _ = ();		# "foo.pkg.compiled"
+															    wnx::file::remove_file temporary_compiledfile_name except _ = ();	# foo.pkg.compiled.12345.tmp'
+															    ();
+															};
+
+														    NULL =>			# We interpret exit without XYZZY-PLUGH-DONE as likewise indicating a failed compile.
+															{   log::note {. sprintf "EOF on client input pipe."; };
+															    spn::kill (process, is::SIGHUP);					# Force subprocess to exit if it is hung.
+															    spn::reap process;							# Prevent zombie processes from accumulating in process table.
+															    wnx::file::remove_file   compiledfile_name except _ = ();		# "foo.pkg.compiled"
+															    wnx::file::remove_file temporary_compiledfile_name except _ = ();	# (...).12345.tmp'
+															    ();
+															};	
+														esac;
+													    };
+												    end;	
+
+												    # Load into our process the compiledfile
+												    # generated by our reaped subprocess, or
+												    # if there were any errors, recompile from	
+												    # scratch in-process:
+												    #	
+												    load_else_compile_compiledfile'
+												      {
+													ok_to_try_compiling_in_subprocess => FALSE,
+													compile_it
+												      };
+											        };
+											
+											    NULL =>			# We are the child process from the fork().
+											        {
+												    makelib_state.makelib_session.we_are_a_subprocess
+													:=
+													TRUE;		# Nothing actually reads this value at present.
+
+												    compile_it ()
+												    except
+													_ = {   fil::say {. "Compiler subprocess caught exception, exiting."; };
+														wnx::process::exit_x  wnx::process::failure;		# Caller doesn't actually check exit status.
+													    };	
+
+												    printf "XYZZY-PLUGH-DONE\n";
+												    wnx::process::exit_x  wnx::process::success;
+											        };
+											esac;
+										    fi;
+
+										#
+										THE (compiledfile, compiledfile_timestamp, component_bytesizes)
+										    =>
+										    {
+										        symbol_and_inlining_mapstacks_etc
+											    =
+											    make_symbol_and_inlining_mapstacks_etc
+											      (
+												compiledfile,
+												compiledfile_timestamp,
+												symbolmapstack
+											      );
+
+											contents_and_sizes
+											    =
+											    { compiledfile,
+											      component_bytesizes
+											    };
+
+
+											if (symbol_and_inlining_mapstacks_are_current
+											       (
+												 symbol_and_inlining_mapstacks_etc,
+												 picklehashes,
+												 tin_to_compile.thawedlib_tome
+											       )
+											)
+											    announce_compiledfile_load  component_bytesizes;
+
+											    #
+											    set__compiledfile__for__thawedlib_tome
+											      {
+												key   =>  tin_to_compile.thawedlib_tome,
+												value =>  contents_and_sizes
+											      };
+
+											    THE symbol_and_inlining_mapstacks_etc;
+											else
+											    compile_it ();
+
+											    # Load our new .compiled file into our process
+											    # via recursive call:
+											    #
+											    load_else_compile_compiledfile'
+											      {
+												ok_to_try_compiling_in_subprocess => FALSE,	# Insurance against looping if fork()ing off subprocesses isn't working for some reason.
+												compile_it
+											      };
+											fi;
+										     };
+									    esac
+									    where
+										fun load_compiledfile ()
+										    =
+										    ######################################################################
+										    # A function to read the foo.api.compiled or foo.pkg.compiled file
+										    # corresponding to our foo.api or foo.pkg sourcefile, if such a
+										    # .compiled file exists.
+										    #
+										    # On failure (usually because it doesn't exist) we return NULL.
+										    #
+										    # On success we return:
+										    #      THE ( compiledfile,
+										    #            compiledfile_timestamp,
+										    #	         component_bytesizes		# Size-in-bytes of code, data etc segments within .compiled file.
+										    #          )
+										    #
+										    ######################################################################
+
+										    # Return NULL immediately if .compiled file is unreadable.
+										    # This isn't strictly necessary, but avoids
+										    # generating background failed-to-open-file
+										    # errors that can be distracting when debugging:
+										    #
+										    if (not (wnx::file::access  (compiledfile_name, [ wnx::file::MAY_READ ] )))
+											#
+											NULL;
+										    else
+											# Our .compiled file looks readable,
+											# so go ahead and try to read it:
+											#
+											THE (
+											    safely::do
+											      {
+												open_it  =>  open_compiled_file,
+												close_it =>  bio::close_input,
+												cleanup  =>  \\ _ = ()
+											      }
+											      read_compiled_file
+											)
+											except
+											    _ = NULL;
+										    fi
+										    where
+											#
+											fun open_compiled_file ()
+											    =
+											    bio::open_for_read  compiledfile_name;
+
+											#
+											fun read_compiled_file  stream
+											    =
+											    {
+											        my { compiledfile, component_bytesizes }
+												    =
+												    cf::read_compiledfile
+												      {
+													architecture => myc::target_architecture,		# PWRPC32/SPARC32/INTEL32.
+													stream,
+													compiler_version_id
+													    =>
+													    mcv::mythryl_compiler_version.compiler_version_id	# Something like:      [110, 58, 3, 0, 2].
+												      };							#  We'll get an error back if first two don't match version in file.
+
+												tlt::set_compiledfile_version
+												  (
+												    tin_to_compile.thawedlib_tome,
+												    #
+												    cf::get_compiledfile_version  compiledfile
+												  );		# Version is (e.g.) "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
+
+												( compiledfile,
+												  (ts::last_file_modification_time  compiledfile_name),
+												  component_bytesizes
+												);
+											    };
+
+																				# safely		is from   src/lib/std/safely.pkg
+
+										    end;									# fun load_compiledfile
+									    end;										# fun load_else_compile_compiledfile'
+
+									#
+									fun parse_and_compile_file_after_removing_any_pre_existing_compiledfile ()
+									    =
+									    {   source_path =   tlt::sourcepath_of   tin_to_compile.thawedlib_tome;
+										#
+										wnx::file::remove_file   compiledfile_name		# "foo.pkg.compiled"
+										except
+										    _ = ();
+
+										timestamp_of_youngest_sourcefile_in_library		# Computed in this file;  used (only) in   src/app/makelib/main/makelib-g.pkg
+										    :=
+										    ts::NO_TIMESTAMP;
+
+#									        announce_compile ();
+										#
+										parse_and_compile_one_file
+										  (
+										    symbolmapstack,					# Combined symbol   tables of all apis and pkgs referenced by tin_to_compile.
+										    inlining_mapstack,					# Combined inlining tables of all apis and pkgs referenced by tin_to_compile.
+										    picklehashes,
+										    crossmodule_inlining_aggressiveness
+										  );
+									    };				# fun parse_and_compile_file_after_removing_any_pre_existing_compiledfile
+								    end;				# fun load_else_compile_compiledfile 
+							    end;
+						    end;
+						};							# Dependencies compiled ok.
+					esac;
+				    };									# fun compile_dependencies_then_sourcefile
+			    end;
+			};										# fun compile_thawedlib_tome_tin 
+
+
+		    #
+		    fun compile_fat_tome_after_dependencies    (makelib_state:  ms::Makelib_State)  (fat_tome: lg::Fat_Tome)
+		      = compile_masked_tome_after_dependencies  makelib_state                       (fat_tome.masked_tome_thunk ());
+
+
+		end;                                        #  fun make_tome_compilers
+
+	    # We have two levels of compile-dependency graphs,
+	    # one which records dependencies between complete
+	    # libraries and then one per library recording
+	    # dependencies between individual sourcefiles.
+	    #
+	    # Here we walk the library-level dependency graph
+	    # compiling libraries in post-order, so that each
+	    # library is compiled only after all the libraries
+	    # it needs have been compiled (making available the
+	    # relevant type declarations etc):
+	    #
+	    # We get called from various places in:
+	    #
+	    #     src/app/makelib/main/makelib-g.pkg
+	    #     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+	    #
+	    fun make_dependency_order_compile_fns
+		  {
+		    root_library => (root_library as lg::LIBRARY  { catalog, ... } ),							# Root node for our dagwalk.			("dagwalk" == "directed-acyclic-graph walk".)
+		    #
+		    maybe_drop_thawedlib_tome_from_linker_map,										# A dummy or   drop_thawedlib_tome_from_linker_map()
+		    #															# from   src/app/makelib/compile/link-in-dependency-order-g.pkg
+		    #
+		    set__compiledfile__for__thawedlib_tome										# Dummy or compiledfile_cache::set__compiledfile__for__thawedlib_tome, which caches a copy in ram. 
+		  }
+		    =>
+		    { compile_library_catalog_in_dependency_order,
+		      #	
+		      compile_all_fat_tomes_in_library_in_dependency_order,								# Called by freeze' in   src/app/makelib/main/makelib-g.pkg
+		      #															# and by    freeze  in   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+		      #	
+		      per_fat_tome_fns_to_compile_after_dependencies									# For each far tome in library, a fn that will compile it after compiling its dependencies.
+			  =>														# This is (only) used to look up and compile the pervasive-package symbol "<Pervasive>" 
+			  sym::map  compile_fat_tome_after_dependencies_during_bootstrap  catalog					# during bootstrap stuff in   src/app/makelib/main/makelib-g.pkg
+		    }
+		    where
+			if (mld::debug.get ())     printf "compile-dependency-graph-walk-g: make_dependency_order_compile_fns/TOP     [makelib::debug]\n";	fi;
+
+			# As a heuristic to try and save wall-clock
+			# time when doing parallel makes on multicore
+			# machines, we try to compile first those
+			# sourcefiles on which many other sourcefiles
+			# depend, since doing so is most likely to
+			# open up opportunities to do multiple compiles
+			# in parallel:
+			#
+			node_to_indegree__map
+			    =
+			    idg::compute__node_to_indegree__map_of  root_library;
+
+			#
+			fun compile_priority_of_thawedlib_tome										# Look up thawedlib_tome in node-to-indegree map.
+				#													# If found in map, use indegree as priority;
+				(thawedlib_tome:  tlt::Thawedlib_Tome)									# otherwise default to zero priority.
+			    =
+			    the_else (
+				ttm::get							
+				    ( node_to_indegree__map,
+				      thawedlib_tome
+				    ),
+				0
+			    );
+
+
+			compile_fat_tome_after_dependencies
+			    =
+			    mmz::memoize
+			       {.
+				    .compile_fat_tome_after_dependencies
+					#
+					(make_tome_compilers
+					  {
+					    maybe_drop_thawedlib_tome_from_linker_map,
+					    set__compiledfile__for__thawedlib_tome,
+					    compile_priority_of_thawedlib_tome
+					  }
+					);
+				}:	Void  ->  ms::Makelib_State  ->  lg::Fat_Tome  ->  Null_Or( Fat_Tomes_Compile_Result );
+
+			#
+			fun concurrently_compile_fat_tomes_in_dependency_order
+			      (
+				makelib_state:  ms::Makelib_State,
+				#
+				fat_tomes:	List( lg::Fat_Tome )									# In practice, the list of tomes in a library, from either lib.catalog or all_tomes_in_library.
+			      )
+			    =
+			    # We return the symbolmapstack-plus-inlining-mapstack pair
+			    # which is the result of concurrently compiling everything
+			    # on the input list and combining all the results.
+			    #
+			    {
+				fat_tome_compile_threads
+				    =
+				    map'  fat_tomes  make_thread_to_compile_fat_tome_after_dependencies
+				    where
+					fun make_thread_to_compile_fat_tome_after_dependencies   (fat_tome: lg::Fat_Tome)
+					    =
+					    mtq::make_makelib_thread
+						#
+						makelib_state.makelib_session.makelib_thread_boss
+						#
+					       {.  compile_fat_tome_after_dependencies  ()  makelib_state  fat_tome;  };
+
+				    end;
+
+				fat_tome_compile_results
+				    =
+				    fold_forward
+					#
+					(wait_for_thread_to_finish_then_return_result_running_at_priority  makelib_state  0)
+					#
+					(THE  empty_fat_tomes_compile_result)
+					#
+					fat_tome_compile_threads;
+
+				case fat_tome_compile_results
+				    #			      
+				    THE compile_result	=>  THE (compile_result.tome_exports_thunk ());
+				    #
+				    NULL		=>  NULL;
+				esac;
+			    }
+			    except
+				ABORT =  NULL;
+
+			#
+			fun compile_library_catalog_in_dependency_order									# Called by compile_library 		in   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+				#													# and by    compile_library 		in   src/app/makelib/main/makelib-g.pkg
+				(makelib_state:   ms::Makelib_State)									# and by    dagwalker_for_make_command	in   src/app/makelib/main/makelib-g.pkg
+			    =														# It returns all the info resulting from compiling a batch of libraries.
+			    concurrently_compile_fat_tomes_in_dependency_order
+			      (
+				makelib_state,
+				sym::vals_list  catalog											# 'catalog' is make_dependency_order_compile_fns(... library.catalog )
+			      );
+																	# symbol_map	is from   src/app/makelib/stuff/symbol-map.pkg
+
+			#
+			fun compile_all_fat_tomes_in_library_in_dependency_order							# External entry point (after we return it from make_dependency_order_compile_fns).
+				#													# Called by freeze' in   src/app/makelib/main/makelib-g.pkg
+				(makelib_state:  ms::Makelib_State)									# and by    freeze  in   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+			    =
+			    not_null													# Return TRUE iff all .api and .pkg files compiled successfully.
+				(concurrently_compile_fat_tomes_in_dependency_order
+				  (
+				    makelib_state,
+				    all_fat_tomes_in_library
+				  )
+				)
+			    where
+				all_fat_tomes_in_library										# All .api and .pkg files in library (including its sublibraries but of course not external libraries).
+				    =
+				    find_all_fat_tomes_in_library
+				      {
+					libraries_to_do =>  [root_library],
+					libraries_done  =>  sps::empty,
+					fat_tomes_found =>  []
+				      }
+				    where
+					# A little helper function for find_all_fat_tomes_in_library.
+					# It takes an entry from a library.sublibraries list
+					# and adds the library to our libraries_to_do list:
+					#
+					fun add_library  (lt: lg::Library_Thunk,  libraries_left)
+					    =
+					    lt.library_thunk ()   !   libraries_left;
+
+
+					# find_all_fat_tomes_in_library() constructs a list of all fat tomes
+					# (in essence, all .api and .pkg files) in a given library by
+					# processing the library plus its sublibraries, direct and indirect.
+					#
+					# First argument is the list of library graph nodes yet to process.
+					# Initially, this is just the root library of the .sublibraries tree.
+					#
+					# Second argument is the set of library graph nodes already processed,
+					# so we can avoid processing a given node more than once.
+					#
+					# Third argument is the accumulating result list of
+					# symbols exported via the library .exports lists. -- CrT
+					#
+					fun find_all_fat_tomes_in_library
+					      {
+						libraries_to_do => [],
+						fat_tomes_found,
+						...
+					      }
+						=>
+						# Done:
+						#
+						fat_tomes_found:	List( lg::Fat_Tome );
+
+					    find_all_fat_tomes_in_library
+					      {
+						libraries_to_do => lg::LIBRARY lib ! libraries_to_do,
+						libraries_done,
+						fat_tomes_found
+					      }
+						=>
+						if (sps::member (libraries_done, lib.libfile))
+						    #
+						    # Skip library -- we've already done it:
+						    #
+						    find_all_fat_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+						else
+
+						    # Add all .api and .pkg files in this library to our result:
+						    #
+						    fat_tomes_found
+							=
+							sym::fold_forward
+							    (!)
+							    fat_tomes_found
+							    lib.catalog;
+
+
+						    # Add all sublibraries of this lib to our left-to-do list:
+						    #
+						    libraries_to_do
+							=
+							fold_forward
+							    add_library
+							    libraries_to_do
+							    lib.sublibraries;
+
+						    # Remember we've processed this library:
+						    #
+						    libraries_done =  sps::add (libraries_done, lib.libfile);
+
+						    # Process remaining libraries_to_do recursively:
+						    #
+						    find_all_fat_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+						fi;
+
+
+
+					    find_all_fat_tomes_in_library
+						  {
+						    libraries_to_do => lg::BAD_LIBRARY ! libraries_to_do,				# This sub/library had errors, but we continue processing to report any other errors this run.
+						    libraries_done,
+						    fat_tomes_found
+						  }
+						=>
+						# Ignore bogus entry on libraries_to_do list:
+						#
+						find_all_fat_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+					end;
+				    end;
+			    end;													# fun compile_all_fat_tomes_in_library_in_dependency_order
+
+			#
+			fun compile_fat_tome_after_dependencies_during_bootstrap							# This is (only) used to compile the pervasive-package symbol "<Pervasive>" 
+				#													# during bootstrap stuff in   src/app/makelib/main/makelib-g.pkg
+				(fat_tome: lg::Fat_Tome)
+				#
+				(makelib_state:  ms::Makelib_State)
+			    =
+			    case (compile_fat_tome_after_dependencies  ()  makelib_state   fat_tome	except ABORT = NULL)
+				#
+				THE compile_result =>  THE (compile_result.tome_exports_thunk ());
+				#
+				NULL               =>  NULL;
+			    esac;
+		    end;
+
+		make_dependency_order_compile_fns { root_library => lg::BAD_LIBRARY, ... }
+		  =>
+		  { compile_library_catalog_in_dependency_order
+			=>
+			\\ _ = NULL,
+
+		     compile_all_fat_tomes_in_library_in_dependency_order
+			=>
+			\\ _ = FALSE,
+
+		     per_fat_tome_fns_to_compile_after_dependencies
+			=>
+			sym::empty
+		  };
+	    end;															# make_dependency_order_compile_fns 
+
+
+	    #
+	    fun compile_tome_tin_after_dependencies ()
+		=
+		compile_tome_tin_after_dependencies'
+		where
+		    (make_tome_compilers
+		      {	
+			maybe_drop_thawedlib_tome_from_linker_map   =>   \\ _ = \\ _ = (),
+			set__compiledfile__for__thawedlib_tome	    =>   \\ _ = (),
+			compile_priority_of_thawedlib_tome	    =>   \\ _ = 0 
+		      })
+			->
+			{ compile_tome_tin_after_dependencies, ... };
+
+		    #
+		    fun compile_tome_tin_after_dependencies'
+			    #
+			    (makelib_state:	ms::Makelib_State)
+			    #
+			    (tome:		sg::Tome_Tin)
+			=
+			compile_tome_tin_after_dependencies  makelib_state  tome
+			except
+			    ABORT = NULL;
+		end;
+
+	    #
+	    fun drop_stale_entries_from_compiler_map ()							# Called (only) by   drop_stale_entries_from_compiler_and_linker_maps()   in   src/app/makelib/main/makelib-g.pkg
+		=
+		symbol_and_inlining_mapstacks_etc_map__local
+		    :=
+		    ttm::keyed_filter
+			(tlt::is_known o #1)
+			*symbol_and_inlining_mapstacks_etc_map__local;
+
+	    #
+	    fun drop_all_entries_from_compiler_map ()							# Never invoked.
+		=
+		symbol_and_inlining_mapstacks_etc_map__local
+		    :=
+		    ttm::empty;
+
+	    #
+	    fun get_symbol_and_inlining_mapstacks  thawedlib_tome
+		=
+		(the (ttm::get (*symbol_and_inlining_mapstacks_etc_map__local, thawedlib_tome))).symbol_and_inlining_mapstacks;
+
+	end;												# stipulate
+    };
+end;
+
+
+
+#                  MOTIVATION
+#
+# If package A references type/fun/value in a package B.
+# then we say package A "depends upon" package B.
+#
+# This is important during compiles, when we must
+# have access to type information from B in order
+# to compile A, and also during linking, when we
+# must remember to link in B whenever we link A
+# into a process or program.
+# 
+# We represent the detailed dependency relationships
+# between a set of packages using a dependency graph
+# -- see
+#
+#     src/app/makelib/depend/intra-library-dependency-graph.pkg
+# 
+# We represent less detailed dependency relationships,
+# accurate only to the granularity of libraries,
+# using library dependency graphs.  See
+#
+#     src/app/makelib/depend/inter-library-dependency-graph.pkg
+# 
+# We need to do two kinds of dagwalks over these graphs,
+# compile dagwalks and link dagwalks.
+# 
+# To achieve good separation of concerns, we implement
+# the mechanics of doing these dagwalks separately
+# from the code needing them done, and hide the
+# implementation details behind an abstract api.
+#
+# Link dagwalks are implemented in
+#
+#     src/app/makelib/compile/link-in-dependency-order-g.pkg
+#
+# Compile dagwalks are implemented here.
+
+
+
+
+#                  DATA STRUCTURE
+#
+# 'symbol_and_inlining_mapstacks_etc_map__local':
+#
+#     We use a 'symbol_and_inlining_mapstacks_etc_map__local' dictionary to remember which
+#     source code files we have already compiled, and to record
+#     for each such file the result of compiling it -- in
+#     particular, the resulting compiledfile and its creation date, and
+#     the interface information needed to compile other files
+#     dependent upon this file, namely the symbolmapstack of
+#     exported values and types, and the dictionary of
+#     inlinable functions.
+#
+#     symbol_and_inlining_mapstacks_etc_map__local keys:       Thawedlib_Tome records.
+#
+#         The 'symbol_and_inlining_mapstacks_etc_map__local' dictionary keys are 'Thawedlib_Tome' records,
+#         which summarize what we know about a given compiledfile
+#         including its sourcefile and parsetree.
+#
+#         In particular, the Thawedlib_Tome record includes
+#         a function make_compiledfile_name() which will generate and
+#         return the name of the corresponding .compiled file to generate
+#         presuming it is known to exist and be current. See
+#
+#             src/app/makelib/compilable/thawedlib-tome.pkg
+#
+#
+#     symbol_and_inlining_mapstacks_etc_map__local values:     Tome_Exports_Etc records.
+#
+#         Each 'symbol_and_inlining_mapstacks_etc_map__local' dictionary value is an 'symbol_and_inlining_mapstacks'
+#         record (defined in this file -- see below).
+#
+#         This record includes a 'compiledfile_timestamp' timestamp field which
+#         may be used to determine whether the .compiled file is
+#         currently valid, by checking to see if the sourcefile has
+#         been modified since the .compiled file was generated.
+#
+#         The record also includes pickle hashes for the compiledfile:
+#         If recompiling the sourcefile results in a new .compiled file with
+#         the same picklehashes, then the source edit didn't introduce any
+#         interesting (to a compiler) changes (maybe just some new comments)
+#         and we don't need to run around recompiling all files which
+#         depend on thaat sourcefile.  This can often avoid a lot of useless
+#         recompilations.
+#
+#         Finally, the 'symbol_and_inlining_mapstacks' record also includes all
+#         the interface information produced by compiling the corresponding
+#         sourcefile -- which is to say, all the information needed
+#         to recompile files which depend upon that sourcefile.
+
+
+
+
+#                  ALGORITHM
+#
+# Our basic algorithm is quite simple.
+#
+# In essence we do a post-order dagwalk of
+# the dependency tree for the program, compiling
+# each node after all of its children.
+#
+# Our dependency 'tree' is really a "DAG" (directed
+# acyclic graph) because it has shared subtrees due
+# to multiple libraries calling the same library fns,
+# so we use datastructures such as our
+#
+#     symbol_and_inlining_mapstacks_etc_map__local
+#
+# dictionary to ensure that we don't compile a
+# given makefile or sourcefile more than once.
+#
+#
+# In a bit more detail, the heart of the
+# post-order dependency graph dagwalk is
+#
+#     fun compile_dependencies_then_sourcefile
+#
+# Key points of interest:
+#
+#
+# o  Our 'dependency tree' is actually factored
+#    into one 'inter-library' dependency graph
+#    recording dependencies between complete
+#    libraries (a "library" being essentially
+#    the set of sourcefiles compiled by one
+#    .lib file) plus one 'intra-library' graph
+#    per library recording dependencies between
+#    individual source files.
+#
+#    This factoring adds some complexity to the
+#    tree-traversal code, but does not change it
+#    in any essential way.
+#
+#
+# o  Before we compile a given sourcefile,
+#    we queue up compiles of all other sourcefiles
+#    that it depends upon, and wait for them to complete.
+#
+#    Each of them do the same thing recursively, so
+#    we wind up compiling the dependency tree in a
+#    wave that starts at the leafs and ripples up
+#    to the root.
+#
+#    This ensures that when we compile a given file,
+#    all needed info from other files is available.
+#
+#   (The structure of our source language
+#    guarantees we can order our compiles
+#    in this fashion:  We allow no cyclic
+#    dependencies between source files.
+#    To the occasional irritation of programmers!)
+#
+#
+# o  We use one 'compiles_started' map per library
+#    to ensure that we don't queue up multiple compiles
+#    of a sourcefile.
+#
+#
+#
+#                 COMPLICATING FACTORS
+#
+# As usual, most of the code complexity derives from attempts
+# to improve speed and efficiency.  In this case, they include:
+#
+# o  To improve wallclock compile times, we support using
+#    multiple Unix processes to compile files in parallel
+#    during a build.  These processes may be on the same
+#    machine (to take advantage of multi-processor boxes)
+#    or on other machines.  (In the latter case, we assume
+#    use of a shared filesystem such as NFS.)
+#
+# o  To minimize redundant work done, particularly parsing
+#    of source code files, we do much of the work lazily,
+#    using thunks and memos.  As usual, this makes the code
+#    harder to understand and maintain. *wrygrin*
+#
+# o  To buy efficiency in cases where we do need to parse
+#    a file multiple times, where possible we work from a
+#    custom abstraction of the source code called a
+#    'module dependencies summary' which contains just
+#    the information we need from a source file.  See
+#
+#        src/app/makelib/compilable/module-dependencies-summary.pkg
+#
+#
+#
+#             JUST LIKE UNIX 'make'
+#
+# We retain enough information on disk between
+# runs (in particular, the .compiled files) that
+# the above algorithm also provides us with
+# 'make' functionality, in the sense that if
+# we compile everything, edit one or more files,
+# and then recompile, only the logically required
+# recompiles will be done.
+
+
+
+
+
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"				 	 #
+# End:									 #
+##########################################################################
+

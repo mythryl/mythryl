@@ -1,0 +1,2647 @@
+## highcode-uniq-types.pkg 
+#
+# Common-typeexpression merging for lambdacode, anormcode and nextcode.
+# See overview comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-uniq-types.api
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+###             "It's OK to figure out murder mysteries,
+###              but you shouldn't need to figure out code.
+###              You should be able to read it."
+###
+###                             -- Steve McConnell
+
+
+
+stipulate
+    package cos =  compile_statistics;							# compile_statistics		is from   src/lib/compiler/front/basics/stats/compile-statistics.pkg
+    package di  =  debruijn_index;							# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package err =  error_message;							# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package hbt =  highcode_basetypes;							# highcode_basetypes		is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+    package tmp =  highcode_codetemp;							# highcode_codetemp		is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package rwv =  rw_vector;								# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+    package wkr =  weak_reference;							# weak_reference		is from   src/lib/std/src/nj/weak-reference.pkg
+herein
+
+    package   highcode_uniq_types
+    :         Highcode_Uniq_Types							# Highcode_Uniq_Types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.api
+    {
+	fun bug s
+	    =
+	    err::impossible ("highcode_uniq_types:" + s);
+
+
+	# *************************************************************************
+	#                UTILITY FUNCTIONS FOR HASHCONSING BASICS                 *
+	# *************************************************************************
+
+	#  Hashconsing implementation basics 
+	#
+	stipulate									# Use sorted_list.
+	    mval = 10000;								# "mval" is probably "maximum_value" (of debruijn index...?)
+	    bval = mval * 2;								# "bval" might be "bogus_value" or "bitfield_value" ...? All index i start from 0 
+	herein 
+
+	    # Un/fold Debruijn_Depth + Debruijn_Index into
+	    # a single Int via silly pseudo-bitfield stuff:				# XXX BUGGO FIXME couldn't we at least use shift/mask stuff instead of divisions (*gag*)?
+	    #
+	    fun   pack_debruijn_typevar (depth, index) =  depth * mval + index;		# Pack debruijn depth+index int-pair into a single int.
+	    fun unpack_debruijn_typevar x              =  (x / mval,  x % mval);	# Inverse of above fn.
+
+
+	    fun exit_level (xs: List(Int))    :    List(Int)
+		= 
+		# For all values x > bval in 'xs',
+		# add x-mval to results list:
+		#
+		h (xs, [])
+		where
+		    fun h ([],       results) =>  reverse results;
+			h (x ! rest, results) =>  if (x < bval)   h (rest,            results);
+					          else            h (rest, (x-mval) ! results);
+					          fi;
+		    end;
+		end;
+
+	    # For lists of free type variables, debruijn indices are collapsed
+	    # into a single integer each using pack_debruijn_typevar/unpack_debruijn_typevar.
+	    # Named variables use the typevar as an integer.  The debruijn-typevar list is kept sorted,
+	    # the named variables are in arbitrary order (for now) -- Christopher A League, 1998-07-02
+	    #
+	    Typevars_And_Normedflag
+	      #	
+	      = TYPEVARS_AND_NORMEDFLAG
+		  {
+		    is_normed:		Bool,						# TRUE iff normalized.
+		    free_typevars:	List( Int ),					# Free typevars, each represented as Debruijn_Depth + Debruijn_Index packed into a single integer.
+		    named_typevars:	List( tmp::Codetemp )				# Free named type vars.
+		  }
+	      | TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE					# No typevars_and_normedflag available.
+	      ;
+	      #
+	    Hash_Cell(X) =  Ref( (Int, X, Typevars_And_Normedflag) ); 
+
+
+
+	    ######################################################################	
+	    # "This one is originally from sorted_list -- which
+	    #  I wanted to get rid of."  -- Matthias Blume 11/2000
+	    #	
+	    #	 merge_typevar_lists = sorted_list::merge
+	    #
+	    # Merge two sorted lists of typevariables into
+	    # a single sorted list, merging duplicates:
+	    #
+	    fun merge_sorted_typevar_lists (l, []) =>   l:  List( tmp::Codetemp );
+		merge_sorted_typevar_lists ([], l) =>   l:  List( tmp::Codetemp );
+		    #
+		merge_sorted_typevar_lists ( l  as (h  ! t ),
+                            l' as (h' ! t')
+                          )
+		    =>
+		    if   (h <  h')   h  ! merge_sorted_typevar_lists (t, l');
+		    elif (h == h')   h  ! merge_sorted_typevar_lists (t, t');
+		    else             h' ! merge_sorted_typevar_lists (l, t');
+		    fi;
+	    end;
+
+
+
+
+
+	end;												# stipulate: hashconsing implementation basics 
+
+	############################################################################
+	#                 Sumtype Definitions
+	############################################################################
+
+	# Definition of kinds for all the lambda types.
+	# Kinds are really only used in:
+	#
+	#     src/lib/compiler/back/top/highcode/highcode-form.pkg
+	#
+	package kind {
+	    Kind
+	      = PLAINTYPE										# Ground typelocked type.
+	      | BOXEDTYPE										# Boxed/tagged type. 
+	      | KINDSEQ   List(Uniqkind)								# Sequence of kinds. 
+	      | KINDFUN  (List(Uniqkind), Uniqkind)							# Kind function.
+
+	    withtype
+	    Uniqkind = Hash_Cell( Kind );								# Hash-consing-implementation of Kind.  (Mutable!)
+	};
+	Uniqkind	=  kind::Uniqkind;
+	Kind		=  kind::Kind;
+
+	# A special extensible token key:
+	#
+	Token = Int;      
+
+	Calling_Convention										# Calling conventions. 
+	  #
+	  = FIXED_CALLING_CONVENTION									# Used after representation analysis.
+	  #
+	  | VARIABLE_CALLING_CONVENTION									# Used prior to representation analsys.
+	      { arg_is_raw:	Bool,
+		body_is_raw:	Bool
+	      }
+	  ;
+
+	Useless_Recordflag = USELESS_RECORDFLAG;							# tuple kind: a template.  (Appears to be something someone started but didn't finish -- CrT)
+
+	#  Definitions of types (type constructors):
+	#
+	package type {
+	    #
+	    # Note that a TYPEFUN is a type -> type compiletime function,
+	    # whereas an ARROW represents a value -> value runtime function.
+	    #
+	    Type
+	      = DEBRUIJN_TYPEVAR	(di::Debruijn_Index, Int)					# type variables 
+	      | NAMED_TYPEVAR		 tmp::Codetemp							# named type variables 
+	      | BASETYPE		 hbt::Basetype							# Base type -- Int, String etc.
+	      #	
+	      | TYPEFUN			(List(Uniqkind), Uniqtype)					# Type abstraction.
+	      | APPLY_TYPEFUN		(Uniqtype, List(Uniqtype))					# Type application.
+	      #
+	      | TYPESEQ			 List(Uniqtype)							# Type sequence.
+	      | ITH_IN_TYPESEQ		(Uniqtype, Int)							# Type projection.
+	      #
+	      | SUM			 List(Uniqtype)							# Sum type.
+	      | RECURSIVE		((Int, Uniqtype, List(Uniqtype)), Int)				# Recursive type.
+	      #
+	      | TUPLE			(Useless_Recordflag, List(Uniqtype))				# Standard record type.
+	      | ARROW			(Calling_Convention, List(Uniqtype), List(Uniqtype))		# Standard function type.
+	      | PARROW			(Uniqtype, Uniqtype)						# Special function type -- unused. 'p' was maybe for 'plambda' (lambdacode), vs fps (nextcode)...?
+	      #
+	      | BOXED			 Uniqtype							# Boxed Type 
+	      | ABSTRACT		 Uniqtype							# Abstract type -- not used. 
+	      | EXTENSIBLE_TOKEN	(Token, Uniqtype)						# Extensible token type.
+	      | FATE			 List(Uniqtype)							# Internal fate type.
+	      | INDIRECT_TYPE_THUNK	(Uniqtype, Type)						# Indirect type thunk.
+	      | TYPE_CLOSURE		(Uniqtype, Int, Int, Uniqtype_Dictionary)			# Type closure.
+
+	    withtype
+	    Uniqtype = Hash_Cell( Type )								# Mutable!
+
+	    also
+	    Uniqtype_Dictionary =  Uniqtype;
+		#
+ 		# This is really List(  (Null_Or(List(Uniqtype)),  Int)  )
+		# where Null_Or cells are encoded as
+		#
+		#         SEQ[(PROJ ((SEQ tcs), i))]	# 'THE'  case.
+		#         SEQ[(PROJ (VOID,      i))]    # 'NULL' case.
+		#
+		# and then consed up using ARROWs.  -- ZHONG
+	};
+	Uniqtype            =  type::Uniqtype;	
+	Type		    =  type::Type;
+	Uniqtype_Dictionary =  type::Uniqtype_Dictionary;
+
+	# Definitions of types:
+	#
+	package typoid {
+	    Typoid
+	      = TYPE			Uniqtype							# Typelocked type.
+	      | PACKAGE			List(Uniqtypoid)						# Package record type.
+	      | GENERIC_PACKAGE		(List(Uniqtypoid), List(Uniqtypoid))				# Generic package type.
+	      | TYPEAGNOSTIC		(List(Uniqkind), List(Uniqtypoid))				# Typeagnostic type.
+	      | FATE			List( Uniqtypoid )						# Internal fate type.
+	      | INDIRECT_TYPE_THUNK	(Uniqtypoid, Typoid)						# A Uniqtypoid thunk and its api.
+	      | TYPE_CLOSURE		(Uniqtypoid, Int, Int, Uniqtype_Dictionary)			# Type closure.
+
+	    withtype
+	    Uniqtypoid = Hash_Cell( Typoid );								# Hash-consed Type cell. (Mutable!) 
+	};
+	Typoid		=  typoid::Typoid;
+	Uniqtypoid	=  typoid::Uniqtypoid;
+
+
+	# *************************************************************************
+	#                   TOKEN TYC UTILITY FUNCTIONS                           *
+	# *************************************************************************
+
+	Token_Info
+	    =
+	    { name:                      String, 
+	      abbrev:                    String,
+	      reduce_one:               (Token, Uniqtype) -> Uniqtype,
+	      is_weak_head_normal_form:  Uniqtype -> Bool,
+	      is_known:                 (Token, Uniqtype) -> Bool
+	    };
+
+
+	stipulate
+	    token_key = REF 0;		# XXX BUGGO FIXME more icky thread-hostile global mutable state
+
+	    token_table_size = 10;
+
+	    default_token_info
+		=
+		{ name                     => "GARBAGE", 
+		  abbrev                   => "GB",
+		  reduce_one               => (\\ _ = bug "token not implemented"),
+		  is_weak_head_normal_form => (\\ _ = bug "token not implemented"),
+		  is_known                 => (\\ _ = bug "token not implemented")
+		};
+
+	    token_rw_vector
+		=
+		rwv::make_rw_vector (token_table_size, default_token_info)
+		:
+		rwv::Rw_Vector( Token_Info );
+
+	    token_validity_table
+		=
+		rwv::make_rw_vector (token_table_size, FALSE);
+
+	    #
+	    fun get_next_token ()
+		= 
+		{   n = *token_key;			if (n > token_table_size)  bug "running out of tokens";   fi;
+		    #
+		    token_key := n+1;
+
+		    n;
+		};
+
+	    #
+	    fun store_token_info (token_info, token_number)
+		=
+		rwv::set (token_rw_vector, token_number, token_info);
+	    #
+	    fun get_is_whnm token_number =  (rwv::get (token_rw_vector, token_number)).is_weak_head_normal_form;
+	    fun get_name    token_number =  (rwv::get (token_rw_vector, token_number)).name;
+	    fun get_abbrev  token_number =  (rwv::get (token_rw_vector, token_number)).abbrev;
+	    #
+	    fun get_reduce_one (z as (token_number, t)) =   (rwv::get (token_rw_vector, token_number)).reduce_one  z;
+	    fun get_is_known   (z as (token_number, t)) =   (rwv::get (token_rw_vector, token_number)).is_known    z;
+	    #	
+	    fun is_valid   token_number =   rwv::get (token_validity_table, token_number);
+	    fun set_valid  token_number =   rwv::set (token_validity_table, token_number, TRUE);
+	herein 
+
+	    fun register_token (token_info: Token_Info)   :   Token
+		= 
+		{   token_number = get_next_token ();
+		    store_token_info (token_info, token_number);
+		    set_valid token_number;
+		    token_number;
+		};
+
+	    my token_name:           Token -> String			= get_name; 
+	    my token_abbreviation:   Token -> String			= get_abbrev;
+	    #
+	    my token_whnm:           Token -> Uniqtype -> Bool 		=  get_is_whnm; 		# "whnm" == "weak head normal form"
+	    my token_reduce:        (Token, Uniqtype) -> Uniqtype	=  get_reduce_one;
+	    my token_is_known:      (Token, Uniqtype) -> Bool		=  get_is_known;
+	    #
+	    my token_is_valid:       Token -> Bool			=  is_valid;
+	    my same_token:  	    (Token, Token) -> Bool		=  \\ (x, y) = (x==y);
+	    #
+	    my token_int:            Token -> Int			=  \\ x = x;
+	    my token_key:            Int -> Token			=  \\ x = x;
+
+	end;				#  end of all token-related hacks 
+
+	# **************************************************************************
+	#                    HASHCONSING IMPLEMENTATIONS                           *
+	# **************************************************************************
+
+	# Hash-consing implementations of Uniqtype, Uniqkind, Uniqtypoid 
+
+	stipulate
+
+	    #
+	    fun bug msg
+		=
+		err::impossible("highcode_uniq_types: " + msg);
+
+	    int2unt = unt::from_int;
+	    unt2int = unt::to_int_x;
+
+	    bitwise_and = unt::bitwise_and;
+
+	    # We require here that
+	    #
+	    #     1) nnn be a power of two.
+	    #     2) ppp be a prime such that nnn*nnn*ppp < maxint 
+	    #
+	    nnn    = 2048; 			# Was 1024.
+	    ppp    = 0u509; 			# Was 0u1019.
+	    #
+	    nnnnnn = int2unt (nnn*nnn);
+
+	    my uniqkind_table:		rwv::Rw_Vector( List( wkr::Weak_Reference( Uniqkind  ) ) ) =   rwv::make_rw_vector (nnn, NIL);		# XXX BUGGO FIXME Icky thread-hostile global mutable state.
+	    my uniqtype_table:		rwv::Rw_Vector( List( wkr::Weak_Reference( Uniqtype  ) ) ) =   rwv::make_rw_vector (nnn, NIL);		# XXX BUGGO FIXME Icky thread-hostile global mutable state.
+	    my uniqtypoid_table:	rwv::Rw_Vector( List( wkr::Weak_Reference( Uniqtypoid) ) ) =   rwv::make_rw_vector (nnn, NIL);		# XXX BUGGO FIXME Icky thread-hostile global mutable state.
+	    #
+#	    fun vector_to_list v =   vector::fold_backward (!) [] v;		# Commented out 2011-02-13 CrT because it was unused.
+	    #
+	    fun revcat (a ! rest, b) =>  revcat (rest, a ! b);
+		revcat (NIL,      b) =>  b;
+	    end;
+
+	    #
+	    fun combine [x]
+		    =>
+		    int2unt x;
+
+		combine (a ! rest)
+		    => 
+		    bitwise_and (int2unt a + (combine rest)*ppp, nnnnnn - 0u1);
+
+		combine _
+		    =>
+		    bug "unexpected case in combine";
+	    end;
+
+
+	    # XXX BUGGO FIXME This looks totally insane -- we appear to have a fixed hashtable size of 2048 independent of load factor...?!?
+	    #                 Why are we re-inventing the hashtable here anyhow?? 
+
+
+	    fun find_or_make_uniqx
+		(
+		  table,	# The appropriate hashtable -- one of uniqkind_table/uniqtype_table/uniqtypoid_table.
+		  hashcode,	# The hash of the value in question.
+		  value,	# The value in question.
+		  same_x,	# Equality comparison for the type in question -- one of same_kind'/same_type'/same_typoid'.
+		  make_x	# Function to create a uniq value of type in question -- one of make_kind_hashcell/make_type_hashcell/make_typoid_hashcell.
+		)
+		=
+		# Given a value of type
+		#     Kind,
+		#     Type
+		# or  Typoid
+		# and the matching hashtable etc for that
+		# type, find or create the corresponding
+		# hash-consed value.
+		#
+		# NB: It is necessary to keep each bucket-list
+		#     in a consistent order -- and not reverse
+		#     or move-to-front or whatever -- because the
+		#     below 'compare_hashcells' function breaks
+		#     ties based on bucket-list order. 
+		#
+		#
+		g ([], rwv::get (table, masked_hashcode))
+		where
+		    # Mask value hash down to size
+		    # of our hashtable:
+		    #
+		    masked_hashcode =  unt2int (bitwise_and (int2unt hashcode, int2unt (nnn - 1)));	# masked_hashcode = hashcode & (nnn-1);
+
+		    # Search our hashtable bucket-chain
+		    # for the given value:
+		    #
+		    fun g (l, z as (weakref ! rest))
+			    => 
+			    case (wkr::get_normal_reference_from_weak_reference  weakref)
+				#
+				THE (r as REF (hashcode', value', _))
+				    =>
+				    if (hashcode==hashcode'  and  same_x { new=>value, old=>value'})
+					#
+					rwv::set (table, masked_hashcode, revcat (l, z));
+					r;
+				    else
+					g (weakref ! l, rest);
+				    fi;
+
+				NULL => g (l, rest);
+			    esac;
+
+			g (l, [])
+			    => 
+			    {   r = make_x (hashcode, value);
+				rwv::set (table, masked_hashcode, (wkr::make_weak_reference r) ! reverse l);
+				r;
+			    };
+		    end;
+		end;
+
+	    fun compare_hashcells (table, a as REF (ai, _, _), b as REF (bi, _, _))
+		=
+		# Compare a vs b per associated hashcodes ai bi,
+		# breaking ties by position in hashbucket chain:
+		#
+		if   (ai < bi)  LESS; 
+		elif (ai > bi)  GREATER;
+		elif (a == b )  EQUAL;
+		else
+		    # Map hashcode to hashtable bucket index:
+		    #
+		    bucket_number =  unt2int (bitwise_and (int2unt ai, int2unt (nnn - 1)));	# bucket_number =  ai & (nnn-1);
+		    #	
+		    g (rwv::get (table, bucket_number))
+		    where
+			fun g [] =>   bug "unexpected case in cmp";
+			    #
+			    g (weakref ! rest)
+				=>
+				case (wkr::get_normal_reference_from_weak_reference  weakref)
+				    #
+				    THE r
+					=> 
+					if   (a == r)   LESS; 
+					elif (b == r)   GREATER;
+					else            g rest;
+					fi;
+
+				    NULL => g rest;
+				esac;
+			end;
+		    end;
+		fi;
+
+	    stipulate
+		fun get_hashcode (REF (i, _, _))
+		    =
+		    i;
+	    herein
+		#
+		fun hash_kind (kind: Kind)     :   Unt
+		    =
+		    g kind
+		    where
+			fun g (kind::PLAINTYPE)		=>  0u1;
+			    g (kind::BOXEDTYPE)		=>  0u2;
+			    g (kind::KINDSEQ  ks)	=>  combine (3 ! map get_hashcode ks);
+			    g (kind::KINDFUN (ks, k))	=>  combine (4 ! get_hashcode k ! (map get_hashcode ks));
+			end;
+		    end;
+		#
+		fun hash_type (type: Type)     :    Unt
+		    = 
+		    g type
+		    where
+			fun g (type::DEBRUIJN_TYPEVAR (d, i))	=> combine [ 1, (di::di_key d)*10, i];
+			    g (type::NAMED_TYPEVAR v)		=> combine [ 15, v];
+			    g (type::BASETYPE pt)		=> combine [ 2, hbt::basetype_to_int pt];
+			    #
+			    g (type::TYPEFUN (ks, t))		=> combine ( 3 ! (get_hashcode t) ! (map get_hashcode ks));
+			    g (type::APPLY_TYPEFUN (t, ts))	=> combine ( 4 ! (get_hashcode t) ! (map get_hashcode ts));
+			    g (type::TYPESEQ ts)		=> combine ( 5 ! (map get_hashcode ts));
+			    #
+			    g (type::ITH_IN_TYPESEQ (t, i))	=> combine [ 6, (get_hashcode t), i];
+			    g (type::SUM ts)			=> combine ( 7 ! (map get_hashcode ts));
+			    g (type::RECURSIVE((n, t, ts), i))	=> combine ( 8 ! n ! i ! (get_hashcode t) ! (map get_hashcode ts));
+			    #
+			    g (type::ABSTRACT t)			=> combine [ 9, get_hashcode t];
+			    g (type::BOXED t)			=> combine [10, get_hashcode t];
+			    g (type::TUPLE (_, ts))		=> combine (11 ! (map get_hashcode ts));
+			    #
+			    g (type::PARROW (t1, t2))		=> combine [13, get_hashcode t1, get_hashcode t2];
+			    g (type::EXTENSIBLE_TOKEN (i, tc))	=> combine [14, i, get_hashcode tc];
+			    g (type::FATE ts)			=> combine (15 ! (map get_hashcode ts));
+			    #
+
+			    g (type::ARROW (rw, ts1, ts2))
+				=> 
+				combine (12 ! (h rw) ! (map get_hashcode (ts1@ts2)))
+				where
+				    fun h (FIXED_CALLING_CONVENTION)                                               =>       10;
+					h (VARIABLE_CALLING_CONVENTION { arg_is_raw => TRUE,  body_is_raw => b2 }) => b2 ?? 20
+                                                                                                                         :: 30;
+					h (VARIABLE_CALLING_CONVENTION { arg_is_raw => FALSE, body_is_raw => b2 }) => b2 ?? 40
+                                                                                                                         :: 50;
+				    end;
+				end;
+
+			    g (type::TYPE_CLOSURE (t, i, j, dictionary))
+				=> 
+				combine [16, get_hashcode t, i, j, get_hashcode dictionary];
+
+			    g (type::INDIRECT_TYPE_THUNK _)
+				=>
+				bug "unexpected INDIRECT in hash_type";
+			end;
+		    end; 
+
+		#
+		fun hash_typoid  (typoid: Typoid)     :    Unt
+		    = 
+		    g typoid
+		    where
+			fun g (typoid::TYPE t				) => combine [1, get_hashcode t];
+			    g (typoid::PACKAGE types			) => combine (2 !  (map get_hashcode types));
+			    g (typoid::GENERIC_PACKAGE (ts1, ts2)	) => combine (3 !  (map get_hashcode (ts1@ts2)));
+			    g (typoid::TYPEAGNOSTIC (ks, ts)		) => combine (4 ! ((map get_hashcode ts)@(map get_hashcode ks)));
+			    g (typoid::FATE ts				) => combine (5 !  (map get_hashcode ts));
+			    g (typoid::TYPE_CLOSURE (t, i,j, dictionary)) => combine [6, get_hashcode t, i, j, get_hashcode dictionary];
+			    #
+			    g (typoid::INDIRECT_TYPE_THUNK _		) => bug "unexpected typoid::INDIRECT_TYPE_THUNK in hash_typoid";
+			end;
+		    end;
+	    end;
+
+	    #
+	    fun same_kind' { new: Kind, old }
+		=
+		new == old;
+
+	    # The 1st is one being mapped;
+	    # the 2nd is in the hashtable 
+	    #
+	    fun same_type' { new:  Type, old=>type::INDIRECT_TYPE_THUNK(_, old) }
+		    =>
+		    same_type' { new, old };
+
+		same_type' { new, old }
+		    =>
+		    new == old;
+	    end;
+
+	    #
+	    fun same_typoid' { new:  Typoid, old=>typoid::INDIRECT_TYPE_THUNK(_, old) }
+		    =>
+		    same_typoid' { new, old };
+
+		same_typoid' { new, old }
+		    =>
+		    new == old;
+	    end;
+
+
+	    base_typevars_and_normedflag
+		=
+		TYPEVARS_AND_NORMEDFLAG
+		  {
+		    is_normed      =>  TRUE,
+		    free_typevars  =>  [],
+		    named_typevars =>  []
+		  };
+
+	    #
+	    fun get_typevars_and_normedflag (REF (hashcode: Int,  _,  typevars_and_normedflag))     :     Typevars_And_Normedflag
+		=
+		typevars_and_normedflag;
+
+	    #
+	    fun merge_typevars_and_normedflag (TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE, _) =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+		merge_typevars_and_normedflag (_, TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE) =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+		#
+		merge_typevars_and_normedflag
+                  (
+		    TYPEVARS_AND_NORMEDFLAG { is_normed => in1, free_typevars => ftv1, named_typevars => ntv1 },
+                    TYPEVARS_AND_NORMEDFLAG { is_normed => in2, free_typevars => ftv2, named_typevars => ntv2 }
+                  )
+		    =>
+		    TYPEVARS_AND_NORMEDFLAG
+                      {
+                        is_normed      =>  in1 and in2,
+                        free_typevars  =>  merge_sorted_typevar_lists  (ftv1, ftv2),
+			named_typevars =>  merge_sorted_typevar_lists  (ntv1, ntv2)
+                      };
+	    end;
+
+	    #
+	    fun foldmerge_typevars_and_normedflag []  =>  base_typevars_and_normedflag;
+		foldmerge_typevars_and_normedflag [x] =>  get_typevars_and_normedflag x;
+		#
+		foldmerge_typevars_and_normedflag xs
+		    => 
+		    loop (xs, base_typevars_and_normedflag)
+		    where
+			fun loop ([], z)
+				=>
+				z;
+
+			    loop(_, TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE)
+				=>
+				TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+
+			    loop (a ! r, z)
+				=>
+				loop (r, merge_typevars_and_normedflag (get_typevars_and_normedflag a, z));
+			end;
+		    end;
+	    end;
+
+	    #
+	    fun exit_typevars_and_normedflag (TYPEVARS_AND_NORMEDFLAG { is_normed, free_typevars, named_typevars })
+		    =>
+		    TYPEVARS_AND_NORMEDFLAG
+		      {
+			is_normed,
+                        free_typevars =>  exit_level  free_typevars,
+                        named_typevars
+                      };
+
+		exit_typevars_and_normedflag  typevars_and_normedflag
+		    =>
+		    typevars_and_normedflag;
+	    end;
+
+	    #
+	    fun make_typevars_and_normedflag_for_type  (type:  Type)
+		= 
+		g type
+		where
+		    fun g (type::DEBRUIJN_TYPEVAR (debruijn_depth, debruijn_index))
+			    =>
+			    TYPEVARS_AND_NORMEDFLAG
+			      {
+				is_normed      => TRUE,
+				free_typevars  =>  [ pack_debruijn_typevar (debruijn_depth, debruijn_index) ],
+                                named_typevars =>  []
+                              };
+
+			g (type::NAMED_TYPEVAR v)
+			    =>
+			    TYPEVARS_AND_NORMEDFLAG
+			      {
+				is_normed      =>  TRUE,
+				free_typevars  =>  [],
+				named_typevars =>  [v]
+			      };
+			#
+			g (type::BASETYPE pt) => base_typevars_and_normedflag;
+			#
+			g (type::APPLY_TYPEFUN  (REF(_, type::TYPEFUN _, TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE), _)) =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+			g (type::ITH_IN_TYPESEQ (REF(_, type::TYPESEQ _, TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE), _)) =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+			#
+			g (type::APPLY_TYPEFUN  (REF(_, type::TYPEFUN _, TYPEVARS_AND_NORMEDFLAG { free_typevars, named_typevars, ... }), ts))
+			    => 
+			    merge_typevars_and_normedflag (TYPEVARS_AND_NORMEDFLAG { is_normed => FALSE, free_typevars, named_typevars }, foldmerge_typevars_and_normedflag ts);	#  ? 
+			#
+			g (type::ITH_IN_TYPESEQ (REF(_, type::TYPESEQ _, TYPEVARS_AND_NORMEDFLAG { free_typevars, named_typevars, ... }), _))
+			    => 
+			    TYPEVARS_AND_NORMEDFLAG { is_normed => FALSE, free_typevars, named_typevars };								#  ? 
+			#
+			g (type::APPLY_TYPEFUN (t, ts))		=> foldmerge_typevars_and_normedflag (t ! ts);
+			g (type::TYPESEQ ts       )		=> foldmerge_typevars_and_normedflag ts;
+			g (type::SUM ts       )			=> foldmerge_typevars_and_normedflag ts;
+			#
+			g (type::TYPEFUN (ks, t)   )		=> exit_typevars_and_normedflag (get_typevars_and_normedflag t);
+			g (type::ITH_IN_TYPESEQ (t, _)  )	=> get_typevars_and_normedflag t;
+			#
+			g (type::RECURSIVE((_, t, ts), _))
+			    => 
+			    {   ax = get_typevars_and_normedflag t;
+				#
+				case ax
+				    #
+				    TYPEVARS_AND_NORMEDFLAG { free_typevars => [], named_typevars => [], ... }
+					=>
+					merge_typevars_and_normedflag (ax, foldmerge_typevars_and_normedflag ts);
+
+				    TYPEVARS_AND_NORMEDFLAG _            =>  bug "unexpected RECURSIVE freevars in make_typevars_and_normedflag_for_type";
+				    TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE  =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+				esac;
+			    };
+
+			g (type::ABSTRACT t)		=> get_typevars_and_normedflag t;
+			g (type::BOXED    t)		=> get_typevars_and_normedflag t;
+			#
+			g (type::TUPLE (_, ts))		=> foldmerge_typevars_and_normedflag ts;
+			g (type::ARROW (_, ts1, ts2))	=> foldmerge_typevars_and_normedflag (ts1@ts2);
+			g (type::PARROW (t1, t2))	=> foldmerge_typevars_and_normedflag [t1, t2];
+			#
+			g (type::EXTENSIBLE_TOKEN (k, (REF(_, t, TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE))))
+			    =>
+			    TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+
+			g (type::EXTENSIBLE_TOKEN (k, (x as REF(_, t, TYPEVARS_AND_NORMEDFLAG { is_normed, free_typevars, named_typevars } ))))
+			    => 
+			    TYPEVARS_AND_NORMEDFLAG
+			      {
+				is_normed => (token_whnm k x) and is_normed,
+				free_typevars,
+				named_typevars
+			      };
+
+			g (type::FATE          ts) =>  foldmerge_typevars_and_normedflag ts;
+
+			g (type::INDIRECT_TYPE_THUNK _) =>  bug "unexpected INDIRECT in make_typevars_and_normedflag_for_type";
+			g (type::TYPE_CLOSURE        _) =>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+		    end;
+		end; 
+
+	    #
+	    fun make_typevars_and_normedflag_for_typoid (typoid: Typoid)
+		= 
+		g typoid
+		where
+		    fun g (typoid::TYPE type)			=>  get_typevars_and_normedflag  type;
+			#
+			g (typoid::PACKAGE types)		=>  foldmerge_typevars_and_normedflag  types;
+			g (typoid::GENERIC_PACKAGE (ts1, ts2))	=>  foldmerge_typevars_and_normedflag  (ts1@ts2);
+			g (typoid::FATE ts)			=>  foldmerge_typevars_and_normedflag  ts;
+			#
+			g (typoid::TYPEAGNOSTIC (ks, ts))	=>  exit_typevars_and_normedflag (foldmerge_typevars_and_normedflag ts);
+			g (typoid::TYPE_CLOSURE _)		=>  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE;
+			#
+			g (typoid::INDIRECT_TYPE_THUNK _)	=>  bug "unexpected type::INDIRECT_TYPE_THUNK in make_typevars_and_normedflag_for_typoid";
+		    end;
+		end;
+	    #
+	    fun make_kind_hashcell   (hashcode: Int,  kind:   Kind  ) =   REF (hashcode, kind,    TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE           );
+	    fun make_type_hashcell    (hashcode: Int,  type:   Type  ) =   REF (hashcode, type,    make_typevars_and_normedflag_for_type   type  );
+	    fun make_typoid_hashcell (hashcode: Int,  typoid: Typoid) =   REF (hashcode, typoid,  make_typevars_and_normedflag_for_typoid typoid);
+
+	herein 
+
+	    # A temporary hack to get the list of free typevars. 				XXX BUGGO FIXME
+	    # It ignores named vars for now.  -- Christopher A League, 1998-07-01
+	    #
+	    fun get_free_typevars_of_uniqtype (r as REF (_ : Int,   _ : Type,   TYPEVARS_AND_NORMEDFLAG { free_typevars, ... } )) =>   THE free_typevars;
+		get_free_typevars_of_uniqtype (r as REF (_ : Int,   _ : Type,   TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE            )) =>   NULL;
+	    end;
+	    #
+	    fun get_free_typevars_of_uniqtypoid   (r as REF (_ : Int,   _ : Typoid,     TYPEVARS_AND_NORMEDFLAG { free_typevars, ... } )) =>   THE free_typevars;
+		get_free_typevars_of_uniqtypoid   (r as REF (_ : Int,   _ : Typoid,     TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE            )) =>   NULL;
+	    end;
+
+	    # Converting from the hash-consing forms to the standard forms.
+	    # These are primed because later we define fancier normalizing versions:
+	    #
+	    fun uniqkind_to_kind'     (r as REF(_ : Int,  kind:   Kind,   _ : Typevars_And_Normedflag))   =   kind;
+	    fun uniqtypoid_to_typoid' (r as REF(_ : Int,  typoid: Typoid, _ : Typevars_And_Normedflag))   =   typoid;
+#	    fun uniqtype_to_type'     (r as REF(_ : Int,  type:   Type,   _ : Typevars_And_Normedflag))   =   type;
+	    fun uniqtype_to_type'     (r as REF(i : Int,  type:   Type,  tan: Typevars_And_Normedflag))
+		=
+{
+#  if *log::debugging 
+if FALSE
+    printf "uniqtype_to_type' (\n";
+    printf "  i =%d (0x%x),\n" i i;
+    printf "  typevars_and_normedflag = \n";
+    case tan
+     TYPEVARS_AND_NORMEDFLAG
+		      {
+			is_normed:		Bool,						# TRUE iff normalized.
+			free_typevars:	List( Int ),					# Free typevars, each represented as Debruijn_Depth + Debruijn_Index packed into a single integer.
+			named_typevars:	List( tmp::Codetemp )				# Free named type vars.
+		      }
+	 => { printf "    { is_normed => %B,\n" is_normed;
+	      printf "      free_typevars => [";    apply (\\ i = printf "%d," i                 ) free_typevars;  printf "],\n";
+	      printf "      named_typevars => [";   apply (\\ t = printf "%s," (tmp::to_string t)) named_typevars; printf "]\n";
+	      printf "    },\n";
+	    };
+     TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE					# No typevars_and_normedflag available.
+	 =>
+	printf "     TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE\n";
+    esac;
+
+    printf "  type = %s\n"  case type
+		       type::DEBRUIJN_TYPEVAR		_ => "DEBRUIJN_TYPEVAR";
+		       type::NAMED_TYPEVAR		_ => "NAMED_TYPEVAR";
+		       type::BASETYPE			_ => "BASETYPE";
+		       type::TYPEFUN			_ => "TYPEFUN";
+		       type::APPLY_TYPEFUN		_ => "APPLY_TYPEFUN";
+		       type::TYPESEQ			_ => "TYPESEQ";
+		       type::ITH_IN_TYPESEQ		_ => "ITH_IN_TYPESEQ";
+		       type::SUM			_ => "SUM";
+		       type::RECURSIVE			_ => "RECURSIVE";
+		       type::TUPLE			_ => "TUPLE";
+		       type::ARROW			_ => "ARROW";
+		       type::PARROW			_ => "PARROW";
+		       type::BOXED			_ => "BOXED";
+		       type::ABSTRACT			_ => "ABSTRACT";
+		       type::EXTENSIBLE_TOKEN		_ => "EXTENSIBLE_TOKEN";
+		       type::FATE			_ => "FATE";
+		       type::INDIRECT_TYPE_THUNK	_ => "INDIRECT_TYPE_THUNK";
+		       type::TYPE_CLOSURE		_ => "TYPE_CLOSURE";
+		       esac;
+    printf ")    -- uniqtype_to_type'() in highcode-uniq-types.pkg\n";
+fi;
+  type;
+};
+
+	    # Converting from the standard forms to the hash-consing forms:
+	    #
+	    fun find_or_make_uniqkind   t =   find_or_make_uniqx (uniqkind_table,   unt2int (hash_kind   t), t, same_kind',   make_kind_hashcell  );
+	    fun find_or_make_uniqtypoid t =   find_or_make_uniqx (uniqtypoid_table, unt2int (hash_typoid t), t, same_typoid', make_typoid_hashcell);
+	    fun find_or_make_uniqtype   t =   find_or_make_uniqx (uniqtype_table,   unt2int (hash_type   t), t, same_type',   make_type_hashcell  );
+
+
+	    # Key-comparison on Uniqkind, Uniqtype, Uniqtypoid:
+	    #
+	    fun compare_uniqkinds (k1, k2) =  compare_hashcells (uniqkind_table, k1, k2);
+	    fun compare_uniqtypoids (t1, t2) =  compare_hashcells (uniqtypoid_table, t1, t2);
+	    fun compare_uniqtypes  (t1, t2) =  compare_hashcells (uniqtype_table,  t1, t2);
+
+
+	    # Get the hash key of a Uniqtypoid.
+	    # Only used by forms/make-anormcode-coercion-fn.pkg; a hack:
+	    # 
+	    fun hash_uniqtypoid (REF (hashcode:  Int, _ : Typoid, _ : Typevars_And_Normedflag))
+		=
+		hashcode;
+
+
+
+
+
+	    #########################################################################################################
+	    #
+	    # Mapping typevars to their Uniqkind when they are
+	    # represented in Debruijn depth+index int-pair form.
+
+
+	    # This list-of-lists maps an tmp::Codetemp -- that is,
+	    # its (debruijn_depth, debruijn_index) int-pair -- to
+	    # its Uniqkind, by simple O(N) stepping:
+	    #
+	    Debruijn_To_Uniqkind_Listlist
+		=
+		List(				# This list gets indexed by Debruijn_Depth (i.e., which enclosing scope bound the typevar).
+		    List( Uniqkind )		# This list gets indexed by Debruijn_Index (i.e., typevar's sequence number within that scope).
+		);
+
+	    exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;
+
+	    my empty_debruijn_to_uniqkind_listlist  
+		=
+		([]:   Debruijn_To_Uniqkind_Listlist);
+	    #
+	    fun debruijn_to_uniqkind (debruijn_to_uniqkind_listlist, debruijn_depth, debruijn_index)
+		#
+		# Looks up a typevar's Uniqkind simply by stepping
+		# through our list-of-lists map.
+		= 
+		{   uniqkinds = list::nth (debruijn_to_uniqkind_listlist, debruijn_depth - 1)
+			 except
+			     _ = raise exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;
+
+		    list::nth (uniqkinds, debruijn_index)
+		    except
+			_ = raise exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;
+		};
+		# Both lookups above are O(N); presumably the
+		# reasoning was that we seldom have many typevars.
+		#
+		# Also, the code says repeatedly "this needs to be cleaned up",
+		# so possibly this was a quick-and-dirty prototype implementation.
+		#
+		# Whatever the reasoning, this sucks! :-)					XXX BUGGO FIXME
+
+	    #
+	    fun prepend_uniqkind_list_to_map (debruijn_to_uniqkind_listlist, uniqkinds)
+		=
+		uniqkinds ! debruijn_to_uniqkind_listlist;
+
+
+	    fun get_uniqkinds_of_free_typevars_of_uniqtype
+                  (
+		    debruijn_to_uniqkind_listlist:	Debruijn_To_Uniqkind_Listlist,
+		    uniqtype:				Uniqtype
+		  )
+		:					Null_Or( List(Uniqkind) )
+		=
+		# Given a uniqtype, extract its list of free typevars and return
+		# a list of their kinds.  This is (only) called from:
+		#
+		#     src/lib/compiler/back/top/highcode/highcode-form.pkg
+		#
+		#
+		#    "The result is a "parallel list" of the kinds
+		#     of those free type variables in the dictionary.
+		#     This is meant to use the same representation
+		#     of a kind dictionary as in [ src/lib/compiler/back/top/highcode/highcode-form.pkg ]."
+		#
+		#                          --Christopher A League
+		#
+		{   fun do_typevar_list  free_typevars
+			=
+			do_typevar_list'  (debruijn_to_uniqkind_listlist,  /*depth=*/1,  free_typevars);
+		    #
+		    null_or::map  do_typevar_list  (get_free_typevars_of_uniqtype  uniqtype);
+		}
+		where
+		    #
+		    fun do_typevar_list'  (debruijn_to_uniqkind_listlist,  depth,  [])
+			    =>
+			    [];
+
+			do_typevar_list'  (debruijn_to_uniqkind_listlist,  depth,  free_typevar ! free_typevars)
+			    =>
+			    {   (unpack_debruijn_typevar  free_typevar)
+				    ->
+				    (depth', index');
+
+				debruijn_to_uniqkind_listlist'
+				    =
+				    list::drop_n (debruijn_to_uniqkind_listlist, depth'-depth)
+				    except
+					_ = raise exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;
+
+				k = list::nth (head debruijn_to_uniqkind_listlist', index')
+				    except
+					_ = raise exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;
+
+				rest =  do_typevar_list'  (debruijn_to_uniqkind_listlist', depth', free_typevars);
+
+				k ! rest;
+			    };
+		    end;
+		end;
+
+	    # *************************************************************************
+	    #             UTILITY FUNCTIONS ON TYC DICTIONARY                         *
+	    # *************************************************************************
+
+	    # Utility functions for manipulating the type_dictionary 
+	    #
+	    stipulate
+
+		void_uniqtype
+		    =
+		    find_or_make_uniqtype  (type::BASETYPE  hbt::basetype_truevoid);
+
+
+		#
+		fun unpack_ith_in_typeseq x
+		    = 
+		    case (uniqtype_to_type' x)
+			#
+			type::ITH_IN_TYPESEQ (y, i)
+			    =>
+			    case (uniqtype_to_type'  y)
+				#
+				type::TYPESEQ ts  =>  (THE ts, i);
+				type::BASETYPE _  =>  (NULL,   i);
+				_                =>  bug "unexpected tycDict1 in unpack_ith_in_typeseq";
+			    esac;
+
+		       _ => bug "unexpected tycDict2 in unpack_ith_in_typeseq";
+		    esac;
+
+		# Inverse to above fn:
+		#
+		fun pack_ith_in_typeseq (NULL, i)
+			=>
+			find_or_make_uniqtype (type::ITH_IN_TYPESEQ (void_uniqtype, i));
+
+		    pack_ith_in_typeseq (THE uniqtypes, i)
+			=> 
+			find_or_make_uniqtype (type::ITH_IN_TYPESEQ (find_or_make_uniqtype (type::TYPESEQ uniqtypes), i));
+		end;
+
+	    herein
+
+		exception UNBOUND_TYPE;
+
+		my  empty_uniqtype_dictionary:  Uniqtype_Dictionary
+		    =
+		    void_uniqtype;
+
+		#
+		fun find_ith_entry_in_uniqtype_dictionary (i, type_dict:  Uniqtype_Dictionary)
+		    = 
+		    if (i > 1)
+			#
+			case (uniqtype_to_type' type_dict)
+			    #
+			    type::ARROW(_, _,[x]) =>  find_ith_entry_in_uniqtype_dictionary (i - 1, x);
+			    _                    =>  bug "unexpected type_dictionary in tcLookup";
+			esac;
+		    else
+			if (i == 1)
+			    #
+			    case (uniqtype_to_type' type_dict)
+				#
+				type::ARROW(_,[x], _) =>  unpack_ith_in_typeseq x; 
+				_                    =>  raise exception UNBOUND_TYPE;
+			    esac;
+			else
+			    bug "unexpected argument in tcLookup";
+			fi;
+		    fi;
+
+		# Here we essentially CONS an entry onto the existing list.
+		#
+		fun cons_entry_onto_uniqtype_dictionary
+		      (
+			type_dict:  Uniqtype_Dictionary,
+			et:	   (Null_Or(List(Uniqtype)), Int) 
+		      )
+		    =
+		    tc_cons (pack_ith_in_typeseq et, type_dict)
+		    where
+			fun tc_cons (t, b)
+			    =
+			    find_or_make_uniqtype (type::ARROW (FIXED_CALLING_CONVENTION, [t],[b]));
+		    end;
+
+		# Inverse of above, returning head and tail of list:
+		#
+		fun head_and_tail_of_uniqtype_dictionary (type_dict:  Uniqtype_Dictionary)
+		    =
+		    case (uniqtype_to_type' type_dict)
+			#
+			type::ARROW(_,[x],[y]) =>  THE (unpack_ith_in_typeseq x, y);
+			_                     =>  NULL;
+		    esac;
+
+
+	    end; #  utililty function for type_dictionary 
+
+
+	    # Checking if a Uniqtype or
+	    # a Uniqtypoid is in the normal form:
+	    #
+	    fun uniqtype_is_normalized    ((t as REF (i, _, TYPEVARS_AND_NORMEDFLAG { is_normed, ... })): Uniqtype ) =>  is_normed;	uniqtype_is_normalized  _ => FALSE;	end;
+	    fun uniqtypoid_is_normalized   ((t as REF (i, _, TYPEVARS_AND_NORMEDFLAG { is_normed, ... })): Uniqtypoid) =>  is_normed;	uniqtypoid_is_normalized _ => FALSE;	end;
+
+
+	    # Utility functions for ttc_env and lt_env.
+	    #
+	    stipulate
+		#
+		fun make_type_closure_uniqtype' (x, 0, 0, dict:  Uniqtype_Dictionary) =>  x;
+		    make_type_closure_uniqtype' (x, i, j, dict:  Uniqtype_Dictionary) =>  find_or_make_uniqtype (type::TYPE_CLOSURE (x, i, j, dict));
+		end;
+		#
+		fun make_type_closure_uniqtypoid' (typoid: Uniqtypoid, 0, 0, dict:  Uniqtype_Dictionary) =>  typoid;
+		    make_type_closure_uniqtypoid' (typoid: Uniqtypoid, i, j, dict:  Uniqtype_Dictionary) =>  find_or_make_uniqtypoid (typoid::TYPE_CLOSURE (typoid, i, j, dict));
+		end;
+		#
+		fun with_eff ([], ol, nl, type_dict: Uniqtype_Dictionary)
+			=>
+			FALSE;
+
+		    with_eff (a ! r, ol, nl, type_dict)
+			=> 
+			{   (unpack_debruijn_typevar a) ->   (i, j);
+
+			    neweff
+				= 
+				if (i > ol)
+				    #
+				    ol != nl;
+				else
+				    # case (find_ith_entry_in_uniqtype_dictionary (i, type_dict))
+				    #     (NULL, n) => (nl - n) != i
+				    #     (THE ts, n) =>
+				    #	   (let y = list::nth (ts, j)
+				    #	     in (case tc_outX y
+				    #		  of type::DEBRUIJN_TYPEVAR (ni, nj) =>
+				    #		      ((nj != j) or ((ni+nl-n) != i))
+				    #		   | _ => TRUE)
+				    #	    end) */
+
+				    TRUE;
+				fi;
+
+			    neweff   or   (with_eff (r, ol, nl, type_dict));
+			};
+		end;
+
+	    herein 
+		#
+		fun make_type_closure_uniqtype
+		      (
+			uniqtype:	Uniqtype,
+			ol,
+			nl,
+			type_dict:	Uniqtype_Dictionary
+		      )
+		    =
+		    case (get_free_typevars_of_uniqtype  uniqtype)
+			#
+			NULL    =>  make_type_closure_uniqtype' (uniqtype, ol, nl, type_dict);
+			THE []  =>  uniqtype;
+			THE nvs =>  if (with_eff (nvs, ol, nl, type_dict))
+					 #
+					 make_type_closure_uniqtype' (uniqtype, ol, nl, type_dict);
+				    else uniqtype;
+				    fi;
+		    esac; 
+
+		#
+		fun make_type_closure_uniqtypoid
+		      (
+			uniqtypoid:	Uniqtypoid,
+			ol,
+			nl,
+			type_dict:	Uniqtype_Dictionary
+		      )
+		    = 
+		    case (get_free_typevars_of_uniqtypoid  uniqtypoid)
+			#
+			NULL    =>  make_type_closure_uniqtypoid' (uniqtypoid, ol, nl, type_dict);
+			THE []  =>  uniqtypoid;
+			THE nvs =>  if (with_eff (nvs, ol, nl, type_dict))
+					 #
+					 make_type_closure_uniqtypoid' (uniqtypoid, ol, nl, type_dict);
+				    else uniqtypoid;
+				    fi;
+		    esac; 
+
+	    end;			# Utility functions for lt_env and tc_env.
+
+
+	    # Utility functions to update types and typoids:
+	    #
+	    fun update_type (target as REF (i: Int,  old: Type,  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE),  nt)
+		    => 
+		    target :=  (i, type::INDIRECT_TYPE_THUNK (nt, old), TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE);
+
+		update_type (target as REF (i:  Int, old:  Type, x as (TYPEVARS_AND_NORMEDFLAG { is_normed => FALSE, ... })), nt)
+		    => 
+		    target :=  (i, type::INDIRECT_TYPE_THUNK (nt, old), x);
+
+		update_type _ => bug "unexpected update_type on already normalized Uniqtype";
+	    end;
+
+	    #
+	    fun unpdate_typoid (target as REF (i: Int,  old: Typoid,  TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE),  nt)
+		    => 
+		    target :=  (i, typoid::INDIRECT_TYPE_THUNK (nt, old), TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE);
+
+		unpdate_typoid (target as REF  (i: Int,  old: Typoid,  x as (TYPEVARS_AND_NORMEDFLAG { is_normed => FALSE, ... } )), nt)
+		    => 
+		    target :=  (i, typoid::INDIRECT_TYPE_THUNK (nt, old), x);
+
+		unpdate_typoid _ => bug "unexpected unpdate_typoid on already normalized Uniqtypoid";
+	    end;
+
+
+
+	    ###########################################################################
+	    #            UTILITY FUNCTIONS FOR REASONING ABOUT REDUCTIONS
+	    ###########################################################################
+
+	    find_or_make_uniqtypoid_from_type		=  find_or_make_uniqtypoid  o  typoid::TYPE;
+	    find_or_make_uniqtypoid_from_package	=  find_or_make_uniqtypoid  o  typoid::PACKAGE;
+	    find_or_make_uniqtypoid_from_generic_package=  find_or_make_uniqtypoid  o  typoid::GENERIC_PACKAGE;
+	    find_or_make_uniqtypoid_from_typeagnostic	=  find_or_make_uniqtypoid  o  typoid::TYPEAGNOSTIC;
+	    #
+	    find_or_make_uniqtype_from_var		=  find_or_make_uniqtype  o  type::DEBRUIJN_TYPEVAR;
+	    find_or_make_uniqtype_from_fn		=  find_or_make_uniqtype  o  type::TYPEFUN;
+	    find_or_make_uniqtype_from_apply		=  find_or_make_uniqtype  o  type::APPLY_TYPEFUN;
+	    find_or_make_uniqtype_from_seq		=  find_or_make_uniqtype  o  type::TYPESEQ;
+	    find_or_make_uniqtype_from_proj		=  find_or_make_uniqtype  o  type::ITH_IN_TYPESEQ;
+	    find_or_make_uniqtype_from_recursive	=  find_or_make_uniqtype  o  type::RECURSIVE;
+	    find_or_make_uniqtype_from_abstract		=  find_or_make_uniqtype  o  type::ABSTRACT;
+	    find_or_make_uniqtype_from_tuple		=  find_or_make_uniqtype  o  type::TUPLE;
+	    find_or_make_uniqtype_from_parrow		=  find_or_make_uniqtype  o  type::PARROW;
+	    find_or_make_uniqtype_from_boxed		=  find_or_make_uniqtype  o  type::BOXED;
+	    find_or_make_uniqtype_from_sum		=  find_or_make_uniqtype  o  type::SUM;
+	    find_or_make_uniqtype_from_extensible_token	=  find_or_make_uniqtype  o  type::EXTENSIBLE_TOKEN;
+	    find_or_make_uniqtype_from_float64		=  find_or_make_uniqtype (type::BASETYPE hbt::basetype_float64);
+
+						    # nextcode_preimprover_transform	def in     src/lib/compiler/back/top/nextcode/nextcode-preimprover-transform-g.pkg
+
+	    # The following functions decide on how to
+	    # flatten the arguments and results of an
+	    # arbitrary highcode function.
+	    #
+	    # The current threshold	is maintained by
+	    # the "flatten_limit" parameter.
+	    #
+	    # This parameter is intended to be
+	    # architecture independent, however
+	    # some implicit constraints are:
+	    #
+	    #     (1) flatten_limit <= numgpregs - numcalleesaves - 3
+	    #     (2) flatten_limit <= numfpregs - 2
+	    #
+	    # Right now (2) is in general not true for intel32;
+	    # we inserted a special hack in
+	    # nextcode_preimprover_transform phase
+	    # to deal with this case.
+	    #
+	    # In the long term, if the spilling phase
+	    # in the backend can offer more support
+	    # on large numbers of arguments, then we
+	    # can make this flattening more aggressive.
+	    #
+	    #                      -- Zhong
+
+	    flatten_limit = 9;  						# ZHONG added the magic number 10 
+										# XXX BUGGO FIXME  This constant shouldn't be buried down here, but rather up in some config package.
+	    #
+	    fun uniqtype_is_known  (type: Uniqtype)
+		= 
+		case (uniqtype_to_type' (reduce_uniqtype_to_weak_head_normal_form  type))
+		    #	
+		    ( type::BASETYPE _
+                    | type::ARROW _
+                    | type::BOXED _
+                    | type::ABSTRACT _
+                    | type::PARROW _
+		    | type::FATE _
+                    | type::RECURSIVE _
+                    | type::SUM _
+                    | type::TUPLE _
+                    )   #
+			=>  TRUE;
+
+		    type::APPLY_TYPEFUN   (type', _)  =>  uniqtype_is_known  type';
+		    type::ITH_IN_TYPESEQ  (type', _)  =>  uniqtype_is_known  type';
+
+		    type::EXTENSIBLE_TOKEN kx =>  token_is_known  kx;
+
+		    ( type::DEBRUIJN_TYPEVAR       _
+		    | type::NAMED_TYPEVAR _
+		    | type::TYPEFUN        _
+		    | type::TYPESEQ       _
+		    | type::INDIRECT_TYPE_THUNK  _
+		    | type::TYPE_CLOSURE   _
+		    )   #
+                        =>  FALSE;
+		esac
+
+	    also
+	    fun tc_autoflat  (type:  Uniqtype)
+		= 
+		{   new_type =  reduce_uniqtype_to_weak_head_normal_form  type; 
+		    #
+		    case (uniqtype_to_type'  new_type)
+			#
+			type::TUPLE (_, [_])			# Singleton record is not flattened to ensure
+			    =>		  			# isomorphism between plambdatype and highcodetype.
+			    (TRUE, [new_type], FALSE);
+
+			type::TUPLE (_, [])			# Void is not flattened to avoid coercions.
+			    =>
+			    (TRUE, [new_type], FALSE);
+
+			type::TUPLE (_, ts)
+			    => 
+			    if (length ts <= flatten_limit)             (TRUE, ts,         TRUE );
+			    else			                (TRUE, [new_type], FALSE);
+			    fi;	
+
+			_ => if (uniqtype_is_known  new_type)	(TRUE,  [new_type], FALSE);
+			     else				(FALSE, [new_type], FALSE);
+			     fi;
+		    esac;
+		}
+
+	    also
+	    fun uniqtype_list_to_uniqtype_tuple [x]
+		    =>
+		    x; 
+
+		uniqtype_list_to_uniqtype_tuple  xs
+		    => 
+		    if (length xs <= flatten_limit)
+			#
+			find_or_make_uniqtype_from_tuple (USELESS_RECORDFLAG, xs);
+		    else
+			bug "fatal error with uniqtype_list_to_uniqtype_tuple";
+		    fi;
+	    end 
+
+	    also
+	    fun tcs_autoflat (flag, ts)
+		= 
+		if flag
+		    (flag, ts); 
+		else
+		    case ts 
+			#
+			[tc] => {   ntc =  reduce_uniqtype_to_weak_head_normal_form   tc;
+
+				    (tc_autoflat ntc) ->   (nraw, ntcs, _);
+
+				    (nraw, ntcs);
+				 };
+
+			 _   => bug "unexpected cooked multiples in tcs_autoflat";
+		    esac;
+		fi
+
+	    also
+	    fun lt_autoflat (lt: Uniqtypoid)          :        (Bool, List(Uniqtypoid), Bool)
+		= 					#   raw                         flag
+		# Automatically flattening the argument or the result type:
+		#
+		case (uniqtypoid_to_typoid'  (reduce_uniqtypoid_to_weak_head_normal_form  lt))
+		    #
+		    typoid::TYPE tc
+			=> 
+			{   (tc_autoflat tc) ->   (raw, ts, flag);
+			    #
+			    (raw, map find_or_make_uniqtypoid_from_type ts, flag);
+			};
+
+		    _    =>
+			 (TRUE, [lt], FALSE);
+		esac
+
+	    # A special version of make_arrow_uniqtype
+	    # that does automatic flattening:
+	    #
+	    also
+	    fun make_arrow_uniqtype (x as (FIXED_CALLING_CONVENTION, _, _))
+		    =>
+		    find_or_make_uniqtype (type::ARROW x);
+
+		make_arrow_uniqtype (x as (VARIABLE_CALLING_CONVENTION { arg_is_raw => TRUE, body_is_raw => TRUE }, _, _))
+		    =>
+		    find_or_make_uniqtype (type::ARROW x);
+
+		make_arrow_uniqtype (b as (VARIABLE_CALLING_CONVENTION { arg_is_raw => b1, body_is_raw => b2 }), ts1, ts2)
+		    =>
+		    {   my (nb1, nts1) =  tcs_autoflat (b1, ts1);
+			my (nb2, nts2) =  tcs_autoflat (b2, ts2);
+
+			find_or_make_uniqtype (type::ARROW (VARIABLE_CALLING_CONVENTION { arg_is_raw => nb1, body_is_raw => nb2 },  nts1, nts2));
+		    };
+	    end 
+
+	    # Utility function to read the top-level
+	    # of a Uniqtype:
+	    #
+	    also
+	    fun tc_lzrd t		#  Maybe "lzrd" == "level zero read" ?  anyhow, probably not "lizard" :-)
+		= 
+		if (uniqtype_is_normalized t)      t;
+		else                             g t;
+		fi
+		where
+		    fun g x
+			= 
+			case (uniqtype_to_type' x)
+			    #
+			    type::INDIRECT_TYPE_THUNK (tc, _)
+				=>
+				g tc;
+
+			    type::TYPE_CLOSURE (tc, i, j, te)
+				=> 
+				{   ntc = g (h(tc, i, j, te));
+				    #
+				    update_type (x, ntc);
+
+				    ntc;
+				};
+
+			    _ => x;
+			esac
+
+		    also
+		    fun h (x, 0, 0, _)
+			    =>
+			    g x;
+
+			h (x, ol, nl, type_dict:  Uniqtype_Dictionary)
+			    => 
+			    {   fun prop z
+				    =
+				    make_type_closure_uniqtype (z, ol, nl, type_dict);
+
+				case (uniqtype_to_type' x)
+				    #
+				    type::DEBRUIJN_TYPEVAR (i, j)
+					=> 
+					if (i <= ol) 
+					    #
+					    et = find_ith_entry_in_uniqtype_dictionary (i, type_dict);
+
+					    case et 
+						#
+						(NULL,   n)
+						    =>
+						    find_or_make_uniqtype_from_var (nl - n, j);
+
+						(THE ts, n)
+						    =>
+						    {   y = list::nth (ts, j) 
+							    except
+								_ = raise exception UNBOUND_TYPE;
+
+							h (y, 0, nl - n, empty_uniqtype_dictionary);
+						    };
+					    esac;
+
+					else
+					    find_or_make_uniqtype_from_var (i-ol+nl, j);
+					fi;
+
+				    type::NAMED_TYPEVAR _ => x;
+				    type::BASETYPE      _ => x;
+
+				    type::TYPEFUN (ks, tc) => {   type_dict' = cons_entry_onto_uniqtype_dictionary (type_dict, (NULL, nl));
+							 	  find_or_make_uniqtype_from_fn (ks, make_type_closure_uniqtype (tc, ol+1, nl+1, type_dict'));
+						      	      };
+
+				    type::APPLY_TYPEFUN (tc, tcs) =>  find_or_make_uniqtype_from_apply (prop tc, map prop tcs);
+				    type::TYPESEQ tcs		  =>  find_or_make_uniqtype_from_seq (map prop tcs);
+				    type::ITH_IN_TYPESEQ (tc, i)  =>  find_or_make_uniqtype_from_proj (prop tc, i);
+				    type::SUM tcs		  => find_or_make_uniqtype_from_sum (map prop tcs);
+
+				    type::RECURSIVE ((n, tc, ts), i)
+					=> 
+					find_or_make_uniqtype_from_recursive((n, prop tc, map prop ts), i);
+
+				    type::ABSTRACT tc		 =>  find_or_make_uniqtype_from_abstract (prop tc);
+				    type::BOXED    tc		 =>  find_or_make_uniqtype_from_boxed (prop tc);
+
+				    type::TUPLE (rk, tcs)	 =>  find_or_make_uniqtype_from_tuple (rk, map prop tcs);
+				    type::ARROW (r, ts1, ts2)	 =>  make_arrow_uniqtype (r, map prop ts1, map prop ts2);
+				    type::PARROW (t1, t2)	 =>  find_or_make_uniqtype_from_parrow (prop t1, prop t2);
+
+				    type::EXTENSIBLE_TOKEN (k, t) =>  find_or_make_uniqtype_from_extensible_token (k, prop t);
+				    type::INDIRECT_TYPE_THUNK (tc, _)  =>  h (tc, ol, nl, type_dict);
+
+				    type::TYPE_CLOSURE (tc, ol', nl', type_dict')
+					=> 
+					if (ol == 0)   h (tc,  ol', nl+nl', type_dict');
+					else           h (g x, ol,  nl,     type_dict );
+					fi;
+
+				    type::FATE _
+					=>
+					bug "unexpected type::FATE in tc_lzrd";
+				esac;
+			    };
+		    end;				# fun h 
+		end					# fun tc_lzrd 
+
+	    # Utility function to read the
+	    # top-level of an Uniqtypoid:
+	    #
+	    also
+	    fun lt_lzrd t		#  Maybe "lzrd" == "level zero read" ? 
+		= 
+		if (uniqtypoid_is_normalized  t)   t;
+		else                             g t;
+		fi
+		where
+		    fun g x
+			= 
+			case (uniqtypoid_to_typoid' x)
+			    #
+			    typoid::INDIRECT_TYPE_THUNK (lt, _)
+				=>
+				g lt;
+
+			    typoid::TYPE_CLOSURE (lt, i, j, te)
+				=> 
+				{   new_type = g (h(lt, i, j, te));
+
+				    unpdate_typoid (x, new_type);
+
+                                    new_type;
+				};
+
+			     _ => x;
+			esac
+
+		    also
+		    fun h (x, 0, 0, _)
+			    =>
+			    g x;
+
+			h (x, ol, nl, type_dict:  Uniqtype_Dictionary)
+			    => 
+			    {   fun prop z
+				    =
+				    make_type_closure_uniqtypoid (z, ol, nl, type_dict);
+
+				case (uniqtypoid_to_typoid'  x)
+				    #
+				    typoid::TYPE tc
+					=>
+					find_or_make_uniqtypoid_from_type (make_type_closure_uniqtype (tc, ol, nl, type_dict));
+
+				    typoid::PACKAGE ts
+					=>
+					find_or_make_uniqtypoid_from_package (map prop ts);
+
+				    typoid::GENERIC_PACKAGE (ts1, ts2)
+					=>
+					find_or_make_uniqtypoid_from_generic_package (map prop ts1, map prop ts2);
+
+				    typoid::TYPEAGNOSTIC (ks, ts)
+					=> 
+					{   type_dict' = cons_entry_onto_uniqtype_dictionary (type_dict, (NULL, nl));
+
+					    find_or_make_uniqtypoid_from_typeagnostic
+					      ( ks, 
+						map (\\ t = make_type_closure_uniqtypoid (t, ol+1, nl+1, type_dict'))
+						    ts
+					      );
+				       };
+
+				    typoid::FATE _
+					=>
+					bug "unexpected typoid::FATE in lt_lzrd";
+
+				    typoid::INDIRECT_TYPE_THUNK (t, _)
+					=>
+					h (t, ol, nl, type_dict);
+
+				    typoid::TYPE_CLOSURE (lt, ol', nl', type_dict')
+					=> 
+					if (ol == 0)  h (lt,  ol', nl+nl', type_dict');
+					else          h (g x, ol,  nl,     type_dict );
+					fi;
+
+				esac;
+			  };
+		    end;			#  function h 
+
+		end                                     #  function lt_lzrd 
+
+	    # Taking out the type::INDIRECT_TYPE_THUNK indirection:
+	    #
+	    also
+	    fun strip_indirection t
+		=
+		case (uniqtype_to_type' t)
+		    #
+		    type::INDIRECT_TYPE_THUNK (x, _) =>  strip_indirection x;
+		    _                  =>  t;
+		esac
+
+	    # Normalizing an arbitrary Uniqtype
+	    # into a simple weak-head-normal-form
+	    #
+	    also
+	    fun reduce_uniqtype_to_weak_head_normal_form  t
+		=
+		if (uniqtype_is_normalized t)
+		    t;
+		else
+		    nt = tc_lzrd t;
+
+		    case (uniqtype_to_type' nt)
+			#
+			type::APPLY_TYPEFUN (tc, tcs)
+			    =>
+			    {   tc' = reduce_uniqtype_to_weak_head_normal_form tc;
+
+				case (uniqtype_to_type' tc')
+				    #
+				    type::TYPEFUN (ks, b)
+					=>  
+					{   fun base ()
+						= 
+						(b, 1, 0, cons_entry_onto_uniqtype_dictionary (empty_uniqtype_dictionary, (THE tcs, 0)));
+
+					    sp =    case (uniqtype_to_type' b)
+							#
+							type::TYPE_CLOSURE (b', ol', nl', te')
+							    => 
+							    case (head_and_tail_of_uniqtype_dictionary te')
+								#
+								THE((NULL, n), te)
+								    =>
+								    if (n == nl' - 1  and   ol' > 0)
+									#
+									(b', ol', n, 
+									cons_entry_onto_uniqtype_dictionary (te, (THE tcs, n)));
+								    else
+									base ();
+								    fi;
+
+							        _ => base();
+							    esac;
+
+							_ => base();
+						    esac;
+
+					  result = reduce_uniqtype_to_weak_head_normal_form (make_type_closure_uniqtype sp);
+
+					  update_type (nt, result);
+
+					  result;
+					};
+
+				    ( type::TYPESEQ _
+				    | type::TUPLE   _
+				    | type::ARROW   _
+				    | type::INDIRECT_TYPE_THUNK _
+				    )
+					=>
+					bug "unexpected types in reduce_uniqtype_to_weak_head_normal_form type::APPLY_TYPEFUN";
+
+				   _ => {   xx = find_or_make_uniqtype_from_apply (tc', tcs); 
+					    strip_indirection xx;
+					};
+			       esac;
+			    };
+
+			type::ITH_IN_TYPESEQ (tc, i)
+			    =>
+			    {   tc' = reduce_uniqtype_to_weak_head_normal_form tc;
+
+				case (uniqtype_to_type' tc')
+				    #
+				    type::TYPESEQ tcs
+					=> 
+					{   result = list::nth (tcs, i)
+						     except
+							 _ = bug "type::TYPESEQ in reduceTypeConstructorToWeakHeadNormalForm";
+
+					    new_result = reduce_uniqtype_to_weak_head_normal_form result;
+
+					    update_type (nt, new_result);
+
+					    new_result;
+					};
+
+				    ( type::BASETYPE _
+                                    | type::NAMED_TYPEVAR _
+                                    | type::RECURSIVE _
+                                    | type::TYPEFUN _
+				    | type::SUM _
+                                    | type::ARROW _
+                                    | type::ABSTRACT _
+                                    | type::BOXED _
+				    | type::INDIRECT_TYPE_THUNK _
+                                    | type::TUPLE _
+                                    )
+					=>
+					bug "unexpected types in reduce_uniqtype_to_weak_head_normal_form type::ITH_IN_TYPESEQ";
+
+				    _   =>  {   xx = find_or_make_uniqtype_from_proj (tc', i);
+					        strip_indirection xx;
+					     };
+				esac;
+			    };
+
+			type::EXTENSIBLE_TOKEN (k, tc)
+			    =>
+			    {   tc' = reduce_uniqtype_to_weak_head_normal_form tc;
+
+				if (token_whnm k tc') 
+				    #
+				    xx = find_or_make_uniqtype_from_extensible_token (k, tc');
+				    strip_indirection xx;
+				else
+				    result =  token_reduce (k, tc');
+				    new_result   =  reduce_uniqtype_to_weak_head_normal_form  result;
+				    update_type (nt, new_result);
+				    new_result;
+				fi;
+			    };
+
+			type::INDIRECT_TYPE_THUNK (tc, _)
+			    =>
+			    reduce_uniqtype_to_weak_head_normal_form tc;
+
+			type::TYPE_CLOSURE _
+			    =>
+			    bug "unexpected type::TYPE_CLOSURE in reduce_uniqtype_to_weak_head_normal_form";
+
+			_   => nt;
+		    esac;
+		fi			# fun reduce_uniqtype_to_weak_head_normal_form
+
+
+	    # Normalizing an arbitrary Uniqtypoid
+	    # into the simple weak-head-normal-form 
+	    #
+	    also
+	    fun reduce_uniqtypoid_to_weak_head_normal_form t
+		=
+		if (uniqtypoid_is_normalized (t) )
+		    #
+		    t;
+		else 
+		    nt = lt_lzrd t;
+
+		    case (uniqtypoid_to_typoid'  nt)
+			#
+			typoid::TYPE tc
+			    =>
+			    find_or_make_uniqtypoid_from_type (reduce_uniqtype_to_weak_head_normal_form  tc);
+
+			 _ => nt;
+		    esac;
+		fi;			# fun reduceLambdaTypeToWeakHeadNormalForm 
+
+	    # Normalizing an arbitrary Uniqtype
+	    # into the standard normal form:
+	    #
+	    fun reduce_uniqtype_to_normal_form t
+		=
+		if (uniqtype_is_normalized t)
+		    #
+		    t;
+		else
+		    nt = reduce_uniqtype_to_weak_head_normal_form t;
+
+		    if (uniqtype_is_normalized nt)
+			#
+			nt;
+		    else
+			result
+			    = 
+			    case (uniqtype_to_type'  nt)
+				#
+				type::TYPEFUN (ks, tc)
+				    =>
+				    find_or_make_uniqtype_from_fn (ks, reduce_uniqtype_to_normal_form tc);
+
+				type::APPLY_TYPEFUN (tc, tcs)
+				    => 
+				    find_or_make_uniqtype_from_apply
+				      (     reduce_uniqtype_to_normal_form tc,
+					map reduce_uniqtype_to_normal_form tcs
+				      );
+
+				type::TYPESEQ tcs            =>  find_or_make_uniqtype_from_seq  (map reduce_uniqtype_to_normal_form tcs);
+				type::ITH_IN_TYPESEQ (tc, i) =>  find_or_make_uniqtype_from_proj     (reduce_uniqtype_to_normal_form tc, i);
+				type::SUM tcs                =>  find_or_make_uniqtype_from_sum  (map reduce_uniqtype_to_normal_form tcs);
+
+				type::RECURSIVE ((n, tc, ts), i)
+				    => 
+				    find_or_make_uniqtype_from_recursive
+				      ( ( n,
+					  reduce_uniqtype_to_normal_form      tc,
+					  map reduce_uniqtype_to_normal_form  ts
+					),
+
+					i
+				      );
+
+				type::ABSTRACT tc     =>  find_or_make_uniqtype_from_abstract	(reduce_uniqtype_to_normal_form  tc);
+				type::BOXED tc        =>  find_or_make_uniqtype_from_boxed	(reduce_uniqtype_to_normal_form  tc);
+				type::TUPLE (rk, tcs) =>  find_or_make_uniqtype_from_tuple	(rk, map reduce_uniqtype_to_normal_form  tcs);
+
+				type::ARROW (r, ts1, ts2)
+				    => 
+				    make_arrow_uniqtype
+				      ( r,
+					map  reduce_uniqtype_to_normal_form  ts1,
+					map  reduce_uniqtype_to_normal_form  ts2
+				      );
+
+				type::PARROW (t1, t2)
+				    =>
+				    find_or_make_uniqtype_from_parrow
+				      (
+					reduce_uniqtype_to_normal_form  t1,
+					reduce_uniqtype_to_normal_form  t2
+				      );
+
+				type::EXTENSIBLE_TOKEN (k, t)	=>   find_or_make_uniqtype_from_extensible_token (k, reduce_uniqtype_to_normal_form t);
+				type::INDIRECT_TYPE_THUNK (tc,_)	=>   reduce_uniqtype_to_normal_form tc;
+
+				type::TYPE_CLOSURE _ => bug "unexpected types in reduceTypeConstructorToNormalForm";
+
+				_ => nt;
+			    esac;
+
+			update_type (nt, result);
+
+			result;
+		    fi;
+		fi;			# fun reduceTypeConstructorToNormalForm 
+
+	    # Normalizing an arbitrary Uniqtypoid
+	    # into the standard normal form
+	    #
+	    fun reduce_uniqtypoid_to_normal_form t
+		=
+		if (uniqtypoid_is_normalized t)
+		    #
+		    t;
+		else 
+		    nt = lt_lzrd t;
+
+		    if (uniqtypoid_is_normalized  nt)
+			#
+			nt;
+		    else 
+			result
+			    = 
+			    case (uniqtypoid_to_typoid' nt)
+				#
+				typoid::TYPE	tc =>  find_or_make_uniqtypoid_from_type         (reduce_uniqtype_to_normal_form tc);
+				typoid::PACKAGE	ts =>  find_or_make_uniqtypoid_from_package (map reduce_uniqtypoid_to_normal_form ts);
+
+				typoid::GENERIC_PACKAGE (ts1, ts2)
+				    => 
+				    find_or_make_uniqtypoid_from_generic_package
+				      (
+					map  reduce_uniqtypoid_to_normal_form  ts1,
+					map  reduce_uniqtypoid_to_normal_form  ts2
+				      );
+
+				typoid::TYPEAGNOSTIC        (ks, ts) =>   find_or_make_uniqtypoid_from_typeagnostic (ks, map reduce_uniqtypoid_to_normal_form ts);
+				typoid::INDIRECT_TYPE_THUNK (lt, _)  =>   reduce_uniqtypoid_to_normal_form lt;
+
+				_ => bug "unexpected ltys in reduceLambdaTypeToNormalForm";
+			    esac;
+
+			unpdate_typoid (nt, result);
+
+			result;
+		    fi;
+		fi;			# fun reduceLambdaTypeToNormalForm 
+
+
+	    # **************************************************************************
+	    #          REGISTER A NEW TOKEN TYC --- type::WRAP                            *
+	    # **************************************************************************
+
+	    # We add a new constructor named
+	    # type::RBOX through the token facility:
+	    #
+	    stipulate
+
+		name = "type::WRAP";
+
+		abbrev = "WR";
+
+		is_known =  \\ _ = TRUE;      # Why is this ? 	XXX BUGGO FIXME
+		#
+		fun tcc_tok k t
+		    =
+		    find_or_make_uniqtype_from_extensible_token (k, t);
+		#
+		fun unknown tc
+		    = 
+		    case (uniqtype_to_type' tc)
+			#
+			(type::DEBRUIJN_TYPEVAR _ | type::NAMED_TYPEVAR _) => TRUE;
+
+			(type::APPLY_TYPEFUN  (tc, _)) =>  unknown tc;
+			(type::ITH_IN_TYPESEQ (tc, _)) =>  unknown tc;
+
+		        _ => FALSE;
+		    esac;
+		#
+		fun flex_tuple ts
+		    = 
+		    hhh (ts, FALSE, TRUE)
+		    where
+			fun hhh (x ! r, ukn, wfree)
+				=> 
+				{   fun iswp tc
+					=
+					case (uniqtype_to_type' tc)
+					    #
+					    type::EXTENSIBLE_TOKEN (k', t)		 #  WARNING: need check k' 
+						=>
+						case (uniqtype_to_type' t)
+						    #
+						    type::BASETYPE pt =>  FALSE;
+						    _                =>  TRUE;
+						esac;
+
+					    _ => TRUE;
+					esac;
+
+				    hhh (r, (unknown x) or ukn, (iswp x) and wfree);
+				};
+
+			    hhh([], ukn, wfree)
+				=>
+				ukn and wfree;
+			end;
+		    end;
+		#
+		fun is_weak_head_normal_form  tc
+		    = 
+		    case (uniqtype_to_type'  tc)
+			#
+			(type::ARROW (FIXED_CALLING_CONVENTION, [t], _)) =>  (unknown  t); 
+			(type::TUPLE (rf, ts))             		=>  flex_tuple   ts;
+			(type::BASETYPE pt)				=>  hbt::basetype_is_unboxed  pt;
+			_						=>  FALSE;
+		    esac;
+
+		# Invariants: tc itself is in weak head normal form,
+		# but is_weak_head_normal_form tc == FALSE 
+		#
+		fun reduce_one (k, tc)
+		    =  
+		    case (uniqtype_to_type' tc)
+			#
+			type::TUPLE (rk, ts)
+			    => 
+			    hhh (ts, [], FALSE)
+			    where
+				fun hhh (x ! r, nts, ukn)
+					=> 
+					hhh (r, nnx ! nts, b1 or ukn)
+					where
+					    nx = reduce_uniqtype_to_weak_head_normal_form x;
+					    b1 = unknown nx;
+
+					    nnx =   case (uniqtype_to_type'  nx)
+							#
+							type::EXTENSIBLE_TOKEN (k', t)
+							    =>
+							    if (same_token (k, k') )
+								#
+								case (uniqtype_to_type' t)    type::BASETYPE _ =>  t;
+										            _               =>  nx;
+								esac;
+							    else
+								nx;
+							    fi;
+
+							_ => nx;
+						    esac;
+					end;
+
+				    hhh ([], nts, ukn)
+					=> 
+					{   nt = find_or_make_uniqtype_from_tuple (rk, reverse nts);
+					    #
+					    if ukn    find_or_make_uniqtype_from_extensible_token (k, nt);
+					    else      nt;
+					    fi;
+					};
+				end;
+			    end;
+
+			type::ARROW (FIXED_CALLING_CONVENTION, [_, _], [_])
+			    =>
+			    tc;
+
+			type::ARROW (FIXED_CALLING_CONVENTION, [t1], ts2 as [_])
+			    => 
+			    {   nt1 = reduce_uniqtype_to_weak_head_normal_form t1;
+				#
+				fun ggg z
+				    = 
+				    {   nz = reduce_uniqtype_to_weak_head_normal_form z;
+
+					case (uniqtype_to_type' nz)
+					    #
+					    type::BASETYPE bt
+						=> 
+						if (hbt::basetype_is_unboxed bt)   find_or_make_uniqtype_from_extensible_token (k, nz);
+						else                         nz;
+						fi;
+
+					    _   => nz;
+					esac;
+				 };
+
+				my (wp, nts1)
+				    =
+				    case (uniqtype_to_type' nt1)
+					#
+					type::TUPLE(_, [x, y])
+					    =>
+					    (FALSE, [ggg x, ggg y]);
+
+					type::EXTENSIBLE_TOKEN (k', x)
+					    => 
+					    if (same_token (k, k'))
+						#
+						case (uniqtype_to_type' x)
+						    #
+						    type::TUPLE(_, [y, z])
+							=> 
+							(FALSE, [ggg y, ggg z]);
+
+						    _   =>
+							(FALSE, [nt1]);
+						esac;
+					    else
+						(FALSE, [nt1]);
+					    fi;
+
+				        _ => (unknown nt1, [nt1]);
+				    esac;
+
+				nt = make_arrow_uniqtype (FIXED_CALLING_CONVENTION, nts1, ts2);
+
+				if wp  find_or_make_uniqtype_from_extensible_token (k, nt);
+				else   nt;
+				fi;
+			   };
+
+			type::ARROW (FIXED_CALLING_CONVENTION, _, _)
+			    => 
+			    bug "unexpected reduceOne on ill-formed FF_FIX arrow types";
+
+			type::ARROW (VARIABLE_CALLING_CONVENTION { arg_is_raw => b1, body_is_raw => b2 }, ts1, ts2)
+			    => 
+			    bug "calling reduceOne on VARIABLE_CALLING_CONVENTION arrow types";
+
+			type::BASETYPE bt
+			    => 
+			    if (hbt::basetype_is_unboxed bt)   bug "calling reduceOne on an already-reduced whnm";
+			    else                               tc;
+			    fi;
+
+			type::EXTENSIBLE_TOKEN (k', t)
+			    =>
+			    if (same_token (k, k'))   tc;
+			    else                      bug "unexpected token in reduceOne";
+			    fi;
+
+			(type::BOXED _ | type::ABSTRACT _ | type::PARROW _)
+			    => 
+			    bug "unexpected tc_box/abs/parrow in reduceOne";
+
+			type::TYPE_CLOSURE        _ =>  bug "unexpected type::TYPE_CLOSURE in reduceOne";
+			type::INDIRECT_TYPE_THUNK _ =>  bug "unexpected type::INDIRECT_TYPE_THUNK in reduceOne";
+
+			_ => tc;
+		    esac;
+
+	    herein
+
+		wrap_token
+		    =
+		    register_token
+		      { name,
+			abbrev,
+			reduce_one,
+			is_weak_head_normal_form,
+			is_known
+		      };
+
+	    end;							# End of creating the box token for "tcc_rbox".
+
+
+
+	    # Testing if a Uniqtype is a unknown constructor:
+	    #
+	    fun uniqtype_is_unknown  (type: Uniqtype)
+		=
+		not  (uniqtype_is_known  type);
+
+	    # *************************************************************************
+	    #          RENAMING THE INJECTION AND PROJECTION FUNCTIONS                *
+	    # *************************************************************************
+
+	    # Converting plain forms to uniq equivalents -- "injections":
+	    #
+	    kind_to_uniqkind     =  find_or_make_uniqkind;
+	    type_to_uniqtype	 =  find_or_make_uniqtype;
+	    typoid_to_uniqtypoid =  find_or_make_uniqtypoid;
+
+	    # Converting from uniq forms back to plain forms -- "projections":
+	    #
+	    uniqkind_to_kind	=  uniqkind_to_kind'; 
+	    uniqtype_to_type	=  uniqtype_to_type'  o  reduce_uniqtype_to_weak_head_normal_form;
+	    uniqtypoid_to_typoid=  uniqtypoid_to_typoid'  o  reduce_uniqtypoid_to_weak_head_normal_form;
+
+	    # **************************************************************************
+	    #          UTILITY FUNCTIONS ON TESTING EQUIVALENCE                        *
+	    # **************************************************************************
+
+	    # Testing the equality of values
+	    # of Uniqkind, Uniqtype, Uniqtypoid
+
+	    # Given: o Two lists x,y
+	    #        o A predicate p
+	    # Return TRUE iff
+	    #    o length(x) == length(y).
+	    #    o p (x , y ) is TRUE for all 0 <= i < length(x).
+	    #          i   i
+	    #
+	    fun eqlist p ( x ! xs,
+                           y ! ys
+                         )                =>   p(x,y)  and  eqlist p (xs,ys);
+		eqlist p ([], [])         =>   TRUE;
+		eqlist _ _                =>   FALSE;
+	    end;
+
+	    # Testing the "pointer" equality on normalized
+	    # Uniqkind, Uniqtype, and Uniqtypoid:
+	    #
+	    fun kind_eq   (x: Uniqkind,   y) =   (x == y);
+	    fun type_eq (x: Uniqtype, y) =   (x == y);
+	    fun typoid_eq   (x: Uniqtypoid,   y) =   (x == y);
+
+	    # Testing the equivalence for
+	    # arbitrary tkinds, types and ltys:
+	    #
+	    same_uniqkind
+		=
+		kind_eq;       #  All tkinds are normalized 
+
+	    stipulate
+
+		# The efficiency of checking FIX equivalence
+		# could probably be improved somewhat,
+		# but it doesn't seem so bad for my purposes
+		# right now.  Anyway, somebody might eventually
+		# want to do some profiling and improve this.		XXX BUGGO FIXME
+		#                -- Christopher League, 1998-03-24
+
+
+		#  Profiling code, temporary?? 
+		#
+		package click {
+		    #
+		    stipulate   s_unroll      =  cos::make_counterssum' "FIX unrolls";
+		    herein	fun unroll () =  cos::increment_counterssum_by  s_unroll  1;
+		    end;
+		};		#  Click 
+
+		# Unrolling a fix, Uniqtype -> Uniqtype 
+		#
+		fun tc_unroll_fix type
+		    =
+		    case (uniqtype_to_type' type)
+			#
+			type::RECURSIVE((n, tc, ts), i)
+			    =>
+			    {   fun genfix i
+				    =
+				    find_or_make_uniqtype_from_recursive ((n, tc, ts), i);
+
+				fixes = list::from_fn (n, genfix);
+				mu = tc;
+
+				mu = if (null ts)  mu;
+				     else          find_or_make_uniqtype_from_apply (mu, ts);
+				     fi;
+
+				mu = find_or_make_uniqtype_from_apply (mu, fixes);
+
+				mu = if (n==1)  mu;
+				     else       find_or_make_uniqtype_from_proj (mu, i);
+				     fi;
+
+				click::unroll();
+				mu;
+			    };
+
+			 _   => bug "unexpected non-FIX in tc_unroll_fix";
+		    esac;
+
+
+		# In order to check equality of two FIXes, we need to be able to
+		# unroll them once, and check equality on the unrolled version, with
+		# an inductive assumption that they ARE equal.  The following code
+		# supports making and checking these inductive assumptions.
+		# Furthermore, we need to avoid unrolling any FIX more than once.
+		#
+		package tcm							# "tcm" == "tc_map" == "type_map" == "type constructor mapping"
+		    =
+		    red_black_map_g (						# red_black_map_g		is from   src/lib/src/red-black-map-g.pkg
+			#
+			Key = Uniqtype;
+			compare = compare_uniqtypes;
+		    );
+
+
+		# For each type in this dictionary
+		# we store a dictionary containing
+		# types that are assumed equivalent to it.
+		#
+		Eqilk = tcm::Map( Void );
+		Hyp   = tcm::Map( Eqilk );
+
+
+		# The null hypothesis, no assumptions about equality:
+		# 
+		my empty_eqilk:  Eqilk   =  tcm::empty;
+		my null_hyp:     Hyp     =  tcm::empty;
+
+
+		# Add assumption t1=t2 to current hypothesis.
+		# Return composite hypothesis:
+		#
+		fun assume_eq' (hyp, t1, t1eq_opt, t2)
+		    =
+		    hyp'
+		    where
+			t1eq  = case t1eq_opt
+				    #
+				    THE e =>  e;
+				    NULL  =>  empty_eqilk;
+				esac;
+
+			t1eq' = tcm::set (t1eq, t2, ());
+			hyp'  = tcm::set (hyp, t1, t1eq');
+		    end;
+
+
+		fun assume_eq (hyp, t1, t1eq_opt, t2, t2eq_opt)
+		    =
+		    assume_eq' (assume_eq' (hyp, t1, t1eq_opt, t2),
+				t2, t2eq_opt, t1);
+
+
+		# Check whether t1=t2 according to the hypothesis 
+		#
+		my eq_by_hyp:  (Null_Or( Eqilk ), Uniqtype) -> Bool
+		    =
+		    \\ (NULL,      t2) =>  FALSE;
+		       (THE eqilk, t2) =>  not_null (tcm::get (eqilk, t2));
+		    end;
+
+
+		# Have we made any assumptions about `t' already?
+		# 
+		my visited:  Null_Or(Eqilk) -> Bool 
+		    =
+		    not_null;
+
+
+		# Test if two recursive sumtypes are equivalent 
+		#
+		fun eq_fix (eqop1, hyp) (t1, t2)
+		    = 
+		    case ( uniqtype_to_type'  t1,
+			   uniqtype_to_type'  t2
+			 ) 
+
+			( type::RECURSIVE ((n1, tc1, ts1), i1),
+			  type::RECURSIVE ((n2, tc2, ts2), i2)
+			)
+			    => 
+			    if (not *global_controls::highcode::check_sumtypes)
+				TRUE; 
+			    else
+				t1eq_opt = tcm::get (hyp, t1);
+
+				# First check the induction hypothesis.
+				#	
+				# We only ever make hypotheses about FIX nodes,
+				# so this test is okay here.
+				#	
+				# If assume_eq appears in other cases, this 
+				# test should be lifted outside the switch.
+				#	
+				if (eq_by_hyp (t1eq_opt, t2))
+				    #
+				    TRUE;
+				    #
+				else
+				    # Next try structural eq on the components.
+				    # I'm not sure why this part is necessary,
+				    # but it does seem to be...
+				    #                --league, 23 March 1998
+				    #
+				    (    n1 == n2 and i1 == i2
+				    and  eqop1 hyp (tc1, tc2)
+				    and  eqlist (eqop1 hyp) (ts1, ts2)
+				    )
+				    or
+
+				    # Not equal by inspection; we have to unroll it.
+				    # We prevent unrolling the same FIX twice by asking
+				    # the `visited' function.
+				    #
+				    if (visited  t1eq_opt)
+					#
+					FALSE; 
+				    else
+					t2eq_opt =  tcm::get (hyp, t2);
+
+					if (visited  t2eq_opt)
+					    #
+					    FALSE; 
+					else
+					    eqop1 (assume_eq (hyp, t1, t1eq_opt, t2, t2eq_opt))
+						  (tc_unroll_fix t1, tc_unroll_fix t2);
+					fi;
+				    fi;
+				fi;
+			    fi;
+
+			_ => bug "unexpected types in eq_fix";
+		    esac;
+
+
+		# types_are_similar, invariant: t1 and t2 are in the weak-head-normal form 
+		#     eqop1 is the default equality to be used for types
+		#     eqop2 is used for body of FN, arguments in APPLY,
+		#     eqop3 is used for ABS and BOX.
+		#     eqop4 is used for arrow arguments and results
+		# Each of these first takes the set of hypotheses.
+		#
+		fun types_are_similar (eqop1, eqop2, hyp) (t1, t2)
+		    = 
+		    case ( uniqtype_to_type'  t1,
+                           uniqtype_to_type'  t2
+                         )
+			#
+			(type::RECURSIVE _, type::RECURSIVE _)
+			    =>
+			    eqop2 (eqop1, hyp) (t1, t2);
+
+
+			(type::TYPEFUN (ks1, b1), type::TYPEFUN (ks2, b2))
+			    =>
+			    eqlist same_uniqkind (ks1, ks2) and eqop1 hyp (b1, b2);
+
+
+			(type::APPLY_TYPEFUN (a1, b1), type::APPLY_TYPEFUN (a2, b2))
+			    =>
+			    eqop1 hyp (a1, a2) and eqlist (eqop1 hyp) (b1, b2);
+
+
+			(type::TYPESEQ ts1, type::TYPESEQ ts2)
+			    =>
+			    eqlist (eqop1 hyp) (ts1, ts2);
+
+
+			(type::SUM ts1, type::SUM ts2)
+			    =>
+			    eqlist (eqop1 hyp) (ts1, ts2);
+
+
+			(type::TUPLE (_, ts1), type::TUPLE (_, ts2))
+			    =>
+			    eqlist (eqop1 hyp) (ts1, ts2);
+
+
+			(type::ABSTRACT a, type::ABSTRACT b)
+			    =>
+			    eqop1 hyp (a, b);
+
+
+			(type::BOXED a, type::BOXED b)
+			    =>
+			    eqop1 hyp (a, b);
+
+
+			(type::EXTENSIBLE_TOKEN (k1, t1), type::EXTENSIBLE_TOKEN (k2, t2))
+			    => 
+			    same_token (k1, k2) and eqop1 hyp (t1, t2);
+
+
+			(type::ITH_IN_TYPESEQ (a1, i1), type::ITH_IN_TYPESEQ (a2, i2))
+			    =>
+			    i1 == i2 and eqop1 hyp (a1, a2);
+
+			(type::ARROW (r1, a1, b1), type::ARROW (r2, a2, b2))
+			    => 
+			    r1 == r2 and eqlist (eqop1 hyp) (a1, a2) 
+				     and eqlist (eqop1 hyp) (b1, b2);
+
+
+			(type::PARROW (a1, b1), type::PARROW (a2, b2))
+			    => 
+			    eqop1 hyp (a1, a2) and eqop1 hyp (b1, b2);
+
+			(type::FATE ts1, type::FATE ts2)
+			    =>
+			    eqlist (eqop1 hyp) (ts1, ts2);
+
+			_ => FALSE;
+		    esac;
+
+
+		# General equality for types:
+		#
+		fun same_uniqtype'
+                        hyp
+                        ( x as REF (_, _, TYPEVARS_AND_NORMEDFLAG { is_normed => TRUE, ... } ),
+			  y as REF (_, _, TYPEVARS_AND_NORMEDFLAG { is_normed => TRUE, ... } )
+                        )
+			=>
+			type_eq (x, y);
+
+		    same_uniqtype' hyp (x, y)
+			=>
+			{
+			    t1 =  reduce_uniqtype_to_weak_head_normal_form  x;
+			    t2 =  reduce_uniqtype_to_weak_head_normal_form  y;
+
+			    if (uniqtype_is_normalized t1
+			    and uniqtype_is_normalized t2)
+				#
+				type_eq (t1, t2);
+			    else    
+				types_are_similar (same_uniqtype', \\ _ = type_eq, hyp) (t1, t2);
+			    fi;
+			};				# fun same_uniqtype'
+		end; 
+
+
+		# Slightly relaxed constraints (???)
+		#
+		fun similar_uniqtypes' hyp (x, y)
+		    =
+		    {   t1 = reduce_uniqtype_to_weak_head_normal_form x;
+			t2 = reduce_uniqtype_to_weak_head_normal_form y;
+
+			if ( uniqtype_is_normalized t1  and
+			     uniqtype_is_normalized t2
+			)
+			    type_eq (t1, t2);
+			else
+			    FALSE;
+			fi
+			or
+			(types_are_similar (similar_uniqtypes', eq_fix, hyp) (t1, t2));
+		    };
+
+	    herein
+
+		same_uniqtype
+		    =
+		    same_uniqtype' null_hyp;
+
+
+		similar_uniqtypes
+		    =
+		    similar_uniqtypes' null_hyp;
+	    end;
+
+
+	    # lt_eqv_generator, invariant: x and y are in the weak head-normal form
+	    #
+	    fun lt_eqv_generator (eqop1, eqop2) (x:  Uniqtypoid, y)
+		= 
+		seq (x, y)
+		where
+		    #  seq should be called if t1 and t2 are weak-head normal form 
+		    fun seq (t1, t2)
+			= 
+			case ( uniqtypoid_to_typoid'  t1,
+			       uniqtypoid_to_typoid'  t2
+			     )
+
+			    ( typoid::TYPEAGNOSTIC (ks1, b1),
+			      typoid::TYPEAGNOSTIC (ks2, b2)
+			    )
+				=>
+				(eqlist same_uniqkind (ks1, ks2)) and (eqlist eqop1 (b1, b2));
+
+			    ( typoid::GENERIC_PACKAGE (as1, bs1),
+			      typoid::GENERIC_PACKAGE (as2, bs2)
+			    )
+				=> 
+				(eqlist eqop1 (as1, as2)) and (eqlist eqop1 (bs1, bs2));
+
+			    ( typoid::TYPE a,
+			      typoid::TYPE b
+			    )
+				=>
+				eqop2 (a, b);
+
+			    ( typoid::PACKAGE s1,
+			      typoid::PACKAGE s2
+			    )
+				=>
+				eqlist eqop1 (s1, s2);
+
+			    ( typoid::FATE s1,
+			      typoid::FATE s2
+			    )
+				=>
+				eqlist eqop1 (s1, s2);
+
+			    _ => FALSE;
+			esac;
+		end;
+	    #
+	    fun same_uniqtypoid (x:  Uniqtypoid, y)
+		= 
+		{   seq = lt_eqv_generator (same_uniqtypoid, same_uniqtype); 
+
+		    if  (uniqtypoid_is_normalized  x
+		    and  uniqtypoid_is_normalized  y)
+			#
+			typoid_eq (x, y);
+		    else
+			t1 = reduce_uniqtypoid_to_weak_head_normal_form x;
+			t2 = reduce_uniqtypoid_to_weak_head_normal_form y;
+
+			if (uniqtypoid_is_normalized t1
+			and uniqtypoid_is_normalized t2)
+			    typoid_eq (x, y);
+			else
+			    seq (t1, t2);
+			fi;
+		    fi;
+		};
+	    #
+	    fun similar_uniqtypoids (x:  Uniqtypoid, y)
+		= 
+		{   seq = lt_eqv_generator (similar_uniqtypoids, similar_uniqtypes); 
+
+		    if (uniqtypoid_is_normalized x
+		    and uniqtypoid_is_normalized y)
+			#
+			(typoid_eq (x, y)) or (seq (x, y));
+			#
+		    else
+			t1 = reduce_uniqtypoid_to_weak_head_normal_form x;
+			t2 = reduce_uniqtypoid_to_weak_head_normal_form y;
+
+			if  (uniqtypoid_is_normalized t1
+			and  uniqtypoid_is_normalized t2
+			    )  
+			    (typoid_eq (t1, t2)) or (seq (t1, t2));
+			else
+			    seq (t1, t2);
+			fi;
+		    fi;
+		};
+
+
+
+	    #####################################################################################
+	    # Test equivalence of recordflag and calling-convention records
+
+	    #
+	    fun same_callnotes ( VARIABLE_CALLING_CONVENTION { arg_is_raw => b1,  body_is_raw => b2  },
+                                 VARIABLE_CALLING_CONVENTION { arg_is_raw => b1', body_is_raw => b2' } )
+		    =>
+		    b1 == b1' and b2 == b2';
+
+		same_callnotes ( FIXED_CALLING_CONVENTION,
+                                 FIXED_CALLING_CONVENTION )
+		    =>
+		   TRUE;
+
+		same_callnotes ( (FIXED_CALLING_CONVENTION, VARIABLE_CALLING_CONVENTION _)
+			       | (VARIABLE_CALLING_CONVENTION _, FIXED_CALLING_CONVENTION) )
+		    =>
+		    FALSE;
+	    end;
+	    #	
+	    fun same_recordflag (USELESS_RECORDFLAG, USELESS_RECORDFLAG)
+		=
+		TRUE;
+
+
+
+	    ###########################################################################
+	    #  UTILITY FUNCTIONS ON FINDING OUT THE DEPTH OF THE FREE TYC VARIABLES
+	    ###########################################################################
+
+	    # finding out the innermost naming depth for a Type's free variables 
+	    #
+	    fun max_freevar_depth_in_uniqtype (x, d)
+		=
+		{   typevars =   get_free_typevars_of_uniqtype (reduce_uniqtype_to_normal_form x); 
+				#			
+				#  Unfortunately we have to reduce everything to the normal form
+				#	 before we can talk about its list of free type variables.
+
+		    case typevars
+			#
+			THE []      =>   di::top;
+			THE (a ! _) =>   d + 1 - (#1 (unpack_debruijn_typevar a));
+			#
+			NULL        =>   bug "unexpected case in max_freevar_depth_in_uniqtype";
+		    esac;
+		};
+
+	    #
+	    fun max_freevar_depth_in_uniqtypes ([],    d) =>   di::top;
+		max_freevar_depth_in_uniqtypes (x ! r, d) =>   int::max (max_freevar_depth_in_uniqtype (x, d), max_freevar_depth_in_uniqtypes (r, d));
+	    end;
+
+
+	    # These return the list of free NAMED typevars 
+	    #
+	    fun get_free_named_variables_in_uniqtype (type: Uniqtype)
+		=
+		case (get_typevars_and_normedflag (reduce_uniqtype_to_normal_form  type))   
+		    #
+		    TYPEVARS_AND_NORMEDFLAG { named_typevars, ... } =>  named_typevars;
+		    TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE             =>  bug "unexpected case in get_free_named_variables_in_uniqtype";
+		esac;
+
+	    #
+	    fun get_free_named_variables_in_uniqtypoid (typoid: Uniqtypoid)
+		= 
+		case (get_typevars_and_normedflag (reduce_uniqtypoid_to_normal_form  typoid))
+		    #
+		    TYPEVARS_AND_NORMEDFLAG { named_typevars, ... } =>  named_typevars;
+		    TYPEVARS_AND_NORMEDFLAG_UNAVAILABLE             =>  bug "unexpected case in get_free_named_variables_in_uniqtypoid";
+		esac;
+
+
+	    fun uniqtype_dictionary__to__uniqtype   uniqtype_dictionary			# Needed by prettyprint-highcode-types.pkg
+		=
+		uniqtype_dictionary;
+
+	end;										# stipulate 
+    };											# package highcode_uniq_types 
+end;											# stipulate	
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

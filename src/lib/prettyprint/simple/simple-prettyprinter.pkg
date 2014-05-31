@@ -1,0 +1,429 @@
+# simple-prettyprinter.pkg
+#
+# A very simple package for "prettyprinting" -- formatting
+# source code (or whatever) in reasonably well indented fashion.
+#
+# It is derived from the prettyprinter included with MLRISC,
+# extensively overhauled May 2011 by Cynbe [1].
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+stipulate
+    package f8b =  eight_byte_float;									# eight_byte_float	is from   src/lib/std/eight-byte-float.pkg
+herein
+
+    package simple_prettyprinter
+	  : Simple_Prettyprinter									# Simple_Prettyprinter		is from   src/lib/prettyprint/simple/simple-prettyprinter.api
+    {
+	# This datastructure is public:
+	#
+	Prettyprint_Expression										# Holds a collection of pretty-printed text.
+	  #
+	  # Leaf values for prettyprint expression trees:
+	  #
+	  = INT	Int											# 31-bit signed integer.
+	  | INT1	one_word_int::Int								# 32-bit signed integer.
+	  | INTEGER multiword_int::Int									# Indefinition-precision signed integer
+	  | UNT	Unt											# 31-bit unsigned integer.
+	  | UNT1   one_word_unt::Unt									# 32-bit unsigned integer.
+	  | FLOAT   Float										# 64-bit floating-point number.
+	  | BOOL    Bool										#
+	  | CHAR    Char										#
+	  | STRING	String										#
+	  | NOP												# Placeholder; produces no text output whatever.
+
+	  # Leaf values containing identifiers like "foo" or "=".
+	  #
+	  # The critical difference between 'ALPHABETIC' and 'PUNCTUATION'
+	  # is just that 'ALPHABETIC' will automatically insert a leading blank
+	  # if it follows an alphabetic, number or string, but 'PUNCTUATION'
+	  # does no such automatic blank insertion.  (Sometimes we use
+	  # 'alphabetic' to force blank insertion even on non-alphabetic
+	  # identifiers like "=".)
+	  #
+	  | ALPHABETIC	String										# Append a blank if preceding token was an alphabetic, number or string token, then append given string.
+	  | PUNCTUATION	String										# Append given string to buffer.
+
+	  # Explicit whitespace:
+	  #
+	  | MAYBE_BLANK											# Insert a blank, except do nothing if previous token was a blank or newline.  Was 'sp'
+	  | NEWLINE											# Start new line, set 'current column' to zero.
+
+	  # Concatenating multiple expressions
+	  # to make a single expression:
+	  #
+	  | CONS       (Prettyprint_Expression, Prettyprint_Expression)					# Print two expressions in given order.  Clients typically assign the infix op ++ as a synonym for this.
+	  | CAT        List( Prettyprint_Expression )							# Print list of expressions in given order.
+
+	  # Indented blocks:
+	  #
+	  | ENTER_INDENTED_BLOCK									# Start block indented four spaces relative to enclosing block.
+	  | ENTER_DEEPLY_INDENTED_BLOCK									# Start block indented to current column.  was  enter_intented_block'
+	  | LEAVE_INDENTED_BLOCK									# Exit block started by either of above two commands.
+	  | INDENT											# Space over to column for innermost indented block.
+	  | INDENT_OFFSET	Int									# Space over to column for innermost indented block, plus 'Int' (indent_offset).   was indent'
+	  | SET_WRAP_COLUMN		Int								# Defaults to 80.
+	  | INDENTED_BLOCK       	Prettyprint_Expression						# ==   ENTER_INDENTED_BLOCK ++ prettyprint_expression ++ LEAVE_INDENTED_BLOCK;
+	  | INDENTED_LINE        	Prettyprint_Expression						# ==   INDENT               ++ prettyprint_expression ++ NEWLINE;
+	  #
+	  | MAYBE_LINEWRAP										# If current column + right_margin > wrap column, insert newline and space over to current indent level + indent_offset.
+	      { right_margin:	Int,
+		indent_offset:	Int
+	      }
+
+	  # User-defined modes.  The modestack
+	  # starts out as ["default"] and is entirely
+	  # for client use;  the internal prettyprinter
+	  # package code makes no use of it.  This is
+	  # currently heavily used (only) in
+	  #     src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.pkg
+	  # where we print items differently
+	  # in "code" vs "default" modes:
+	  #
+	  | PUSH_MODE			String								# Push arbitrary user string on user-controlled mode stack.
+	  | POP_MODE											# Pop top entry from modestack; throws FAIL exception if modestack is empty.
+	  | PER_MODE			(String -> Prettyprint_Expression)				# User-supplied function will select prettyprint expression based on current mode (i.e., top string on modestack).
+													# PER_MODE raises exception FAIL if modestack is empty at rendering time.
+	  # Random convenience functions:
+	  #
+	  | IN_PARENTHESES		Prettyprint_Expression						# ==   PUNCTUATION "("  ++  prettyprint_expression  ++  PUNCTUATION ")";
+	  #
+	  | LIST											# Format a list with given bracket and separator strings, e.g. ["foo","bar"] as "[foo,bar]"
+	      { leftbracket:	Prettyprint_Expression,
+		separator:		Prettyprint_Expression,
+		rightbracket:	Prettyprint_Expression,
+		elements:		List( Prettyprint_Expression )
+	      }
+
+
+	  # Print a construct like
+	  #
+	  #               {
+	  #                   ...
+	  #               }
+	  #
+	  | BRACKETED_BLOCK
+	      { leftbracket:		String,								# Opening bracket for block.   Printed using 'punctuation'.
+		body:			Prettyprint_Expression,						# Body of block, indented between brackets.
+		rightbracket:		String								# Closing bracket for block.
+	      };
+
+
+	# Except for the final functiona
+	#
+	#     prettyprint_expression_to_string
+	#
+	# the rest of this file is private:
+
+
+	block_indentation = 4;										# Number of blanks to indent each block. 
+
+	# Token types. We distinguish ALPHABETIC from NONALPHABETIC
+	# identifiers because we need to make sure to put a blank
+	# between successive alphabetic identifiers to keep them
+	# from merging:
+	#
+	package type {
+	    #
+	    Token = STRING										# Double-quoted string constants like "abc", also single-quoted char constants like 'x'.
+		  | NUMBER										# Integer or float.
+		  | PUNCTUATION										# Punctuation and operators like ->
+		  | ALPHABETIC										# Vanilla identifiers like "foo".
+		  | SPACE
+		  | NEWLINE
+		  ;
+	};
+
+
+	fun prettyprint_expression_to_string  prettyprint_expression
+	    = 
+	    {   do prettyprint_expression;
+		#	
+		string::cat (reverse *strings);								# Return contents of buffer as a single string. Most recent string is first in 'strings' list, hence the 'reverse'.
+	    }
+	    where
+		strings	=  REF [];									# Contents of buffer -- start it out empty.
+		blockstack  =  REF [];									# Contents of indented-block stack -- start out unindented.
+		modestack   =  REF ["default"];	 							# Contents of user-controlled mode stack.
+		column      =  REF 0;
+		wrap_column =  REF 80;
+
+		type_of_last_token =  REF type::NEWLINE;
+
+		fun append_to_buf (string, token_type)
+		    =
+		    {   strings :=  string ! *strings;
+			column  :=  *column + size string;
+			#
+			type_of_last_token :=  token_type;
+		    };
+
+		stipulate
+		    fun space_if  predicate  ()
+			= 
+			if (predicate *type_of_last_token)
+			    #            
+			    append_to_buf (" ", type::SPACE);
+			fi;
+
+		herein
+		    sp    =  space_if   \\ (type::SPACE | type::NEWLINE                    ) => FALSE;  _ => TRUE; end;	# Append a space to buf unless buf already ends in whitespace.
+		    space =  space_if   \\ (type::SPACE | type::NEWLINE | type::PUNCTUATION) => FALSE;  _ => TRUE; end;	# Append a space to buf unless buf ends in whitespace/punctuation. Keeps two successive alphabetic ids from merging.
+		end;
+
+
+		stipulate
+		    fun number n
+			=
+			{   space ();
+			    append_to_buf (n, type::NUMBER);
+			};
+		herein
+
+		    int     =  number o                    int::to_string; 
+		    one_word_int   =  number o                  one_word_int::to_string; 
+		    integer =  number o                multiword_int::to_string; 
+
+		    unt     =  number o (\\ w =  "0ux" +   unt::to_string w); 
+		    one_word_unt   =  number o (\\ w =  "0ux" + one_word_unt::to_string w);
+
+		    float   =  number o                  f8b::to_string; 
+		end;
+
+		fun alphabetic  string =  { space ();  append_to_buf (string, type::ALPHABETIC ); };
+		fun punctuation string =               append_to_buf (string, type::PUNCTUATION);
+
+		bool =  alphabetic o bool::to_string;
+
+		fun string s =  append_to_buf ("\"" + string::to_string s + "\"", type::STRING);
+		fun char   c =  append_to_buf ("'"  +   char::to_string c +  "'", type::STRING);
+
+		fun newline ()												# Start new line, set 'current column' to zero.
+		    = 
+		    {   strings :=  "\n" ! *strings;
+			column  :=  0;
+			#
+			type_of_last_token :=  type::NEWLINE;
+		    };
+
+		fun enter_indented_block ()										# Start block indented by four spaces relative to enclosing block.
+		    =
+		    case *blockstack
+			#          
+			[]         =>  blockstack := [block_indentation];
+			#
+			column ! _ =>  blockstack := (column + block_indentation) ! *blockstack;
+		    esac;
+
+
+		fun enter_deeply_indented_block ()									# Start block indented to current column.
+		    =
+		    blockstack :=  *column ! *blockstack;
+
+
+		fun leave_indented_block ()										# Pop blockstack.
+		    =
+		    case blockstack
+			#
+			REF (_ ! rest) =>   blockstack :=  rest;
+			_              =>   raise exception FAIL "leave_indented_block";
+		    esac;
+
+
+		fun indent  indent_offset										# Space over to column for innermost indented block, plus 'indent_offset'.
+		    =
+		    {   next_tab_column
+			    =
+			    case *blockstack         innermost_indent ! _ =>  innermost_indent;				# Indent of innermost indented block, if any.
+						     _                    =>  0;					# Leftmost column if no indented blocks at moment.
+			    esac;
+
+			column_to_tab_to =  next_tab_column + indent_offset;
+
+			columns_to_move  =  column_to_tab_to - *column;
+
+			if (columns_to_move > 0)
+			    #
+			    append_to_buf (number_string::pad_left ' ' columns_to_move "", type::SPACE);
+			fi;
+		    };
+
+		# If current column + right_margin > wrap column
+		# then append newline and indent to column for
+		# innermost indented block, plus indent_offset:
+		#
+		fun maybe_linewrap { right_margin, indent_offset }
+		    =
+		    if (*column + right_margin >= *wrap_column)
+			#	    
+			newline ();
+			indent indent_offset;
+		    fi;
+
+
+
+		fun pop_modestack ()											# Pop the mode stack.
+		    =
+		    case *modestack
+			#
+			(mode ! modes) =>	modestack :=  modes;
+			_		   =>	raise exception FAIL "pop_mode";
+		    esac;
+
+
+		fun per_mode  f												# Give current mode (== top string on modestack) to client fn 'f' to get mode-appropriate prettyprint expression.
+		    =
+		    case  modestack
+			#
+			REF (current_mode ! _) =>   f current_mode;
+			_			   =>   raise exception FAIL "per_mode: Modestack is empty.";
+		    esac;
+
+
+
+		# These are our core recursive functions to format a
+		# Prettyprint_Expression as indented text:
+		#
+		fun do  prettyprint_expression
+		    =
+		    case prettyprint_expression
+			#
+			INT	i =>  int     i;									# 31-bit signed integer.
+			INT1	i =>  one_word_int   i;									# 32-bit signed integer.
+			INTEGER	i =>  integer i;									# Indefinition-precision signed integer
+
+			UNT	u =>  unt     u;									# 31-bit unsigned integer.
+			UNT1	u =>  one_word_unt   u;									# 32-bit unsigned integer.
+
+			FLOAT	f =>  float   f;									# 64-bit floating-point number.
+
+			BOOL	b =>  bool    b;									#
+			CHAR	c =>  char    c;									#
+			STRING	s =>  string  s;									#
+			NOP	  =>  ();										# Placeholder; produces no text output whatever.
+
+			ALPHABETIC	s =>  alphabetic  s;								# Append a blank if preceding token was an alphabetic, number or string token, then append given string.
+			PUNCTUATION	s =>  punctuation s;								# Append given string to buffer.
+
+			MAYBE_BLANK	  =>  sp ();									# Insert a blank, except do nothing if previous token was a blank or newline.  Was 'sp'
+			NEWLINE	  =>  newline ();									# Start new line, set 'current column' to zero.
+
+			CONS (a, b)   => { do a;  do b; };								# Print two expressions in given order.  Clients typically assign the infix op ++ as a synonym for this.
+
+			CAT  exps     =>  apply do exps;								# Print list of expressions in given order.
+
+			ENTER_INDENTED_BLOCK	=>  enter_indented_block ();						# Start block indented four spaces relative to enclosing block.
+			ENTER_DEEPLY_INDENTED_BLOCK	=>  enter_deeply_indented_block ();				# Start block indented to current column.  was  enter_intented_block'
+			LEAVE_INDENTED_BLOCK	=>  leave_indented_block ();						# Exit block started by either of above two commands.
+
+			INDENT			=>  indent 0;								# Space over to column for innermost indented block.
+			INDENT_OFFSET	i	=>  indent i;								# Space over to column for innermost indented block, plus 'i' (indent_offset).
+			SET_WRAP_COLUMN	c       =>  wrap_column := c;							# Set column at which wrapping takes place.   Defaults to 80.
+
+			INDENTED_BLOCK      exp	=>  indented_block exp;							# ==   ENTER_INDENTED_BLOCK ++ prettyprint_expression ++ LEAVE_INDENTED_BLOCK;
+			INDENTED_LINE       exp	=>  indented_line  exp;							# ==   INDENT               ++ prettyprint_expression ++ NEWLINE;
+			IN_PARENTHESES	exp	=>  in_parentheses exp;							# ==   PUNCTUATION "("      ++ prettyprint_expression ++ IDENT ++ PUNCTUATION ")";
+
+			MAYBE_LINEWRAP      args    =>  maybe_linewrap args;						# If near right margin, start new line and indent.
+
+			PUSH_MODE		mode	=>  modestack :=  mode ! *modestack;				# Push arbitrary user string on user-controlled mode stack.
+			POP_MODE			=>  pop_modestack ();						# Pop top entry from modestack; throws FAIL exception if modestack is empty.
+			PER_MODE f			=>  do (per_mode  f);						# Give current mode (top string on modestack) to 'f' to get mode-appropriate prettyprint expression to render.
+
+			LIST		args	=>  list args;								# Format a list with given bracket and separator strings, e.g. ["foo","bar"] as "[foo,bar]"
+			BRACKETED_BLOCK     args	=>  bracketed_block args;
+		    esac												# fun do
+
+		also fun indented_block prettyprint_expression =  { enter_indented_block();  do prettyprint_expression;   leave_indented_block ();      }
+		also fun indented_line  prettyprint_expression =  { indent 0;                do prettyprint_expression;   newline ();                   }
+		also fun in_parentheses prettyprint_expression =  { punctuation "(";         do prettyprint_expression;   indent 0;   punctuation ")";  }
+
+		also
+		fun list												# Format a list with given bracket and separator strings, e.g. ["foo","bar"] as "[foo,bar]"
+			{ leftbracket, separator, rightbracket, elements }						# Say, (punctuation "[", puncturation ",",  puncturation "]"), or (alphabetic "begin", alphabetic "then", alphabetic "end")
+		    = 
+		    {   do   leftbracket;
+			show elements;
+			do   rightbracket;
+		    }
+		    where
+			fun show []           =>    ();
+			    show [exp]        =>    do exp;
+			    show (exp ! exps) =>  { do exp;  do separator;  show exps; };
+			end; 
+		    end
+
+		# Print a construct like
+		#
+		#               {
+		#                   ...
+		#               }
+		#
+		also
+		fun bracketed_block { leftbracket, body, rightbracket }
+		    =
+		    {   enter_deeply_indented_block ();
+			    punctuation leftbracket;
+			    enter_deeply_indented_block ();
+				do body;
+			    leave_indented_block ();
+			    indent 0;
+			    punctuation rightbracket;
+			leave_indented_block ();
+		    };
+
+
+
+	    end;											# fun prettyprint_expression_to_string
+
+	fun longest_line_in_prettyprint_expression   prettyprint_expression
+	    =
+	    {   text  =  prettyprint_expression_to_string  prettyprint_expression;
+		#
+		lines =  string::tokens {. #c == '\n'; }   text;
+		#
+		fold_backward  (\\ (line,len) = max (string::length line, len)) 0   lines;
+	    };
+    };
+end;
+
+########################################################################################
+# Notes
+#
+###############
+# Note [1]:
+#
+# The original MLRISC package was done 'combinator style', which is to say,
+# the prettyprint expression trees were represented as a tree of
+# closures generated by partial application of curried functions.
+#
+# This approach has the minor advantage of speed (the Prettyprint_Expression
+# is directly executed as native code rather than interpreted) and the major
+# disadvantage of producing Prettyprint_Expressions which are totally opaque,
+# making it impossible to write support tools which inspect, tweak or rewrite
+# Prettyprint_Expressions.
+#
+# Consequently I've turned Prettyprint_Expressions into a conventional sumtype.
+# I've also done quite a bit of renaming for clarity. -- Cynbe, 2011-05-03
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

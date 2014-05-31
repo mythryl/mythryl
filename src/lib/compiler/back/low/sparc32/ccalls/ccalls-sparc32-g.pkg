@@ -1,0 +1,730 @@
+## ccalls-sparc32-g.pkg
+## author: Matthias Blume (blume@reseach.bell-labs.com)
+
+# Compiled by:
+#     src/lib/compiler/back/low/sparc32/backend-sparc32.lib
+
+
+
+
+# Comment: This is a first cut.  It might be quite sub-optimal for some cases.
+#          (For example, I make no attempt at using ldd/ldx for
+#           copying stuff around because this would require keeping
+#           more track of alignment issues.)
+#
+# C function calls for the Sparc
+#
+# Register conventions:
+#
+# ?
+#
+# Calling convention:
+#
+#    Return result:
+#	+ Integer and pointer results are returned in %o0
+#	+ 64-bit integers (long long) returned in %o1/%o1
+#	+ float results are returned in %f0; double in %f0/%f1
+#	+ Struct results are returned in space provided by the caller.
+#	  The address of this space is passed to the callee as a hidden
+#	  implicit argument on the stack (in the caller's frame).  It
+#        gets stored at [%sp+64] (from the caller's point of view).
+#        An UNIMP instruction must be placed after the call instruction,
+#        indicating how much space has been reserved for the return value.
+#      + long double results are returned like structs
+#
+#    Function arguments:
+#      + Arguments that are smaller than a word are promoted to word-size.
+#      + Up to six argument words (words 0-5) are passed in registers
+#        %o0...%o5.  This includes doubles and long longs.  Alignment for
+#        those types is NOT maintained, i.e., it is possible for an 8-byte
+#        quantity to end up in an odd-even register pair.
+#      * Arguments beyond 6 words are passed on the stack in the caller's
+#        frame.  For this, the caller must reserve space in its frame
+#        prior to the call.  Argument word 6 appears at [%sp+92], word 7
+#        at [%sp+96], ...
+#	+ struct arguments are passed as pointers to a copy of the struct.
+#        The copy itself is allocated by the caller in its stack frame.
+#      + long double arguments are passed like structs (i.e., via pointer
+#        to temp copy)
+#      + Space for argument words 0-5 is already allocated in the
+#        caller's frame.  This space might be used by the callee to
+#        save those arguments that must be addressable.  %o0 corresponds
+#        to [%sp+68], %o1 to [%sp+72], ...
+
+
+
+###               "But mathematics is the sister,
+###                as well as the servant, of the arts
+###                and is touched by the same madness and genius."
+###
+###                                    -- Marston Morse 
+
+
+
+# We get invoked from:
+#
+#     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+
+stipulate
+    package cty =  ctypes;						# ctypes				is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package ix  =  treecode_extension_sext_sparc32;			# treecode_extension_sext_sparc32	is from   src/lib/compiler/back/low/sparc32/code/treecode-extension-sext-sparc32.pkg
+    package lem =  lowhalf_error_message;				# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhn =  lowhalf_notes;					# lowhalf_notes				is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+    package rgk =  registerkinds_sparc32;				# registerkinds_sparc32		is from   src/lib/compiler/back/low/sparc32/code/registerkinds-sparc32.codemade.pkg
+herein
+
+    generic package   ccalls_sparc32_g   (
+	#             ================
+	#
+	package tcf:  Treecode_Form;					# Treecode_Form				is from   src/lib/compiler/back/low/treecode/treecode-form.api
+
+	ix:  ix::Sext
+	       ( tcf::Void_Expression,
+		 tcf::Int_Expression,
+		 tcf::Float_Expression,
+		 tcf::Flag_Expression					# flag expressions handle zero/parity/overflow/... flag stuff.
+	       )
+	     ->
+	     tcf::Sext;
+    )
+    : (weak) Ccalls							# Ccalls				is from   src/lib/compiler/back/low/ccalls/ccalls.api
+    {
+	# Export to client packages:
+	#
+	package tcf = tcf;
+
+
+	fun error msg
+	    =
+	    lem::error ("Sparc32CompCCalls", msg);
+
+	Ckit_Arg
+	  = ARG   tcf::Int_Expression	    
+	  | FARG  tcf::Float_Expression
+	  | ARGS  List( Ckit_Arg )
+          ;
+
+	mem   = tcf::rgn::memory;
+	stack = tcf::rgn::memory;
+
+	max_reg_args = 6;
+	param_area_offset = 68;
+
+	fun li i
+	    =
+	    tcf::LITERAL (tcf::mi::from_int (32, i));
+
+	gp' = rgk::get_ith_int_hardware_register;
+	fp' = rgk::get_ith_float_hardware_register;
+
+	fun greg r =   gp' r;
+	fun oreg r =   gp' (r + 8);
+	fun ireg r =   gp' (r + 24);
+	fun freg r =   fp' r;
+
+	fun reg32  r =   tcf::CODETEMP_INFO (32, r);
+	fun freg64 r =   tcf::CODETEMP_INFO_FLOAT (64, r);
+
+	sp = oreg 6;
+	spreg = reg32 sp;
+
+	fun addli (x, 0)
+		=>
+		x;
+
+	    addli (x, d)
+		=>
+		{   d' = tcf::mi::from_int (32, d);
+
+		    case x
+
+			tcf::ADD (_, r, tcf::LITERAL d)
+			    =>
+			    tcf::ADD (32, r, tcf::LITERAL (tcf::mi::add (32, d, d')));
+
+			_ => tcf::ADD (32, x, tcf::LITERAL d');
+		    esac;
+		};
+	end;
+
+	fun argaddr n
+	    =
+	    addli (spreg, param_area_offset + 4*n);
+
+	tmpaddr = argaddr 1;		# temp location for transfers through memory 
+
+	fun roundup (i, a)
+	    =
+	    a * ((i + a - 1) / a);
+
+	#  Calculate size and alignment for a C type 
+	#
+	fun szal (cty::VOID | cty::FLOAT | cty::PTR |
+		  cty::SIGNED (cty::INT | cty::LONG) |
+		  cty::UNSIGNED (cty::INT | cty::LONG)) => (4, 4);
+	    szal (cty::DOUBLE |
+		   cty::SIGNED cty::LONG_LONG |
+		   cty::UNSIGNED cty::LONG_LONG) => (8, 8);
+	    szal (cty::LONG_DOUBLE) => (16, 8);
+	    szal (cty::SIGNED cty::CHAR | cty::UNSIGNED cty::CHAR) => (1, 1);
+	    szal (cty::SIGNED cty::SHORT | cty::UNSIGNED cty::SHORT) => (2, 2);
+	    szal (cty::ARRAY (t, n)) => { my (s, a) = szal t;  (n * s, a); };
+
+	    szal (cty::STRUCT l)
+		=>
+		pack (0, 1, l)
+		where 
+
+		    # i: next free memory address (relative to struct start);
+		    # a: current total alignment,
+		    # l: List of struct member types */
+
+		    fun pack (i, a, [])
+			    =>
+			    # When we are done with all elements, the total size
+			    # of the struct must be padded out to its own alignment
+			    (roundup (i, a), a);
+
+			pack (i, a, t ! tl)
+			    =>
+			    {   my (ts, ta)
+				    =
+				    szal t;		#  size and alignment for member 
+
+				# member must be aligned according to its own
+				# alignment requirement; the next free position
+				# is then at "aligned member-address plus member-size";
+				# new total alignment is max of current alignment
+				# and member alignment (assuming all alignments are
+				# powers of 2)
+
+				pack (roundup (i, ta) + ts, int::max (a, ta), tl);
+			    };
+		    end;
+
+		end;
+
+	    szal (cty::UNION l)
+		=>
+		overlay (0, 1, l)
+		where 
+
+		    # m: current max size
+		    # a: current total alignment
+
+		    fun overlay (m, a, [])
+			    =>
+			    (roundup (m, a), a);
+
+			overlay (m, a, t ! tl)
+			    =>
+			    {   my (ts, ta) = szal t;
+
+				overlay (int::max (m, ts), int::max (a, ta), tl);
+			    };
+		    end;
+		end;
+	end;
+
+    # *** START NEW CODE ***
+
+      #  shorts and chars are promoted to 32-bits 
+	natural_int_size = 32;
+
+      # the location of arguments/parameters; offsets are given with respect to the
+      # low end of the parameter area (see paramAreaOffset above).
+
+	 Arg_Location
+	  = REG   (tcf::Int_Bitsize,	tcf::Register, Null_Or( tcf::mi::Machine_Int ))	#  integer/pointer argument in register 
+	  | FREG  (tcf::Float_Bitsize,	tcf::Register, Null_Or( tcf::mi::Machine_Int ))  	#  floating-point argument in register 
+	  | STK   (tcf::Int_Bitsize,	tcf::mi::Machine_Int)				#  integer/pointer argument in parameter area 
+	  | FSTK  (tcf::Float_Bitsize,	tcf::mi::Machine_Int)				#  floating-point argument in parameter area 
+	  | ARG_LOCS  List( Arg_Location )
+	  ;
+
+	fun layout { calling_convention, return_type, parameter_types }
+	    =
+	    raise exception FAIL "layout not implemented yet";
+
+
+	#  C callee-save registers 
+	callee_save_regs = #  %l0-%l7 and %i0-%i7 
+	      list::from_fn (16, \\ r => gp' (r+16); end );
+	callee_save_fregs = [];
+
+    # *** END NEW CODE ***
+
+	# See comments in    src/lib/compiler/back/low/ccalls/ccalls.api
+	#
+	# We get called (only) from:
+	#
+	#     src/lib/compiler/back/low/main/nextcode/nextcode-ccalls-g.pkg
+	#
+	fun make_inline_c_call
+	    { name,
+	      fn_prototype,
+	      param_allot,
+	      struct_ret,
+	      save_restore_global_registers,
+	      call_comment,
+	      args
+	    }
+	    = 
+	    {
+		fn_prototype
+		    ->
+		    { calling_convention, return_type, parameter_types };
+
+		case calling_convention
+		    #
+		    ("" | "unix_convention") => ();
+		    _ => error (cat ["unknown calling convention \"",
+						string::to_string calling_convention, "\""]);
+		esac;
+
+		res_szal
+		    =
+		    case return_type
+			#
+			(cty::LONG_DOUBLE | cty::STRUCT _ | cty::UNION _)
+			    =>
+			    THE (szal return_type);
+
+			_ => NULL;
+		    esac;
+
+		nargwords
+		    =
+		    loop (parameter_types, 0)
+		    where 
+
+			fun loop ([], n)
+				=>
+				n;
+
+			    loop (t ! tl, n)
+				=>
+				loop (  tl,
+
+					case t
+					    #
+					    ( cty::DOUBLE
+					    | cty::SIGNED   cty::LONG_LONG
+					    | cty::UNSIGNED cty::LONG_LONG
+					    )  => 2;
+					     _ => 1;
+					esac
+					+ n
+			      );
+			end;
+		    end;
+
+		regargwords   =   int::min (nargwords, max_reg_args);
+		stackargwords =   int::max (nargwords, max_reg_args) - max_reg_args;
+
+		stackargsstart =   param_area_offset + 4 * max_reg_args;
+		scratchstart   =   stackargsstart + 4 * stackargwords;
+
+		# Copy struct or part thereof to designated area on the stack.
+		# An already properly aligned address (relative to %sp) is
+		# in to_off.
+
+		fun struct_copy (size, al, ARG a, t, to_off, cpc)
+		    =>
+		    # Two main cases here:
+		    #   1. t is C_STRUCT _ or C_UNION _;
+		    #      in this case "a" computes the address
+		    #      of the struct to be copied.
+		    #   2. t is some other non-floating type; "a" computes the
+		    #      the corresponding value (i.e., not its address).
+
+		    {   fun ldst type
+			    =
+			    tcf::STORE_INT (type, addli (spreg, to_off), a, stack) ! cpc;
+
+			case t
+			    #
+			    ( cty::VOID
+			    | cty::PTR
+			    | cty::SIGNED   (cty::INT | cty::LONG)
+			    | cty::UNSIGNED (cty::INT | cty::LONG)) => ldst 32;
+
+			    ( cty::SIGNED   cty::CHAR
+			    | cty::UNSIGNED cty::CHAR) => ldst 8;
+
+			    ( cty::SIGNED   cty::SHORT
+			    | cty::UNSIGNED cty::SHORT) => ldst 16;
+
+			    ( cty::SIGNED   cty::LONG_LONG
+			    | cty::UNSIGNED cty::LONG_LONG) => ldst 64;
+
+			    ( cty::ARRAY _) =>   error "ARRAY within gather/scatter struct";
+
+			    ( cty::STRUCT _ | cty::UNION _)
+				=>
+				#  Here we have to do the equivalent of a "memcpy". 
+				{ from = a; #  Argument is address of struct 
+				    fun cp (type, incr) = {
+					fun load_from from_off =
+					    tcf::LOAD (32, addli (from, from_off), mem);
+					/* from_off is relative to from,
+					 * to_off is relative to %sp */
+					fun loop (i, from_off, to_off, cpc) =
+					    if (i <= 0 ) cpc;
+					    else loop (i - incr,
+						       from_off + incr, to_off + incr,
+						       tcf::STORE_INT (type, addli (spreg, to_off),
+								load_from from_off,
+								stack)
+						       ! cpc);fi;
+
+					loop (size, 0, to_off, cpc);
+				    };
+
+				    case al   
+					1 => cp (8, 1);
+					2 => cp (16, 2);
+					_ => /* 4 or more */ cp (32, 4);
+				    esac;
+				};
+
+			    ( cty::FLOAT
+			    | cty::DOUBLE
+			    | cty::LONG_DOUBLE) => error "floating point type does not match ARG";
+			esac;
+		    };
+	/*
+		  | struct_copy (_, _, ARGS args, cty::STRUCT tl, to_off, cpc) =
+		    #  gather/scatter case 
+		    let fun loop ([], [], _, cpc) = cpc
+			  | loop (t ! tl, a ! al, to_off, cpc) = let
+				my (tsz, tal) = szal t
+				to_off' = roundup (to_off, tal)
+				cpc' = struct_copy (tsz, tal, a, t, to_off', cpc)
+			    in
+				loop (tl, al, to_off' + tsz, cpc')
+			    end
+			  | loop _ =
+			    error "number of types does not match number of arguments"
+		    in
+			loop (tl, args, to_off, cpc)
+		    end
+	*/
+		   struct_copy (_, _, ARGS _, _, _, _) =>
+		      error "gather/scatter (ARGS) not supported (obsolete)";
+
+		    struct_copy (size, al, FARG a, t, to_off, cpc)
+			=>
+			{   fun fldst type
+				=
+			        tcf::STORE_FLOAT (type, addli (spreg, to_off), a, stack) ! cpc;
+
+			    case t
+				#	
+			       cty::FLOAT       =>   fldst  32;
+			       cty::DOUBLE      =>   fldst  64;
+			       cty::LONG_DOUBLE =>   fldst 128;
+
+			       _ => error "non-floating-point type does not match FARG";
+			    esac;
+		     };
+		end;
+
+		my (stackdelta, argsetupcode, copycode)
+		    =
+		    loop (parameter_types, args, 0, scratchstart, [], [])
+		    where 
+
+			fun loop ([], [], _, ss, asc, cpc)
+				=>
+				(roundup (int::max (0, ss - stackargsstart), 8), asc, cpc);
+
+			    loop (t ! tl, a ! al, n, ss, asc, cpc)
+				=>
+				{
+				    fun wordassign a
+					=
+					if (n < 6)   tcf::LOAD_INT_REGISTER (32, oreg n, a);
+					else	 tcf::STORE_INT (32, argaddr n, a, stack);
+					fi;
+
+				    fun wordarg (a, cpc, ss)
+					=
+					loop (tl, al, n + 1, ss, wordassign a ! asc, cpc);
+
+				    fun dwordmemarg (address, region, tmpstore)
+					=
+					{   fun toreg (n, address)
+						=
+						tcf::LOAD_INT_REGISTER (32, oreg n, tcf::LOAD (32, address, region));
+
+					    fun tomem (n, address)
+						=
+						tcf::STORE_INT (32,
+							 argaddr n,
+							 tcf::LOAD (32, address, region),
+							 stack);
+
+					    fun toany (n, address)
+						=
+						if   (n < 6)
+
+						     toreg (n, address);
+						else
+						     tomem (n, address);
+						fi;
+
+					    # if n < 6 and n div 2 == 0 then
+					    #     use ldd here once lowhalf gets its usage right   XXX BUGGO FIXME
+					    # else
+					    #   ...        
+
+					    loop (tl, al, n+2, ss,
+						  tmpstore @
+						  toany (n, address)
+						  ! toany (n+1, addli (address, 4))
+						  ! asc,
+						  cpc);
+					};
+
+				    fun dwordarg mkstore
+					=
+					if (n > 6 and n / 2 == 1)
+
+					    #  8-byte aligned memory 
+					    loop (tl, al, n+2, ss,
+						  mkstore (argaddr n) ! asc,
+						  cpc);
+					else
+					     dwordmemarg (tmpaddr, stack, [mkstore tmpaddr]);
+					fi;
+
+				    case (t, a)
+					#
+					((cty::VOID | cty::PTR | cty::ARRAY _ |
+					  cty::UNSIGNED (cty::INT | cty::LONG) |
+					  cty::SIGNED (cty::INT | cty::LONG)), ARG a)
+					    =>
+					    wordarg (a, cpc, ss);
+
+				       (cty::SIGNED cty::CHAR, ARG a)
+					   =>
+					   wordarg (tcf::SIGN_EXTEND (32, 8, a), cpc, ss);
+
+				       (cty::UNSIGNED cty::CHAR, ARG a)
+					   =>
+					   wordarg (tcf::ZERO_EXTEND (32, 8, a), cpc, ss);
+
+				       (cty::SIGNED cty::SHORT, ARG a)
+					   =>
+					   wordarg (tcf::SIGN_EXTEND (32, 16, a), cpc, ss);
+
+				       (cty::UNSIGNED cty::SHORT, ARG a)
+					   =>
+					   wordarg (tcf::ZERO_EXTEND (32, 16, a), cpc, ss);
+
+				       ( ( cty::SIGNED cty::LONG_LONG
+					 | cty::UNSIGNED cty::LONG_LONG
+					 ),
+					 ARG a
+				       )
+					    =>
+					    case a
+						#
+						tcf::LOAD (_, address, region)
+						    =>
+						    dwordmemarg (address, region, []);
+
+					       _    =>
+						    dwordarg
+							(\\ address =  tcf::STORE_INT (64, address, a, stack));
+					    esac;
+
+				       (cty::FLOAT, FARG a)
+					   =>
+					   # we use the stack region reserved for storing
+					   # %o0-%o5 as temporary storage for transferring
+					   # floating point values
+					   case a   
+						tcf::FLOAD (_, address, region) =>
+						wordarg (tcf::LOAD (32, address, region), cpc, ss);
+					       _ =>
+						if (n < 6 )
+						    ld = tcf::LOAD_INT_REGISTER (32, oreg n,
+								   tcf::LOAD (32, tmpaddr, stack));
+						    cp = tcf::STORE_FLOAT (32, tmpaddr, a, stack);
+
+						    loop (tl, al, n + 1, ss, cp ! ld ! asc, cpc);
+
+						else loop (tl, al, n + 1, ss,
+							   tcf::STORE_FLOAT (32, argaddr n, a, stack)
+							   ! asc,
+							   cpc);
+						fi;
+					   esac;
+
+				       (cty::DOUBLE, FARG a)
+					   =>
+					   case a
+					       #
+					       tcf::FLOAD (_, address, region)
+						   =>
+						   dwordmemarg (address, region, []);
+
+					       _ => dwordarg (\\ address =  tcf::STORE_FLOAT (64, address, a, stack));
+					   esac;
+
+				       (cty::LONG_DOUBLE, FARG a)
+					    =>
+					    {   # Copy 128-bit floating point value (16 bytes)
+						# into scratch space (aligned at 8-byte boundary).
+						# The address of the scratch copy is then
+						# passed as a regular 32-bit argument.
+
+						ss' = roundup (ss, 8);
+						ssaddr = addli (spreg, ss');
+
+						wordarg (ssaddr,
+							 tcf::STORE_FLOAT (128, ssaddr, a, stack) ! cpc,
+							 ss' + 16);
+					    };
+
+				       (t as (cty::STRUCT _ | cty::UNION _), a)
+					   =>
+					   {   # copy entire struct into scratch space
+					       # (aligned according to struct's alignment
+					       # requirements).  The address of the scratch
+					       # copy is then passed as a regular 32-bit
+					       # argument.
+
+					       my (size, al) = szal t;
+					       ss' = roundup (ss, al);
+					       ssaddr = addli (spreg, ss');
+					       cpc' = struct_copy (size, al, a, t, ss', cpc);
+
+					       wordarg (ssaddr, cpc', ss' + size);
+					   };
+
+				       _ =>   error "argument/type mismatch";
+				    esac;
+				};
+
+			    loop _ => error "wrong number of arguments";
+			end;
+		    end;
+
+		my (defs, uses) = {
+		    gp = tcf::INT_EXPRESSION o reg32;
+		    fp = tcf::FLOAT_EXPRESSION o freg64;
+		    g_regs = map (gp o greg) [1, 2, 3, 4, 5, 6, 7];
+		    a_regs = map (gp o oreg) [0, 1, 2, 3, 4, 5];
+		    l_reg = gp (oreg 7);
+		    f_regs = map (fp o freg)
+				     [0, 2, 4, 6, 8, 10, 12, 14,
+				      16, 18, 20, 22, 24, 26, 28, 30];
+		    # a call instruction defines all caller-save registers:
+		    #   - %g1 - %g7
+		    #   - %o0 - %o5 (argument registers)
+		    #   - %o7       (link register)
+		    #   - all fp registers
+
+		    defs = g_regs @ a_regs @ l_reg ! f_regs;
+		    #  A call instruction "uses" just the argument registers. 
+		    uses = list::take_n (a_regs, regargwords);
+
+		    (defs, uses);
+		};
+
+		result
+		    =
+		    case return_type
+			#
+			cty::FLOAT       =>   [tcf::FLOAT_EXPRESSION (tcf::CODETEMP_INFO_FLOAT (32, fp' 0))];
+			cty::DOUBLE      =>   [tcf::FLOAT_EXPRESSION (tcf::CODETEMP_INFO_FLOAT (64, fp' 0))]; #  %f0/%f1 
+			cty::LONG_DOUBLE =>   [];
+
+			(cty::STRUCT _ | cty::UNION _) =>   [];
+			cty::ARRAY _                        =>   error "array return type";
+
+			(cty::PTR | cty::VOID |
+			 cty::SIGNED   (cty::INT | cty::LONG) |
+			 cty::UNSIGNED (cty::INT | cty::LONG))
+			    =>
+			    [tcf::INT_EXPRESSION (tcf::CODETEMP_INFO (32, oreg 0))];
+
+			( cty::SIGNED   cty::CHAR
+			| cty::UNSIGNED cty::CHAR
+			)
+			    =>
+			    [tcf::INT_EXPRESSION (tcf::CODETEMP_INFO (8, oreg 0))];
+
+			( cty::SIGNED   cty::SHORT
+			| cty::UNSIGNED cty::SHORT
+			)
+			    =>
+			    [tcf::INT_EXPRESSION (tcf::CODETEMP_INFO (16, oreg 0))];
+
+			( cty::SIGNED   cty::LONG_LONG
+			| cty::UNSIGNED cty::LONG_LONG)
+			    =>
+			    [tcf::INT_EXPRESSION (tcf::CODETEMP_INFO (64, oreg 0))];
+		    esac;
+
+		(save_restore_global_registers  defs)
+		    ->
+		    { save, restore };
+
+		my (sretsetup, srethandshake)
+		    =
+		    case res_szal
+			#
+			NULL => ([], []);
+			#
+		        THE (size, al) => {
+			    address = struct_ret { szb => size, align => al };
+
+			    ([tcf::STORE_INT (32, addli (spreg, 64), address, stack)],
+			     [tcf::EXT (ix (ix::UNIMP size))]);
+			};
+		    esac;
+
+		call = tcf::CALL { funct => name, targets => [],
+				    defs, uses,
+				    region => mem, pops => 0 };
+
+		call =  case call_comment
+			    #
+			    NULL  =>   call;
+			    THE c =>   tcf::NOTE  (call,  lhn::comment.x_to_note  c);
+			esac;
+
+		my (sp_sub, sp_add)
+		    =
+		    if   (stackdelta ==  0)                               ([], []);
+		    elif (param_allot { szb => stackdelta, align => 4 } ) ([], []);
+		    else ([tcf::LOAD_INT_REGISTER (32, sp, tcf::SUB (32, spreg, li stackdelta))],
+			  [tcf::LOAD_INT_REGISTER (32, sp, addli (spreg, stackdelta))]);
+		    fi;
+
+		callseq
+		    =
+		    list::cat [ sp_sub,
+				copycode,
+				argsetupcode,
+				sretsetup,
+				save,
+				[call],
+				srethandshake,
+				restore,
+				sp_add
+			      ];
+
+
+		{ callseq, result };
+	    };
+    };
+end;
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

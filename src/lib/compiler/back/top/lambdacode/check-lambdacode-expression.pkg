@@ -1,0 +1,579 @@
+## check-lambdacode-expression.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+###              "All scientific knowledge to which man
+###               owes his role as master of the world
+###               arose from playful activities."
+###
+###                              -- Konrad Lorenz
+
+
+
+api Check_Lambdacode_Expression {
+    #
+   check_lty:  (lambdacode::Lambda_Expression, Int) -> Bool;
+   newlam_ref:  Ref(  lambdacode::Lambda_Expression );
+   fname_ref:  Ref(  String );
+
+};
+
+
+
+stipulate
+    package hcf =  highcode_form;			# highcode_form				is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package lv  =  highcode_codetemp;			# highcode_codetemp				is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package di  =  debruijn_index;			# debruijn_index			is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    #
+    include lambdacode; 
+herein
+
+
+    package   check_lambdacode_expression
+    : (weak)  Check_Lambdacode_Expression		# Check_Lambdacode_Expression		is from   src/lib/compiler/back/top/lambdacode/check-lambdacode-expression.pkg
+    {
+
+	/*** a hack of printing diagnostic output into a separate file ***/ 
+	my newlam_ref:  Ref( lambdacode::Lambda_Expression ) = REF (RECORD []);
+	my fname_ref:  Ref( String ) = REF "yyy";
+
+	fun bug s = error_message::impossible ("CheckLty: " $ s);
+	say = controls::print::say;
+
+	anyerror = REF FALSE;
+	clickerror = \\ () => (anyerror := TRUE); end ;
+
+	/****************************************************************************
+	 *                         BASIC UTILITY FUNCTIONS                          *
+	 ****************************************************************************/
+	fun app2 (f, [], []) => ();
+	    app2 (f, a . r, b . z) => { f (a, b); app2 (f, r, z);};
+	    app2 (f, _, _) => bug "unexpected list arguments in function app2";
+        end;
+
+	fun simplify (le, 0)
+                =>
+                STRING "<dummy>";
+
+	    simplify (le, n)
+                => 
+	        {   fun h le = simplify (le, n - 1);
+
+		    case le 
+			FN (v, t, e) => FN (v, t, h e);
+			APPLY (e1, e2) => APPLY (h e1, h e2);
+			LET (v, e1, e2) => LET (v, h e1, h e2);
+			TYPEFUN (ks, e) => TYPEFUN (ks, h e);
+			APPLY_TYPEFUN (e, ts) => APPLY_TYPEFUN (h e, ts);
+			PACK (lt, ts, nts, e) => PACK (lt, ts, nts, h e);
+			CON (l, x, e) => CON (l, x, h e);
+	   #            DECON (l, x, e) => DECON (l, x, h e) 
+			FIX (lv, lt, le, b) => FIX (lv, lt, map h le, h b);
+
+			SWITCH (e, l, dc, opp)
+                            => 
+			    {   fun g (c, x)
+                                    =
+                                    (c, h x);
+
+			        fun f x
+                                    =
+                                    case x
+                                        THE y => THE (h y);
+                                        NULL  => NULL;
+                                    esac;
+
+			        SWITCH (h e, l, map g dc, f opp);
+			    };
+
+			RECORD e => RECORD (map h e);
+			PACKAGE_RECORD e => PACKAGE_RECORD (map h e);
+			VECTOR (e, x) => VECTOR (map h e, x);
+			SELECT (i, e) => SELECT (i, h e);
+			EXCEPT (e1, e2) => EXCEPT (h e1, h e2);
+			WRAP (t, b, e) => WRAP (t, b, h e);
+			UNWRAP (t, b, e) => UNWRAP (t, b, h e);
+			_ => le;
+                    esac;
+	      };
+        end;
+
+	# Utility functions for printing:
+        #
+	say_uniqkind   = say o hcf::uniqkind_to_string;
+	say_uniqtype = say o hcf::uniqtype_to_string;
+	say_uniqtypoid   = say o hcf::uniqtypoid_to_string;
+	#
+	fun le_print le
+            =
+            prettyprint_lambdacode_expression::print_lexp (simplify (le, 3));
+
+
+	# A hack for type checking:
+	#
+	fun later_phase i
+            =
+            i > 20;
+
+
+	/****************************************************************************
+	 *           MAIN FUNCTION --- my check_lty:  lambdacode::Lambda_Expression -> Bool          *
+	 ****************************************************************************/
+	fun check_lty (lambda_expression, phase)
+	    = 
+	    {   lt_equiv  = hcf::same_uniqtypoid;
+
+		lt_string = if (later_phase (phase))  hcf::void_uniqtypoid; else hcf::string_uniqtypoid; fi;
+		lt_exn    = if (later_phase (phase))  hcf::void_uniqtypoid; else hcf::exception_uniqtypoid;    fi;
+
+		fun lt_etag lt
+                    =
+                    if (later_phase phase)  hcf::void_uniqtypoid; 
+		    else                    hcf::make_exception_tag_uniqtypoid lt;
+                    fi;
+
+		fun lt_vector t
+                    =
+                    if (later_phase phase)   hcf::void_uniqtypoid;
+		    else                     hcf::make_type_uniqtypoid (hcf::make_ro_vector_uniqtype t);
+                    fi;
+
+		# Lazily select a field from
+                # a record/package type:
+		#
+		exception LTY_SELECT;
+
+		fun lt_sel (lt, i)
+                    = 
+		    (hcf::lt_select (lt, i))
+                    except
+                        _ = raise exception LTY_SELECT;
+
+		# Build a function or generic package type
+                # from a pair of arbitrary ltys 
+		#
+		fun lt_fun (x, y)
+		    = 
+		    if (hcf::uniqtypoid_is_type x
+		    and hcf::uniqtypoid_is_type y)   hcf::make_lambdacode_arrow_uniqtypoid            (x, y);
+		    else                             hcf::make_lambdacode_generic_package_uniqtypoid  (x, y);
+                    fi;
+
+		fun lt_tup ts
+		    =
+		    hcf::make_type_uniqtypoid (hcf::make_tuple_uniqtype (map hcf::unpack_type_uniqtypoid ts));
+
+		# Lazily keyed_find out the arg and
+                # result of an Uniqtypoid:
+                #
+		exception LTY_ARROW; 
+		#
+		fun lt_arrow lt
+		    = 
+		    if (hcf::uniqtypoid_is_type  lt)   hcf::unpack_lambdacode_arrow_uniqtypoid           lt;
+		    else                               hcf::unpack_lambdacode_generic_package_uniqtypoid lt;
+                    fi
+		    except
+		      _ =  raise exception LTY_ARROW;
+
+		apply_typeagnostic_type_to_arglist_with_checking =   hcf::apply_typeagnostic_type_to_arglist_with_checking_thunk ();							# Evaluating the thunk allocates a new memo dictionary.
+
+		fun lt_app_check (lt, ts, kenv)
+		    = 
+		    case (apply_typeagnostic_type_to_arglist_with_checking (lt, ts, kenv))
+			 [b] => b; 
+			_ => bug "unexpected ase in ltAppChk";
+		    esac;
+
+		# Utility functions for type checking:
+		#
+		fun lt_ty_app le s (lt, ts, kenv)
+		    = 
+		    (lt_app_check (lt, ts, kenv))
+		    except
+			zz = {   clickerror ();
+				 say (s + "  **** Kind conflicting in lambda_expression =====> \n    ");
+				 case zz    hcf::APPLY_TYPEFUN_CHECK_FAILED => say "      exception APPLY_TYPEFUN_CHECK_FAILED raised! \n";
+					   hcf::KIND_TYPE_CHECK_FAILED =>  say "      exception KIND_TYPE_CHECK_FAILED raised! \n";
+					   _ => say "   other weird exception raised! \n";
+                                 esac;
+				 say "\n \n"; le_print le; say "\n For Types: \n";  
+				 say_uniqtypoid lt; say "\n and   \n    "; 
+				 apply (\\ x => { say_uniqtype x; say "\n";}; end ) ts;   say "\n \n";  
+				 say "***************************************************** \n"; 
+				 bug "fatal typing error in lt_ty_app";
+                             };
+
+		fun lt_match le s (t1, t2)
+                    = 
+		    if (not (lt_equiv (t1, t2)))
+			clickerror();
+			say (s + "  **** Lty conflicting in Lambda_Expression =====> \n    ");
+			say_uniqtypoid t1; say "\n and   \n    ";
+			say_uniqtypoid t2;
+			say "\n \n";  prettyprint_lambdacode_expression::print_lexp le;
+			say "***************************************************** \n";
+		    fi
+		    except
+			zz = {   clickerror();
+				 say (s + "  **** Lty conflicting in Lambda_Expression =====> \n    ");
+				 say "uncaught exception found ";
+				 say "\n \n";
+				 prettyprint_lambdacode_expression::print_lexp le;
+				 say "\n";  
+				 say_uniqtypoid t1;
+				 say "\n and   \n    ";
+				 say_uniqtypoid t2;
+				 say "\n";  
+				 say "***************************************************** \n";
+			     };
+
+		fun lt_fn_app le s (t1, t2)
+                    = 
+                    b1
+                    where
+		        my (a1, b1)
+                            = 
+			    (lt_arrow t1)
+                            except
+                                zz = {   clickerror ();
+					 say (s + "  **** Applying Non-Arrow Type in Lambda_Expression =====> \n    ");
+					 case zz    LTY_ARROW => say "exception LTY_ARROW raised. \n";
+						   hcf::UNBOUND_TYPE => say "exception UNBOUND_TYPE raised. \n";
+						   _ => say "other weird exceptions raised\n"; esac;
+					 say "\n \n";  le_print le; say "\n For Types \n";
+					 say_uniqtypoid t1; say "\n and   \n    "; say_uniqtypoid t2; say "\n \n";  
+					 say "***************************************************** \n"; 
+					 bug "fatal typing error in ltFnApp";
+                                     };
+
+		       lt_match le s (a1, t2);
+		    end;
+
+		fun lt_fn_app_r le s (t1, t2)			# Used for DECON lexps.
+		    =
+                    a1
+                    where
+		        my (a1, b1)
+			    = 
+			    (lt_arrow t1)
+                            except
+                                zz = {   clickerror ();
+					 say (s + "  **** Rev-Apply Non-Arrow Type in Lambda_Expression =====> \n    ");
+					 case zz    LTY_ARROW => say "exception LTY_ARROW raised. \n";
+						   hcf::UNBOUND_TYPE => say "exception UNBOUND_TYPE raised. \n";
+						   _ => say "other weird exceptions raised\n"; esac;
+					 say "\n \n";  le_print le; say "\n For Types \n";
+					 say_uniqtypoid t1; say "\n and   \n    "; say_uniqtypoid t2; say "\n \n"; 
+					 say "***************************************************** \n"; 
+					 bug "fatal typing error in ltFnApp";
+				     };
+
+		        lt_match le s (b1, t2);
+		    end;
+
+		fun lt_select le s (lt, i)
+                    = 
+		    (lt_sel (lt, i))
+		    except
+                        zz = {
+				  clickerror ();
+				  say (s + "  **** Select from a wrong-type Lambda_Expression  =====> \n    ");
+
+				  case zz    LTY_SELECT        => say "exception LTY_SELECT raised. \n";
+					    hcf::UNBOUND_TYPE => say "exception UNBOUND_TYPE raised. \n";
+					    _                  => say "other weird exceptions raised\n";
+                                  esac;
+
+				  say "\n \n";  le_print le; say "\n \n";
+				  say "Selecting "; say (int::to_string i); 
+				  say "-th component from the type: \n     "; say_uniqtypoid lt; say "\n \n "; 
+				  say "***************************************************** \n"; 
+				  bug "fatal typing error in ltSelect";
+                             };
+
+		# ltConChk currently does not check the case for Valcon 
+		# Of course, we could easily check for typelocked Valcons 
+		#
+		fun lt_con_check le s (valcon ((_, representation, lt), ts, v), root, kenv, venv, d)
+                        => 
+		        {   t1 = lt_ty_app le "DECON" (lt, ts, kenv);
+			    t = lt_fn_app_r le "DECON" (t1, root);
+			    hcf::set_uniqtypoid_for_var (venv, v, t, d);
+		        };
+
+		    lt_con_check le s (c, root, kenv, venv, d)
+                        => 
+		        {   nt = case c
+                                     int1con  _ => hcf::int1_uniqtypoid;
+				     word32con _ => hcf::int1_uniqtypoid;
+				     realcon   _ => hcf::float64_uniqtypoid;
+				     stringcon _ => lt_string;
+				     integercon _ => bug "INTEGERcon";
+				      _ => hcf::int_uniqtypoid;
+                                 esac;
+
+			    lt_match le s (nt, root);
+
+                            venv;
+		        };
+                end;
+
+
+		# check:  tkindDict * ltyDict * di::depth -> Lambda_Expression -> Uniqtypoid 
+		#
+		fun check (kenv, venv, d)
+                    = 
+		    loop
+		    where
+		        fun loop le
+                            =
+			    case le
+
+				VAR v
+                                    => 
+				    hcf::get_uniqtypoid_for_var (venv, v, d) 
+				    except
+                                        hcf::HIGHCODE_VARIABLE_NOT_FOUND
+                                            =
+				            {   say ( "** lambda_variable ** "
+                                                    + (lv::name_of_lambda_variable (v))
+                                                    + " is unbound *** \n"
+                                                    );
+				                bug "unexpected lambda code in checkLty";
+                                            };
+
+				(INT   _ | WORD   _) =>  hcf::int_uniqtypoid;
+				(INT1 _ | WORD32 _) =>  hcf::int1_uniqtypoid;
+
+				REAL   _ =>  hcf::float64_uniqtypoid;
+				STRING _ =>  lt_string;
+
+				PRIM (p, t, ts)
+                                    =>
+                                    lt_ty_app le "PRIM" (t, ts, kenv); 
+
+				FN (v, t, e1)
+                                    => 
+				    {   venv' = hcf::set_uniqtypoid_for_var (venv, v, t, d);
+				        result = check (kenv, venv', d) e1;
+				        lt_fun (t, result);			# Handle both functions and generics.
+				    };
+
+				FIX (vs, ts, es, eb)
+                                    => 
+				    {   fun h (dictionary, v . r, x . z) => h (hcf::set_uniqtypoid_for_var (dictionary, v, x, d), r, z);
+					    h (dictionary, [], []) => dictionary;
+					    h _ => bug "unexpected FIX namings in checkLty.";
+                                        end;
+
+				        venv' = h (venv, vs, ts);
+
+				        nts = map (check (kenv, venv', d)) es;
+				        app2 (lt_match le "FIX1", ts, nts);
+
+				        check (kenv, venv', d) eb;
+				    };
+
+				APPLY (e1, e2)
+                                    =>
+                                    lt_fn_app le "APPLY" (loop e1, loop e2);
+
+				LET (v, e1, e2)
+                                    => 
+				    {   venv' = hcf::set_uniqtypoid_for_var (venv, v, loop e1, d);
+				        check (kenv, venv', d) e2;
+				    };
+
+				TYPEFUN (ks, e)
+                                    => 
+				    {   kenv' = hcf::set_in_kind_dictionary (kenv, ks);
+				        lt = check (kenv', venv, di::next d) e;
+				        hcf::make_typeagnostic_uniqtypoid (ks, [lt]);
+				    };
+
+				APPLY_TYPEFUN (e, ts)
+                                    =>
+                                    lt_ty_app le "APPLY_TYPEFUN" (loop e, ts, kenv);
+
+				GENOP (dictionary, p, t, ts)
+				    => 
+				    (   # Should type check dictionary also 	XXX BUGGO FIXME
+					lt_ty_app le "GENOP" (t, ts, kenv)
+				    );
+
+				PACK (lt, ts, nts, e)
+                                    => 
+				    {   arg_type = lt_ty_app le "PACK-A" (lt, ts, kenv);
+				        lt_match le "PACK-M" (arg_type, loop e);
+				        lt_ty_app le "PACK-R" (lt, nts, kenv);
+				    };
+
+				CON ((_, representation, lt), ts, e)
+                                    =>   
+				    {   t1 = lt_ty_app le "CON" (lt, ts, kenv);
+				        t2 = loop e;
+				        lt_fn_app le "CON-A" (t1, t2);
+				    };
+
+#			        DECON((_, representation, lt), ts, e) =>   
+#				   let t1 = ltTyApp le "DECON" (lt, ts, kenv)
+#				       t2 = loop e
+#				    in ltFnAppR le "DECON" (t1, t2)
+#				   end
+
+				RECORD el
+                                    =>
+                                    lt_tup (map loop el);
+
+				PACKAGE_RECORD el
+                                    =>
+                                    hcf::make_package_uniqtypoid (map loop el);
+
+				VECTOR (el, t)
+                                    => 
+				    {   ts = map loop el;
+
+				        apply
+                                            (\\ x = lt_match le "VECTOR" (x, hcf::make_type_uniqtypoid t))
+                                            ts; 
+
+				        lt_vector t;
+				    };
+
+				SELECT (i, e)
+                                    =>
+                                    lt_select le "SEL" (loop e, i);
+
+				SWITCH (e, _, cl, opp)
+                                    => 
+				    {   root = loop e;
+
+				        fun h (c, x)
+                                            = 
+					    {   venv' = lt_con_check le "SWT1" (c, root, kenv, venv, d);
+					        check (kenv, venv', d) x; 
+					    };
+
+				        ts = map h cl;
+
+					case ts
+
+					    [] => bug "empty switch in checkLty";
+
+					    a . r
+                                                => 
+						{   apply
+                                                        (\\ x = lt_match le "SWT2" (x, a))
+                                                        r;
+
+						    case opp
+
+						        NULL => a;
+
+						        THE be
+                                                            =>
+                                                            {   lt_match le "SWT3" (loop be, a);
+                                                                a;
+                                                            };
+                                                    esac;
+                                                };
+                                        esac;
+				   };
+
+				EXCEPTION_TAG (e, t)
+                                    => 
+				    {   z = loop e;			# What do we check on e ? 
+				        lt_match le "ETAG1" (z, hcf::string_uniqtypoid); 
+				        lt_etag t;
+				    };
+
+				RAISE (e, t)
+                                    => 
+				    {   lt_match le "RAISE" (loop e, lt_exn);
+                                        t;
+                                    };
+
+				EXCEPT (e1, e2)
+                                    => 
+				    {   t1 = loop e1;
+				        arg = lt_fn_app_r le "EXCEPT" (loop e2, t1);
+				        t1;
+				    };
+
+			        # These two cases should never
+                                # happen before wrapping:
+                                #
+				WRAP (t, b, e)
+                                    => 
+				    {   lt_match le "WRAP" (loop e, hcf::make_type_uniqtypoid t); 
+
+				        if (later_phase (phase))
+
+                                            hcf::void_uniqtypoid;
+				        else
+                                            hcf::make_type_uniqtypoid
+                                              (b   ??   hcf::make_boxed_uniqtype t
+                                                   ::   hcf::make_abstract_uniqtype t
+                                              );
+                                        fi;
+                                    };
+
+				UNWRAP (t, b, e)
+                                    => 
+				    {   ntc =   if   (later_phase phase)   hcf::void_uniqtype;
+					        elif b                     hcf::make_boxed_uniqtype t;
+                                                else                       hcf::make_abstract_uniqtype t;
+                                                fi;
+
+				        nt = hcf::make_type_uniqtypoid ntc;
+
+				        lt_match le "UNWRAP" (loop e, nt);
+
+                                        hcf::make_type_uniqtypoid t;
+				    };
+			    esac;
+		 end;				# fun check 
+
+
+		anyerror := FALSE;
+
+		check
+                    ( hcf::empty_debruijn_to_uniqkind_listlist,
+                      hcf::empty_highcode_variable_to_uniqtypoid_map,
+                      di::top
+                    )
+                    lambda_expression;
+
+                *anyerror;
+	    };					# fun check_lty 
+
+    };						# package check_lty 
+end;						# toplevel stipulate 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

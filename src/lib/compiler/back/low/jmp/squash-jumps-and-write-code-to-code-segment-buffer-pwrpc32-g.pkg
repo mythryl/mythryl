@@ -1,0 +1,351 @@
+## squash-jumps-and-write-code-to-code-segment-buffer-pwrpc32-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+# invoke scheduling after span dependent resolution *
+# See docs in src/lib/compiler/back/low/doc/latex/span-dep.tex
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+
+stipulate
+    package lbl =  codelabel;							# codelabel					is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package odg =  oop_digraph;							# oop_digraph					is from   src/lib/graph/oop-digraph.pkg
+    package pp  =  standard_prettyprint_mill;					# standard_prettyprint_mill			is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    #
+    Npp = pp::Npp;
+herein
+
+    generic package   squash_jumps_and_make_machinecode_bytevector_pwrpc32_g   (
+	#             ======================================================
+	#
+	package xe:  Machcode_Codebuffer;					# Machcode_Codebuffer				is from   src/lib/compiler/back/low/emit/machcode-codebuffer.api
+										# "xe"  == "execode_emitter".
+	package mcg: Machcode_Controlflow_Graph					# Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		     where
+			  mcf == xe::mcf					# "mcf" == "machcode_form" (abstract machine code).
+		     also pop == xe::cst::pop;					# "pop" == "pseudo_op".
+
+	package jmp: Jump_Size_Ranges						# Jump_Size_Ranges				is from   src/lib/compiler/back/low/jmp/jump-size-ranges.api
+		     where
+			 mcf == mcg::mcf;					# "mcf" == "machcode_form" (abstract machine code).
+
+	package mu: Machcode_Universals						# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+	        where
+		    mcf == mcg::mcf;						# "mcf" == "machcode_form" (abstract machine code).
+    ) 
+    : (weak) Squash_Jumps_And_Write_Code_To_Code_Segment_Buffer		# Squash_Jumps_And_Write_Code_To_Code_Segment_Buffer	is from   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer.api
+    {
+	# Export to client packages:
+	#	
+	package mcg =  mcg;							# "mcg" == "machcode_controlflow_graph".
+
+
+	stipulate
+	    package mcf =  mcg::mcf;						# "mcf" == "machcode_form" (abstract machine code).
+	    package pop =  mcg::pop;						# "pop" == "pseudo_op".
+	herein
+
+	    fun error msg
+		=
+		lem::error("BBSched", msg);
+
+	    Code
+		= SDI    { size:	Ref( Int ),				# variable sized 	"SDI" == "span dependent instruction"
+			   instruction: mcf::Machine_Op
+			 }
+		| FIXED  { size:	Int,					# Size of fixed instructions.
+			   ops:		List( mcf::Machine_Op )
+			 };
+	    Compressed
+		= PSEUDO  pop::Pseudo_Op
+		| LABEL   lbl::Codelabel
+		| CODE    List( Code );
+
+	    Cccomponent								# In the -intel32 file, eliminating this wrapper type worked fine.
+		=								# "cccomponent" == "callgraph connected component" -- our normal unit of compilation during the nextcode passes and later.
+		CCCOMPONENT  List( Compressed );
+
+
+	    # The assembly-language "text segment" will contain all machine instructions;
+	    # The assembly language "data segment" will contain constants etc.
+	    # We accumulate these separately in these two lists.
+	    # (We need this even if we are generating machine-code directly			# We currently generate assembly-code only for human display.
+	    # without going through an assembly-code pass.)
+	    #
+	    my textseg_list:  Ref( List( Cccomponent        ) )   = REF [];		# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+	    my dataseg_list:  Ref( List( pop::Pseudo_Op ) )   = REF [];		# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+
+	    fun clear__textseg_list__and__dataseg_list ()
+		=
+		{   textseg_list := [];
+		    dataseg_list := [];
+		};
+
+
+	    # Extract and return all constants and code from given list of basic blocks,
+	    # saving them in (respectively) dataseg_list/textseg_list.
+	    #
+	    # Our basic-block list was generated in
+	    #	
+	    #     src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list-g.pkg	
+	    #	
+	    # and possibly tweaked in
+	    #	
+	    #     src/lib/compiler/back/low/block-placement/forward-jumps-to-jumps-g.pkg
+	    #
+	    # The textseg_list+dataseg_list we produce will be used in our below
+	    # fun squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer().
+	    #
+	    # We are called (only) from    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	    #	
+	    fun extract_all_code_and_data_from_machcode_controlflow_graph
+		    #
+		    (npp: pp::Npp)
+		    #
+		    ( odg::DIGRAPH { graph_info => mcg::GRAPH_INFO { dataseg_pseudo_ops, ... }, ... },
+		      blocks												# The order in which all basic blocks should be concatenated to produce final machine-code bytevector.
+		    )
+		= 
+		{   textseg_list :=   CCCOMPONENT (compress blocks)  !  *textseg_list;
+		    #
+		    dataseg_list :=   *dataseg_pseudo_ops @ *dataseg_list;
+		}
+		where
+		    fun compress [] =>   [];
+			#
+			compress((_, mcg::BBLOCK { alignment_pseudo_op, labels, ops, ... } ) ! rest)
+			    =>
+			    align_it
+				(map LABEL *labels @ 
+				 CODE (make_code (0, [], *ops, [])) ! compress rest)
+			    where
+				fun align_it (chunks)
+				    = 
+				    case *alignment_pseudo_op
+					#
+					NULL  =>  chunks;
+					THE p =>  PSEUDO (p) ! chunks;
+				    esac;
+
+				fun make_code (0, [], [], code)
+					=>
+					code;
+
+				    make_code (size, ops, [], code)
+					=>
+					FIXED { size, ops } ! code;
+
+				    make_code (size, ops, instruction ! instrs, code)
+					=>
+					{   s =  jmp::min_size_of  instruction;
+
+					    if (jmp::is_sdi instruction)
+						#
+						sdi =  SDI { size=>REF s, instruction=>instruction };
+
+						if (size == 0)   make_code (0, [], instrs, sdi !                       code);
+						else 		 make_code (0, [], instrs, sdi ! FIXED { size, ops } ! code);
+						fi;
+					    else
+						make_code (size+s, instruction ! ops, instrs, code);
+					    fi;
+					};
+				end;	# fun make_code
+			    end;
+		    end;		# fun compress
+		end;			# where (fun bbsched)
+
+
+	    fun squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer (npp:Npp)
+		=
+		{   fun labels (PSEUDO pseudo_op ! rest, pos, chgd)
+			    => 
+			    {   pop::adjust_labels (pseudo_op, pos);
+				labels (rest, pos+pop::current_pseudo_op_size_in_bytes (pseudo_op, pos), chgd);
+			    };
+
+			labels (LABEL lab ! rest, pos, chgd)
+			    => 
+			    if (lbl::get_codelabel_address (lab) == pos)
+				#
+				labels (rest, pos, chgd);
+			    else
+				lbl::set_codelabel_address (lab, pos);
+				labels (rest, pos, TRUE);
+			    fi;
+
+			labels (CODE code ! rest, pos, chgd)
+			    =>
+			    {   fun do_code (FIXED { size, ... } ! rest, pos, changed)
+					=> 
+					do_code (rest, pos+size, changed);
+
+				    do_code (SDI { size, instruction } ! rest, pos, changed)
+					=>
+					{   new_size =  jmp::sdi_size (instruction, lbl::get_codelabel_address, pos);
+					    #
+					    if (new_size <= *size)
+						#
+						do_code (rest, *size + pos, changed);
+					    else
+						size := new_size;
+						do_code (rest, new_size+pos, TRUE);
+					    fi;
+					};
+
+				    do_code([], pos, changed)
+					=>
+					labels (rest, pos, changed);
+				end;
+
+				do_code (code, pos, chgd);
+			    };
+
+			labels ([], pos, chgd)
+			    =>
+			    (pos, chgd);
+		    end;
+
+		    fun cccomponent_labels cccomponents
+			=
+			{   fun f (CCCOMPONENT cl, (pos, chgd))
+				=
+				labels (cl, pos, chgd);
+
+			    list::fold_forward  f  (0, FALSE)  cccomponents;
+			};
+
+		    fun fixpoint zl
+			=
+			{   my (size, changed)
+				=
+				cccomponent_labels zl;
+
+			    if changed    fixpoint zl;
+			    else          size;
+			    fi;
+			};
+
+		    buf =  xe::make_codebuffer  [];
+
+		    fun put_cccomponent  (CCCOMPONENT comp,  loc)
+			=
+			fold_forward  process  loc  comp
+			where
+			    fun process (PSEUDO pseudo_op, loc)
+				    =>
+				    {   buf.put_pseudo_op  pseudo_op;
+					loc  +  pop::current_pseudo_op_size_in_bytes (pseudo_op, loc);
+				    };
+
+				process (LABEL label, loc)
+				    =>
+				    {   buf.put_private_label label;
+					#
+					loc;
+				    };
+
+				process (CODE code, loc)
+				    =>
+				    {   fun put_ops  ops
+					    =
+					    apply  buf.put_op  ops;
+
+					fun e (FIXED { ops, size, ... }, loc)
+						=>
+						{   put_ops ops;
+						    loc + size;
+						};
+
+					    e (SDI { size, instruction }, loc)
+						=> 
+						{   put_ops (jmp::instantiate_span_dependent_op   { sdi           =>   instruction,
+												    size_in_bytes =>  *size,
+												    at            =>   loc
+												  }
+							    );
+						    *size + loc;
+						};
+					end;
+
+					fold_forward  e  loc  code;
+				    };
+			    end;
+			end;
+
+		    fun init_labels  cccomponents
+			=
+			{   fun init  (PSEUDO p ! rest,  loc)
+				    => 
+				    {   pop::adjust_labels (p, loc);
+					init (rest, loc  +   pop::current_pseudo_op_size_in_bytes (p, loc));
+				    };
+
+				init (LABEL lab ! rest, loc)
+				    =>
+				    {   lbl::set_codelabel_address (lab, loc);
+					init (rest, loc);
+				    };
+
+				init (CODE code ! rest, loc)
+				    =>
+				    {   fun size (FIXED { size, ... } ) =>   size;
+					    size (SDI   { size, ... } ) =>  *size;
+					end;
+
+				       init (
+					   rest,
+					   list::fold_forward
+					       (\\ (c, b) =  size (c) + b)
+					       loc
+					       code
+				       );
+				    };
+
+				init ([], loc)
+				    =>
+				    loc;
+			    end;
+
+			    list::fold_forward 
+				(\\ (CCCOMPONENT (cl), loc) =  init (cl, loc))
+				0
+				cccomponents;
+			};			# fun init_labels
+
+		    # The data list is in reverse order
+		    # and the cccomponents are in reverse:
+		    #	
+		    fun data_cccomponent ([],  results) =>  CCCOMPONENT results;
+			data_cccomponent (d ! dl,  results) =>  data_cccomponent  (dl,  PSEUDO d ! results);
+		    end;
+
+		    compressed
+			= 
+			reverse (data_cccomponent (*dataseg_list, []) ! *textseg_list)
+			then
+			    clear__textseg_list__and__dataseg_list ();
+
+		    init_labels  compressed;
+
+		    buf.start_new_cccomponent  (fixpoint compressed);
+
+		    fold_forward  put_cccomponent  0  compressed; 
+		    ();
+
+		};								# fun squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer
+	end;									# stipulate
+    }; 										# generic package squash_jumps_and_make_machinecode_bytevector_pwrpc32_g
+end;										# stipulate
+
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

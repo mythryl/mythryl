@@ -1,0 +1,244 @@
+#
+# This module is used to generate state tables with the following encode
+# scheme:
+#
+#   delta (s, c) = 
+#      let offset = base[s] + c
+#      in  if check[offset] == s then next[offset] else delta (default[s], c)
+#      end
+#  where base, check, next, and default are all 1-D arrays
+#
+# This encoding scheme can be used to encode "dense" state tables with
+# a lot of similar states.   Lexer tables are usually dense.
+
+
+local
+   DEBUG = FALSE
+
+   #  A maximum of this many templates at any one time 
+   maxTemplates = 12
+
+   #  A default state can only have this many differences 
+   fun maxDiffsWithDefaultState numChars = 
+       if (numChars <= 32) then numChars div 3 
+       else if (numChars <= 64) then numChars div 4
+       else numChars div 5
+
+   #  Create a new template whenever this many differences are encountered 
+   fun minAddTemplateDiffs numChars = numChars div 3
+
+in
+package DenseAutomataTable :> AUTOMATA_TABLE {
+
+   package s  = SparseAutomataTable 
+   package da = s::DynArray
+   package a  = rw_vector
+   use S
+
+   type time = Int
+
+   enum template = 
+       TEMPLATE of 
+          { state:    state,
+            uses:     Ref( Int ),
+            lastUse:  Ref( time ),
+            delta:     List( symbol * state )
+          }
+
+   enum table = 
+        TABLE of
+         { default:    da::Rw_Vector( state ),
+           sparse:     s::table,
+           clock:      Ref( time ),
+           templates:  REF(  List(  template ) )
+         }
+
+   i2s = int::to_string
+
+   fun new { min, max } = 
+   let t = s::new { min=min, max=max }
+   in  TABLE { default=da::rw_vector (1, error), sparse=t, templates=REF [], clock=REF 0 }
+   end
+
+   fun trans2s tr = 
+         "["$string::cat (map (\\ (c, s) => i2s c$"->"$i2s s$" ") tr)$"]"
+
+   fun stateCount (TABLE { sparse, ... } ) = s::stateCount sparse
+
+   fun charRange (TABLE { sparse, ... } ) = s::charRange sparse
+
+   fun addState (TABLE { sparse, default, templates, clock, ... } ) =
+   let my { min, max } = s::charRange sparse
+       numChars = max-min+1
+       minRatio = minAddTemplateDiffs numChars 
+       maxDiffs = maxDiffsWithDefaultState (numChars)
+       clock := *clock + 1
+ 
+       sortDelta = list_mergesort::sort 
+                         (\\ ((c: symbol, s: state), (c', s')) => c>c')
+
+       addState = s::addState sparse
+
+       fun add (s, delta) = 
+       let delta = sortDelta delta
+           fanOut = length delta
+
+           #  Add a new state 
+           fun newState (TRUE, 
+                        THE (TEMPLATE { state=t, lastUse, uses, ... }, n, diffs)) = 
+               (if DEBUG then
+                  print("Defaulted state "$i2s s$" default="$i2s t$" diffs=" $
+                        trans2s diffs$"\n") 
+                addState (s, diffs);
+                da::update (default, s, t);
+                lastUse := *clock;
+                uses := *uses + 1
+               )
+             | newState _ = 
+               (if DEBUG then print("Sparse state " + i2s s  +  
+                                    " delta=" + trans2s delta + "\n") 
+                addState (s, delta);
+                da::update (default, s, error)
+               )
+
+           /* Compare two transition list.
+            *    Return the number of differences and 
+            *    the transition differences 
+            */
+           fun compare ([], [], n, diffs) = (n, reverse diffs)
+             | compare (xs, [], n, diffs) = (n + length xs, reverse diffs@xs)
+             | compare([], ys, n, diffs) = 
+                 (n + length ys, reverse diffs@map (\\ (c, _) => (c, error)) ys)
+             | compare (a as (tr as (c: symbol, s: state)) . xs, 
+                   b as (c', s') . ys, n, diffs) = 
+               if c == c' then 
+                  if s == s' then compare (xs, ys, n, diffs)
+                  else compare (xs, ys, n+1, tr . diffs)
+               else if c < c' then
+                  compare (xs, b, n+1, tr . diffs)
+               else
+                  compare (a, ys, n+1, (c', error) . diffs)
+
+           #  Look for the best match 
+           fun bestMatch([], best) = best
+             | bestMatch((t as TEMPLATE { delta=delta', ... } ) . rest, best) =
+               let my (n, diffs) = compare (delta, delta', 0, []) 
+                   best = 
+                       case best of
+                         NULL => THE (t, n, diffs)
+                       | THE(_, n', _) => 
+                          if n < n' then THE (t, n, diffs) else best
+               in  bestMatch (rest, best)
+               end
+
+           #  Remove a template 
+           fun prune (templates) =
+           let fun findVictim([], victim) = victim
+                 | findVictim((t as TEMPLATE { uses, lastUse, ... } ) . rest, 
+                              victim) =
+                   case victim of 
+                     NULL => THE t
+                   | THE (TEMPLATE { uses=uses', lastUse=lastUse', ... } ) =>
+                     findVictim (rest, 
+                        if *uses < *uses' or
+                           *uses = *uses' and
+                           *lastUse < *lastUse' then THE t else victim)
+           in  case findVictim (templates, NULL) of
+                 NULL => templates
+               | THE (TEMPLATE { state=v, delta, ... } ) => 
+                  (if DEBUG then 
+                     print("Removing template " + i2s v  + 
+                           " delta=" + trans2s delta + "\n") 
+                   list::filter (\\ TEMPLATE { state, ... } => state!=v) templates
+                  )
+           end
+
+           #  Add a new template 
+           fun addTemplate() = 
+           let 
+               ts = TEMPLATE { state=s, delta=delta, uses=REF 1, 
+                                 lastUse=REF *clock } . *templates
+           in  if DEBUG then print("New template " + i2s s  + 
+                                   " delta=" + trans2s delta + "\n") 
+               if length ts > maxTemplates then
+                  templates := prune ts
+               else templates := ts
+           end
+
+           template = bestMatch(*templates, NULL)
+
+           #  Should we use the found template as default? 
+           usingTemplate =
+                case template of
+                  NULL => FALSE
+                | THE(_, n, _) => n < fanOut and n < maxDiffs 
+                     #  only if the differences are not too great 
+
+           #  Should we add the current state also as a new template? 
+           addingTemplate = 
+               fanOut > 1 and
+               (not usingTemplate or
+                (case template of 
+                   NULL => FALSE
+                 | THE (TEMPLATE { uses, ... }, n, _) =>
+                    n > 1 and *uses > 10 or n > minRatio
+                )
+               )
+
+       in  newState (usingTemplate, template);
+           if addingTemplate then addTemplate() else ()
+       end
+   in  add
+   end
+
+   fun compress (TABLE { sparse, ... } ) = s::compress sparse
+
+   fun getrep (TABLE { default, ... } ) "default" = default
+     | getrep (TABLE { sparse, ... } ) rep = s::getrep sparse rep
+
+   fun getarr table rep = DynArray::toArray (getrep table rep)
+
+   fun getwidth (TABLE { sparse, ... } ) "default" = s::getwidth sparse "base"
+     | getwidth (TABLE { sparse, ... } ) rep = s::getwidth sparse rep
+
+   fun getpacked table rep = 
+   let w = getwidth table rep
+   in  (DynArray::toPacked (getrep table rep, w), w)
+   end
+
+   fun go (table as TABLE { default, ... } ) =
+   let base    = getarr table "base"
+       check   = getarr table "check"
+       next    = getarr table "next"
+       default = getarr table "default"
+       fun delta (s, c) = 
+       let offset = a::sub (base, s) + c
+       in  if a::sub (check, offset) == s 
+           then a::sub (next, offset) 
+           else let s = a::sub (default, s)
+                in  if s == error then error else delta (s, c)
+                end
+       end
+   in  delta
+   end 
+
+}
+end 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,2659 @@
+## unparse-raw-syntax.pkg
+## Jing Cao and Lukasz Ziarek 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# We refer to a literal dump of the raw syntax tree as "prettyprinting".
+# We refer to reconstruction of surface syntax from the raw syntax tree as "unparsing".
+# Unparsing is good for end-user diagnostics; prettyprinting is good for compiler debugging.
+# This is the implementation of our raw syntax unparser.
+# For our raw syntax prettyprinter, see  src/lib/compiler/front/typer/print/prettyprint-raw-syntax.pkg
+
+
+
+stipulate
+    package err =  error_message;				# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fxt =  fixity;					# fixity			is from   src/lib/compiler/front/basics/map/fixity.pkg
+    package mtt =  more_type_types;				# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package rs  =  raw_syntax;					# raw_syntax			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package sci =  sourcecode_info;				# sourcecode_info		is from   src/lib/compiler/front/basics/source/sourcecode-info.pkg
+    package sy  =  symbol;					# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package tc  =  typer_control;				# typer_control			is from   src/lib/compiler/front/typer/basics/typer-control.pkg
+    package tpl =  tuples;					# tuples			is from   src/lib/compiler/front/typer-stuff/types/tuples.pkg
+    package uj  =  unparse_junk;				# unparse_junk			is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+#   package ut  =  unparse_type;				# unparse_type			is from   src/lib/compiler/front/typer/print/unparse-type.pkg
+#   package uv  =  unparse_value;				# unparse_value			is from   src/lib/compiler/front/typer/print/unparse-value.pkg
+#   package vac =  variables_and_constructors;			# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+herein
+
+
+    package   unparse_raw_syntax
+    : (weak)  Unparse_Raw_Syntax				# Unparse_Raw_Syntax		is from   src/lib/compiler/front/typer/print/unparse-raw-syntax.api
+    {
+#	internals =  tc::internals;
+internals = log::internals;
+
+	lineprint =  REF FALSE;
+
+	fun by f x y
+            =
+            f y x;
+
+	null_fix = fxt::INFIX (0, 0);
+	inf_fix  = fxt::INFIX (1000000, 100000);
+
+	fun stronger_l (fxt::INFIX(_, m), fxt::INFIX (n, _)) => m >= n;
+	    stronger_l _ => FALSE;			#  should not matter 
+        end;
+
+	fun stronger_r (fxt::INFIX(_, m), fxt::INFIX (n, _)) => n > m;
+ 	    stronger_r _ => TRUE; 			#  should not matter 
+        end;
+
+	fun prpos (   pp:  pp::Prettyprint_Mill,
+		      source:  sci::Sourcecode_Info,
+                      charpos: Int
+                  )
+            =
+	    if *lineprint
+		#
+		(sci::filepos  source  charpos)
+		    ->
+		    (file: String, line: Int, pos: Int);
+
+		pp.lit (int::to_string line);
+		pp.lit ".";
+		pp.lit (int::to_string pos);
+	    else
+                pp.lit (int::to_string charpos);
+            fi;
+
+
+	fun bug msg
+            =
+            error_message::impossible("unparse_raw_syntax: " + msg);
+
+
+	arrow_stamp =  mtt::arrow_stamp;
+
+
+	fun strength  type
+            =
+	    case type
+		#              
+		rs::TYPEVAR_TYPE(_) => 1;
+
+		rs::TYPE_TYPE (type, args)
+		    => 
+		    case type
+			#
+			[type]
+			    =>
+			    if (sy::eq (sy::make_type_symbol("->"), type))   0;
+			    else                                             2;
+			    fi;
+
+			_   => 2;
+		    esac;
+
+
+		rs::RECORD_TYPE _ => 2;
+
+		rs::TUPLE_TYPE _ => 1;
+
+		_ => 2;
+            esac;
+
+
+	fun checkpat (n, NIL)
+                =>
+                TRUE;
+
+	    checkpat (n, (symbol, _) ! fields)
+                =>
+                sy::eq (symbol, tpl::number_to_label n)
+                and
+                checkpat (n+1, fields);
+        end;
+
+	fun checkexp (n, NIL)
+                =>
+                TRUE;
+
+	    checkexp (n, (symbol, expression) ! fields)
+		=>
+		sy::eq (symbol, tpl::number_to_label n)
+                and
+		checkexp (n+1, fields);
+        end;
+
+	fun is_tuplepat (rs::RECORD_PATTERN { definition => [_], ...                   } ) =>  FALSE;
+	    is_tuplepat (rs::RECORD_PATTERN { definition => defs, is_incomplete => FALSE } ) =>  checkpat (1, defs);
+	    is_tuplepat _                                                              =>  FALSE;
+        end;
+
+	fun is_tupleexp (rs::RECORD_IN_EXPRESSION [_])      =>   FALSE;
+	    is_tupleexp (rs::RECORD_IN_EXPRESSION fields)   =>   checkexp (1, fields);
+	    is_tupleexp (rs::SOURCE_CODE_REGION_FOR_EXPRESSION (a, _))       =>   is_tupleexp a;
+	    is_tupleexp _ => FALSE;
+        end;
+
+	fun get_fix (dictionary, symbol)
+            =
+	    find_in_symbolmapstack::find_fixity_by_symbol  (
+                dictionary,
+                sy::make_fixity_symbol (sy::name symbol)
+            );
+
+
+
+	fun strip_source_code_region_data (rs::SOURCE_CODE_REGION_FOR_EXPRESSION (a, _))
+		=>
+		strip_source_code_region_data a;
+
+	    strip_source_code_region_data x
+		=>
+		x;
+        end;
+
+
+
+	fun trim     [x] =>  [];
+	    trim (a ! b) =>  a ! trim b;
+	    trim      [] =>  [];
+        end;
+
+
+	fun pp_path  pp  symbols
+            =
+	    {   fun print_one pp symbol
+                    =
+                    uj::unparse_symbol  pp  symbol;
+	    
+                uj::unparse_sequence
+                    pp
+		    { separator  =>  (\\ pp =  (pp.lit "::")),	# Was "."
+		      print_one,
+		      breakstyle =>  uj::ALIGN
+                    }
+		    symbols;
+	    };
+
+	fun unparse_pattern (context as (dictionary, source_opt)) pp
+            =
+	    {   pp_symbol_list =   pp_path  pp;
+		#
+		fun unparse_pattern' (rs::WILDCARD_PATTERN,                 _)   =>   pp.lit "_";
+		    unparse_pattern' (rs::VARIABLE_IN_PATTERN         p,    d)   =>   pp_symbol_list (p);
+		    unparse_pattern' (rs::INT_CONSTANT_IN_PATTERN     i,    _)   =>   pp.lit (multiword_int::to_string i);
+		    unparse_pattern' (rs::UNT_CONSTANT_IN_PATTERN     w,    _)   =>   pp.lit (multiword_int::to_string w);
+		    unparse_pattern' (rs::STRING_CONSTANT_IN_PATTERN  s,    _)   =>   uj::unparse_mlstring  pp s;
+		    unparse_pattern' (rs::CHAR_CONSTANT_IN_PATTERN    s,    _)   =>   uj::unparse_mlstring' pp s;
+
+		    unparse_pattern' (rs::AS_PATTERN { variable_pattern, expression_pattern }, d)
+			=>
+			{   pp.box {.													pp.rulename "urs1";
+				unparse_pattern'(variable_pattern, d);
+				pp.lit " as ";
+				unparse_pattern'(expression_pattern, d - 1);
+			    };
+			};
+
+		    unparse_pattern' (rs::RECORD_PATTERN { definition => [],   is_incomplete }, _)
+			=>
+			if   is_incomplete      pp.lit "{ ... }";
+			else                    pp.lit "()";
+                        fi;
+
+		    unparse_pattern' (r as rs::RECORD_PATTERN { definition, is_incomplete }, d)
+			=>
+			if (is_tuplepat r)
+			    #
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "(",
+				  separator  =>  \\ pp =  pp.txt ", ",
+				  back       =>  \\ pp =  pp.lit ")",
+				  print_one  =>  (\\ _ = \\ (symbol, pattern) = unparse_pattern' (pattern, d - 1)),
+				  breakstyle =>  uj::ALIGN
+				}
+				definition;
+			else
+			    uj::unparse_closed_sequence
+				pp
+				{ front     =>  \\ pp =  pp.lit "{ ",
+				  separator =>  \\ pp =  pp.txt ", ",
+				  back      => (\\ pp =      if is_incomplete  pp.lit ", ... }";
+							     else              pp.lit "}";
+							     fi
+					       ),
+				  print_one => (\\ pp =  \\ (symbol, pattern) =  {   uj::unparse_symbol pp symbol;
+										     pp.lit " => ";
+										     unparse_pattern' (pattern, d - 1);
+										 }
+					      ),
+				  breakstyle => uj::ALIGN
+				}
+				definition;
+			fi;
+
+		    unparse_pattern' (rs::LIST_PATTERN NIL, d) =>   pp.lit "[]";
+
+		    unparse_pattern' (rs::LIST_PATTERN l, d)
+			=>	
+			{   fun print_one _ pattern
+                                =
+                                unparse_pattern' (pattern, d - 1);
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "[ ",
+				  separator  =>  \\ pp =  pp.txt ", ",
+				  back       =>  \\ pp =  pp.txt " ]",
+				  print_one,
+				  breakstyle => uj::ALIGN
+				}
+				l;
+			};
+
+		    unparse_pattern' (rs::TUPLE_PATTERN t, d)
+			=> 
+			{   fun print_one _ pattern
+                                =
+                                unparse_pattern'(pattern, d - 1);
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "(",
+				  separator  =>  \\ pp =  pp.txt ", ",
+				  back       =>  \\ pp =  pp.lit ")",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				t;
+			};
+
+		    unparse_pattern' (rs::PRE_FIXITY_PATTERN fap, d)
+			=>
+			{   fun print_one _ { item, fixity, source_code_region }
+                                =
+                                unparse_pattern'(item, d - 1);		
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>   \\ pp =  pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				fap;
+			}; 
+
+		    unparse_pattern' (rs::APPLY_PATTERN { constructor, argument }, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs2";
+				unparse_pattern' (constructor, d);
+				pp.txt " as ";
+				unparse_pattern'(argument, d);
+			    };
+			};
+
+		    unparse_pattern' (rs::TYPE_CONSTRAINT_PATTERN { pattern, type_constraint }, d)
+			=> 
+			{   pp.wrap {.															pp.rulename "urw1";
+				unparse_pattern' (pattern, d - 1);
+				pp.lit " :";
+				pp.txt " ";
+				unparse_type context pp (type_constraint, d);
+			    };
+			};
+
+		    unparse_pattern' (rs::VECTOR_PATTERN NIL, d)
+			=>
+			pp.lit "#[]";
+
+		    unparse_pattern' (rs::VECTOR_PATTERN v, d)
+			=> 
+			{   fun print_one _ pattern
+                                =
+                                unparse_pattern'(pattern, d - 1);
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front       =>  \\ pp = pp.lit "#[ ",
+				  separator   =>  \\ pp = pp.txt ", ",
+				  back        =>  \\ pp = pp.txt " ]",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				v;
+			 };
+
+		    unparse_pattern' (rs::SOURCE_CODE_REGION_FOR_PATTERN (pattern, (s, e)), d)
+			=> 
+			case source_opt
+                            #
+			    THE source
+				=>
+				if *internals
+				     pp.lit "<rs::SOURCE_CODE_REGION_FOR_PATTERN(";
+				     prpos (pp, source, s);         pp.lit ", ";
+				     prpos (pp, source, e);         pp.lit "): ";
+				     unparse_pattern'(pattern, d);  pp.lit ">";
+				else
+				     unparse_pattern'(pattern, d);
+				fi;
+
+			     NULL => unparse_pattern'(pattern, d);
+			 esac;
+
+		    unparse_pattern' (rs::OR_PATTERN orpat, d)
+			=>
+			{   fun print_one _ pattern
+                                =
+                                unparse_pattern' (pattern, d - 1);		
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>   \\ pp =  pp.lit "(",
+				  separator  =>   \\ pp = {   pp.txt " ";   pp.lit "| ";   },
+				  back       =>   \\ pp =  pp.lit ")",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				};
+			}
+                        orpat;
+                end;
+
+	    
+                unparse_pattern';
+	    }
+
+
+	also
+	fun unparse_expression (context as (dictionary, source_opt)) pp
+            =
+	    {   fun lparen () = pp.lit "("; 
+		fun rparen () = pp.lit ")";
+
+		fun lpcond atom = if atom  pp.lit "("; fi;      
+		fun rpcond atom = if atom  pp.lit ")"; fi;
+
+		pp_symbol_list = pp_path pp;
+
+		fun unparse_expression' (_, _, 0) => pp.lit "<expression>";
+		    unparse_expression' (rs::VARIABLE_IN_EXPRESSION   p, _, _) => pp_symbol_list  p;
+		    unparse_expression' (rs::IMPLICIT_THUNK_PARAMETER p, _, _) => { pp.lit "#";  pp_symbol_list  p; };
+		    unparse_expression' (rs::FN_EXPRESSION NIL, _, d) => pp.lit "<function>";
+		    unparse_expression' (rs::FN_EXPRESSION rules, _, d)
+			=>	
+			{   fun print_one _ pattern
+                                =
+                                unparse_rule context pp (pattern, d - 1);
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>   \\ pp = {   pp.lit "|";   pp.txt " "; },
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				rules;
+			};
+
+		    unparse_expression' (rs::PRE_FIXITY_EXPRESSION fap, _, d)
+			=> 
+			{   fun print_one _ { item, fixity, source_code_region }
+                                =
+                                unparse_expression'(item, TRUE, d);		
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>   \\ pp =  pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				fap;
+			}; 
+
+		    unparse_expression' (e as rs::APPLY_EXPRESSION _, atom, d)
+			=>
+			{   lpcond atom;
+			    unparse_app_expression (e, null_fix, null_fix, d);
+			    rpcond atom;
+			};
+
+		    unparse_expression' (rs::OBJECT_FIELD_EXPRESSION { object, field }, _, d)
+			=>
+			{   unparse_expression' (object, TRUE, d - 1);
+			    pp.lit "->";
+                            uj::unparse_symbol pp field;
+			};
+
+		    unparse_expression' (rs::CASE_EXPRESSION { expression, rules }, _, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs3";
+				pp.lit "case (";		# Was "(case ";
+				unparse_expression'(expression, TRUE, d - 1);
+				pp.lit ")";
+				pp.ind 4;
+				uj::ppvlist pp (
+				    "",
+				    "; ",		# Was "   | ",
+				    (\\ pp =  \\ r =  unparse_rule context pp (r, d - 1)),
+				    trim rules
+				);
+				pp.lit "esac;";	# Was rparen();
+			    };
+			};
+
+		    unparse_expression' (rs::LET_EXPRESSION { declaration, expression }, _, d)
+			=>
+			{   pp.box {.													pp.rulename "urs4";
+				pp.lit "stipulate ";
+				pp.box {.												pp.rulename "urs5";
+				    unparse_declaration context pp (declaration, d - 1); 
+				};
+				pp.txt " ";
+				pp.lit "herein ";
+				pp.box {.												pp.rulename "urs6";
+				    unparse_expression'(expression, FALSE, d - 1);
+				};
+				pp.txt " ";
+				pp.lit "end";
+			    };
+			};
+
+		    unparse_expression' (rs::SEQUENCE_EXPRESSION exps, _, d)
+			=>
+			uj::unparse_closed_sequence
+			    pp
+			    { front      =>  \\ pp = pp.lit "(",
+			      separator  =>  \\ pp = { pp.endlit ";";
+						       pp.txt " ";
+						     },
+			      back       =>  \\ pp = pp.lit ")",
+			      print_one  =>  (\\ _ = \\ expression = unparse_expression'(expression, FALSE, d - 1)),
+			      breakstyle =>  uj::ALIGN
+			    }
+			    exps;
+
+		    unparse_expression' (   rs::INT_CONSTANT_IN_EXPRESSION   i, _, _)   =>   pp.lit (multiword_int::to_string i);
+		    unparse_expression' (   rs::UNT_CONSTANT_IN_EXPRESSION   w, _, _)   =>   pp.lit (multiword_int::to_string w);
+		    unparse_expression' ( rs::FLOAT_CONSTANT_IN_EXPRESSION   r, _, _)   =>   pp.lit r;
+		    unparse_expression' (rs::STRING_CONSTANT_IN_EXPRESSION   s, _, _)   =>   uj::unparse_mlstring  pp s;
+		    unparse_expression' (  rs::CHAR_CONSTANT_IN_EXPRESSION   s, _, _)   =>   uj::unparse_mlstring' pp s;
+
+		    unparse_expression'(r as rs::RECORD_IN_EXPRESSION fields, _, d)
+			=>
+			if (is_tupleexp r)
+			    #			    
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "(",
+				  separator  =>  \\ pp =  pp.txt ", ",
+				  back       =>  \\ pp =  pp.lit ")",
+				  print_one  =>  (\\ _ = \\ (_, expression) = unparse_expression'(expression, FALSE, d - 1)),
+				  breakstyle =>  uj::ALIGN
+				}
+				fields;
+			else
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "{ ",
+				  separator  =>  \\ pp =  pp.txt ", ",
+				  back       =>  \\ pp =  pp.lit "}",
+				  #
+				  print_one  =>  (\\ pp = \\ (name, expression)
+							=
+							pp.box {.
+							    uj::unparse_symbol pp name;
+							    pp.txt " => ";
+							    unparse_expression'(expression, FALSE, d);
+							}
+					         ),
+				  breakstyle =>  uj::ALIGN
+				}
+				fields;
+                        fi;
+
+		    unparse_expression' (rs::LIST_EXPRESSION p, _, d)
+			=> 
+			uj::unparse_closed_sequence
+			    pp
+			    { front      =>   \\ pp =  pp.txt "[ ",
+			      separator  =>   \\ pp =  pp.txt ", ",
+			      back       =>   \\ pp =  pp.txt " ]",
+			      #
+			      print_one  =>  (\\ pp =
+						\\ expression =
+							    (unparse_expression'(expression, FALSE, d - 1))
+					       ),
+			      breakstyle =>  uj::ALIGN
+			    }
+			    p;
+
+		    unparse_expression' (rs::TUPLE_EXPRESSION p, _, d)
+			=>
+			uj::unparse_closed_sequence
+			    pp
+			    {   front      =>  \\ pp =  pp.lit "(",
+				separator  =>  \\ pp =  pp.txt ", ",
+				back       =>  \\ pp =  pp.lit ")",
+				#
+				print_one  =>  (\\ pp =
+						  \\ expression =  (unparse_expression'(expression, FALSE, d - 1))
+						 ),
+				breakstyle => uj::ALIGN
+			    }
+			    p;
+
+		    unparse_expression' (rs::RECORD_SELECTOR_EXPRESSION name, atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs7";
+#			        lpcond atom;			# Seems like pure clutter so commented out  2009-08-06 CrT
+				pp.lit ".";			# Was "#"
+				uj::unparse_symbol pp name;
+#			        rpcond atom;
+			    };
+			};
+
+		    unparse_expression' (rs::TYPE_CONSTRAINT_EXPRESSION { expression, constraint }, atom, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs8";
+				lpcond atom;
+				unparse_expression'(expression, FALSE, d);
+				pp.lit ":";
+				pp.txt' 0 2 " ";
+				unparse_type context pp (constraint, d);
+				rpcond atom;
+			    };
+			};
+
+		    unparse_expression'(rs::EXCEPT_EXPRESSION { expression, rules }, atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs9";
+				lpcond atom;
+				unparse_expression'(expression, atom, d - 1);
+				pp.newline();
+				pp.lit "except ";
+				uj::newline_indent pp 2;
+				uj::ppvlist pp (
+				    "  ",
+				    "; ",			# Was "| ",
+				    (\\ pp =  \\ r =  unparse_rule context pp (r, d - 1)),
+				    rules
+				);
+				rpcond atom;
+			    };
+			};
+
+		    unparse_expression' (rs::RAISE_EXPRESSION expression, atom, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs10";
+				lpcond atom;
+				pp.lit "raise exception ";
+				unparse_expression'(expression, TRUE, d - 1);
+				rpcond atom;
+			    };
+			};
+
+		    unparse_expression' (rs::IF_EXPRESSION { test_case, then_case, else_case }, atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs11";
+				pp.lit "if (";
+				pp.box {.												pp.rulename "urs12";
+				    unparse_expression' (test_case, FALSE, d - 1);
+				};
+				pp.txt ") ";
+				pp.ind 4;
+
+				unparse_expression' (then_case, FALSE, d - 1);
+
+				pp.ind 0;
+				pp.txt " ";
+				pp.lit "else";
+				pp.ind 4;
+
+				unparse_expression' (else_case, FALSE, d - 1);
+
+				pp.ind 0;
+				pp.txt " ";
+				pp.lit "fi";
+			    };
+			};
+
+		    unparse_expression' (rs::AND_EXPRESSION (e1, e2), atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs15";
+				lpcond atom;
+				pp.box {.												pp.rulename "urs16";
+				    unparse_expression' (e1, TRUE, d - 1);
+				};
+				pp.txt " ";
+				pp.lit "and ";
+				pp.box {.												pp.rulename "urs17";
+				    unparse_expression' (e2, TRUE, d - 1);
+				};
+				rpcond atom;
+			    };
+			 };
+
+		    unparse_expression' (rs::OR_EXPRESSION (e1, e2), atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs18";
+				lpcond atom;
+				pp.box {.												pp.rulename "urs19";
+				    unparse_expression' (e1, TRUE, d - 1);
+				};
+				pp.txt " ";
+				pp.lit "or ";
+				pp.box {.												pp.rulename "urs20";
+				    unparse_expression' (e2, TRUE, d - 1);
+				};
+				rpcond atom;
+			    };
+			};
+
+		    unparse_expression' (rs::WHILE_EXPRESSION { test, expression }, atom, d)
+			=>
+			{   pp.box {.													pp.rulename "urs21";
+				pp.lit "while ";
+				pp.box {.												pp.rulename "urs22";
+				    unparse_expression'(test, FALSE, d - 1);
+				};
+				pp.txt " ";
+				pp.lit "do ";
+				pp.box {.												pp.rulename "urs23";
+				    unparse_expression'(expression, FALSE, d - 1);
+				};
+			    };
+			};
+
+		    unparse_expression' (rs::VECTOR_IN_EXPRESSION NIL, _, d) => pp.lit "#[]";
+
+		    unparse_expression' (rs::VECTOR_IN_EXPRESSION exps, _, d)
+			=>
+			{   fun print_one _ expression
+				=
+				unparse_expression'(expression, FALSE, d - 1);
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front     =>  \\ pp =  pp.txt "#[ ",
+				  separator =>  \\ pp =  pp.txt ", ",
+				  back      =>  \\ pp =  pp.txt " ]",
+				  print_one,
+				  breakstyle => uj::ALIGN
+				}
+				exps;
+			};
+
+		    unparse_expression' (rs::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), atom, d)
+			=>
+			case source_opt
+			    #
+			    THE source
+				=>
+				if *internals
+				     pp.lit "<MARK(";
+				     prpos (pp, source, s); pp.lit ", ";
+				     prpos (pp, source, e); pp.lit "): ";
+				     unparse_expression'(expression, FALSE, d); pp.lit ">";
+				else
+				     unparse_expression'(expression, atom, d);
+				fi;
+
+			    NULL => unparse_expression'(expression, atom, d);
+			esac;
+		end 
+
+		also
+		fun unparse_app_expression (_, _, _, 0)
+			=>
+			pp.lit "<expression>";
+
+		    unparse_app_expression arg
+			=>
+			{   fun fixitypp (name, operand, left_fix, right_fix, d)
+				=
+				{   dname = symbol_path::to_string (symbol_path::SYMBOL_PATH name);
+				    #
+				    this_fix = case name
+						       [id] => get_fix (dictionary, id);
+						      _ => fxt::NONFIX;
+					       esac;
+
+				    fun pr_non expression
+					=
+					{   pp.cwrap {.															pp.rulename "urcw1";
+						pp.lit dname;
+						pp.txt " ";
+						unparse_expression'(expression, TRUE, d - 1);
+					    };
+					};
+
+				    case this_fix
+					#
+					fxt::INFIX _
+					    =>
+					    case (strip_source_code_region_data operand)
+						#
+						rs::RECORD_IN_EXPRESSION [(_, pl), (_, pr)]
+						    =>
+						    {   atom =  stronger_l (left_fix, this_fix)
+                                                             or stronger_r (this_fix, right_fix);
+
+							my (left, right)
+							    =
+							    if atom     (null_fix, null_fix);
+							    else	(left_fix, right_fix);
+							    fi;
+
+							{   pp.cwrap {.															pp.rulename "urcw2";
+								lpcond atom;
+								unparse_app_expression (pl, left, this_fix, d - 1);
+								pp.txt " ";
+								pp.lit dname;
+								pp.txt " ";
+								unparse_app_expression (pr, this_fix, right, d - 1);
+								rpcond atom;
+							    };
+							};
+						    };
+
+						e' => pr_non e';
+					    esac;
+
+
+					fxt::NONFIX => pr_non operand;
+				    esac;
+				};
+
+			    fun apply_print (_, _, _, 0)
+				    =>
+				    pp.lit "#";
+
+				apply_print (rs::APPLY_EXPRESSION { function=>operator, argument=>operand }, l, r, d)
+				    =>
+				    case (strip_source_code_region_data operator)
+					#
+					rs::VARIABLE_IN_EXPRESSION v
+					    =>
+					    {   path = v;
+						#
+						fixitypp (path, operand, l, r, d);
+					    };
+
+					operator
+					    =>
+					    {   pp.box {.															pp.rulename "urcw3";
+						    unparse_expression'(operator, TRUE, d - 1); 	pp.txt " ";
+						    unparse_expression'(operand,  TRUE, d - 1);
+						};
+					    };
+				     esac;
+
+
+				apply_print (rs::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), l, r, d)
+				    =>
+				    case source_opt
+					#
+					THE source
+					    =>
+					    if *internals
+						 pp.lit "<MARK(";
+						 prpos (pp, source, s);		pp.lit ", ";
+						 prpos (pp, source, e);		pp.lit "): ";
+						 unparse_expression'(expression, FALSE, d);
+						 pp.lit ">";
+					    else
+						 apply_print (expression, l, r, d);
+					    fi;
+
+					NULL => apply_print (expression, l, r, d);
+				    esac;
+
+				apply_print (e, _, _, d)
+				    =>
+				    unparse_expression'(e, TRUE, d);
+			    end;
+
+			    apply_print arg;
+			};
+                end;
+	    
+                \\ (expression, depth)
+                    =
+                    unparse_expression' (expression, FALSE, depth);
+	    }
+
+	also
+	fun unparse_rule (context as (dictionary, source_opt)) pp (rs::CASE_RULE { pattern, expression }, d)
+            =
+	    if (d>0) 
+		#                
+		pp.box {.													pp.rulename "urs24";
+		    unparse_pattern context pp (pattern, d - 1);
+		    pp.lit " =>";
+		    pp.txt' 0 2 " ";
+		    unparse_expression context pp (expression, d - 1);
+		};
+	    else
+                pp.lit"<rule>";
+            fi
+
+	also
+	fun unparse_package_cast (context as (_, source_opt)) pp package_cast d
+            =
+	    {   case package_cast
+		    #
+		    rs::NO_PACKAGE_CAST
+			=>
+			();
+
+		    rs::WEAK_PACKAGE_CAST api_expression
+			=> 
+			{   pp.lit " : (weak)";
+			    pp.txt' 0 2 " ";
+			    unparse_api_expression context pp (api_expression, d - 1);
+			};
+
+		    rs::PARTIAL_PACKAGE_CAST api_expression				# Not used.
+			=> 
+			{   pp.lit " : (partial)";
+			    pp.txt' 0 2 " ";
+			    unparse_api_expression context pp (api_expression, d - 1);
+			};
+
+		    rs::STRONG_PACKAGE_CAST api_expression
+			=> 
+			{   pp.lit " : ";
+			    pp.txt' 0 2 " ";
+			    unparse_api_expression context pp (api_expression, d - 1);
+			};
+		esac;
+	    }
+
+	also
+	fun unparse_package_expression (context as (_, source_opt)) pp
+            =
+	    {   pp_symbol_list = pp_path pp;
+		#
+		fun unparse_package_expression'(_, 0)
+			=>
+			pp.lit "<package_expression>";
+
+		    unparse_package_expression' (rs::PACKAGE_BY_NAME p, d)
+			=>
+			pp_symbol_list (p);
+
+		    unparse_package_expression' (rs::PACKAGE_DEFINITION (rs::SEQUENTIAL_DECLARATIONS NIL), d)
+			=>
+			{   pp.lit "package {";
+			    pp.lit " ";
+			    pp.lit "};";
+			};
+
+		    unparse_package_expression' (rs::PACKAGE_DEFINITION de, d)
+			=>
+			{   pp.box {.	/* was 'vertical' */													pp.rulename "urs25";
+				pp.lit "package {";
+				uj::newline_indent pp 2;
+				unparse_declaration context pp (de, d - 1);
+				pp.lit "};";
+			    };
+			};
+
+		    unparse_package_expression' (rs::PACKAGE_CAST (stre, constraint), d)
+			=>
+			{   pp.wrap {.															pp.rulename "urw2";
+				unparse_package_expression' (stre, d - 1);
+
+				unparse_package_cast context pp constraint d;
+			    };
+			};
+
+		    unparse_package_expression' (rs::CALL_OF_GENERIC (path, str_list), d)
+			=> 
+			{   fun print_one pp (strl, bool)
+				=
+				{   pp.lit "(";
+				    unparse_package_expression context pp (strl, d);
+				    pp.lit ")";
+				};
+
+			    pp_symbol_list (path);
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp =  pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				str_list;
+			  };	
+
+		    unparse_package_expression' (rs::INTERNAL_CALL_OF_GENERIC (path, str_list), d)
+			=> 
+			{   fun print_one pp (strl, bool)
+				=
+				{   pp.lit "(";
+				    unparse_package_expression context pp (strl, d);
+				    pp.lit ")";
+				};
+
+			    pp_symbol_list (path);
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp =  pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				str_list;
+			};	
+
+		    unparse_package_expression' (rs::LET_IN_PACKAGE (declaration, body), d)
+			=>
+			{   pp.box {.													pp.rulename "urs26";
+				pp.lit "stipulate ";
+				unparse_declaration context pp (declaration, d - 1); 
+				pp.newline();
+				pp.lit " herein ";
+				unparse_package_expression'(body, d - 1);
+				pp.newline();
+				pp.lit "end";
+			    };
+			};
+
+		    unparse_package_expression' (rs::SOURCE_CODE_REGION_FOR_PACKAGE (body, (s, e)), d)
+			=>
+			unparse_package_expression' (body, d);
+		end;
+
+#		      (case source_opt
+#			of THE source =>
+#			   (pp.lit "rs::SOURCE_CODE_REGION_FOR_PACKAGE(";
+#			      prettyprintPackageexpression'(body, d); pp.lit ", ";
+#			      prpos (pp, source, s); pp.lit ", ";
+#			      prpos (pp, source, e); pp.lit ")")
+#			 | NULL => prettyprintPackageexpression'(body, d))
+
+	    
+		unparse_package_expression';
+	    }
+
+	also
+	fun unparse_generic_expression (context as (_, source_opt)) pp
+            =
+	    {   pp_symbol_list = pp_path pp;
+		#
+		fun unparse_generic_expression'(_, 0)
+                        =>
+                        pp.lit "<generic_expression>";
+
+		    unparse_generic_expression' (rs::GENERIC_BY_NAME (p, _), d)
+                        =>
+                        pp_symbol_list (p);
+
+		    unparse_generic_expression' (rs::LET_IN_GENERIC (declaration, body), d)
+			=>
+			{   pp.box {.													pp.rulename "urs27";
+				pp.lit "stipulate ";
+				unparse_declaration context pp (declaration, d - 1); 
+				pp.newline();
+				pp.lit " herein ";
+				unparse_generic_expression'(body, d - 1);
+				pp.newline();
+				pp.lit "end";
+			    };
+			};
+
+		    unparse_generic_expression' (rs::CONSTRAINED_CALL_OF_GENERIC (path, sblist, fsigconst), d)
+			=>
+			{   fun print_one pp (package_expression, _)
+				=
+				{   pp.lit "(";
+				    unparse_package_expression context pp (package_expression, d);
+				    pp.lit ")";
+				};
+
+			    pp.box {.													pp.rulename "urs28";
+				#
+				pp_symbol_list path;
+
+				uj::unparse_sequence
+				    pp
+				    { separator  =>  \\ pp =  pp.txt " ",
+				      print_one,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    sblist;
+			    };
+			};
+
+		    unparse_generic_expression' (rs::SOURCE_CODE_REGION_FOR_GENERIC (body, (s, e)), d)
+			=>
+			unparse_generic_expression' (body, d);
+
+
+		    unparse_generic_expression' (rs::GENERIC_DEFINITION _, d)
+			=>
+			error_message::impossible "prettyprintGenericexpression: GENERIC_DEFINITION";
+                end;
+	    
+		unparse_generic_expression';
+	    }
+
+	also
+	fun unparse_where_spec (context as (dictionary, source_opt)) pp
+            =
+	    {   fun unparse_where_spec'(_, 0)
+                        =>
+                        pp.lit "<WhereSpec>";
+
+		    unparse_where_spec' (rs::WHERE_TYPE([],[], type), d)
+                        =>
+                        unparse_type context pp (type, d);
+
+
+		    unparse_where_spec' (rs::WHERE_TYPE (slist, tvlist, type), d)
+			=> 
+			{   fun print_one _ symbol
+				=
+				uj::unparse_symbol pp symbol;
+
+			    fun print_one' _ tyv
+				=
+				unparse_typevar context pp (tyv, d);
+
+			    pp.lit "typeX ";
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.txt " ",
+				  print_one  =>  print_one',
+				  breakstyle =>  uj::ALIGN
+				}
+				tvlist;
+
+			    pp.txt " ";
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				slist;	 
+
+			    pp.lit " =";
+			    pp.txt " ";
+			    unparse_type context pp (type, d);
+			};
+
+		    unparse_where_spec' (rs::WHERE_PACKAGE (slist, slist'), d)
+			=>
+			{   fun print_one _ symbol
+				=
+				uj::unparse_symbol pp symbol;
+
+			    pp.lit "packageZ ";
+
+			    uj::unparse_sequence
+				pp
+				{ separator =>  \\ pp = pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				slist;
+
+			    pp.txt " ";
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				slist';
+			};
+                end;
+	    
+		unparse_where_spec';
+	    }
+
+	also
+	fun unparse_api_expression (context as (dictionary, source_opt)) pp
+            =
+	    {   fun unparse_api_expression'(_, 0)
+                        =>
+                        pp.lit "<api_expression>";
+
+		    unparse_api_expression'(rs::API_BY_NAME s, d)
+                        =>
+                        uj::unparse_symbol  pp  s;
+
+		    unparse_api_expression'(rs::API_WITH_WHERE_SPECS (an_api, wherel), d)
+			=>
+			{   unparse_api_expression' (an_api, d);
+			    pp.txt " ";
+
+			    case an_api
+				#			      
+				rs::API_BY_NAME s
+				    =>
+				    uj::ppvlist pp (
+					"where ",
+					"also ",
+					\\ pp =  \\ r =  unparse_where_spec context pp (r, d - 1),
+					wherel
+				    );
+
+				rs::SOURCE_CODE_REGION_FOR_API (rs::API_BY_NAME s, r)
+				    =>
+				    uj::ppvlist pp (
+					"where ",
+					"also ",
+					\\ pp =  \\ r =  unparse_where_spec context pp (r, d - 1),
+					wherel
+				    );
+
+				_ =>
+				    {   pp.txt " ";
+					#
+					uj::ppvlist pp (
+					    "where ",
+					    "also ",
+					    \\ pp =  \\ r =  unparse_where_spec context pp (r, d - 1),
+					    wherel
+					);
+				    };
+			    esac;
+			};
+
+		    unparse_api_expression' (rs::API_DEFINITION [], d)
+			=>	
+			{   pp.lit "api {";
+			    pp.lit " ";
+			    pp.lit "};";
+			};
+
+		    unparse_api_expression' (rs::API_DEFINITION specl, d)
+			=> 
+			{   fun print_one pp speci
+                                =
+                                unparse_specification context pp (speci, d);
+
+			    pp.newline(); # XXX BUGGO TEST ONLY
+			    pp.lit "api {";
+
+			    pp.box {. /* was 'vertical' */													pp.rulename "urs29";
+				pp.newline();
+    #			    uj::newline_indent pp 4;
+
+				uj::unparse_sequence
+				    pp
+				    { separator   =>  \\ pp =  pp.newline(),
+				      print_one,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    specl;
+
+			    };
+
+			    pp.newline();
+			    pp.lit "};";
+			};
+
+		    unparse_api_expression' (rs::SOURCE_CODE_REGION_FOR_API (m, r), d)
+                        =>
+                        unparse_api_expression context pp (m, d);
+                end;
+	    
+		unparse_api_expression';
+	    }
+
+	also
+	fun unparse_generic_api_expression (context as (dictionary, source_opt)) pp
+            =
+	    {   fun unparse_generic_api_expression'(_, 0)
+                        =>
+                        pp.lit "<generic_api_expression>";
+
+		    unparse_generic_api_expression' (rs::GENERIC_API_BY_NAME s, d)
+                        =>
+                        uj::unparse_symbol pp s;
+
+		    unparse_generic_api_expression' (rs::GENERIC_API_DEFINITION { parameter, result }, d)
+			=>
+			{   fun print_one pp (THE symbol, api_expression)
+				    =>
+				    {   pp.lit "(";
+                                        uj::unparse_symbol pp symbol;
+                                        pp.lit ":";
+					unparse_api_expression context pp (api_expression, d);
+					pp.lit ")";
+				    };
+
+			        print_one pp (NULL, api_expression)
+				    =>
+				    {   pp.lit "(";
+					unparse_api_expression context pp (api_expression, d);
+                                        pp.lit ")";
+                                    };
+                            end;
+
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.newline(),
+				  print_one,
+				  breakstyle => uj::ALIGN
+				}
+				parameter;
+
+			    pp.txt' 0 2 " ";
+			    pp.lit "=> ";
+			    unparse_api_expression context pp (result, d);
+			};
+
+		    unparse_generic_api_expression' (rs::SOURCE_CODE_REGION_FOR_GENERIC_API (m, r), d)
+			=>
+			unparse_generic_api_expression context pp (m, d);
+                end;
+	    
+		unparse_generic_api_expression';
+	    }
+
+	also
+	fun unparse_specification (context as (dictionary, source_opt)) pp
+            =
+	    {   fun pp_tyvar_list ([], d)
+                        =>
+                        ();
+
+		    pp_tyvar_list ( [typevar], d)
+			=> 
+			{   unparse_typevar context pp (typevar, d);
+			    pp.txt " ";
+			};
+
+		    pp_tyvar_list (tyvar_list, d)
+			=> 
+			{   fun print_one _ typevar
+				=
+				(unparse_typevar context pp (typevar, d));
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.lit "(",
+				  separator  =>  {   pp.lit ",";   \\ pp = pp.txt " "; },
+				  back       =>  {   pp.lit ")";   \\ pp = pp.txt " "; },
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				tyvar_list;
+			};
+                end;
+
+		fun unparse_specification'(_, 0)
+                        =>
+                        pp.lit "<Specification>";
+
+		    unparse_specification' (rs::PACKAGES_IN_API sspo_list, d)
+			=>
+			{   fun print_one _ (symbol, api_expression, path)
+				=
+				case path
+				    #
+				    THE p => {   uj::unparse_symbol pp symbol;
+						 pp.lit " = ";
+						 unparse_api_expression context pp (api_expression, d);
+						 pp.txt " ";
+						 pp_path pp p;
+					     };
+
+				    NULL  => {   uj::unparse_symbol pp symbol;
+						 pp.lit " = ";
+						 unparse_api_expression context pp (api_expression, d);
+					     };
+				esac;
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.lit "packageY ",
+				  separator  =>  \\ pp = {   pp.lit ", ";
+							     pp.txt " ";
+							 },
+				  back       =>  \\ pp = pp.lit "",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				sspo_list;
+			}; 
+
+		    unparse_specification' (rs::TYPES_IN_API (stto_list, bool), d)
+			=> 
+			{   fun print_one _ (symbol, tyvar_list, tyo)
+				=
+				case tyo
+				    #
+				    THE type
+					=>
+					{   uj::unparse_symbol pp symbol;
+					    pp.lit "(";
+					    pp_tyvar_list (tyvar_list, d);
+					    pp.lit ") =  ";
+					    unparse_type context pp (type, d);
+					};
+
+				    NULL
+					=>
+					{   uj::unparse_symbol pp symbol;
+					    pp.lit "(";
+					    pp_tyvar_list (tyvar_list, d);
+					    pp.lit ")";
+					};
+				esac;
+
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp =  pp.lit "",			# Was "type "
+				  separator  =>  \\ pp =  { pp.txt " ";  pp.lit "| "; },
+				  back       =>  \\ pp =  pp.endlit ";",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				stto_list;
+			}; 
+
+		    unparse_specification' (rs::GENERICS_IN_API sf_list, d)
+			=>
+			{   fun pr pp (symbol, generic_api_expression)
+				=
+				{   uj::unparse_symbol pp symbol;
+                                    pp.lit " : ";
+				    unparse_generic_api_expression context pp (generic_api_expression, d - 1);
+				}; 
+
+			    pp.box {.													pp.rulename "urs30";
+				uj::ppvlist pp ("generic package ", "also ", pr, sf_list);
+			    };
+			}; 
+
+		    unparse_specification' (rs::VALUES_IN_API st_list, d)
+			=> 
+			{   fun pr pp (symbol, type)
+				= 
+				{   uj::unparse_symbol pp symbol;
+                                    pp.lit ":   ";
+                                    unparse_type context pp (type, d);
+                                }; 
+
+			    pp.box {.													pp.rulename "urs31";
+				uj::ppvlist pp (
+				    "",		# Was "my ",
+				    "also ",
+				    pr, 
+				    st_list
+				);
+				pp.endlit ";";
+			    };
+			}; 
+
+		    unparse_specification' (rs::VALCONS_IN_API { sumtypes, with_types => [] }, d)
+			=> 
+			{   fun pr pp (dbing)
+				=
+				(unparse_sumtype context pp (dbing, d));
+
+			    pp.box {.													pp.rulename "urs32";
+				uj::ppvlist pp ("", "also ", pr, sumtypes);
+			    };
+			}; 
+
+		    unparse_specification' (rs::VALCONS_IN_API { sumtypes, with_types }, d)
+			=> 
+			{   fun prd pp dbing =  unparse_sumtype    context pp (dbing, d);
+			    fun prw pp tbing =  unparse_named_type context pp (tbing, d);
+
+			    pp.box {.													pp.rulename "urs33";
+				uj::ppvlist pp ("", "also ", prd, sumtypes);
+				pp.newline();
+				uj::ppvlist pp ("", "also ", prw, with_types);
+			    };
+			};
+
+		    unparse_specification' (rs::EXCEPTIONS_IN_API sto_list, d)
+			=> 
+			{   fun pr pp (symbol, tyo)
+				=
+				case tyo
+				    #
+				    THE type => {   uj::unparse_symbol pp symbol;
+						    pp.lit " : ";
+						    unparse_type context pp (type, d);
+						};
+
+				    NULL => uj::unparse_symbol pp symbol;
+				esac;
+
+			    pp.box {.													pp.rulename "urs34";
+				uj::ppvlist pp ("exception ", "also ", pr, sto_list);
+			    };
+			}; 
+
+		    unparse_specification' (rs::PACKAGE_SHARING_IN_API paths, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs35";
+			        uj::ppvlist pp ("sharing ", " = ", pp_path, paths);
+			    };
+			};
+
+		    unparse_specification' (rs::TYPE_SHARING_IN_API paths, d)
+			=> 
+			{   pp.box {.													pp.rulename "urs36";
+			        uj::ppvlist pp ("sharing ", " = ", pp_path, paths);
+			    };
+			};
+
+		    unparse_specification' (rs::IMPORT_IN_API api_expression, d)
+			=>
+			unparse_api_expression context pp (api_expression, d);
+
+		    unparse_specification' (rs::SOURCE_CODE_REGION_FOR_API_ELEMENT (m, r), d)
+			=>
+			unparse_specification context pp (m, d);
+                end;
+	    
+		unparse_specification';
+	    }
+
+	also
+	fun unparse_declaration (context as (dictionary, source_opt)) pp
+            =
+	    {   pp_symbol_list =  pp_path  pp;
+		#
+		fun unparse_declaration' (_, 0)
+                        =>
+                        pp.lit "<declaration>";
+
+		    unparse_declaration' (rs::VALUE_DECLARATIONS (vbs, typevars), d)
+			=>
+			{   pp.box {.													pp.rulename "urs37";
+				uj::ppvlist pp (
+				    "my ",
+				    "also ",
+				    (\\ pp =  \\ named_value =  unparse_named_value context pp (named_value, d - 1)),
+				    vbs
+				);
+			    };
+			};
+
+		    unparse_declaration' (rs::FIELD_DECLARATIONS (fields, typevars), d)
+			=>
+			# 2009-02-23 CrT: A quick first-cut solution, duplicated from VALUE_DECLARATIONS: case:
+			#
+			{   pp.box {.													pp.rulename "urs38";
+				uj::ppvlist pp (
+				    "field ",
+				    "also ",
+				    (\\ pp =  \\ named_value =  unparse_named_field context pp (named_value, d - 1)),
+				    fields
+				);
+			    };
+			};
+
+		    unparse_declaration' (rs::RECURSIVE_VALUE_DECLARATIONS (rvbs, typevars), d)
+			=> 
+			{   pp.box {.													pp.rulename "urs39";
+				uj::ppvlist
+				    pp
+				    (   "my rec ",
+					"also ",
+					(  \\ pp =
+					   \\ named_recursive_values =
+					   unparse_named_recursive_values
+					       context
+					       pp
+					       (named_recursive_values, d - 1)
+					),
+					rvbs
+				    );
+			    };
+			};
+
+		    unparse_declaration' (rs::FUNCTION_DECLARATIONS (fbs, typevars), d)
+			=>
+			{   pp.box {.													pp.rulename "urs40";
+				uj::ppvlist'
+				    pp
+				    (   "fun ",
+					"also ",
+					(   \\ pp =
+					    \\ str =
+					    \\ fb =
+					    unparse_named_sml_function
+						context
+						pp
+						str
+						(fb, d - 1)
+					),
+					fbs
+				    );
+			    };
+			};
+
+		    unparse_declaration' (rs::NADA_FUNCTION_DECLARATIONS (fbs, typevars), d)
+			=>
+			{   pp.box {.													pp.rulename "urs41";
+				uj::ppvlist'
+				    pp
+				    (   "fun ",
+					"also ",
+					(   \\ pp =
+					    \\ str =
+					    \\ fb =
+					    unparse_named_lib7function
+						context
+						pp
+						str
+						(fb, d - 1)
+					),
+					fbs
+				    );
+			    };
+			};
+
+		    unparse_declaration' (rs::TYPE_DECLARATIONS types, d)
+			=>
+			{   fun print_one  pp  type
+				=
+				(unparse_named_type context pp (type, d));
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.lit "",	# Was "type "
+				  separator  =>  \\ pp = pp.txt " ",
+				  back       =>  \\ pp = pp.endlit ";",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				types;
+			}; 	
+
+		    unparse_declaration' (rs::SUMTYPE_DECLARATIONS { sumtypes, with_types => [] }, d)
+			=> 
+			{   fun print_one _ (dbing)
+				=
+				(unparse_sumtype context pp (dbing, d));
+
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.lit "",
+				  separator  =>  \\ pp = pp.txt " ",
+				  back       =>  \\ pp = pp.endlit ";",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				sumtypes;
+			};             
+
+		    unparse_declaration' (rs::SUMTYPE_DECLARATIONS { sumtypes, with_types }, d)
+			=> 
+			{   fun prd pp dbing = (unparse_sumtype context pp (dbing, d));
+			    fun prw pp tbing = (unparse_named_type context pp (tbing, d));
+
+			    pp.box {.													pp.rulename "urs42";
+				#
+				uj::unparse_closed_sequence
+				    pp
+				    { front      =>  \\ pp = pp.lit "",
+				      separator  =>  \\ pp = pp.txt " ",
+				      back       =>  \\ pp = pp.endlit ";",
+				      print_one  =>  prd,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    sumtypes;
+
+				pp.newline();
+
+				uj::unparse_closed_sequence
+				    pp
+				    { front      =>  \\ pp = pp.lit "withtype ",
+				      separator  =>  \\ pp = pp.txt " ",
+				      back       =>  \\ pp = pp.endlit "",
+				      print_one  =>  prw,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    with_types;
+			    };
+			};
+
+		    unparse_declaration' (rs::ABSTRACT_TYPE_DECLARATIONS { abstract_types, with_types => [], body }, d)
+			=> 
+			{   fun prd pp dbing = (unparse_sumtype context pp (dbing, d));
+			    fun prw pp tbing = (unparse_named_type     context pp (tbing, d));
+
+			    pp.box {.													pp.rulename "urs43";
+				#
+				uj::unparse_closed_sequence
+				    pp
+				    { front      =>  \\ pp = pp.lit "",
+				      separator  =>  \\ pp = pp.txt " ",
+				      back       =>  \\ pp = pp.endlit ";",
+				      print_one  =>  prd,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    abstract_types;
+
+				pp.newline();
+
+				unparse_declaration' (body, d);
+			    };
+			};
+
+		    unparse_declaration' (rs::ABSTRACT_TYPE_DECLARATIONS { abstract_types, with_types, body }, d)
+			=> 
+			{   fun prd _ (dbing) = (unparse_sumtype context pp (dbing, d));
+			    fun prw _ (tbing) = (unparse_named_type context pp (tbing, d));
+
+			    pp.box {.													pp.rulename "urs44";
+				uj::unparse_closed_sequence
+				    pp
+				    { front      =>  \\ pp = pp.lit "",
+				      separator  =>  \\ pp = pp.txt " ",
+				      back       =>  \\ pp = pp.endlit ";",
+				      print_one  =>  prd,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    abstract_types;
+
+				pp.txt " ";
+
+				uj::unparse_closed_sequence
+				    pp
+				    { front      =>  \\ pp = pp.lit "withtype ",
+				      separator  =>  \\ pp = pp.txt " ",
+				      back       =>  \\ pp = pp.endlit "",
+				      print_one  =>  prw,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    with_types;
+
+				pp.txt " ";
+				unparse_declaration' (body, d);
+			    };
+			};
+
+		    unparse_declaration' (rs::EXCEPTION_DECLARATIONS ebs, d)
+			=>
+			{   pp.box {.													pp.rulename "urs45";
+				# This doesn't look right! XXX BUGGO FIXME.
+				# This is probably supposed to be the print_one for an unparse_close_sequence or such:
+				#
+				(   (\\ pp =  \\ eb =  unparse_named_exception context pp (eb, d - 1)),   ebs   );
+				();
+			    };
+			};
+
+		    unparse_declaration' (rs::PACKAGE_DECLARATIONS sbs, d)
+			=>
+			{   fun print_one _ sbing
+				=
+				(unparse_named_package context pp (sbing, d));
+
+			    uj::unparse_closed_sequence
+				pp
+				{   front      =>  \\ pp = pp.lit "package ",
+				    separator  =>  \\ pp = pp.txt " ",
+				    back       =>  \\ pp = pp.endlit ";",
+				    print_one,
+				    breakstyle =>  uj::ALIGN
+				}
+				sbs;
+			};
+
+		    unparse_declaration' (rs::GENERIC_DECLARATIONS fbs, d)
+			=> 
+			{   fun f pp generic_naming
+				=
+				unparse_named_generic context pp (generic_naming, d);
+
+			    pp.box {.													pp.rulename "urs46";
+				uj::ppvlist pp ("generic package ", "also ", f, fbs);
+			    };
+			};
+
+		    unparse_declaration' (rs::API_DECLARATIONS sigvars, d)
+			=> 
+			{   fun f pp (rs::NAMED_API { name_symbol=>fname, definition=>def } )
+				=>
+				{   uj::unparse_symbol  pp  fname;
+				    pp.newline();
+                                    pp.lit "=";
+				    unparse_api_expression context pp (def, d);
+				};
+
+				f pp (rs::SOURCE_CODE_REGION_FOR_NAMED_API (t, r))
+                                    =>
+                                    f pp t;
+			    end;
+
+			    pp.box {.													pp.rulename "urs47";
+			        uj::ppvlist pp ("api ", "also ", f, sigvars);	# Was "api "
+			    };
+			};
+
+		    unparse_declaration' (rs::GENERIC_API_DECLARATIONS sigvars, d)
+			=> 
+			{   fun print_one pp sigv
+				=
+				unparse_generic_api_naming context pp (sigv, d);
+
+			    pp.box {.													pp.rulename "urs48";
+				#
+				uj::unparse_sequence
+				    pp
+				    { separator  =>  pp::newline,
+				      print_one,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    sigvars;
+			    };
+			};
+
+		    unparse_declaration' (rs::LOCAL_DECLARATIONS (inner, outer), d)
+			=>
+			{   pp.box {.													pp.rulename "urb1";
+				pp.newline();
+				pp.lit "with";
+
+                                pp.box {. /* was 'vertical' */										pp.rulename "urb1b";
+				    pp.newline();
+				    unparse_declaration'(inner, d - 1);
+                                };
+
+				pp.newline();
+				pp.lit "do ";
+
+				pp.box {. /* was 'vertical' */										pp.rulename "urb1c";
+				    pp.newline();
+				    unparse_declaration'(outer, d - 1);
+				};
+
+				pp.newline();
+				pp.txt "end;\t\t# with";
+			    };
+			    pp.newline();
+			};
+
+		    unparse_declaration' (rs::SEQUENTIAL_DECLARATIONS decs, d)
+			=>
+			{   pp.box {.													pp.rulename "urb2";
+				#
+				uj::unparse_sequence
+				    pp
+				    { separator  =>  pp::newline,
+				      print_one  =>  \\ pp =  \\ declaration =  unparse_declaration' (declaration, d),
+				      breakstyle =>  uj::ALIGN
+				    }
+				    decs;
+			    };
+			};
+
+		    unparse_declaration' (rs::INCLUDE_DECLARATIONS named_packages, d)
+			=> 
+			{   pp.box {.													pp.rulename "urb3";
+				#
+				pp.lit "include ";
+
+				uj::unparse_sequence
+				    pp
+				    { separator  =>  \\ pp =  pp.txt " ",
+				      print_one  =>  \\ pp =  \\ sp =  pp_symbol_list sp,
+				      breakstyle =>  uj::ALIGN
+				    }
+				    named_packages;
+
+			    };
+			};
+
+		    unparse_declaration' (rs::OVERLOADED_VARIABLE_DECLARATION (symbol, type, explist, extension), d)
+		        =>
+			{   pp.lit "overloaded my ";
+		            uj::unparse_symbol pp symbol;
+			    pp.lit ( extension ?? " += ... " :: " = ... ");
+			};
+
+		    unparse_declaration' (rs::FIXITY_DECLARATIONS { fixity, ops }, d)
+			=>
+			{   pp.box {.															pp.rulename "urb4";
+				#
+				case fixity
+				    #
+				    fxt::NONFIX => pp.lit "nonfix my ";
+
+				    fxt::INFIX (i, _)
+				     => 
+				     {   if (i % 2 == 0)	pp.lit "infix my ";
+					 else			pp.lit "infixr my ";
+					 fi;
+
+					 if (i / 2 > 0)
+					     #
+					     pp.lit (int::to_string (i / 2));
+					     pp.lit " ";
+					 fi;
+				     };
+			       esac;
+
+			       uj::unparse_sequence
+				   pp
+				   { separator  =>  \\ pp = pp.txt " ",
+				     print_one  =>  uj::unparse_symbol,
+				     breakstyle =>  uj::ALIGN
+				   }
+				   ops;
+
+			   };
+			};
+
+		    unparse_declaration' (rs::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, (s, e)), d)
+			=>  
+#			case source_opt
+#			    #
+#			    THE source
+#				 =>
+#				 {   pp.lit "rs::SOURCE_CODE_REGION_FOR_DECLARATION(";
+#				     unparse_declaration'(declaration, d);
+#				     pplit ", ";
+#				     prpos (pp, source, s);	pp.txt ", ";
+#				     prpos (pp, source, e);	pp.lit ")";
+#				 };
+#
+#			    NULL
+#			       =>
+			       unparse_declaration' (declaration, d);
+#			esac;
+
+		    unparse_declaration' (rs::PRE_COMPILE_CODE string, d)
+			=>
+			pp.lit ("#DO " + string);
+
+                  end;
+	      
+                  unparse_declaration';
+	      }
+
+	also
+	fun unparse_named_value (context as (dictionary, source_opt)) pp
+            =
+	    {   fun unparse_named_value'(_, 0)
+                        =>
+                        pp.lit "<naming>";
+
+		    unparse_named_value' (rs::NAMED_VALUE { pattern, expression, ... }, d)
+			=> 
+			{   pp.box {.															pp.rulename "urb5";
+				unparse_pattern context pp (pattern, d - 1);
+				pp.lit " =";
+				pp.txt' 0 2 " ";
+				unparse_expression context pp (expression, d - 1);
+			    };
+			};
+
+		    unparse_named_value' (rs::SOURCE_CODE_REGION_FOR_NAMED_VALUE (named_value, source_code_region), d)
+			=>
+			unparse_named_value' (named_value, d);
+                end;
+	    
+		unparse_named_value';
+	    }
+
+	also
+	fun unparse_named_field (context as (dictionary, source_opt)) pp
+            =
+	    # 2009-02-23 CrT: A quick first-cut solution
+	    # duplicated from unparse_named_value:
+	    #
+	    {   fun unparse_named_field'(_, 0)
+                        =>
+                        pp.lit "<field>";
+
+		    unparse_named_field' (rs::NAMED_FIELD { name => symbol, type => case_pattern, init }, d)
+			=> 
+			{   pp.box {.															pp.rulename "urb6";
+			        pp_path pp [symbol];
+			    };
+			};
+
+		    unparse_named_field' (rs::SOURCE_CODE_REGION_FOR_NAMED_FIELD (named_field, source_code_region), d)
+			=>
+			unparse_named_field' (named_field, d);
+                end;
+	    
+		unparse_named_field';
+	    }
+
+	also
+	fun unparse_named_recursive_values (context as (_, source_opt)) pp
+            = 
+	    {   fun unparse_named_recursive_values'(_, 0)
+			=>
+			pp.lit "<rec naming>";
+
+		    unparse_named_recursive_values' (rs::NAMED_RECURSIVE_VALUE { variable_symbol, expression, ... }, d)
+			=>
+			{   pp.wrap {.															pp.rulename "urw3";
+				uj::unparse_symbol pp variable_symbol;
+				pp.lit  " =";
+				pp.txt' 0 2 " ";
+				unparse_expression context pp (expression, d - 1);
+			    };
+			};
+
+		    unparse_named_recursive_values' (rs::SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (named_recursive_values, source_code_region), d)
+			=>
+			unparse_named_recursive_values' (named_recursive_values, d);
+                end;
+	    
+		unparse_named_recursive_values';
+	    }
+
+	also
+	fun unparse_named_sml_function (context as (_, source_opt)) pp head
+            = 
+	    {   fun unparse_named_sml_function'(_, 0)
+                        =>
+                        pp.lit "<FunNaming>";
+
+		    unparse_named_sml_function' (rs::NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type }, d)
+			=>
+			{
+			    case kind
+				rs::PLAIN_FUN => pp.lit "";
+			       rs::METHOD_FUN => pp.lit " (method) ";
+			      rs::MESSAGE_FUN => pp.lit " (message) ";
+			    esac;
+
+                            case null_or_type
+				# 
+				THE type => {   pp.lit " : ";
+						unparse_type context pp (type, d - 1);
+					    };
+				NULL => ();
+			    esac;
+
+			    uj::ppvlist pp
+                              ( head, "  ; ",
+			        (\\ pp =   \\ (cl: rs::Pattern_Clause) =   (unparse_pattern_clause context pp (cl, d))),
+			        pattern_clauses
+                              );
+			};
+
+		    unparse_named_sml_function' (rs::SOURCE_CODE_REGION_FOR_NAMED_FUNCTION (t, r), d)
+			=>
+			unparse_named_sml_function context pp head (t, d);
+                end;
+	    
+		unparse_named_sml_function';
+	    }
+
+	also
+	fun unparse_pattern_clause (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_pattern_clause' (rs::PATTERN_CLAUSE { patterns, result_type, expression }, d)
+                    =
+		    {   fun print_one _ {   item:		    rs::Case_Pattern,
+					    fixity:		    Null_Or( rs::Symbol ),
+					    source_code_region:    rs::Source_Code_Region
+					}
+                            =
+			    case fixity
+			        #
+			         THE a =>   unparse_pattern context pp (item, d);
+
+				 NULL =>    case item
+						#
+						rs::PRE_FIXITY_PATTERN p
+						    =>
+						    {   pp.lit  "(";	unparse_pattern context pp (item, d);
+							pp.lit  ")";
+						    };
+
+						rs::TYPE_CONSTRAINT_PATTERN p
+						    =>
+						    {   pp.lit "(";	unparse_pattern context pp (item, d);
+							pp.lit ")";
+						    };
+
+						rs::AS_PATTERN p
+						    =>
+						    {   pp.lit "(";	unparse_pattern context pp (item, d);
+							pp.lit ")";
+						    };
+
+						rs::OR_PATTERN p
+						    =>
+						    {   pp.lit "(";	  unparse_pattern context pp (item, d);
+							pp.lit ")";
+						    };
+
+						_   =>
+						    unparse_pattern context pp (item, d);
+					    esac;
+			    esac;
+
+
+		    
+			pp.box {.															pp.rulename "urw4";
+			    #
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				patterns;
+
+			    case result_type
+				#			  
+				THE type => {   pp.lit ":";
+						unparse_type context pp (type, d);
+					    };
+
+				NULL => ();
+			    esac;
+
+			    pp.lit " =";
+			    pp.txt " ";
+			    unparse_expression context pp (expression, d);
+			};
+		    }; 
+	    
+		unparse_pattern_clause';
+	    }
+
+	also
+	fun unparse_named_lib7function (context as (_, source_opt)) pp head
+            = 
+	    {   fun unparse_named_lib7function'(_, 0)
+                        =>
+                        pp.lit "<FunNaming>";
+
+		    unparse_named_lib7function' (rs::NADA_NAMED_FUNCTION (clauses, ops), d)
+			=>
+			uj::ppvlist pp (head, "  | ",
+			   (\\ pp =
+                            \\ (cl: rs::Nada_Pattern_Clause) = (unparse_lib7pattern_clause context pp (cl, d))
+                           ),
+			   clauses);
+
+		    unparse_named_lib7function' (rs::SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (t, r), d)
+			=>
+			unparse_named_lib7function context pp head (t, d);
+                end;
+	    
+		unparse_named_lib7function';
+	    }
+
+	also
+	fun unparse_lib7pattern_clause (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_lib7pattern_clause' (rs::NADA_PATTERN_CLAUSE { pattern, result_type, expression }, d)
+                    =
+		    {   fun print_one _ (item:   rs::Case_Pattern)
+                            =
+                            #  XXX BUGGO FIXME:  Need to be more intelligent about paren insertion: 
+			    {   pp.lit "(";
+                                unparse_pattern context pp (item, d);
+				pp.lit ")";
+                            };
+
+		    
+			pp.wrap {.															pp.rulename "urw5";
+			    #
+			    uj::unparse_sequence
+				pp
+				{ separator  =>  \\ pp = pp.txt " ",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				[ pattern ];         #  XXX BUGGO FIXME this list is always len 1 (obviously) so the logic here can probably be simplified. 
+
+
+			    case result_type
+				#
+				THE type => {   pp.lit ":";
+						unparse_type context pp (type, d);
+					    };
+
+				NULL => ();
+			    esac;
+
+
+			    pp.lit " =";
+			    pp.txt " ";
+			    unparse_expression context pp (expression, d);
+			};
+		    }; 
+
+	    
+		unparse_lib7pattern_clause';
+	    }
+
+	also
+	fun unparse_named_type (context as (_, source_opt)) pp 
+            = 
+	    {   fun pp_tyvar_list (symbol_list, d)
+                    =
+		    {   fun print_one _ (typevar)
+                            =
+                            unparse_typevar  context  pp  (typevar, d);
+		    
+                        uj::unparse_sequence
+                            pp
+			    { separator  =>   \\ pp =  { pp.lit ",";		# Was "*"
+					                 pp.txt " ";
+                                                       },
+			      print_one,
+			      breakstyle =>  uj::ALIGN
+                            }
+			    symbol_list;
+		    };
+
+		fun unparse_named_type'(_, 0)
+                        =>
+                        pp.lit "<t::naming>";
+
+		    unparse_named_type' (rs::NAMED_TYPE { name_symbol, definition, typevars }, d)
+			=> 
+			{   pp.wrap {.															pp.rulename "urw6";
+				uj::unparse_symbol pp name_symbol;
+				if (list::length typevars > 0)
+				    pp.lit "(";
+				    pp_tyvar_list (typevars, d);
+				    pp.lit ")";
+				fi;
+				pp.lit " =";
+				pp.txt " ";
+				unparse_type context pp (definition, d);
+			    };
+			};
+
+		    unparse_named_type' (rs::SOURCE_CODE_REGION_FOR_NAMED_TYPE (t, r), d)
+			=>
+			unparse_named_type context pp (t, d);
+                end;
+	    
+		unparse_named_type';
+	    }
+
+	also
+	fun unparse_sumtype (context as (_, source_opt)) pp
+            = 
+	    {
+# Commented out because apparently unused  -- 2009-08-08 CrT
+#		fun pp_tyvar_list (symbol_list, d)
+#                    =
+#		    {   fun print_one _ (typevar)
+#                            =
+#                            (unparse_typevar context pp (typevar, d));
+#		    
+#                        uj::unparse_sequence
+#                            pp
+#			    { separator   => \\ pp =  { pp.lit ",";		# Was "*"
+#					                pp.txt " ";
+#						      },
+#			      print_one,
+#			      breakstyle => uj::ALIGN
+#                            }
+#			    symbol_list;
+#		    };
+
+		fun unparse_sumtype'(_, 0)
+                        =>
+                        pp.lit "<d::naming>";
+
+		    unparse_sumtype' (rs::SUM_TYPE { name_symbol, typevars, right_hand_side, is_lazy }, d)
+			=> 
+			{   pp.wrap {.															pp.rulename "urw7";
+				#
+				uj::unparse_symbol pp name_symbol;
+				pp.lit " =";
+				pp.txt " ";
+				unparse_sumtype_right_hand_side context pp (right_hand_side, d);
+			    };
+			};
+
+		    unparse_sumtype' (rs::SOURCE_CODE_REGION_FOR_UNION_TYPE (t, r), d)
+			=>
+			unparse_sumtype context pp (t, d);
+                end;
+	    
+		unparse_sumtype';
+	    }
+
+	also
+	fun unparse_sumtype_right_hand_side (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_sumtype_right_hand_side'(_, 0)
+                        =>
+                        pp.lit "<sumtype_naming_right_hand_side>";
+
+		    unparse_sumtype_right_hand_side' (rs::VALCONS const, d)
+			=> 
+			{   fun print_one pp   (symbol: rs::Symbol,   tv: Null_Or(rs::Any_Type))
+				=
+				case tv
+				    #
+				    THE a =>    {    uj::unparse_symbol pp symbol;
+						     pp.lit " ";	# Was " of "
+						     unparse_type context pp (a, d);
+						};
+
+				    NULL =>   (uj::unparse_symbol pp symbol);
+				esac;
+
+			    uj::unparse_sequence
+				pp
+				{ separator   => (\\ pp = {  pp.lit " |";
+							     pp.txt " ";
+							  }
+						 ),
+				  print_one,
+				  breakstyle => uj::ALIGN
+				}
+				const;
+			};
+
+		    unparse_sumtype_right_hand_side' (rs::REPLICAS symlist, d)
+			=> 
+			uj::unparse_sequence
+			    pp
+			    { separator  =>  (\\ pp
+						 =
+						 {   pp.lit " |";
+						     pp.txt " ";
+						 }
+					     ),
+			      print_one  =>  (\\ pp =  \\ symbol =  uj::unparse_symbol pp symbol),
+			      breakstyle =>  uj::ALIGN
+			    }
+			    symlist;
+                end;
+	    
+                unparse_sumtype_right_hand_side';
+	    }
+
+	also
+	fun unparse_named_exception (context as (_, source_opt)) pp
+            =
+	    {   pp_symbol_list = pp_path pp;
+		#
+		fun unparse_named_exception' (_, 0)
+                        =>
+                        pp.lit "<Eb>";
+
+		    unparse_named_exception' (   rs::NAMED_EXCEPTION {
+                                                         exception_symbol => exn,
+                                                         exception_type   => etype
+                                                     },
+                                                     d
+                                                 )
+			=> 
+			case etype
+			    #			  
+			    THE a =>    {   pp.box {.															pp.rulename "urb7";
+						uj::unparse_symbol pp exn;
+						pp.lit " =";
+						pp.txt " ";
+						unparse_type context pp (a, d - 1);
+					    };
+					};
+
+			    NULL =>     {   pp.box {.															pp.rulename "urb8";
+					        uj::unparse_symbol pp exn; 
+					    };
+					};
+			esac;
+
+
+		    unparse_named_exception' ( rs::DUPLICATE_NAMED_EXCEPTION { exception_symbol=>exn, equal_to=>edef }, d)
+			=> 
+			# ASK MACQUEEN IF WE NEED TO PRINT EDEF XXX SUCKO FIXME 
+			#
+			{   pp.box {.															pp.rulename "urb9";
+				uj::unparse_symbol pp exn;
+				pp.lit " =";
+				pp.txt' 0 2 " ";
+				pp_symbol_list edef;
+			    };
+			};
+
+		    unparse_named_exception' (rs::SOURCE_CODE_REGION_FOR_NAMED_EXCEPTION (t, r), d)
+			=>
+			unparse_named_exception context pp (t, d);
+                end;
+	    
+		unparse_named_exception';
+	    }
+
+	also
+	fun unparse_named_package (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_named_package' (_, 0)
+                        =>
+                        pp.lit "<rs::NAMED_PACKAGE>";
+
+		    unparse_named_package' ( rs::NAMED_PACKAGE { name_symbol=>name, definition=>def, constraint, kind }, d)
+			=> 
+			{   pp.lit  case kind
+					#
+					rs::PLAIN_PACKAGE  => "package ";
+					rs::CLASS_PACKAGE  => "class ";
+					rs::CLASS2_PACKAGE => "class2 ";
+				    esac;
+
+			    pp.box {.															pp.rulename "urb10";
+				uj::unparse_symbol pp name;
+
+				unparse_package_cast context pp constraint d;
+
+				pp.lit " =";
+				pp.txt' 0 2 " ";
+				unparse_package_expression context pp (def, d - 1);
+			    };
+			};
+
+		    unparse_named_package' (rs::SOURCE_CODE_REGION_FOR_NAMED_PACKAGE (t, r), d)
+			=>
+			unparse_named_package context pp (t, d);
+                end;
+	    
+		unparse_named_package';
+	    }
+
+	also
+	fun unparse_named_generic (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_named_generic' (_, 0)
+                        =>
+                        pp.lit "<rs::NAMED_GENERIC>";
+
+		    unparse_named_generic' (
+                        rs::NAMED_GENERIC {
+                            name_symbol => name,
+                            definition => rs::GENERIC_DEFINITION { parameters, body, constraint }
+                        },
+                        d
+                    )
+			=>
+			{   pp.box {.															pp.rulename "urb11";
+				#
+				uj::unparse_symbol pp name;
+
+				{   fun print_one pp (THE symbol, api_expression)
+					    =>
+					    {   pp.lit "(";
+						uj::unparse_symbol pp symbol;
+						pp.txt " : ";
+						unparse_api_expression context pp (api_expression, d);
+						pp.lit ")";
+					    };
+
+					print_one pp (NULL, api_expression)
+					    =>
+					    {   pp.lit "(";
+						unparse_api_expression context pp (api_expression, d);
+						pp.lit ")";
+					    };
+				    end;
+
+				    {   uj::unparse_sequence
+					    pp
+					    { separator  =>  \\ pp = pp.txt " ",
+					      print_one,
+					      breakstyle =>  uj::ALIGN
+					    }
+					    parameters;
+
+					unparse_package_cast  context  pp  constraint  d;
+
+					pp.lit " =";
+					pp.txt " ";
+
+					unparse_package_expression context pp (body, d);};
+				};
+			    };
+			};
+
+		    unparse_named_generic' ( rs::NAMED_GENERIC { name_symbol=>name, definition=>def }, d)
+			=>
+			{   pp.box {.															pp.rulename "urb12";
+				uj::unparse_symbol pp name;
+				pp.lit " =";
+				pp.txt " ";
+				unparse_generic_expression context pp (def, d - 1);
+			    };
+			}; 
+
+		    unparse_named_generic' (rs::SOURCE_CODE_REGION_FOR_NAMED_GENERIC (t, r), d)
+			=>
+			unparse_named_generic context pp (t, d);
+                end;
+	    
+		unparse_named_generic';
+	    }
+
+	also
+	fun unparse_generic_api_naming (context as (_, source_opt)) pp
+            =
+	    {   fun unparse_generic_api_naming'(_, 0)
+                        =>
+                        pp.lit "<rs::NAMED_GENERIC_API>";
+
+		    unparse_generic_api_naming' (rs::NAMED_GENERIC_API { name_symbol=>name, definition=>def }, d)
+			=> 
+			{   pp.box {.															pp.rulename "urb13";
+				pp.lit "funsig ";
+				uj::unparse_symbol pp name;
+				pp.lit " =";
+				pp.txt " ";
+				unparse_generic_api_expression context pp (def, d - 1);
+			    };
+			};
+
+		    unparse_generic_api_naming' (rs::SOURCE_REGION_FOR_NAMED_GENERIC_API (t, r), d)
+			=>
+			unparse_generic_api_naming context pp (t, d);
+                end;
+	    
+		unparse_generic_api_naming';
+	    }
+
+	also
+	fun unparse_typevar (context as (_, source_opt)) pp
+            =
+	    unparse_typevar'
+	    where	
+	        fun unparse_typevar' (_, 0)             => pp.lit "<typevar>";
+		    unparse_typevar' (rs::TYPEVAR s, d) => (uj::unparse_symbol pp s); 
+		    unparse_typevar' (rs::SOURCE_CODE_REGION_FOR_TYPEVAR (t, r), d) => unparse_typevar context pp (t, d);
+                end;
+	    end
+
+	also
+	fun unparse_type (context as (dictionary, source_opt)) pp
+            =			
+	    {   fun unparse_type' (_, 0)
+                        =>
+                        pp.lit "<type>";
+
+		    unparse_type' (rs::TYPEVAR_TYPE t, d)
+                        =>
+                        (unparse_typevar context pp (t, d));
+
+		    unparse_type' (rs::TYPE_TYPE (type, []), d)
+			=>
+			{   pp.box {.															pp.rulename "urb14";
+			        pp_path pp type;
+			    };
+			};
+
+		    unparse_type' (rs::TYPE_TYPE (type, args), d)
+			=> 
+			{   pp.box {.															pp.rulename "urb15";
+				#
+				case type
+				    #			      
+				    [type] =>   if (sy::eq (sy::make_type_symbol("->"), type))
+						    #				         
+						    case args
+							#
+							[dom, ran]
+							    =>
+							    {   unparse_type' (dom, d - 1);
+								pp.lit " ->";
+								pp.txt " ";
+								unparse_type' (ran, d - 1);
+							    };
+
+							_   =>   err::impossible "wrong args for -> type";
+						    esac;
+						else
+						    uj::unparse_symbol  pp  type;
+						    pp.lit "(";
+						    unparse_type_args  (args, d);
+						    pp.lit ")";
+						fi;
+
+				    _ => {   pp_path  pp  type;
+					     pp.lit "(";
+					     unparse_type_args  (args, d);
+					     pp.lit ")";
+					 };
+				esac;
+			    };
+			};
+
+		    unparse_type' (rs::RECORD_TYPE s, d)
+			=> 
+			{   fun print_one pp (symbol: rs::Symbol, tv: rs::Any_Type)
+				= 
+				{   uj::unparse_symbol pp symbol;
+				    pp.lit ": ";
+				    unparse_type context pp (tv, d);
+				};
+
+			    uj::unparse_closed_sequence
+				pp
+				{ front      =>  \\ pp = pp.lit "{ ",
+				  separator  =>  \\ pp = {   pp.lit ", ";
+							     pp.txt " ";
+							 },
+				  back       =>  \\ pp = pp.endlit "}",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				s;
+			};
+
+		    unparse_type' (rs::TUPLE_TYPE t, d)
+			=> 
+			{   fun print_one _ (tv: rs::Any_Type)
+				=
+				(unparse_type context pp (tv, d));
+
+			    uj::unparse_closed_sequence 
+				pp
+				{ front      =>  \\ pp = pp.lit "(",
+				  separator  =>  \\ pp =  {   pp.endlit ",";				# Was " *"
+							      pp.txt " ";
+							  },
+				  back       =>  \\ pp = pp.lit ")",
+				  print_one,
+				  breakstyle =>  uj::ALIGN
+				}
+				t;
+			};
+
+		    unparse_type' (rs::SOURCE_CODE_REGION_FOR_TYPE (t, r), d)
+			=>
+			unparse_type context pp (t, d);
+                end 
+
+		also
+		fun unparse_type_args ([], d)
+                        =>
+                        ();
+
+		    unparse_type_args ( [type], d)
+			=> 
+			{   if (strength type <= 1)
+			        #  
+				pp.wrap {.															pp.rulename "urw8";
+				    pp.lit "("; 
+				    unparse_type' (type, d); 
+				    pp.lit ")";
+				};
+			    else 
+				unparse_type' (type, d);
+			    fi;
+
+			    pp.cut();
+			};
+
+		    unparse_type_args (tys, d)
+			=>
+			uj::unparse_closed_sequence
+			    pp 
+			    { front      =>  \\ pp = pp.lit "(",
+			      separator  =>  \\ pp =  {  pp.lit ",";
+							 pp.txt " ";
+						       },
+			      back       =>  \\ pp = pp.lit ") ",
+			      breakstyle =>  uj::ALIGN, 
+			      print_one  =>  \\ _ =  \\ type =  unparse_type' (type, d)
+			    }
+			    tys;
+                end; 
+	    
+                unparse_type';
+	    };
+    };					# package unparse_raw_syntax 
+end;					# top-level local 
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 2003 by University of Chicago 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

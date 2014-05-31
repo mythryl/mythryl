@@ -1,0 +1,174 @@
+# syntax.pkg
+#
+# COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details.
+
+
+
+#                   "There's never time to do it right,
+#                    but there's always time to do it over."
+
+
+
+api FOL =
+  api
+
+  enum otype = BaseType of string  
+             | TypeCon of string * List( otype )
+
+  enum term = Var   of string
+            | IntTerm of int 
+            | Constant of string 
+	    | Fun of term * List( term )
+
+  enum form = Pred  of string * List( term )
+	    | Connection  of string * List( form )
+	    | Quant of string * List( string * otype ) * form 
+
+  enum form_or_term = Form of form
+                    | Term of term 
+
+  my prec_of: string -> int
+
+  my IntType:  otype
+  my FunType:  otype * otype -> otype
+  my TupleType:  List( otype ) -> otype 
+
+  my Equal:  term * term -> form 
+  my PropVar:  (string * List( term ) ) -> form 
+  my False:  form 
+  my And:  form * form -> form 
+  my Or:  form * form -> form 
+  my Implies:  form * form -> form 
+  my Not:  form -> form 
+  my All:   List( string * otype ) * form -> form 
+  my Some:   List( string * otype ) * form -> form 
+
+  my free_vars_of_formula:  form -> List( string )
+  my subst_in_formula:  form * List (string * term) -> form
+  end
+  
+
+package_macro FolFUN() : FOL =
+  pkg
+
+  enum otype = BaseType of string  
+             | TypeCon  of string * List( otype )
+
+  enum term = Var   of string
+                | IntTerm of int 
+                | Constant of string 
+		| Fun of term * List( term )
+  enum form = Pred of string * List( term )
+		| Connection of string * List( form )
+		| Quant of string * List (string * otype) * form
+
+  enum form_or_term = Form of form
+                    | Term of term 
+
+  # Precedence table: used by pretty printing 
+
+  fun prec_of "~"   = 4
+    | prec_of "&"   = 3
+    | prec_of "|"   = 2
+    | prec_of "<->" = 1
+    | prec_of "->" = 1
+    | prec_of "*" = 2
+    | prec_of "/" = 4
+    | prec_of "--" = 3
+    | prec_of "+" = 2
+    | prec_of _   = -1    # means not an infix
+
+infix mem
+
+fun x mem []  =  FALSE
+  | x mem (y . l)  =  (x=y) or (x mem l)
+
+IntType = BaseType "N"
+
+fun FunType (a, b) = TypeCon("-->",[a, b])
+
+fun TupleType l = TypeCon("*", l)
+
+fun PropVar (s, l) = Pred (s, l)
+
+fun Equal (a, b) = Pred("=",[a, b])
+
+False = Connection("false",[])
+
+fun And (A, B) = Connection("&",[A, B]) 
+
+fun Or (A, B) = Connection("|",[A, B]) 
+
+fun Implies (A, B) = Connection("->",[A, B]) 
+
+fun Not A = Connection("~",[A])
+
+fun All (bl, A) = Quant("forall", bl, A)
+
+fun Some (bl, A) = Quant("exists", bl, A)
+
+fun free_vars_of_term (Var s, l) = if s mem l then [] else [s]
+  | free_vars_of_term (Fun (t, tl), l) = 
+              (free_vars_of_term (t, l)) @
+	       (fold (op @) (map (\\ t => free_vars_of_term (t, l)) tl) [])
+  | free_vars_of_term _ = [] 
+
+fun free_vars_of_formula A = 
+     let fun fvf (Pred(_, tl), l) = fold (op @) (map (\\ t => free_vars_of_term (t, l)) tl) [] 
+	   | fvf (Connection(_, fl), l) = fold (op @) (map (\\ B => fvf (B, l)) fl) [] 
+	   | fvf (Quant(_, bl, B), l) = fvf (B, (map (\\ (x, _) => x) bl) @ l)
+     in fvf (A,[]) end
+
+fun thin_out_subst([], _) = [] 
+  | thin_out_subst ((x, t) . s, vars) = 
+       if (exists (\\ y => (x == y)) vars) 
+       then thin_out_subst (s, vars) 
+       else (x, t) . (thin_out_subst (s, vars))
+
+fun new_var (y, l) = 
+     let z = y ^ "'" 
+     in if (exists (\\ s => (s == z)) l) 
+        then new_var (z, l) 
+        else z
+     end
+
+fun avoid_clash ([], bl, s, _, _) = (reverse bl, s) 
+  | avoid_clash ((x, ty) . l, bl, s, fvs, vars) = 
+      if (exists (\\ y => (x == y)) fvs) 
+      then let x' = new_var (x, fvs@vars) 
+           in avoid_clash (l, (x', ty) . bl, (x, Var x') . s, fvs, x' . vars) end 
+      else avoid_clash (l, (x, ty) . bl, s, fvs, vars)
+
+
+fun apply_subst_to_var ([], y) = Var y
+  | apply_subst_to_var ((x, t) . s, y) = 
+            if x == y then t else apply_subst_to_var (s, y)
+
+fun subst_in_term (Var v, s) = apply_subst_to_var (s, v)
+  | subst_in_term (Fun (t, tl), s) = Fun (subst_in_term (t, s), map (\\ t => subst_in_term (t, s)) tl)
+  | subst_in_term (t, _) = t 
+
+fun subst_in_formula (Pred (name, tl), s) = Pred (name, (map (\\ t => subst_in_term (t, s)) tl))
+  | subst_in_formula (Connection (name, fl), s) = Connection (name, (map (\\ f => subst_in_formula (f, s)) fl))
+  | subst_in_formula (Quant (name, bl, A), s) = 
+        let vs = (map (\\ (x, _) => x) bl) 
+        in case thin_out_subst (s, vs)
+             of [] => Quant (name, bl, A)
+              | s' => let my (bl', s'') = 
+		       avoid_clash (bl,[],[],
+				   (fold (\\ ((_, t), r) => (free_vars_of_term (t,[]))@r) s []),
+				   vs @ (map (\\ (y, _) => y) s))
+                      in case s'' 
+                         of [] => Quant (name, bl, subst_in_formula (A, s'))
+		          | _  => Quant (name, bl',
+					subst_in_formula (subst_in_formula (A, s''), s'))
+		      end 
+        end 
+
+end
+
+
+
+
+
+

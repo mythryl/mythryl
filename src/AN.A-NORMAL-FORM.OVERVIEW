@@ -1,0 +1,459 @@
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For higher-level context, read 
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# The file
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+# defines our "A-Normal" intermediate code form,
+# which sits in the early-middle part of the code
+# transformation sequence.
+#
+# A-Normal form is a relatively early,
+# high-level intermediate code representation
+# which preserves types and also the function-call
+# hierarchy.
+# 
+# The deep syntax trees produced by the front
+# end get translated into A-Normal Form (via
+# polymorphic-lambda notatation) for a first
+# batch of optimizations, after which it gets
+# translated to typeless FPS ("fate-passing
+# style") form for additional high-level (machine-independent)
+# optimizations.
+#
+# Lambdacode form is defined in
+#
+#     src/lib/compiler/back/top/lambdacode/lambdacode-form.api 
+#
+# The translation from lambdacode to anormcode form is handled by
+#
+#     src/lib/compiler/back/top/lambdacode/translate-lambdacode-to-anormcode.pkg
+#
+# The definition of nextcode is spread over quite a few files, in particular
+#
+#    src/lib/compiler/back/top/highcode/highcode-form.api
+#    src/lib/compiler/back/top/highcode/highcode-form.pkg
+#
+#    src/lib/compiler/back/top/highcode/highcode-type.api
+#    src/lib/compiler/back/top/highcode/highcode-type.pkg
+#
+#    src/lib/compiler/back/top/highcode/highcode-uniq-types.api
+#    src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+#
+# Translation from anormcode to nextcode form is handled by
+#
+#    src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+#
+# The major files operating on A-Normal Form code are:
+# 
+#    inlining, let-flattening:   src/lib/compiler/back/top/improve/improve-anormcode-quickly.pkg
+#    inlining, dead var elim...  src/lib/compiler/back/top/improve/improve-anormcode.pkg
+#    type specialization:        src/lib/compiler/back/top/improve/specialize-anormcode-to-least-general-type.pkg
+#    optimize tail recursion     src/lib/compiler/back/top/improve/loopify-anormcode.pkg
+#    CSE, hoisting...            src/lib/compiler/back/top/improve/eliminate-array-bounds-checks-in-anormcode.pkg
+#    find \\ and var uses        src/lib/compiler/back/top/improve/def-use-analysis-of-anormcode.pkg
+#    cross-package inlining      src/lib/compiler/back/top/improve/do-crossmodule-anormcode-inlining.pkg
+#                                src/lib/compiler/back/top/improve/convert-free-variables-to-parameters-in-anormcode.pkg
+#    mutually recursive fns      src/lib/compiler/back/top/improve/improve-mutually-recursive-anormcode-functions.pkg
+#
+#                                src/lib/compiler/back/top/forms/make-anormcode-coercion-fn.pkg
+#    making equality fns         src/lib/compiler/back/top/forms/make-anormcode-equality-fn.pkg
+#    compile away type passing   src/lib/compiler/back/top/forms/drop-types-from-anormcode.pkg
+#    un/boxing, coercions:       src/lib/compiler/back/top/forms/insert-anormcode-boxing-and-coercion-code.pkg
+#
+# Overall control-flow for the above, including
+# selection of which compiler passes to run
+# and in which order, is handled for both A-Normal
+# Form and FPS by:
+#
+#    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+#
+# For ordering constraints (etc) on the compiler passes see:
+#
+#     src/lib/compiler/back/top/improve/README
+#
+# A-normal form was introduced in the paper
+#
+#     The Essence of Compiling with Continuations
+#     Cormac Flanagan, Amr Sabry, Bruce F Duba, Matthias Felleisen (Rice CSci)
+#     1993, 11p
+#     http://www.soe.ucsc.edu/~cormac/papers/pldi93.ps
+#
+# This particular implementation originated with Stefan Monnier,
+# who in his dissertation
+#
+#     Principled Compilation and Scavenging
+#     Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#     http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+# described it as follows: 
+#
+#    "The new typed intermediate language is a minor update of [the
+#     preceding version], intended to make it more appropriate for
+#     optimization.  Other than cosmetic changes, the only real
+#     difference is that functions now take multiple arguments and
+#     return multiple values.
+#     
+#    "It is a variant of the F_w \-calculus using an A-normal representation,
+#     which means that every intermediate value is bound to a variable.  More
+#     concretely, it means that instead of providing a primitive expression like
+#     
+#         (v1 + v2)
+#     
+#     the language always uses expressions of the form
+#     
+#         let x = v1 + v2 in e
+#
+#     so 
+#     
+#         (v1 + (v2 + v3))
+#     
+#     becomes
+#     
+#         let x = v2 + v3 in let x2 = v1 + x1 in e
+#
+#    "We decided to keep type annotations to a minimum, so they are added
+#     only where a simple type propagation traversal cannot inform them:
+#     mostly, function arguments.
+#
+#                                                                 ->
+#    "Expressions evaluate to a list of values, returned with RET v.
+#
+#          ->                                           ->
+#    "LET (x, e1, e2) executes e1, binds the results to x, then executes e2.
+#
+#          -->                                 
+#    "MUTUALLY_RECURSIVE_FNS (fun, e) defines a set of mutually recursive functions bound in
+#     the scope of e.  Each function has a name (a variable to which it is
+#     bound), a list of arguments with their type, and a body.
+#
+#                                                        ----->    ----->
+#    "The variable to which a function is bound has type sigma1 -> sigma2
+#           ----->                                                     -----> 
+#     where sigma1 is the list of types of the functions arguments and sigma2
+#     is the list of types of the function's return values.  
+#                                 ----->
+#    "For nonrecursive functions. sigma2 is inferred when needed
+#     by type reconstruction.
+#                              ----->
+#    "For recursive functions, sigma2 is recorded in the fkind part of the fundec.
+#           ->                                              ->
+#    "APPLY(v,v) appliess a function v to a list of arguments v.
+#
+#    "TYPEFUN(tfun,e) defines a type function tfun bound in the scope of e.
+#     A type function has a name (a variable to which it is bound), a
+#     list of type parameters with their kind, and a body.  The type of
+#     the variable to which the type function is bound is
+#                ------> ---->        ------>
+#         FORALL t:kappa.sigma  where t:kappa is the list of type arguments
+#                         ---->
+#     with their kind and sigma is the type of the return results.  Type
+#     functions are used to implement polymorphism.
+#            ---->                            ---->
+#    "APPLY_TYPEFUN(f,sigma) passes the type arguments sigma to the type function f.
+#     Type functions are sideeffect-free, so that any APPLY_TYPEFUN can freely be
+#     moved, copied or deleted.
+#             ----> 
+#    "CON(con,sigma,v,x,e) constructs a tagged value of constructor 'con'
+#     carrying the value v.  The result is then bound to x while executing e.
+#     ---->
+#     Sigma is the list of types used to instantiate the constructor in cases
+#     when it is typeagnostic.  CON is used when constructing sumtype elements.
+#     For example, when building an option value SOME v, 'con' is SOME and
+#     ---->                             ------>
+#     sigma is the type of v.  SWITCH(v,(con,e),e_def) jumps to the 'e' whose
+#     'con' matches the tag of 'v', or executes e_def if none of the branches
+#     match.  Additionally to jumping. SWITCH also extracts the value 'v'
+#     carried by the constructor 'con' and binds it to a free variable of e.
+#            ->                                   ->
+#    "RECORD(v,x,e) makes a tuple carrying values v, binds it to x, and
+#     executes 'e'.  Just as in SML, tuples are not mutable.
+#
+#    "SELECT(v,i,x.e) extracts the i'th element of tuple v, binds it to 'x'
+#     and executes 'e'.
+#             ----->
+#    "RAISE(v,sigma) raises an exception v.   Sigma is the type of the exxpression:
+#     since the expression does not return, we cannot infer its type otherwise.
+#
+#    "EXCEPT(e,v) executes e while the function v is temporarily used as an
+#     exceptoin handler.
+#               ->                                             ->
+#    "BASEOP(po,v,x,e) executes the primitive po with arguments v, bind the single
+#     result to x and then executes e.  Baseops include arithmetic options, REF-cell
+#     operations, array operations, and a lot more.
+#
+#    "In order to avoid problems of name capture, every variable name is unique
+#     and this invariant is preserved by alpha renaming whenever a piece of code
+#     is duplicated."
+#
+#     [...]
+#
+#
+#
+# (It may be helpful to read his description of nextcode form in
+#
+#      src/lib/compiler/back/top/nextcode/nextcode-form.api
+#
+# at this point, since the below picks up at the end of it.)
+#
+#
+#
+#
+#   "A-Normal Form keeps the requirement that all primitives take only an
+#    immediate value or a variable as argument and that they bind their
+#    result to a variable, so that primitive operations are sequentialized
+#    and all intermediate values are named, but it allows non-tail function
+#    calls.   The idea behind it is that, this way, the main structure of
+#    the code is kept and we do not need to introduce explicit fates.
+#
+#   "In terms of the definition of allowed terms, the difference between FPS
+#    and A-Normal Form is fairly small, and to a first approximation we could
+#    say that the main difference between the two is embodied in the LET forms
+#    which FPS would disallow.  For this reason, it is interesting to look at
+#    the kinds of codes that use LET.  Most uses of LET are removed by simple
+#    local rewriting, the rest fall into the following four cases:
+#
+#
+#            ->        -> 
+#        LET x = APPLY(v,v) IN e
+#            ->         ----> 
+#        LET x = APPLY_TYPEFUN(v,sigma) IN e
+#            ->
+#        LET x = EXCEPT(e1,v) IN e
+#            ->           ------>
+#        LET x = SWITCH(v,(con,e),e_def) IN e'
+#
+#   "Strictly speaking, we are not using A-Normal Form, because the A-Normal
+#    Form was defined such that the fourth case above was disallowed.  More
+#    specifically, it would have been turned into something of the form:
+#
+#
+#                             ->
+#        SWITCH(v,con1 => LET x = e1 IN e'
+#                             ->
+#                 con2 => LET x = e2 IN e'
+#                    ...
+#                             ->
+#                 connection => LET x = eN IN e'
+#                             ->
+#                 def  => LET x = edef IN e')
+#
+#   "Of course, such a transformation is naive since it blindly duplicates e'
+#    and will lead to uncontrolled code size explosion.
+#
+#   "We decided not to stick to strict A-Normal Form because it is not closed
+#    under beta-reduction.  In other words, if we replace an APPLY term by
+#    inlining the function, the resulting code might not be in strict A-Normal
+#    Form, so unless we are careful to always re-normalize the code instantly
+#    after inlining, we have to allow at least temporarily a de-normalized
+#    representation.  Neither FPS nor our loose A-Normal Form suffer from
+#    such a problem.
+#
+#  ADVANTAGES OF USING FPS
+#
+#   "The most obvious advantage of FPS is that returning from a function
+#    is done by a function call, so all optimizations written for function
+#    applications magically apply to function returns as well.  A lot of
+#    optimizations that come for free in FPS have to be explicitly handled
+#    in A-Normal Form, most notably:
+#
+#  o Inlining called-once functions in FPS subsumes the let-associativity
+#    rules in A-Normal Form.  Let-associativity is used by 'fcontract' and
+#    'lcontract' to normalize code by replacing the various forms of
+#
+#        let x1 = let x2 = e1 in e2 in e3
+#
+#    with
+#
+#        let x2 = e1 in let x1 = e2 in e3
+#
+# o Elimination of eta-redexes in FPS subsumes the elimination of
+#            ->           ->
+#        LET x = e IN RET x 
+#
+#   in A-Normal Form.
+#
+# o Eliminate of dead function arguments in FPS subsumes elimination of
+#   dead variable sin LET bindings in A-Normal Form.  (This is not
+#   fully implemented because it requires lots of extra processing.)
+#
+# o Removal of invariant function arguments in FPS subsumes the special
+#   code that detects tail-recursive loops, since it is nothing more than
+#   hoisting the fate argument out of the loop.  Also, the lack of
+#   GOTO in A-Normal Form means that tail-recursive loops need to be marked
+#   with an ad-hoc annotation, whereas the corresponding optimization in
+#   FPS is all done within the language with no need for special annotations.
+#
+# o Exception handling can be compiled away in FPS into plain functions and
+#   function calls, at which point function inlining subsumes elimination of
+#   RAISE inside an EXCEPT, dead function elimination subsumes dead handler
+#   elimination, and so on.  (The old FPS language does not compile exception
+#   handling away, so it does not take advantage of this.)
+#
+# o Function inlining in FPS subsumes path-splitting in ANF.  Path-splitting
+#   is an optimization that turns
+#
+#       let x = (if a then b else c) in e
+#
+#   into
+#
+#       if a then (let x = b in e) else (let x = c in e)
+#
+#   (We do not perform this optimization because it does not seem worth the effort.)
+#
+#   There are other circumstances where a FPS representation is more beneficial.
+#   The most obvious one is for exception handling:  the restricted control flow
+#   in ANF makes any kind of optimization of exception handling very difficult.
+#   Luckily the old optimizer performed only very limited optimization of exception
+#   handling, so the lack of any such optimization in the new optimizer does not
+#   penalize it too excessively. 
+#
+#   Another case where a FPS representation is helpful is with tail recursive
+#   loop exits, as in the example below:
+#
+#       fun loop x = if e1                       let k y = e
+#                    then e2          FPS        let loop x = if e1
+#                    else loop e3     ===>                    then k e2
+#       let y = loop v                                        else loop e3
+#       in e                                     in loop v
+#
+#   The direct-style version on the left does not make the connection
+#   between e2 and e explicit, whereas the FPS tranformation shows quite
+#   clearly that k canb e inlined to move e into the exit of the loop.
+#
+#   Our ANF optimizer does not attempt to recognize such cases.
+#
+#
+#
+#    ADVANTAGES OF USING A-NORMAL FORM
+#
+#   "Of course, an A-Normal Form representation of code has its own advantages.
+#    One is that in FPS, the return fate is just a higher-order function
+#    and there is no obvious indication of the fact that its use follows a special
+#    pattern: for example, if all the call sites of a function are known, then its
+#    fate argument can only contain values within a particular set and those
+#    fates will not be used anywhere else than in this function.
+#
+#   "Such constraints ensure that we can easily change the calling convention
+#    between this call site and the corresponding functions.  Optimizations that
+#    could take advantage of this include flattening of return values and elimination
+#    of dead or constant return values.  Indeed, the flattening phase in FPS did not
+#    flatten return values and it would have been difficult to extend it to do that,
+#    whereas a translation of that phase into ANF could have been naturally
+#    extended to flattenr eturn values.  As it turns out, we used a type-directed
+#    flattening algorithm, which is oblivious to such issues and would work
+#    just as well in a FPS representation.
+#
+#
+#
+#    IMPACT OF TYPES
+#
+#   "While porting those classical untyped optimizations from the untyped FPS
+#    language to the typed ANF, most of the work was unaffected by the addition
+#    of types.  But there were of course exceptions.  Types interact with the
+#    optimizer in several ways:
+#
+#  o Too many type annotations can make the compiler writer's life more difficult
+#    by having to do a lot of work to maintain those types through the various
+#    phases.  They can also lead to a slowdown of the compiler.
+#
+#  o Too few type annotations can make some optimizations difficult.  This can
+#    happen when the optimizations output requires more type annotations than
+#    the input, in which case some type inference is needed.
+#
+#  o Additional terms that manipulate types such as APPLY_TYPEFUN or TYPEFUN make the
+#    optimizer more complex and potentially slower, but more importantly they
+#    can hide or prevent optimizations.
+#
+#  o Types can provide additional information which can enable more optimizations.
+#    this is rather rare int he context of traditional untyped optimizations.
+#
+#   "Here are in no particular order the concrete ways in which types influenced
+#    the ANF optimizer:
+#
+#  o Manipulating types can be costly.  We encountered cases whre we used types
+#    naively in the flattening code, which lead to exponential code blow-up in
+#    some cases.  The problem was that we traversed our types as if they were
+#    trees, isntead of being careful to traverse them as graphs to benefit
+#    from the large amount of sharing.
+#                     ---->
+#  o LET[x] = RAISE(y,sigma) IN e:  In code such as this, e is clearly dead
+#    and we should be able to replace the whole expression with RAISE(y,xsigma').
+#                             ---->
+#    The problem here is that sigma' is the type of the values returned by e
+#    and this type is not readily available.  Because of this problem our ANF
+#    optimizer does not perform dead code elimination for the above code.
+#    There are many ways to solve this problem, from removing the type
+#    annotation on RAISE to adding type annotations at other places, but my
+#    favorite solution is probably to use a FPS representation of the code,
+#    in which case this dead code elimination comes for free.
+#
+#  o LET x0 = SELECT(x,0)...LET xn = SELECT(x,n) IN RECORD(x0, ...xn): To
+#    replace this record construction with just a reference to x we need to
+#    ensure that x is of size n.  This only works if we have the corresponding
+#    type information.  Our ANF optimizer does perform this optimization when
+#    the type information is easily accessible.  It is not often useful, but
+#    it can help when flattening over-enthusiastically.  This optimization might
+#    also be considered valid even if the size of x is not n (i.e., even with
+#    no type information), but it can lead to memory leaks.
+#
+#  o Our original ANF version used DeBruijn indices in its representation of
+#    types.  This meant that moving code into or out of a TYPEFUN term required
+#    adjusting all the embedded type annotations.  This was sufficiently
+#    tricky that I decided at first to temporarily disallow function inlining
+#    into a TYPEFUN.  Later Christopher League changed the type representation
+#    to use named variables for type variables bound by TYPEFUN, while still
+#    keeping DeBruijn indices for type variables bound inside the types
+#    themselves.  Thanks to this, our ANF optimizer now ignores DeBruijn
+#    indices and inlines into TYPEFUN terms.
+#
+#  o Inlining TYPEFUN terms is difficult:  There are several problems at play here.
+#    First is the fact that the classical inlining heuristics are designed
+#    for functions that take actual values as arguments and use them actively
+#    in their body.  These heuristics work poorly for functions of no arguments,
+#    which is how TYPEFUN would be treated.  But beyond this, in the case of our ANF,
+#    inlining a TYPEFUN is made more difficult by the fact that we may need to do
+#    flattening since we are instantiating the type variable.  Because of this,
+#    'fcontract' never inlines TYPEFUN.  On the other dhand, 'specialize' does
+#    properly eliminate any TYPEFUN that is called only once.
+#
+#  o TYPEFUN hides its content, preventing other optimizations, such as in the
+#    following casea
+#
+#        TYPEFUN f [t:OMEGA] = MUTUALLY_RECURSIVE_FNS g [x:sigma_x] = ...
+#                          MUTUALLY_RECURSIVE_FNS h [y:sigma_y] = ...
+#                          IN RET [g.h]
+#        ...
+#        LET [g,h] = APPLY_TYPEFUN(f,[sigma])
+#                     ->
+#        IN ... APPLY(g,v)...
+#
+#    In an untyped setting, both g and h would be defined at the top level
+#    rather than inside f, so if g is a small inlinable function, it gets
+#    inlined as a matter of course.  But the presence of TYPEFUN hides this and
+#    the ANF optimizer will miss this opportunity.  Maybe the \-splitting
+#    code coudl be reused to solve those cases.
+#
+#    "The trick of spreading flattening from flintnm to wrap through
+#     several other phases is probably not worth the effort.  It seems
+#     like it would be better to do it once and for all in 'wrap' so
+#     the other phases can manipulate code more freely.
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 

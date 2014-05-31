@@ -1,0 +1,249 @@
+## spawn.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+# This is a threadkit version of the
+# UNIX interface that is provided by lib7.
+
+
+
+
+###            "If your happiness depends on what somebody else does,
+###             I guess you do have a problem."
+###
+###                                       -- Richard Bach
+
+
+# XXX BUGGO FIXME any concurrent code referencing 'exec' or 'Exec'
+#                 probably needs to be fixed to reference 'spawn' or 'Spawn' respectively
+
+stipulate
+    package drv =  winix_text_file_io_driver_for_posix;			# winix_text_file_io_driver_for_posix		is from   src/lib/std/src/posix/winix-text-file-io-driver-for-posix.pkg
+    package mop =  mailop;						# mailop					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+    package mps =  microthread_preemptive_scheduler;			# microthread_preemptive_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    package pd  =  process_deathwatch;					# process_deathwatch				is from   src/lib/src/lib/thread-kit/src/process-deathwatch.pkg
+    package tkf =  file;						# file						is from   src/lib/std/src/posix/file.pkg
+    #
+    package is  =  interprocess_signals;				# interprocess_signals				is from   src/lib/std/src/nj/interprocess-signals.pkg
+    package pp  =  posixlib;						# posixlib					is from   src/lib/std/src/psx/posixlib.pkg
+    package pe  =  posixlib;
+    package pf  =  posixlib;
+    package pio =  posixlib;
+    package psx =  posixlib;						# posixlib					is from   src/lib/std/src/psx/posixlib.pkg
+    package ss  =  substring;						# substring					is from   src/lib/std/substring.pkg
+herein
+
+    package   spawn
+    : (weak)  Spawn							# Spawn					is from   src/lib/std/src/posix/spawn.api
+    {
+	fun protect f x
+	    =
+	    {   is::mask_signals is::MASK_ALL;
+		#
+		y = (f x)
+		    except ex
+			=
+			{   is::unmask_signals  is::MASK_ALL;
+			    raise exception ex;
+			};
+
+		is::unmask_signals  is::MASK_ALL;
+
+		y;
+	    };
+
+	fun fd_reader (filename:  String, fd:  pio::File_Descriptor)
+	    =
+	    drv::make_filereader { filename, fd };
+
+	fun fd_writer (filename, fd)
+	    =
+	    drv::make_filewriter
+		{
+		  filename,
+		  fd,
+		  append_mode     =>  FALSE,
+		  best_io_quantum =>  4096
+		};
+
+	fun open_out_fd (filename, fd)
+	    =
+	    tkf::make_outstream
+	      (
+		tkf::pur::make_outstream
+		  (
+		    fd_writer (filename, fd),
+		    io_exceptions::BLOCK_BUFFERING
+		  )
+	      );
+
+	fun open_in_fd (filename, fd)
+	    =
+	    tkf::make_instream
+	      (
+		tkf::pur::make_instream
+		  (
+		    fd_reader (filename, fd),
+		    ""
+		  )
+	      );
+
+	Process
+	    =
+	    PROCESS  {
+		pid:           pp::Process_Id,
+		from_stream:   tkf::Input_Stream,
+		to_stream:     tkf::Output_Stream
+	    };
+
+
+	fun spawn_process_in_environment (cmd, argv, env)		# XXX SUCKO FIXME This should be upgraded per src/lib/std/src/posix/spawn--premicrothread.pkg
+	    =
+	    {   p1 = pio::make_pipe ();
+		p2 = pio::make_pipe ();
+
+		fun close_pipes ()
+		    =
+		    {   pio::close  p1.outfd; 
+			pio::close  p1.infd;
+			pio::close  p2.outfd; 
+			pio::close  p2.infd;
+		    };
+
+		base = ss::to_string
+			   (ss::get_suffix
+			       {. #c != '/'; }
+			       (ss::from_string cmd)
+			   );
+
+		fun start_child ()
+		    =
+		    case (protect pp::fork ())
+			#
+			THE pid =>   pid;           #  parent 
+			#
+			NULL =>
+			    {   oldin  = p1.infd;	    newin  =  psx::int_to_fd 0;
+				oldout = p2.outfd;	    newout =  psx::int_to_fd 1;
+
+				pio::close p1.outfd;
+				pio::close p2.infd;
+
+				if (oldin != newin)
+				    #
+				    pio::dup2 { old => oldin, new => newin };
+				    pio::close oldin;
+				fi;
+
+				if (oldout != newout)
+				    #
+				    pio::dup2 { old => oldout, new => newout };
+				    pio::close oldout;
+				fi;
+
+				pp::exece (cmd, base ! argv, env)
+				except
+				    ex = # The exec failed, so we
+					 # need to shut down the child:
+					 #
+					 pp::exit 0u128;
+			     };
+		    esac;
+
+		tkf::flush  tkf::stdout;
+
+		pid = {
+			mps::stop_thread_scheduler_timer();
+			start_child () then
+			mps::restart_thread_scheduler_timer();
+		      }
+		      except
+			  whatever_exception
+			    =
+			    {   mps::restart_thread_scheduler_timer();
+				close_pipes();
+				raise exception  whatever_exception;
+			    };
+
+		from_stream =  open_in_fd  (base + "_exec_in",  p2.infd);
+		to_stream   =  open_out_fd (base + "_exec_out", p1.outfd);
+
+		# Close the child-side fds 
+		#
+		pio::close  p2.outfd;
+		pio::close  p1.infd;
+
+		# Set the fds close on exec:
+		# 
+		pio::setfd (p2.infd, pio::fd::flags  [ pio::fd::cloexec ]);
+		pio::setfd (p1.outfd, pio::fd::flags [ pio::fd::cloexec ]);
+
+		PROCESS { pid, from_stream, to_stream };
+	    };
+
+	fun spawn_process (cmd, argv)
+	    =
+	    spawn_process_in_environment (cmd, argv, pe::environment());
+
+
+
+	fun streams_of (PROCESS { from_stream, to_stream, ... } )
+	    =
+	    (from_stream, to_stream);
+
+	fun spawn  cmd
+	    =
+	    {   process =  spawn_process  cmd;
+		#
+		(streams_of  process)
+		    ->
+		    (from_stream, to_stream);
+
+		{ from_stream, to_stream, process };
+	    };
+
+
+	fun kill (PROCESS { pid, ... }, signal)
+	    =
+	    pp::kill (pp::K_PROC pid, signal);
+
+
+	fun reap_mailop (PROCESS { pid, from_stream, to_stream } )
+	    =
+	    {
+microthread_preemptive_scheduler::assert_not_in_uninterruptible_scope "reap_mailop";
+		log::uninterruptible_scope_mutex := 1;
+		#
+		pd::start_child_process_deathwatch  pid
+		then
+		    log::uninterruptible_scope_mutex := 0;
+	    };
+
+	reap =  mop::block_until_mailop_fires  o  reap_mailop;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

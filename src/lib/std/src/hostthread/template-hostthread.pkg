@@ -1,0 +1,178 @@
+## template-hostthread.pkg
+#
+# Skeleton code for a persistent server hostthread.
+# The intention is to simplify construction of
+# new server hostthreads via clone-and-mutate.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+
+###		"The thing about smart people is that
+###		 they seem like crazy people to dumb people."
+###
+###				        -- Anon
+###
+###              (And vice versa, unfortunately.)
+
+
+stipulate
+    package fil =  file__premicrothread;					# file__premicrothread			is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package hth =  hostthread;							# hostthread				is from   src/lib/std/src/hostthread.pkg
+    package wxp =  winix__premicrothread::process;				# winix__premicrothread::process	is from   src/lib/std/src/posix/winix-process--premicrothread.pkg
+herein
+
+    package template_hostthread
+    :       Template_Hostthread							# Template_Hostthread			is from   src/lib/std/src/hostthread/template-hostthread.api
+    { 
+	pid = REF 0;								# pid of current process while server is running, otherwise zero.
+
+	fun is_running ()
+	    =
+	    (*pid != 0  and   *pid == wxp::get_process_id ());			# This way, if the heap gets dumped to disk and then and reloaded, is_running() will
+										# (correctly) return FALSE, even though pid may not have gotten zeroed.
+	mutex   =  hth::make_mutex   (); 
+	condvar =  hth::make_condvar ();  
+
+	# One record for each request
+	# supported by the server:
+	#
+	Do_Stop =  { who:  String,	reply: Void   -> Void };
+	Do_Echo =  { what: String,	reply: String -> Void };
+
+	Request =  DO_STOP  Do_Stop						# Union of above record types, so that we can keep them all in one queue.
+		|  DO_ECHO  Do_Echo
+		; 
+
+	request_queue =  REF ([]: List(Request)); 				# Queue of pending requests from client hostthreads.
+
+	fun request_queue_is_empty ()						# We cannot write just    fun request_queue_is_empty () =  (*request_queue == []);
+	    =									# because Request is not an equality type. (The 'reply' fields are functions
+	    case *request_queue    [] => TRUE;					# and Mythryl does not support comparison of functions for equality.)
+	                           _  => FALSE;
+	    esac;
+
+
+
+	fun do_stop (r: Do_Stop)						# Internal fn -- will execute in context of server hostthread.
+	    =
+	    {   r.reply ();
+		#
+		log::note  {. "src/lib/std/src/hostthread/template-hostthread.pkg: Shutting down per request from '" + r.who + "'."; };
+		#
+		pid := 0;
+		#
+		hostthread::hostthread_exit ();		
+	    };
+
+
+	fun do_echo (r: Do_Echo)						# Internal fn -- will execute in context of server hostthread.
+	    =
+	    r.reply  r.what;
+
+
+
+	###############################################
+	# The rest of the file is mostly boilerplate:
+	###############################################
+
+	fun stop  (request: Do_Stop)						# External fn -- will execute in context of client hostthread.
+	    = 
+	    { 
+		hth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_STOP request)  !  *request_queue; 
+		    # 
+		hth::release_mutex mutex;  
+
+		hth::broadcast_condvar condvar;  
+	    };           
+
+	fun echo  (request: Do_Echo)						# External fn -- will execute in context of client hostthread.
+	    = 
+	    { 
+		hth::acquire_mutex mutex;  
+		    # 
+		    request_queue :=  (DO_ECHO request)  !  *request_queue; 
+		    # 
+		hth::release_mutex mutex;  
+
+		hth::broadcast_condvar condvar;  
+	    };           
+
+	fun get_new_requests  () 
+	    = 
+	    { 
+		hth::acquire_mutex mutex;  
+		    # 
+		    for (request_queue_is_empty()) {
+			#
+			hth::wait_on_condvar (condvar, mutex);
+		    };
+
+		    new_requests  = *request_queue; 			# 'reverse' to restore original request ordering.
+		    # 
+		    request_queue := []; 
+		    # 
+		hth::release_mutex  mutex;  
+		# 
+		reverse  new_requests; 
+	    };           
+
+	fun server_loop () 
+	    = 
+	    {   service_requests (get_new_requests()); 
+		#
+		server_loop (); 
+	    } 
+	   where 
+		fun service_requests  [] 
+			=> 
+			(); 
+
+		    service_requests  (request ! rest) 
+			=> 
+			{   service_request request; 
+			    #
+			    service_requests rest; 
+			} 
+			where 
+			    fun service_request (DO_STOP r) =>  do_stop r; 
+				service_request (DO_ECHO r) =>  do_echo r;
+			    end; 
+			end;
+		end; 
+	    end; 
+
+	fun start who
+	    =
+	    {
+		my_pid =  wxp::get_process_id ();
+
+		hth::acquire_mutex mutex;  
+		#
+		if (is_running ())
+		    #
+		    hth::release_mutex  mutex;  
+		    #
+		    FALSE;
+		else
+		    pid :=  my_pid;
+		    #
+		    hth::release_mutex  mutex;  
+		    #
+		    log::note  {. "src/lib/std/src/hostthread/template-hostthread.pkg: Starting up server loop in response to '" + who + "'."; };
+		    #
+		    hth::spawn_hostthread  server_loop;
+		    #
+		    TRUE;
+		fi;
+	    };
+
+    };
+
+end;
+
+## Code by Jeff Prothero: Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

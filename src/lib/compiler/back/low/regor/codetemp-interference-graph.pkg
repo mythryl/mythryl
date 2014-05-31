@@ -1,0 +1,391 @@
+# codetemp-interference-graph.pkg								"regor" is a contraction of "register allocator"
+#
+# The core datastructure for our register allocator.
+#
+# For register allocator background see comments in:
+#
+#     src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+#
+# For interference-graph background see comments in:
+# 
+#     src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+stipulate
+    package geh =  graph_by_edge_hashtable;					# graph_by_edge_hashtable	is from   src/lib/std/src/graph-by-edge-hashtable.pkg
+    package iht =  int_hashtable;						# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;							# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    package   codetemp_interference_graph
+    : (weak)  Codetemp_Interference_Graph					# Codetemp_Interference_Graph	is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+    {
+	Priority = Float;
+
+	Program_Point								# This represents a program point in the program.
+	  =									# The last op in the block is numbered 1, i.e. the op
+	  {									# numbering is in reverse.  The number 0 is reserved for "live-out".
+	    block:	Int,
+	    op:		Int
+	  }; 
+
+					
+	# Used (e.g.) to track spills, reloads and kills in
+	#
+	#     src/lib/compiler/back/low/regor/register-spilling-g.pkg
+	#
+	package ppt_hashtable
+	    =
+	    typelocked_hashtable_g (						# typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
+		#
+		Hash_Key = Program_Point;
+
+		fun hash_value { block, op }
+		    = 
+		    unt::(<<) (unt::from_int block, 0u7) + unt::from_int op;
+
+		fun same_key (x: Program_Point, y)
+		    =
+		    x == y;
+	    );
+
+	Frame_Offset     =  Int;
+	Logical_Spill_Id =  Int;
+
+	Spill_To
+	  = SPILL_TO_FRESH_FRAME_SLOT	Logical_Spill_Id			# Spill to a new frame location.
+	  | SPILL_TO_RAMREG		rkj::Codetemp_Info			# Spill to a ram register.
+	  ;
+
+	# Used (only) in:
+	#
+	#     src/lib/compiler/back/low/main/main/spill-table-g.pkg
+	#
+	# So far as I can tell, this package is not used at all on Intel32;
+	# package stack_spills_intel32 appears to substitute:			# stack_spills_intel32		is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	# 
+	#
+	package spill_loc_hashtable
+	    =
+	    typelocked_hashtable_g ( 
+		#
+		Hash_Key = Spill_To;
+
+		fun hash_value (SPILL_TO_FRESH_FRAME_SLOT  i) =>  unt::from_int i;
+		    hash_value (SPILL_TO_RAMREG r) =>  rkj::register_to_hashcode r;
+		end;
+
+		fun same_key (SPILL_TO_FRESH_FRAME_SLOT i,   SPILL_TO_FRESH_FRAME_SLOT j) =>   i == j;
+		    same_key (SPILL_TO_RAMREG           x,   SPILL_TO_RAMREG           y) =>   rkj::codetemps_are_same_color (x, y);
+		    same_key _ => FALSE;
+		end;
+	    );
+
+	Cost = Float;
+	Mode = Unt;
+
+	Codetemp_Interference_Graph
+	    = 
+	    CODETEMP_INTERFERENCE_GRAPH
+	      {
+		edge_hashtable:			Ref( geh::Graph_By_Edge_Hashtable ),			# Maps (node_id1, node_id2) -> TRUE iff edge exists in inteference graph. Redundant with NODE.interferes_with lists -- but faster.
+		node_hashtable:			iht::Hashtable( Node ),					# Maps node ID to node; serves as set-of-all-nodes.
+
+		hardware_registers_we_may_use:	Int,							# See comment in    src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+		codetemp_id_if_above:		Int,							# See comment in    src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+		is_globally_allocated_register_or_codetemp:		Int -> Bool,						# See comment in    src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+
+
+		# See comments in   src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+		#
+		pick_available_hardware_register:	{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Speedhack: register is taken iff:   register_is_taken[ register ] == true_value
+		pick_available_hardware_registerpair:	{   preferred_registers:  List(Int),   register_is_taken: rwv::Rw_Vector(Int),   true_value: Int }   ->   Int,	# Stillborn idea; field is never used.
+
+		# See comments in   src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+		#
+		register_is_taken:		rwv::Rw_Vector( Int ),
+		true_value:			Ref( Int ),
+
+		#  Info to undo a spill when an optimistic spill has occurred 
+		spill_flag:		Ref( Bool ),
+		spilled_regs:		iht::Hashtable( Bool ),
+		trail:			Ref( Trail_Info ),
+
+		show_reg:		rkj::Codetemp_Info -> String,
+
+		get_next_codetemp_id_to_allot:		Void -> Int,
+
+		dead_copies:		Ref(  List(rkj::Codetemp_Info) ),
+
+		copy_tmps:		Ref(  List(  Node ) ),
+		mem_moves:		Ref(  List(  Move ) ),
+		ramregs:		Ref(  List(  Node ) ),
+
+		spill_loc:		Ref( Int ),
+		span:			Ref( Null_Or( iht::Hashtable( Cost ) ) ),
+		mode:			Mode,
+		pseudo_count:		Ref( Int )
+	      }
+
+	also
+	Move_Status
+	  = BRIGGS_MOVE
+	  | GEORGE_MOVE
+	  | COALESCED
+	  | CONSTRAINED
+	  | LOST
+	  | WORKLIST
+
+	also
+	Move
+	    = 
+	    MOVE_INT
+	      {
+		src_reg:  Node,			# Source register of move 
+		dst_reg:  Node,			# Destination register of move 
+		cost:  Cost,			# Cost 
+		status:  Ref( Move_Status ),	# Coalesced? 
+		hicount: Ref( Int )		# Neighbors of high degree 
+	      }
+
+	also
+	Node_Status
+	  = CODETEMP				# Code temporary awaiting assignment to a register (or being spilled to ram).
+	  | REMOVED				# Removed from the interference graph 
+	  | ALIASED  Node			# Coalesced.
+	  | COLORED  Int			# Colored.
+	  | RAMREG  (Int, rkj::Codetemp_Info)	# "register" implemented in ram. (Because x86 architecture is so register-starved.)
+	  | SPILLED				# Spilled.
+	  | SPILL_LOC  Int			# Spilled at logical location.
+
+	also
+	Node =  NODE							# "Node" == "Register".
+		  { id:			Int,				# Node ID.
+		    register:		rkj::Codetemp_Info,
+
+		    movecnt:		Ref( Int ),			# Number of moves in which this node is involved.
+		    movelist:		Ref( List(Move) ),		# Moves associated with this node.
+
+		    degree:		Ref( Int ),			# Current degree.
+		    color:		Ref( Node_Status ),		# Status.
+
+		    interferes_with:	Ref(  List(Node) ),		# This is the list of nodes with which we cannot share a physical register (because we are live at the same time).
+
+		    priority:		Ref( Priority ),       		# priority. 
+
+		    movecost:		Ref( Cost ),      		# Move cost.
+		 #  pair:		Bool,              		# register pair? 
+
+		    defs:		Ref( List(Program_Point) ),
+		    uses:		Ref( List(Program_Point) )
+		  }
+
+	also
+	Trail_Info
+	  = END
+	  | UNDO  (Node, Ref( Move_Status ), Trail_Info)
+	  ;
+
+	exception NODES;
+
+	fun error msg =   lem::error("codetemp-interference-graph", msg);
+
+	stamp_counter = REF 0;								# More icky thread-hostile global mutable state. XXX SUCKO FIXME.
+				# Is there any reason for stamp_counter to be global
+				# rather than one per codetemp_interference_graph??? XXX SUCKO FIXME
+
+	max = unt::(<<) (0u1, unt::(>>) (unt::from_int unt::unt_size, 0u1)); 		# 1 << (unt_size >> 1) -- this should set just the high bit in the word.
+											# This is a nice way of avoiding an issue with 32- vs 64-bit machines.
+									my _ =
+	if (max < unt::(<<) (0u1, 0u15))   error "word size too small";   fi;
+
+	stipulate
+	    fun round_size  size								# This appears to return the smallest power of two >= than 'size'; second result is half(?!) that power.
+		= 
+		f (64, 0u6)
+		where
+		    fun f (x, shift)
+			=
+			if (x >= size)   (x, unt::(>>) (shift, 0u1));
+			else             f (x+x, shift+0u1);
+			fi;
+		end;
+	herein
+
+	    # This is called (only) locally and from
+	    #
+	    #     src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+	    #
+	    fun make_edge_hashtable
+		  {
+		    hashchains_count_hint,						# A guess as to how many edges the graph will have. Currently nodecount * 16.
+		    max_codetemp_id							# Actually returns the max codetemp id in use +1; we don't usually care about one more or less.
+		  }
+		=
+		geh::GRAPH_BY_EDGE_HASHTABLE { table, edge_count=>REF 0 }
+		where
+		    table
+			=
+			{   # if max_codetemp_id < 1024 then
+			    # let denseBytes  = (max_codetemp_id * (max_codetemp_id + 1) + 15) div 16
+			    # in  GRAPH_BY_EDGE_HASHTABLE (rw_vector_of_one_byte_unts::rw_vector (denseBytes, 0u0))
+			    # end 
+			    # else
+
+			    (round_size  hashchains_count_hint)
+				->
+				(table_size, shift);
+
+
+			    maxregs =  unt::from_int  max_codetemp_id;
+
+			    if (maxregs < max)   geh::SMALL (REF (rwv::make_rw_vector (table_size,       [])), shift);
+			    else                 geh::LARGE (REF (rwv::make_rw_vector (table_size, geh::NIL)), shift);
+			    fi;
+			};
+		end;
+	end;
+
+
+	# This fun is called (only) in:
+	#
+	#     src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+	#
+	fun issue_codetemp_interference_graph
+	      {
+	        node_hashtable,							# Maps node ids to node records, serves as our list-of-all-existing-nodes. ("node" == "codetemp").
+		hardware_registers_we_may_use,					# E.g. 6 int regs on intel32.  Number of colors for our graph-colorer -- this number is the center of our life during register allocation.
+		codetemp_id_if_above,
+		is_globally_allocated_register_or_codetemp,			# Identifies globally allocated registers like the stackpointer, which the register allocator is not allowed to play with.
+		spill_loc,
+		pick_available_hardware_register,				# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+		pick_available_hardware_registerpair,				# Dummy value; stillborn idea.
+		show_reg,
+		get_next_codetemp_id_to_allot,					# Returns highest codetemp id yet allotted, +1. In practice this is roughly 512 + nodes_to_color.
+		nodes_to_color,							# See comment in src/lib/compiler/back/low/regor/codetemp-interference-graph.api
+		register_is_taken,
+	        ramregs,
+		mode
+	      }
+	    =
+	    CODETEMP_INTERFERENCE_GRAPH
+	      {
+		edge_hashtable    => REF edge_hashtable,
+		node_hashtable,
+		hardware_registers_we_may_use,
+		codetemp_id_if_above,
+		is_globally_allocated_register_or_codetemp,
+		pick_available_hardware_register,
+		pick_available_hardware_registerpair,
+		register_is_taken,
+		true_value        => stamp_counter,
+		spill_flag    => REF FALSE,
+		spilled_regs  => iht::make_hashtable  { size_hint => 2,  not_found_exception => NODES },
+		trail         => REF END,
+		show_reg      => \\ _ = raise exception MATCH,			# WTF? Why are we ignoring our input show_reg arg, and what is the point of an always-broken fn here??? XXX SUCKO FIXME.
+		get_next_codetemp_id_to_allot,
+		dead_copies   => REF [],
+		copy_tmps     => REF [],
+		mem_moves     => REF [],
+		ramregs       => REF ramregs,
+		spill_loc,
+		span          => REF NULL,
+		mode,
+		pseudo_count  => REF 0
+	      }
+	    where	
+		# I believe the contents of this hashtable are logically redundant with
+		# those of the interferes_with adjacency-lists in the main graph, the
+		# critical difference being that checking for existence of an edge in
+		# edge_table is a fast O(1) op, while doing the same is a slow O(N) op,
+		# for a node with an inteferes_with list of length N. In short, a speedhack:
+		#
+		edge_hashtable
+		    =
+		    make_edge_hashtable
+		      {
+			hashchains_count_hint => nodes_to_color * 16,			# We typically average about 16 interference-graph edges per register;  sometimes the average goes as high as 40.
+			#								# The '16' constant shouldn't be buried in the code like this; should be in a tweakable-parameters package somewhere. XXX SUCKO FIXME.
+			#
+			max_codetemp_id       => get_next_codetemp_id_to_allot ()	# This is used to decide whether it is safe (possible) to pack two node ids in one 32-bit word.
+		      };
+
+		fun make_ramreg_nodes  ramregs					# Make ram-register nodes.
+		    =
+		    loop (ramregs, [])
+		    where
+			note_new_node = iht::set  node_hashtable;		# Enter new node into our node hashtable, indexed by its node ID.
+
+			fun loop (ramreg ! rest,  ramreg_nodes)			# First arg is input list; second arg is resultlist.
+				=> 
+				{   ramreg_id
+					=
+					rkj::interkind_register_id_of
+					    #
+					    ramreg;
+
+				    ramreg_node
+					=
+					NODE
+					  { id			=>  ramreg_id,
+					    # 	
+					    interferes_with	=>  REF [],
+					    defs		=>  REF [],
+					    uses		=>  REF [],
+					    movelist		=>  REF [],
+					    # 	
+					    priority		=>  REF 0.0,
+					    movecost		=>  REF 0.0,
+					    # 	
+					    degree		=>  REF 0,
+					    movecnt		=>  REF 0,
+					    # 	
+					    color		=>  REF (RAMREG (ramreg_id, ramreg)), 
+					    register		=>  ramreg
+					  };
+
+				    note_new_node (ramreg_id, ramreg_node);
+
+				    loop (rest,  ramreg_node ! ramreg_nodes);
+				};
+
+			    loop ([], ramreg_nodes)
+				=>
+				ramreg_nodes;
+			end;
+		    end;			# fun make_ramreg_nodess
+
+
+		ramregs = make_ramreg_nodes  ramregs;
+
+		if (*stamp_counter > 10000000)
+		     stamp_counter := 0;
+		fi;
+
+	    end;				# fun issue_codetemp_interference_graph
+
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

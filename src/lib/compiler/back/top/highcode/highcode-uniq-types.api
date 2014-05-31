@@ -1,0 +1,295 @@
+## highcode-uniq-types.api 
+#
+# Common-typeexpression merging for lambdacode, anormcode and nextcode.
+#
+# The top (i.e., machine-independent) half of the Mythryl compiler
+# backend carries (simplified) type information along with the code it
+# manipulates, so whenever code is transformed or synthesized, associated
+# type expressions must also be transformed or synthesized.
+#
+# Naively done, this can result in ram bloat due to common types being
+# replicated hundreds of times, so we here define a hashing scheme so
+# that we can re-use (instead of re-invent) pre-existing type expressions.
+#
+# To further save ram, we reduce type expressions to normal form
+# before hashing, so as to avoid storing semantically equivalent
+# but syntactically different type expressions.
+#
+# Together, empirically, these techniques can reduce ram usage by
+# factors of up to x80 or so.
+#
+#
+# For higher-level comments and external interface see:
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+#     src/lib/compiler/back/top/highcode/highcode-type.api
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+# Here we implement the backend tophalf type reprentation
+# used in conjunction with all three of the tophalf code
+# representions:
+#
+#     lambdacode_form  src/lib/compiler/back/top/lambdacode/lambdacode-form.api
+#     anormcode_form   src/lib/compiler/back/top/anormcode/anormcode-form.api
+#     nextcode_form    src/lib/compiler/back/top/nextcode/nextcode-form.api
+
+# Nomenclature, background and motivation:
+#
+#    "cons" is the traditional Lisp operator
+#           to construct a list cell:
+#           Mythryl "element . list" == Lisp "(cons element list)".
+#
+#    "hash-consing" is the traditional Lisp name
+#           for a technique in which duplicate
+#           lists are avoided by keeping a hash
+#           table containing  every list cell
+#           created;  if 'cons' is asked to construct
+#           a duplicate of a cell in the hashtable,
+#           it returns the pre-existing cell rather
+#           than creating a new one.
+#
+#           Hash-consing can potentially save an
+#           exponential amount of space relative to
+#           vanilla consing due to sharing of subtrees.
+#
+#           Hash-consing can also be useful for such
+#           things as common sub-expression elimination,
+#           by merging common sub-expressions.
+#           
+# More generally, "hash-consing" is used to refer to
+# any similar avoidance of duplicated datastructure subtrees.
+#
+# Here we implement hash-consed versions of
+#
+#     Kind,
+#     Type and
+#     Typoid
+#
+# The highcode-form.api / highcode-form.pkg interface hides the
+# hash-consing mechanics from our code clients.
+
+
+###              "Intellect annuls Fate. So far
+###               as a man thinks, he is free."
+###
+###                       -- Ralph Waldo Emerson
+
+
+
+stipulate
+    package di  =  debruijn_index;									# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package hbt =  highcode_basetypes;									# highcode_basetypes		is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+    package tmp =  highcode_codetemp;									# highcode_codetemp		is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+herein
+
+    api Highcode_Uniq_Types {
+
+	# The opaque types we export:
+	#
+	Token;												# A hook to add new Type.
+	Uniqkind;
+	Uniqtypoid;											# 
+	Uniqtype;
+	Uniqtype_Dictionary;
+
+	# Definitions of kind and kind-dictionary:
+	#
+	# Kinds are really only used in:
+	#
+	#     src/lib/compiler/back/top/highcode/highcode-form.pkg
+	#
+	package kind: api {
+	    Kind
+	      = PLAINTYPE										# Ground typelocked type. 
+	      | BOXEDTYPE										# Boxed/tagged type.
+	      | KINDSEQ   List(Uniqkind)								# Sequence of kinds.
+	      | KINDFUN  (List(Uniqkind), Uniqkind)							# Kind function.
+	      ;
+	};
+	Kind =  kind::Kind;
+
+
+
+	# Definitions of Type and Typoid-dictionary:
+	# 
+
+	Calling_Convention										# Calling conventions
+	  #
+	  = FIXED_CALLING_CONVENTION									# Used after representation analysis.
+	  # 
+	  | VARIABLE_CALLING_CONVENTION									# Used prior to representation analysis.
+	      { arg_is_raw:	Bool,
+		body_is_raw:	Bool
+	      }	
+	  ;
+
+	Useless_Recordflag = USELESS_RECORDFLAG;							# tuple kind: a template.  (Appears to be something someone started but didn't finish -- CrT)
+
+	package type: api { 										# SML/NJ calls this "tycon" ("type constructor").
+	    #
+	    # Note that a TYPEFUN is a type -> type compiletime function,
+	    # whereas an ARROW_TYPE represents a value -> value runtime function.
+	    #
+	    Type
+	      = DEBRUIJN_TYPEVAR	(di::Debruijn_Index, Int)				# Type variable.
+	      | NAMED_TYPEVAR		 tmp::Codetemp						# Named type variable.
+	      | BASETYPE		 hbt::Basetype						# Base type -- Int, String etc.
+	      #
+	      | TYPEFUN			(List(Uniqkind), Uniqtype)				# Type abstraction.
+	      | APPLY_TYPEFUN		(Uniqtype, List(Uniqtype))				# Type application.
+	      #
+	      | TYPESEQ			 List( Uniqtype )					# Type sequence.
+	      | ITH_IN_TYPESEQ		(Uniqtype, Int)						# Type projection.
+	      #
+	      | SUM			List(Uniqtype)						# Sum type.
+	      | RECURSIVE		((Int, Uniqtype, List(Uniqtype)), Int)			# Recursive type.
+	      #
+	      | TUPLE			(Useless_Recordflag, List(Uniqtype))           		# Standard record Type 
+	      | ARROW			(Calling_Convention, List(Uniqtype), List(Uniqtype)) 	# Standard function Type 
+	      | PARROW			(Uniqtype, Uniqtype)      				# Special fun Type, not used 
+	      #
+	      | BOXED			 Uniqtype               				# Boxed Type 
+	      | ABSTRACT		 Uniqtype						# Abstract Type -- not used.
+	      | EXTENSIBLE_TOKEN	(Token, Uniqtype) 					# extensible token Type 
+	      | FATE			 List(Uniqtype)						# Standard fate Type 
+	      | INDIRECT_TYPE_THUNK	(Uniqtype, Type)          				# Indirect Type thunk 
+	      | TYPE_CLOSURE 		(Uniqtype, Int, Int, Uniqtype_Dictionary)      		# Type closure 
+	      ;
+	};
+	Type = type::Type;
+
+	# Definition of Uniqtypoid:
+	#
+	package typoid: api {
+	    Typoid          
+	      = TYPE			 Uniqtype						# Typelocked type.
+	      | PACKAGE			 List(Uniqtypoid)					# Package type.
+	      | GENERIC_PACKAGE		(List(Uniqtypoid), List(Uniqtypoid))			# Generic-package type.
+	      | TYPEAGNOSTIC		(List(Uniqkind), List(Uniqtypoid))			# Typeagnostic type.
+	      | FATE			 List(Uniqtypoid)					# Internal fate type.
+	      | INDIRECT_TYPE_THUNK	(Uniqtypoid, Typoid)					# A Uniqtypoid thunk and its api.
+	      | TYPE_CLOSURE		(Uniqtypoid, Int, Int, Uniqtype_Dictionary)	  	# Type closure.
+	      ;
+	};
+	Typoid =  typoid::Typoid; 	
+
+	# Injections and projections on Uniqkind, Uniqtype, and Uniqtypoid:
+	#
+	kind_to_uniqkind:		Kind   -> Uniqkind; 
+	typoid_to_uniqtypoid:		Typoid -> Uniqtypoid;
+	type_to_uniqtype:		Type   -> Uniqtype;
+
+	uniqkind_to_kind:		Uniqkind   -> Kind;
+	uniqtypoid_to_typoid:		Uniqtypoid -> Typoid;
+	uniqtype_to_type:		Uniqtype -> Type;
+
+	# Key comparison for Uniqkind, Uniqtype, and Uniqtypoid; used in pickling:
+	#
+	compare_uniqkinds:	 (Uniqkind,   Uniqkind  ) -> Order;
+	compare_uniqtypoids:	 (Uniqtypoid, Uniqtypoid) -> Order;
+	compare_uniqtypes:	 (Uniqtype, Uniqtype	) -> Order;
+
+	#
+	hash_uniqtypoid:    Uniqtypoid -> Int;											# Get the hash key of a Uniqtypoid.  Used by forms/make-anormcode-coercion-fn.pkg; a hack!
+
+	# Test equivalence of tkinds, types, ltys, fflags, and rflags:
+	#
+	same_uniqkind:	 (Uniqkind,     Uniqkind   ) -> Bool;
+	same_uniqtype: 	 (Uniqtype,     Uniqtype   ) -> Bool;
+	same_uniqtypoid: (Uniqtypoid,   Uniqtypoid ) -> Bool;
+	#
+	same_callnotes:		(Calling_Convention,     Calling_Convention	  ) -> Bool;
+	same_recordflag:	(Useless_Recordflag, Useless_Recordflag) -> Bool;
+
+	# Testing the equivalence for types and ltys with relaxed constraints:
+	#
+	similar_uniqtypes:	(Uniqtype,      Uniqtype  ) -> Bool;
+	similar_uniqtypoids:	(Uniqtypoid,	Uniqtypoid) -> Bool;
+
+	# Utility functions on type_dictionaries:
+	#
+	exception UNBOUND_TYPE;
+
+	empty_uniqtype_dictionary:  Uniqtype_Dictionary;
+	#
+	cons_entry_onto_uniqtype_dictionary
+	  :
+	  ( Uniqtype_Dictionary,
+            (Null_Or(List(Uniqtype)),  Int)
+          )
+          ->
+          Uniqtype_Dictionary;
+
+	uniqtype_is_normalized:		Uniqtype   -> Bool;									# Test whether a Uniqtype   is in normal form.
+	uniqtypoid_is_normalized:	Uniqtypoid -> Bool;									# Test whether a Uniqtypoid is in normal form.
+
+	max_freevar_depth_in_uniqtype:  (     Uniqtype,  di::Debruijn_Depth) ->   di::Debruijn_Depth;				# Depth of Type's   innermost-bound free variables:
+	max_freevar_depth_in_uniqtypes: (List(Uniqtype), di::Debruijn_Depth) ->   di::Debruijn_Depth;				# Depth of Typoid's innermost-bound free variables:
+
+	get_free_named_variables_in_uniqtype:	Uniqtype    -> List( tmp::Codetemp );
+	get_free_named_variables_in_uniqtypoid:	Uniqtypoid -> List( tmp::Codetemp );
+
+
+
+
+
+	#####################################################
+	#
+	# Mapping typevars to their Uniqkind when they are
+	# represented in Debruijn depth+index int-pair form.
+
+	Debruijn_To_Uniqkind_Listlist;
+
+	exception DEBRUIJN_TYPEVAR_NOT_DEFINED_IN_LISTLIST;	# Never explicitly used.
+
+	empty_debruijn_to_uniqkind_listlist:	 	 Debruijn_To_Uniqkind_Listlist;
+
+	debruijn_to_uniqkind:				(Debruijn_To_Uniqkind_Listlist, Int, Int)	->  Uniqkind;
+	prepend_uniqkind_list_to_map:			(Debruijn_To_Uniqkind_Listlist, List(Uniqkind)) ->  Debruijn_To_Uniqkind_Listlist;
+	get_uniqkinds_of_free_typevars_of_uniqtype:	(Debruijn_To_Uniqkind_Listlist, Uniqtype)	->  Null_Or( List(Uniqkind) );
+
+
+	#####################################################
+	# Utility functions for TC_CLOSURE and TYPE_CLOSURE types:
+	#
+	make_type_closure_uniqtype:	(Uniqtype,   Int, Int, Uniqtype_Dictionary) -> Uniqtype;
+	make_type_closure_uniqtypoid:	(Uniqtypoid, Int, Int, Uniqtype_Dictionary) -> Uniqtypoid;
+
+	reduce_uniqtype_to_weak_head_normal_form:	Uniqtype    -> Uniqtype;						# Reducing a Uniqtype   to weak head-normal form.
+	reduce_uniqtypoid_to_weak_head_normal_form:	Uniqtypoid -> Uniqtypoid;						# Reducing a Uniqtypoid to weak head-normal form.
+
+	reduce_uniqtype_to_normal_form:		Uniqtype   -> Uniqtype;								# Reduce a Uniqtype   to true normal form.
+	reduce_uniqtypoid_to_normal_form:	Uniqtypoid -> Uniqtypoid;							# Reduce a Uniqtypoid to true normal form.
+
+	lt_autoflat:  Uniqtypoid -> (Bool, List(Uniqtypoid), Bool);								# Automatically flatten the argument or the result type.
+
+	uniqtype_is_unknown:  Uniqtype -> Bool; 										# Test if a Uniqtype is a unknown constructor.
+
+	uniqtype_list_to_uniqtype_tuple:  List(Uniqtype) -> Uniqtype;								# Automatically tuple up the multiple argument/result into a single one.
+
+	make_arrow_uniqtype:  (Calling_Convention, List(Uniqtype), List(Uniqtype)) -> Uniqtype;					# make_arrow_uniqtype does automatic argument and result flattening, so go away.
+
+	# Token-related functions:
+	#
+	token_name:           Token -> String; 
+	token_abbreviation:   Token -> String;            #  used by uniqtype_to_string 
+	token_is_valid:       Token -> Bool;   
+	same_token:	     (Token, Token) -> Bool;      
+	token_int:            Token -> Int;               #  for pickling 
+	token_key:            Int -> Token;
+
+	# base TC_WRAP constructor, built through the token facility:
+	#
+	wrap_token:     Token;
+
+
+	uniqtype_dictionary__to__uniqtype:   Uniqtype_Dictionary -> Uniqtype;							# Needed by prettyprint-highcode-types.pkg
+
+    };																# api Highcode_Uniq_Types 
+end;																# stipulate
+
+## COPYRIGHT (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

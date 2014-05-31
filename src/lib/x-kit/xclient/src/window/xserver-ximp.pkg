@@ -1,0 +1,1095 @@
+## xserver-ximp.pkg
+#
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+#
+#
+#
+# ============================================================
+# TO DO:
+#
+# We could avoid a host of race conditions if imps like encode-xpackets-ximp,
+# which essentially wrap an underlying protocol, supported a superset of the
+# underlying protocol.  This would reduce the need/temptation to bypass the
+# ximp and talk directly to the underlying ximp (xserver-ximp in this case)
+# and thus introduce race condition potential.
+#
+#
+# ============================================================
+# IMPORTANT IMPLEMENTATION NOTE:
+#
+# We have only one xsequencer imp per X session, but X semantics
+# force us to have multiple xserver ximps per X session
+# because different visuals have different namespaces. Also,
+# some (naughty!) threads file x requests both directly to
+# the xsequencer-imp and also via xerver-imp(s).
+#
+# Consequently there is considerable risk of race conditions
+# between different xrequest delivery paths:  An X request
+# issued via one path  may depend on an X request issued via
+# another path (say, one which registers an xid for later use);
+# if they arrive out of order Bad Things will happen.
+#
+# Reppy's original eXene system dealt with this by doing
+# lots flush() ops -- a highly error-prone approach.
+#
+# Our approach here is instead to ensure that each call to
+# an encode-packets-ximp has deposited any resulting xrequests
+# in the xserver-ximp before returning.  The xerver-ximp mailqueue
+# then guarantees that all xrequests sent by a given thread, via
+# whatever combination of encode-xpacket-ximps and direct calls,
+# will reach the X server in the intended (and required) order.
+#
+# This does mean that all encode-xpackets-ximp calls are blocking
+# (synchronous), increasing the potential for deadlock. Probably
+# only the open_font() call will block long enough for this to
+# be a significant practical issue...?  Possibly it should be
+# treated differently...?
+# ============================================================
+
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;						# threadkit					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    #
+    package un  =  unt;						# unt						is from   src/lib/std/unt.pkg
+    package v1u =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package w2v =  wire_to_value;				# wire_to_value					is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package v2w =  value_to_wire;				# value_to_wire					is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package e2s =  xerror_to_string;				# xerror_to_string				is from   src/lib/x-kit/xclient/src/to-string/xerror-to-string.pkg
+    package vu8 =  vector_of_one_byte_unts;			# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package xg  =  xgeometry;					# xgeometry					is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;					# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+
+    package xwp =  xevent_to_window;				# xevent_to_window				is from   src/lib/x-kit/xclient/src/window/xevent-to-window.pkg
+    package pg  =  pen_guts;					# pen_guts					is from   src/lib/x-kit/xclient/src/window/pen-guts.pkg
+    package w2x =  widget_to_xserver;				# widget_to_xserver				is from   src/lib/x-kit/xclient/src/window/widget-to-xserver.pkg
+    package pc  =  pen_cache;					# pen_cache					is from   src/lib/x-kit/xclient/src/window/pen-cache.pkg
+    package fx  =  font_index;		/* fi is reserved! */	# font_index					is from   src/lib/x-kit/xclient/src/window/font-index.pkg
+    package x2s =  xclient_to_sequencer;			# xclient_to_sequencer				is from   src/lib/x-kit/xclient/src/wire/xclient-to-sequencer.pkg
+
+    package fb  =  font_base;					# font_base					is from   src/lib/x-kit/xclient/src/window/font-base.pkg
+    package dy  =  display;					# display					is from   src/lib/x-kit/xclient/src/wire/display.pkg
+
+    package xps =  xpacket_sink;				# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
+    package xt  =  xtypes;					# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package et  =  event_types;					# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+    package wme =  window_map_event_sink;			# window_map_event_sink				is from   src/lib/x-kit/xclient/src/window/window-map-event-sink.pkg
+
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;			# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    # This imp is typically instantiated by:
+    #
+    #     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+
+    package   xserver_ximp
+    : (weak)  Xserver_Ximp					# Xserver_Ximp					is from   src/lib/x-kit/xclient/src/wire/xserver-ximp.api
+    {
+	Xserver_Ximp_State									# Holds all nonephemeral mutable state maintained by ximp.
+	    =
+	    {
+	      topwindow_is_mapped:	Ref( Bool ),						# When it is not we can and do ignore all draw commands.
+	      font_index:		fx::Font_Index						# Maps fontnames to fb::Font values.
+	    };
+
+	Imports   = {										# Ports we use which are exported by other imps.
+		      xevent_to_window:		xwp::Xevent_To_Window,				# Directs X mouseclicks etc to right topwindow.
+		      xclient_to_sequencer:	 x2s::Xclient_To_Sequencer			# All drawing commands go to sequencer, outbuf then Xserver.
+		    };
+
+	Me_Slot = Mailslot( {  imports:	Imports,
+				   me:		Xserver_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun,
+				   xdisplay:	dy::Xdisplay,
+				   drawable:	xt::Drawable_Id					# Drawable from display
+				 }
+			      );
+
+	Exports	  = {										# Ports we export for use by other imps.
+		      window_map_event_sink:	wme::Window_Map_Event_Sink,			# Tells us when our window is un/mapped (hidden/revealed).
+		      widget_to_xserver:	w2x::Widget_To_Xserver				# Draw commands (etc) from widget/application code.
+		    };
+
+
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Xserver_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+	Map_Q    =  Mailqueue( wme::s::Mapped_State	);
+
+	Runstate =  {										# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Xserver_Ximp_State,			# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,				# Ximps to which we send requests.
+		      to:				Replyqueue,				# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun,				# We shut down the microthread when this fires.
+		      map_q:				Map_Q,					# Notifications that our topwindow has been un/mappsed.
+		      xdisplay:				dy::Xdisplay,
+		      next_xid:				Void -> xt::Xid,
+		      pen_cache:			pc::Pen_Cache
+		    };
+
+
+	Client_Q =  Mailqueue( Runstate -> Void		);
+
+
+
+	# Officially Mythryl does not have pointer equality,					# NB: garbage collection moving stuff around in memory will not corrupt this comparison
+	# but we do it here anyway for speed.  Naughty! :-)					# because they happen only at the start of a fn and unsafe::cast isn't a fn, just an inline primitive.
+	#
+	fun pen_eq
+	    ( a:  pg::Pen,
+	      b:  pg::Pen
+	    )
+	    =
+	    {   ((unsafe::cast a): Int)
+		==
+		((unsafe::cast b): Int);
+	    };
+
+	# Bitmasks for the various components of a pen.						# CAVEAT PROGRAMMER!  The bit-numbering here is must match that of
+	# 											#		      extract_mask()	in   src/lib/x-kit/xclient/src/window/pen.pkg
+	pen_function		= (0u1 << 0u0);	
+	pen_plane_mask		= (0u1 << 0u1);
+	#
+	pen_foreground		= (0u1 << 0u2);
+	pen_background		= (0u1 << 0u3);
+	#
+	pen_line_width		= (0u1 << 0u4);
+	pen_line_style		= (0u1 << 0u5);
+	#
+	pen_cap_style		= (0u1 << 0u6);
+	pen_join_style		= (0u1 << 0u7);
+	#
+	pen_fill_style		= (0u1 << 0u8);
+	pen_fill_rule		= (0u1 << 0u9); 
+	#
+	pen_tile		= (0u1 << 0u10);
+	pen_stipple		= (0u1 << 0u11);
+	#
+	pen_tile_stip_origin	= (0u1 << 0u12);
+	pen_subwindow_mode	= (0u1 << 0u13);
+	#
+	pen_clip_origin		= (0u1 << 0u14);
+	pen_clip_mask		= (0u1 << 0u15);
+	#
+	pen_dash_offset		= (0u1 << 0u16);
+	pen_dash_list		= (0u1 << 0u17);
+	#
+	pen_arc_mode		= (0u1 << 0u18);
+	pen_exposures		= 0u0;											#  (0u1 << 0u19) 
+
+	stipulate
+	    standard_pen_components											# The standard pen components used by most ops.
+		#
+		= pen_function
+		| pen_plane_mask
+		| pen_subwindow_mode
+		| pen_clip_origin
+		| pen_clip_mask
+		| pen_foreground
+		| pen_background
+		| pen_tile
+		| pen_stipple
+		| pen_tile_stip_origin
+		;
+
+	    standard_linedrawing_pen_components										# The pen components used by line-drawing operations.
+		#
+		=  standard_pen_components
+		| pen_line_width
+		| pen_line_style
+		| pen_cap_style
+		| pen_join_style
+		| pen_fill_style
+		| pen_dash_offset
+		| pen_dash_list
+		;
+	herein
+	    #
+	    fun pen_vals_used (w2x::x::POLY_POINT    _)	=>  standard_pen_components;
+		pen_vals_used (w2x::x::COPY_PMAREA   _)	=>  standard_pen_components;
+		pen_vals_used (w2x::x::COPY_PMPLANE  _)	=>  standard_pen_components;
+		pen_vals_used (w2x::x::PUT_IMAGE     _)	=>  standard_pen_components;
+		pen_vals_used (w2x::x::IMAGE_TEXT8   _)	=>  standard_pen_components;
+		#
+		pen_vals_used (w2x::x::POLY_TEXT8    _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (w2x::x::FILL_POLY     _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (w2x::x::POLY_FILL_BOX _)	=> (standard_pen_components | pen_fill_style);
+		pen_vals_used (w2x::x::POLY_FILL_ARC _)	=> (standard_pen_components | pen_fill_style);
+		#
+		pen_vals_used (w2x::x::COPY_AREA     _)	=>  standard_pen_components | pen_exposures;
+		pen_vals_used (w2x::x::COPY_PLANE    _)	=>  standard_pen_components | pen_exposures;
+		#
+		pen_vals_used (w2x::x::POLY_LINE     _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (w2x::x::POLY_SEG      _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (w2x::x::POLY_BOX      _)	=>  standard_linedrawing_pen_components;
+		pen_vals_used (w2x::x::POLY_ARC      _)	=>  standard_linedrawing_pen_components;
+		#
+		pen_vals_used (w2x::x::CLEAR_AREA    _)	=>  0u0;
+	    end;
+	end;
+	#
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or draw_imp.
+		  xrequests_ready_to_send:		Ref(List( v1u::Vector )),
+		  #
+		  runstate as	
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Xserver_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    map_q:				Map_Q,								# Notifications that our topwindow has been un/mappsed.
+		    xdisplay:				dy::Xdisplay,
+		    next_xid:				Void -> xt::Xid,
+		    pen_cache:				pc::Pen_Cache
+		  }
+		)
+	    =
+	    outer_loop ()
+	    where
+		sp = imports.xclient_to_sequencer;
+
+ 		#
+ 		fun note_xrequest  xrequest										# 
+ 		    =
+ 		    xrequests_ready_to_send :=  xrequest ! *xrequests_ready_to_send;					# Notice most recent xrequest is at front, so we'll need to reverse list before sending it.
+ 
+ 		fun send_pending_xrequests ()
+ 		    =
+ 		    if (*xrequests_ready_to_send != NIL)
+ 			#
+ 			sp.send_xrequests (reverse *xrequests_ready_to_send);						# Send all x-requests generated by this loop, reversing to restore correct order.
+ 			xrequests_ready_to_send := [];									# 
+ 		    fi;
+ 
+ 		#
+ 		fun outer_loop ()											# Outer loop for the imp.
+ 		    =
+ 		    {   do_one_mailop' to [
+ 			    #
+ 			    (end_gun'                       ==>  shut_down_draw_imp'),
+ 			    (take_from_mailqueue' client_q  ==>  do_client_plea),
+ 			    (take_from_mailqueue' map_q     ==>  do_map_plea)
+ 			];
+ 
+ 			outer_loop ();
+ 		    }	
+ 		    where
+ 			fun do_client_plea thunk
+ 			    =
+ 			    thunk runstate;
+ 
+ 
+ 			fun shut_down_draw_imp' ()
+ 			    =
+ 			    thread_exit { success => TRUE };								# Will not return.	
+ 			#
+ 
+			    fun do_map_plea wme::s::TOPWINDOW_IS_NOW_UNMAPPED	=> 	me.topwindow_is_mapped := FALSE;
+			        do_map_plea wme::s::TOPWINDOW_IS_NOW_MAPPED	=> 	me.topwindow_is_mapped := TRUE;
+			        do_map_plea wme::s::FIRST_EXPOSE		=> 	me.topwindow_is_mapped := TRUE;
+			    end;
+			    #
+ 		    end;												# fun outer_loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
+		#
+		widget_to_xserver
+			  =
+			  { 
+			    widget_to_sequencer										# Xsequencer-forwarding calls.  The point of including this facility
+				  =>											# is that clients can avoid race conditions by always talking to us;
+				  { send_xrequest,									# if they talk both to us and directly to the xsequencer subtle
+				    send_xrequests,									# race conditions may arise in which behavior is non-deterministic,
+				    send_xrequest_and_read_reply,							# depending on whether we or the xsequencer run next.
+				    send_xrequest_and_read_reply',
+				    send_xrequest_and_pass_reply,
+				    send_xrequest_and_return_completion_mailop,
+				    send_xrequest_and_return_completion_mailop'
+				  },
+			    draw_ops,
+			    destroy_window,
+			    destroy_pixmap,
+			    open_font
+			  };
+
+
+		window_map_event_sink =  { put_value };
+
+		to =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { widget_to_xserver, window_map_event_sink }));		# Return value from xserver_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from xserver_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun', xdisplay, drawable };
+
+		xdisplay -> { next_xid, ... }: dy::Xdisplay;
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		graphics_expose_event_accumulator = REF NULL;
+
+		pen_cache =  pc::make_pen_cache { drawable, next_xid, note_xrequest };
+
+		if (*xrequests_ready_to_send != NIL)
+		    #
+		    imports.xclient_to_sequencer.send_xrequests  (reverse *xrequests_ready_to_send);
+		fi;
+
+		run (client_q, xrequests_ready_to_send, { me, map_q, imports, to, end_gun', xdisplay, next_xid, pen_cache });			# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+		map_q     =  make_mailqueue (get_current_microthread())	:  Map_Q;
+
+		xrequests_ready_to_send =  REF ([]:  List( v1u::Vector ));						# This holds all xrequests for xsequencer_ximp for one loop.
+															#     The point of this is that batched xrequests can be handled more efficiently;
+															# in particular they can be combined into (near) max-size ethernet packets instead of being
+															# sent as a sequence of near-min-size ethernet packets with much more overhead per xrequest
+															# both in terms of packet-header bytes overhead and also in terms of CPU cycles needed to
+															# process that overhead.
+															#     Reppy did xrequest batching by having outbuf hold xrequests for several milliseconds or
+															# until a reasonable number were accomplished, but this introduced undesirable GUI response
+															# latency which he was then forced to work around via special hacks to disable these waits.
+															# Application programmers who neglected to invoke this special magic would get poor GUI response.
+															#     A core concern of GUI design and implementation is absolutely minimizing latency, so I
+															# prefer to NEVER introduce any artificial added latency, instead achieving xrequest batching
+															# by having upstream code submit lists of xrequests in place of single xrequests.  (My design
+															# is based on explicit GUI display lists well-suited to request batching, where Reppy's design
+															# was focussed on having application code make individual draw calls -- "immediate mode".)
+															#     Reppy used mailslots for inter-imp mail but I'm using mailqueues, to reduce deadlock risk.
+															# This allows outbuf to use   take_all_from_mailqueue'  to read an entire queueful of input when
+															# it wakes, potentially combining multiple xrequestlists into a single xrequestlist.
+															#     Doing so many assignments to 'xrequests_ready_to_send' does involve some added heapcleaner
+															# overhead, so as a performance-tuning tweak we MIGHT want to pass the xrequest list up and down
+															# every call chain using it.  This would however clutter the code and increase potential for bugs,
+															# so I'm not doing in this first-cut version of the code.
+															#                                                              -- 2013-07-19 CrT
+
+
+		fun note_xrequest  xrequest										# 
+		    =
+		    xrequests_ready_to_send :=  xrequest ! *xrequests_ready_to_send;					# Notice most recent xrequest is at front, so we'll need to reverse list before sending it.
+
+ 		fun send_pending_xrequests (imports: Imports)
+ 		    =
+ 		    if (*xrequests_ready_to_send != NIL)
+ 			#
+ 			imports.xclient_to_sequencer.send_xrequests (reverse *xrequests_ready_to_send);			# Send all x-requests generated by this loop, reversing to restore correct order.
+ 			xrequests_ready_to_send := [];									# 
+ 		    fi;
+
+		#
+		fun encode_drawops_as_xrequests { ops, gc_id, font_id }					# Convert a list of draw ops to bytevector wire encoding for eventual transmission to X-server.
+		    =
+		    apply encode ops
+		    where
+			fun encode  { to, op => w2x::x::POLY_LINE (relative, points)		}	=>	note_xrequest (v2w::encode_poly_line     { drawable=>to, gc_id, items=>points, relative		});
+			    encode  { to, op => w2x::x::POLY_SEG lines 				}	=>	note_xrequest (v2w::encode_poly_segment  { drawable=>to, gc_id, items=>lines			});
+			    encode  { to, op => w2x::x::FILL_POLY (shape, relative, points)	}	=>	note_xrequest (v2w::encode_fill_poly     { drawable=>to, gc_id, points, relative, shape		});
+			    encode  { to, op => w2x::x::POLY_BOX boxes				}	=>	note_xrequest (v2w::encode_poly_box	 { drawable=>to, gc_id, items=>boxes			});
+			    encode  { to, op => w2x::x::POLY_FILL_BOX boxes			}	=>	note_xrequest (v2w::encode_poly_fill_box { drawable=>to, gc_id, items=>boxes			});
+			    encode  { to, op => w2x::x::POLY_ARC arcs				}	=>	note_xrequest (v2w::encode_poly_arc	 { drawable=>to, gc_id, items=>arcs			});
+			    encode  { to, op => w2x::x::POLY_FILL_ARC arcs			}	=>	note_xrequest (v2w::encode_poly_fill_arc { drawable=>to, gc_id, items=>arcs			});
+			    encode  { to, op => w2x::x::CLEAR_AREA box				}	=>	note_xrequest (v2w::encode_clear_area    { window_id=>to, box, exposures => FALSE		});
+
+			    encode  { to, op => w2x::x::POLY_POINT (relative, points) 	}
+				=>
+#					    note_xrequest  (v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative });		# Replaced by below code.
+				{
+				    # "Discovered there's a limit to the number
+				    #  of points that can be sent to the X server.
+				    #  It's less than 65535, but at least 65400.
+				    #  I figure this is close enough:"              -- Hue White 2011-11-24
+				    #
+				    x_limit = 65400;
+				    #
+				    # Maybe this should be handled in v2w rather than here?
+				    # Probably similar limits apply to all the other cases here.
+				    # XXX BUGGO FIXME -- 2013-07-12 CrT		# This should probably be derived from XDISPLAY.max_request_length - <request size>     -- CrT 2014-02-01  XXX BUGGO FIXME
+
+				    encode_points  points
+				    where
+					fun encode_points [] => ();
+					    #	
+					    encode_points points
+						=>
+						if (list::length(points) <= x_limit)    note_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, relative, items=> points				});
+						else				    note_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, relative, items=> list::take_n (points, x_limit)	});
+											encode_points (list::drop_n (points, x_limit));
+						fi;
+					end;
+				    end;
+				};
+
+
+			    encode  { to, op => w2x::x::COPY_PMAREA (pt, from, box) 	}
+				=>
+				{   (xg::box::upperleft_and_size  box)
+					->
+					(p, size);
+
+				    note_xrequest (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt });
+				};
+
+			    encode  { to, op => w2x::x::COPY_PMPLANE (pt, from, box, plane)	}
+				=>
+				{   (xg::box::upperleft_and_size  box)
+					->
+					(p, size);
+
+				    note_xrequest (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane });
+				};
+
+
+			    encode  { to, op => w2x::x::PUT_IMAGE im }
+				=>
+				note_xrequest (
+
+				    v2w::encode_put_image
+				      {
+					drawable => to,
+					gc_id,
+					depth  => im.depth,
+					to     => im.to_point,
+					size   => im.size,
+					lpad   => im.lpad,
+					format => im.format,
+					data   => im.data
+				      }
+				);
+
+
+			    encode { to, op => w2x::x::COPY_AREA (pt, from, box)		}
+				=>
+				{   (xg::box::upperleft_and_size  box)
+					->
+					(p, size);
+
+				    note_xrequest (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt });
+				};
+
+			    encode { to, op => w2x::x::COPY_PLANE (pt, from, box, plane)	}
+				=>
+				{   (xg::box::upperleft_and_size  box)
+					->
+					(p, size);
+
+				    note_xrequest (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane });
+				};
+
+			    encode { to, op => w2x::x::IMAGE_TEXT8 (_, point, string)	}
+				=>
+				note_xrequest (v2w::encode_image_text8 { drawable=>to, gc_id, point, string });
+
+			    encode { to, op => w2x::x::POLY_TEXT8 (fid, point, txt_items)	}
+				=>
+				note_xrequest   (   v2w::encode_poly_text8
+						    {
+						      drawable=>to,
+						      gc_id,
+						      point,
+						      items =>  do_items txt_items
+						    }
+						)
+				where
+				    last_fid =  f (fid, txt_items)
+						where
+						    fun f (last_fid, [])                   =>  last_fid;
+							f (last_fid, (w2x::t::FONT id) ! r) =>  f (id, r);
+							f (last_fid, _ ! r)                =>  f (last_fid, r);
+						    end;
+						end;
+
+				    txt_items = last_fid == font_id
+						?? txt_items
+						:: txt_items @ [w2x::t::FONT font_id];
+
+				    txt_items = fid == font_id
+						?? txt_items
+						:: (w2x::t::FONT fid) ! txt_items;
+
+				    #
+				    fun split_delta (0, l)
+					    =>
+					    l;
+
+					split_delta (i, l)
+					    =>
+					    if (i < -128)
+
+						 split_delta (i+128, -128 ! l);
+					    else
+						 i > 127
+						 ?? split_delta (i - 127, 127 ! l)
+						 :: i ! l;
+					    fi;
+				    end;
+
+
+				    # Split a string into legal
+				    # lengths for a PolyText8 command 
+				    #
+				    fun split_text ""
+					    =>
+					    [];
+
+					split_text s
+					    =>
+					    {   n = string::length s;
+						#
+						fun split (i, l)
+						    =
+						    n - i  > 254
+						    ??  split (i+254,  substring (s, i, 254) ! l)
+						    ::  list::reverse (substring (s, i, n-i) ! l);
+
+						n > 254  ??  split (0, [])
+							 ::  [s];
+					    };
+				    end;
+
+				    #
+				    fun split_item (w2x::t::FONT id)
+					    =>
+					    [xt::FONT_ITEM id];
+
+					split_item (w2x::t::TEXT (delta, s))
+					    =>
+					    case (split_delta (delta, []), split_text s)
+						#
+						([], []) =>   [];
+						([], sl) =>   (map (\\ s = xt::TEXT_ITEM (0,  s)) sl);
+						(dl, []) =>   (map (\\ n = xt::TEXT_ITEM (n, "")) dl);
+
+						([d], s ! sr)
+						    =>
+						    (xt::TEXT_ITEM (d, s) ! (map (\\ s = xt::TEXT_ITEM (0, s)) sr));
+
+						(d ! dr, s ! sr)
+						    =>
+						    (                        map (\\ n = xt::TEXT_ITEM (n,"")) dr)
+						    @
+						    (xt::TEXT_ITEM (d, s) ! (map (\\ s = xt::TEXT_ITEM (0, s)) sr));
+					    esac;
+
+				    end;
+
+				    do_items   =    fold_backward
+							(\\ (item, l) =  (split_item item) @ l)
+							[];
+				end;
+			end;
+		    end;
+
+
+
+
+		###################################################################################
+		# window_map_event_sink
+		#
+		fun put_value (state:  wme::s::Mapped_State)
+		    =
+		    {
+			put_in_mailqueue (map_q, state);
+		    };
+
+
+		###################################################################################
+		# xsequencer
+		#
+		stipulate
+		    fun unwrap_reply  x2s::REPLY_LOST     =>  { log::fatal   "xsequencer-ximp.pkg: Lost X-server reply"; 	  						raise exception FAIL "LOST REPLY";  };
+			unwrap_reply (x2s::REPLY_ERROR s) =>  { log::fatal ( "xsequencer-ximp.pkg: X-server error: " + (e2s::xerror_to_string (w2v::decode_error s))); 	raise exception FAIL "ERROR_REPLY"; };
+			unwrap_reply (x2s::REPLY s)       =>  s;														# NB log::fatal should never return;
+		    end;																		# above 'raises' keep typechecker happy.
+		    fun unwrap_flag r
+			    =
+			    {   unwrap_reply r;
+				();
+			    };
+		herein
+		    fun send_xrequest   (xrequest:  v1u::Vector)
+			=
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequest  xrequest
+# p::SEND_XREQUEST vec
+			);
+
+
+		    fun send_xrequests  (xrequests: List( v1u::Vector ))
+			=
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequests  xrequests
+# p::SEND_XREQUESTS vecs
+			);
+
+
+		    fun send_xrequest_and_read_reply (xrequest: v1u::Vector)
+			=
+			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( x2s::Reply_Mail );
+			    #
+			    put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequest_and_read_reply'  (xrequest, reply_oneshot)
+
+#  p::SEND_XREQUEST_AND_READ_REPLY (xrequest, reply_oneshot)
+			    );
+
+			    get_from_oneshot'  reply_oneshot
+				==>
+				unwrap_reply;
+			};													# This is why we wait on the result oneshot even though there is no return value.
+
+		    fun send_xrequest_and_read_reply'  (xrequest: v1u::Vector,   reply_oneshot: Oneshot_Maildrop(x2s::Reply_Mail))
+			=
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequest_and_read_reply'  (xrequest, reply_oneshot)
+
+#  p::SEND_XREQUEST_AND_READ_REPLY (xrequest, reply_oneshot)
+			);
+
+		    fun send_xrequest_and_pass_reply
+			    (xrequest:		v1u::Vector)
+			    (replyqueue:	Replyqueue)
+			    (reply_handler:	v1u::Vector -> Void)
+			=
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequest_and_pass_reply  xrequest  replyqueue  reply_handler
+
+#  p::SEND_XREQUEST_AND_PASS_REPLY (xrequest, replyqueue, reply_handler)
+			);
+
+		    fun send_xrequest_and_return_completion_mailop  (xrequest: v1u::Vector)
+			=
+			{   reply_oneshot2 =  make_oneshot_maildrop ():  Oneshot_Maildrop(x2s::Reply_Mail);
+			    #
+			    put_in_mailqueue  (client_q,
+				#
+				\\ ({ me, imports, ... }: Runstate)
+				    =
+				    imports.xclient_to_sequencer.send_xrequest_and_return_completion_mailop'  (xrequest, reply_oneshot2)
+
+#  p::SEND_XREQUEST_AND_RETURN_COMPLETION_MAILOP (xrequest, reply_oneshot2)
+			    );
+
+			    # Construct and return a mailop which caller can
+			    #     block_until_mailop_fires
+			    # on to await completion of the requested operation:
+			    #
+			    get_from_oneshot' reply_oneshot2
+				==>
+				unwrap_flag;
+			};
+
+		    fun send_xrequest_and_return_completion_mailop'  (arg as   (xrequest: v1u::Vector,   reply_oneshot2: Oneshot_Maildrop(x2s::Reply_Mail)))
+			=
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.xclient_to_sequencer.send_xrequest_and_return_completion_mailop'  (xrequest, reply_oneshot2)
+#  p::SEND_XREQUEST_AND_RETURN_COMPLETION_MAILOP arg
+			);
+
+		end;
+
+
+		###################################################################################
+		# xserver
+		#
+		fun draw_ops	(drawoplist:  List( w2x::Draw_Op ))
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop():  Oneshot_Maildrop( Void );
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, pen_cache, ... }: Runstate)
+				=
+#  p::DRAW_OPS (draw_ops, reply_oneshot)
+# 			    # Send a list of drawing commands out to the sequencer.
+# 			    # This involves:
+# 			    #
+# 			    #  o  Breaking the list up into sublists which can
+# 			    #     share a common graphics context.
+# 			    #
+# 			    #  o  Acquiring the required X-server graphics contexts
+# 			    #     for the operations from pen_cache
+# 			    #
+# 			    #  o  Encoding each command as a bytevector for
+# 			    #     network transmission.
+# 			    #
+# 			    fun do_drawoplist  (drawoplist:  List( w2x::Draw_Op ), reply_1shot: Oneshot_Maildrop(Void))
+# 				=
+(				{   drawoplists =  break_drawoplist_into_mono_gc_drawoplists  (drawoplist, []);
+				    #
+				    apply  encode_and_send_mono_gc_drawoplist  drawoplists;
+
+				    send_pending_xrequests imports;		# Per top-of-file comments, it is critically important we complete send_pending_xrequests before doing our terminal put_in_oneshot() call.
+
+				    put_in_oneshot (reply_1shot, ());
+				}
+				where 
+
+				    Gc_Info
+				      = NO_GC
+				      | NO_FONT
+				      | WITH_FONT xt::Font_Id
+				      | SET_FONT  xt::Font_Id
+				      ;
+
+				    allot_gc		    =	pc::allocate_graphics_context			pen_cache;
+				    allot_gc_with_font	    =	pc::allocate_graphics_context_with_font		pen_cache;
+				    allot_gc_and_set_font   =	pc::allocate_graphics_context_and_set_font	pen_cache;
+				    #
+				    free_gc		    =	pc::free_graphics_context			pen_cache;
+				    free_gc_and_font	    =	pc::free_graphics_context_and_font		pen_cache;
+
+
+
+				    # We are given a list of X draw-ops List(w2x::x::Op)
+				    # to be performed.  For efficiency, we want to avoid
+				    # switching graphics contexts needlessly, so we break our
+				    # argument draw-op list into a sequence of sublists,
+				    # each of which can be performed using a single gc.
+				    # 
+				    fun break_drawoplist_into_mono_gc_drawoplists  ([]: List(w2x::Draw_Op),  results)
+					    =>
+					    results;									# No more input -- done. (Why don't we reverse it?)
+
+					break_drawoplist_into_mono_gc_drawoplists
+					    ( drawoplist as (first_op ! _),						# Input drawops list.
+					      results									# Batch accumulator.
+					    )
+					    =>
+					    {   (find_max_mono_gc_prefix (drawoplist, NO_GC, first_op.pen, 0u0, []))
+						    ->
+						    (remaining_drawoplist, gc_usage, pen, mask, max_prefix: List( { to: xt::Xid, op: w2x::x::Op }));
+
+						break_drawoplist_into_mono_gc_drawoplists (remaining_drawoplist, (gc_usage, pen, mask, max_prefix) ! results);
+					    }
+					    where
+						fun gc_usage_of (w2x::x::CLEAR_AREA _)                =>   NO_GC;
+						    gc_usage_of (w2x::x::POLY_TEXT8  (font_id, _, _)) =>   WITH_FONT font_id;
+						    gc_usage_of (w2x::x::IMAGE_TEXT8 (font_id, _, _)) =>   SET_FONT  font_id;
+						    gc_usage_of _                                     =>   NO_FONT;
+						end;
+
+						#
+						fun extend_mask (m, op)
+						    =
+						    m | (pen_vals_used op);
+
+
+						# We are given a list of X drawing operations to do.
+						# Our job is to find the maximal prefix of this list
+						# which can all use the same graphics context:
+						# 
+						fun find_max_mono_gc_prefix (arg as ([]: List(w2x::Draw_Op), _, _, _, _))
+							=>
+							arg;
+
+						    find_max_mono_gc_prefix (arg as ( ({ to, pen, op }) ! rest, gc_usage, first_pen, used_mask, prefix))
+							=>
+							if (not (pen_eq (pen, first_pen)))
+							    #
+							    arg;
+							else
+							    case (gc_usage, gc_usage_of op)
+								#
+								(_, NO_GC)
+								    =>
+								    find_max_mono_gc_prefix (rest, gc_usage, first_pen, used_mask,                                { to, op } ! prefix);
+
+								(NO_GC, new_gc_usage)
+								    =>
+								    find_max_mono_gc_prefix (rest, new_gc_usage, first_pen, pen_vals_used op,                     { to, op } ! prefix);
+
+								(_, NO_FONT)
+								    =>
+								    find_max_mono_gc_prefix (rest, gc_usage, first_pen, extend_mask (used_mask, op),              { to, op } ! prefix);
+
+								(SET_FONT font_id, WITH_FONT _)
+								    =>
+								    find_max_mono_gc_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      { to, op } ! prefix);
+
+								(_, WITH_FONT font_id)
+								    =>
+								    find_max_mono_gc_prefix (rest, WITH_FONT font_id, first_pen, extend_mask (used_mask, op),     { to, op } ! prefix);
+
+								(SET_FONT font_id1, SET_FONT font_id2)
+								    =>
+								    if (font_id1 == font_id2)
+									#
+									find_max_mono_gc_prefix (rest, SET_FONT font_id1, first_pen, extend_mask (used_mask, op), { to, op } ! prefix);
+								    else
+									arg;
+								    fi;
+
+								(_, SET_FONT font_id)
+								    =>
+								    find_max_mono_gc_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      { to, op } ! prefix);
+							    esac;
+							fi;
+						end;
+					    end;	
+				    end;						# fun break_drawoplist_into_mono_gc_drawoplists
+
+				    #
+				    stipulate
+
+
+
+					xid0 =   xt::xid_from_unt  0u0;
+				    herein
+
+					#
+					fun encode_and_send_mono_gc_drawoplist (NO_GC,  pen: pg::Pen,  mask: Unt,  ops: List( { to: xt::Xid, op: w2x::x::Op }))
+						=>
+						encode_drawops_as_xrequests { gc_id => xid0, font_id => xid0, ops };
+
+					    encode_and_send_mono_gc_drawoplist (NO_FONT, pen, used_mask, ops)
+						=>
+						{   gc_id =  allot_gc { pen, used_mask, note_xrequest };
+
+						    encode_drawops_as_xrequests { gc_id, font_id => xid0, ops };
+
+						    free_gc  gc_id;
+						};
+
+					    encode_and_send_mono_gc_drawoplist (WITH_FONT font_id, pen, used_mask, ops)
+						=>
+						{   (allot_gc_with_font { pen, used_mask, note_xrequest, font_id })
+							->
+							{ gc_id, font_id };
+
+						    encode_drawops_as_xrequests { gc_id, font_id, ops };
+
+						    free_gc_and_font  gc_id;
+						};
+
+					    encode_and_send_mono_gc_drawoplist (SET_FONT font_id, pen, used_mask, ops)
+						=>
+						{   gc_id =  allot_gc_and_set_font { pen, used_mask, note_xrequest, font_id };
+						    #
+						    encode_drawops_as_xrequests { gc_id, font_id, ops };
+
+						    free_gc_and_font  gc_id;
+						};
+					end;
+				    end;
+				end)											# fun do_drawoplist
+			);
+
+			get_from_oneshot  reply_1shot;									# Per top-of-file comments, it is critically important we not return until all xrequests have been registered with the xserver-ximp.
+		    };													# This is why we wait on the result oneshot even though there is no return value.
+
+		#
+		fun destroy_window		(window_id: xt::Window_Id)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop():  Oneshot_Maildrop( Void );
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+# p::DESTROY_WINDOW (wid, reply_oneshot)
+# 			    fun do_destroy_window  (window_id: xt::Window_Id, reply_1shot: Oneshot_Maildrop(Void))
+# 				=
+				{   note_xrequest  (v2w::encode_destroy_window { window_id });
+				    send_pending_xrequests imports;							# Per top-of-file comments, it is critically important we complete send_pending_xrequests before doing our terminal put_in_oneshot() call.
+				    put_in_oneshot (reply_1shot, ());
+				}
+			);
+
+			get_from_oneshot  reply_1shot;									# Per top-of-file comments, it is critically important we not return until all xrequests have been registered with the xserver-ximp.
+		    };													# This is why we wait on the result oneshot even though there is no return value.
+		#
+		fun destroy_pixmap		(pixmap: xt::Pixmap_Id)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop():  Oneshot_Maildrop( Void );
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+# p::DESTROY_PIXMAP (pid, reply_oneshot)
+# 			    fun	do_destroy_pixmap  (pixmap:    xt::Pixmap_Id, reply_1shot: Oneshot_Maildrop(Void))
+# 				=
+				{   note_xrequest  (v2w::encode_free_pixmap    { pixmap    });
+				    send_pending_xrequests imports;							# Per top-of-file comments, it is critically important we complete send_pending_xrequests before doing our terminal put_in_oneshot() call.
+				    put_in_oneshot (reply_1shot, ());
+				}
+			);
+
+			get_from_oneshot  reply_1shot;									# Per top-of-file comments, it is critically important we not return until all xrequests have been registered with the xserver-ximp.
+		    };													# This is why we wait on the result oneshot even though there is no return value.
+		#
+		fun open_font		(name: String)
+		    =
+		    {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or( fb::Font ) );
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, next_xid, to, xdisplay, ... }: Runstate)
+				=
+# p::OPEN_FONT (fontname, reply_oneshot)
+# 			    fun do_open_font  (name:  String,  reply_oneshot:  Oneshot_Maildrop( Null_Or( fb::Font ) ))
+# 				=
+				case (fx::find_font me.font_index name)
+				    #
+				    result as (THE font)
+					=>  {
+						send_pending_xrequests imports;						# Per top-of-file comments, it is critically important we complete send_pending_xrequests before doing our terminal put_in_oneshot() call.
+						put_in_oneshot (reply_oneshot, result);
+					    };	
+
+				    NULL => {   font_id = next_xid ();
+
+						imports.xclient_to_sequencer.send_xrequest (v2w::encode_open_font { font => font_id, name });
+
+						query = v2w::encode_query_font { font => font_id };
+
+						imports.xclient_to_sequencer.send_xrequest_and_pass_reply query to {.
+						    #
+						    font_query_reply =  w2v::decode_query_font_reply #reply;
+
+						    font = fx::make_font (font_id, xdisplay, font_query_reply);
+
+						    fx::note_font me.font_index (name, font);
+
+						    send_pending_xrequests imports;						# Per top-of-file comments, it is critically important we complete send_pending_xrequests before doing our terminal put_in_oneshot() call.
+
+						    put_in_oneshot (reply_oneshot, THE font);
+						};
+					    };
+				esac
+			);
+
+			get_from_oneshot  reply_oneshot;								# Per top-of-file comments, it is critically important we not return until all xrequests have been registered with the xserver-ximp.
+		    };	
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+        # We get called (only) from
+	#
+	#     make_xclient_ximps_egg()					in   src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+	#     make_per_screen_xsession_imps() (from open_xsession())	in   src/lib/x-kit/xclient/src/window/xsession-junk.pkg
+	#
+	# The first  makes a single master xserver_ximp for the socket connection to an X server;
+	#
+	# The second makes one xserver_ximp per X "screen". (The protocol has different namespaces
+	# for different visuals, forcing us to maintain at least one xserver-ximp per visual.)
+	#
+	fun make_xserver_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    (
+	      xdisplay:		dy::Xdisplay,
+	      drawable:		xt::Drawable_Id,
+	      options:		List(Option)
+	    )
+	    =
+	    {   (process_options (options, { name => "xserver" }))
+		    ->
+		    { name };
+	
+		me =	  {
+			    topwindow_is_mapped =>  REF FALSE,
+			    font_index		=>  fx::make_font_index ()
+			  };
+
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', xdisplay, drawable });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };						# package xserver_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

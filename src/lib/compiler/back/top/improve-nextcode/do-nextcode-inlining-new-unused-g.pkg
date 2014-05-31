@@ -1,0 +1,1495 @@
+## do-fn-inlining-new-unused-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the nextcode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+###                  "Mathematics is like checkers in being
+###                   suitable for the young, not too difficult,
+###                   amusing, and without peril to the state."
+###
+###                               -- Plato (c.428-347 B.C)
+###                                  [Greek philosopher]
+
+
+
+
+#DO set_control "compiler::trap_int_overflow" "TRUE";
+
+
+# We are nowhere invoked:
+								# Machine_Properties	is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate
+    include nextcode;
+    #
+    package coc =  global_controls::compiler;			# global_controls	is from   src/lib/compiler/toplevel/main/global-controls.pkg
+    package lv  =  highcode_codetemp;				# highcode_codetemp	is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+herein
+
+    generic package   do_nextcode_inlining_new_unused_g   (
+	#             =================================
+	#
+	machine_properties:  Machine_Properties			# Typically 			  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+    )
+
+    : (weak) Do_Nextcode_Inlining				# Do_Nextcode_Inlining	is from   src/lib/compiler/back/top/improve-nextcode/do-nextcode-inlining-g.pkg
+
+    {
+	fun inc r = (r := *r + 1);
+	fun dec r = (r := *r - 1);
+
+	fun map1 f (a, b)
+	    =
+	    (f a, b);
+
+	fun sum f
+	    =
+	    h
+	    where
+		fun h []      =>  0; 
+		    h (a . r) =>  f a + h r;
+		end;
+	    end;
+
+	fun split predicate (a . rest)
+		=>
+		{   my (t, f)
+			=
+			split predicate rest;
+
+		    predicate a  ??  (a . t, f)
+				 ::  (t, a . f);
+		};
+
+	    split predicate NIL
+		=>
+		(NIL, NIL);
+	end;
+
+	fun muldiv (a, b, c)    #  A*b/c, approximately, but guaranteed no overflow 
+	    =
+	    (a*b) div c
+	    except
+		OVERFLOW = if  (a > b)   muldiv (a div 2, b, c div 2);
+			   else          muldiv (a, b div 2, c div 2);
+			   fi;
+
+
+	fun same_name (x, VAR   y) =>  lv::same_name (x, y); 
+	    same_name (x, LABEL y) =>  lv::same_name (x, y); 
+	    same_name _            =>  ();
+	end;
+
+	Mode = ALL | NO_UNROLL | UNROLL  Int | HEADERS;
+
+	fun expand { function=>(fkind, fvar, fargs, ctyl, cexp), unroll, bodysize, click,
+		  after_closure, table=>typetable, do_headers }
+	    =
+	    {   clicked_any =  REF FALSE;
+		debug       =  *coc::debugnextcode;	#  FALSE 
+
+		debugprint =  if  debug    controls::print::say;   else  \\ _ = ();  fi;
+		debugflush =  if  debug    controls::print::flush; else  \\ _ = ();  fi;
+
+		click
+		    =
+		    \\ z
+			=
+			{   debugprint z;  #  temporary 
+			    click z;
+			    clicked_any := TRUE;
+			};
+
+		cginvariant = *coc::invariant;
+
+		fun label v
+		    =
+		    if   after_closure      LABEL v;
+					 else   VAR   v;   fi;
+		Info
+		  = ARG  { escape: Ref( Int ), savings: Ref( Int ),
+			    record:  Ref( List( (Int, Lambda_Variable)) ) }
+		  | SEL  { savings: Ref( Int ) }
+		  | REC  { escape: Ref( Int ), size: Int,
+			    vars: List( (Value, Accesspath) ) }
+		  | REAL
+		  | CONST
+		  | OTHER
+		  |	FUN  {  escape: Ref( Int ),			# How many non-call uses 
+			    call: Ref( Int ),			# How many calls to this fn 
+			    size: Ref( Int ),			# Size of function body 
+
+			    args: List( Lambda_Variable ),		# Formal parameters 
+			    body: Nextcode_Expression,			# Function body 
+			    invariant: Ref(  List(  Bool ) ),	# One for each arg 
+
+			    sibling_call: Ref( Int ),		# How many of calls are from other functions defined in same FIX.
+			    unroll_call: Ref( Int ),		# How many calls are from within this fn's body.
+			    level: Int,				# Loop-nesting level of this function.
+
+			    within: Ref( Bool ),			# Are we currently doing pass1 within this function's body?
+
+			    within_sibling: Ref(  Bool )		# Are we currently doing passw within the
+								    # body of this function or any of the other
+								    # functions defined in the same FIX?
+			   }
+		  ;
+
+		rep_flag = machine_properties::representations;
+
+		type_flag =   *controls::compiler::checknextcode1
+			  and *controls::compiler::checknextcode2
+			  and  rep_flag;
+
+		stipulate   
+		  exception NEXPAND;
+		  fun getty v
+		    = 
+		    if type_flag
+			#
+			(intmap::map typetable v)
+			except
+			    _ = {   controls::print::say ("NEXPAND: Can't find the variable " $
+					(int::to_string v)$" in the typetable ***** \n");
+
+				    raise exception NEXPAND;
+				};
+		    else
+			highcode::void_uniqtypoid;
+		    fi;
+
+		    fun addty (f, t)
+			=
+			intmap::add typetable (f, t);
+		herein
+
+		    fun make_var (t)
+			=
+			{   v = lv::make_lambda_variable();
+
+			    if type_flag  addty (v, t); fi;
+
+			    v;
+			};
+
+		    fun copy_lvar v
+			=
+			{   x = lv::clone_highcode_codetemp (v);
+
+			    if type_flag  addty (x, getty v); fi;
+
+			    x;
+			};
+
+		end;			# stipulate
+
+
+	    stipulate
+
+		exception EXPAND;
+
+		my m:  intmap::Int_Map( Info )
+			=  intmap::new (128, EXPAND);
+
+		get' = intmap::map m;
+
+	    herein
+
+		note = intmap::add m;
+
+		fun get i
+		    =
+		    get' i
+		    except
+			EXPAND = other;
+
+		fun discard_pass1_info ()
+		    =
+		    intmap::clear m;
+
+	    end;
+
+		fun getval (VAR   v) => get v;
+		    getval (LABEL v) => get v;
+		    getval (INT   _) => const;
+    #               getval (REAL  _) = Float
+		    getval _ => other;
+		end;
+
+		fun call (v, args)
+		    =
+		    case (getval v)
+
+			FUN { call, within=>REF FALSE,
+			      within_sibling=>REF FALSE,
+			      ...
+			    }
+			    =>
+			    inc call;
+
+			FUN { call,
+			      within=>REF FALSE,
+			      within_sibling=>REF TRUE,
+			      sibling_call,
+			      ...
+			    }
+			    =>
+			    {   inc call; 
+				inc sibling_call;
+			    };
+
+			FUN { call,
+			      within=>REF TRUE,
+			      unroll_call,
+			      args=>vl,
+			      invariant,
+			      ...
+			    }
+			    => 
+			    {   fun g (VAR x . args, x' . vl, i . inv)
+					=>
+					(i and x==x') . g (args, vl, inv);
+
+				    g ( _ . args, _ . vl, i . inv)
+					=>
+					FALSE . g (args, vl, inv);
+
+				    g _ => NIL;
+				end;
+				inc call;
+				inc unroll_call;
+				invariant := g (args, vl,*invariant);
+			    };
+
+			ARG { savings, ... } => inc savings;
+			SEL { savings      } => inc savings;
+			_ => ();
+		   esac;
+
+		fun escape v
+		    =
+		    case (getval v)
+			FUN { escape, ... } => inc escape;
+			ARG { escape, ... } => inc escape;
+			REC { escape, ... } => inc escape;
+			_ => ();
+		    esac;
+
+		fun escapeargs v
+		    =
+		    case (getval v)
+		       FUN { escape, ... } => inc escape;
+		       SEL { savings     } => inc savings;
+		       REC { escape, ... } => inc escape;
+
+		       ARG { escape, savings, ... }
+			   =>
+			   {   inc escape;
+			       inc savings;
+			   };
+
+		       _ => ();
+		    esac;
+
+		fun unescapeargs v
+		    =
+		    case (getval v)
+			FUN { escape, ... } => dec escape;
+			SEL { savings     } => dec savings;
+			REC { escape, ... } => dec escape;
+
+			ARG { escape, savings, ... }
+			    =>
+			    {   dec escape;
+				dec savings;
+			    };
+
+			_ => ();
+		    esac;
+
+		fun notearg   v
+		    =
+		    note (v, ARG { escape=>REF 0, savings=>REF 0, record=>REF [] } );
+
+		fun noteother v =  ();		# note (v, Other) 
+		fun notereal  v =  noteother v;	# note (v, Float) 
+
+		fun enter level (_, f, vl, _, e)
+		    = 
+		    {   note
+			  ( f,
+			    FUN { escape => REF 0,
+				  call   => REF 0,
+				  size   => REF 0,
+
+				  args => vl,
+				  body => e,
+
+				  within         => REF FALSE,
+				  within_sibling => REF FALSE,
+
+				  unroll_call    => REF 0,
+				  sibling_call   => REF 0,
+
+				  invariant => REF (map (\\ _ = cginvariant) vl),
+
+				  level
+				}
+			  );
+
+			apply notearg vl;
+		    };
+
+		fun noterec (w, vl, size)
+		    =
+		    note (w, REC { size, escape=>REF 0, vars=>vl } );
+
+		fun notesel (i, v, w)
+		    =
+		    {   note (w, sel { savings=>REF 0 } );
+
+			case (getval v)
+
+			     ARG { savings, record, ... }
+				 =>
+				 {   inc savings;
+
+				     record := (i, w) . *record;
+				 };
+
+			     _ => ();
+			 esac;
+		    };
+
+
+		fun setsize (f, n)
+		    =
+		    case (get f)
+
+			 FUN { size, ... }
+			     =>
+			     {   size := n;
+				 n;
+			     };
+		    esac;
+
+
+		fun incsave (v, k)
+		    =
+		    case (getval v)
+
+			ARG { savings, ... } =>   savings :=  *savings + k;
+			SEL { savings      } =>   savings :=  *savings + k;
+
+			_ => ();
+		    esac;
+
+
+		fun setsave (v, k)
+		    =
+		    case (getval v)
+
+			ARG { savings, ... } =>  savings := k;
+			SEL { savings      } =>  savings := k;
+
+			_ => ();
+		    esac;
+
+
+		fun savesofar v
+		    =
+		    case (getval v )
+
+			ARG { savings, ... } =>  *savings;
+			SEL { savings      } =>  *savings;
+
+			 _ => 0;
+		    esac;
+
+
+		fun within_sibling fundefs fn arg
+		    =
+		    {   apply
+			    (\\ (_, f, _, _, _)
+				=
+				case (get f)
+
+				    FUN { within_sibling=>w, ... }
+					=>
+					w := TRUE;
+				esac
+			    )
+			    fundefs;
+
+			fn arg
+			then
+			    ( apply
+				  (\\ (_, f, _, _, _)
+				       =
+				       case (get f)
+
+					   FUN { within_sibling=>w, ... }
+					       =>
+					       w := FALSE;
+				       esac
+				  )
+				  fundefs
+			    );
+		    };
+
+
+		fun within f fn arg
+		    =
+		    case (get f)
+
+			 FUN { within=>w, ... }
+			     => 
+			     {   w := TRUE;
+
+				 fn arg
+				 then
+				     (w := FALSE);
+			     };
+		    esac;
+
+
+		recursive my  prim
+		    =
+		    \\ (level, vl, e)
+			=
+			overhead + afterwards
+			where
+			    fun vbl (VAR v)
+				    =>
+				    case (get v)
+					REC _ => 0;
+					_     => 1;
+				    esac;
+
+				vbl _ => 0;
+			    end;
+
+			    nonconst = sum vbl vl;
+			    sl = map savesofar vl;
+
+			    afterwards = pass1 level e;
+
+			    zl = map savesofar vl;
+
+			    overhead  = length vl + 1;
+			    potential = overhead;
+
+			    savings = case nonconst
+
+					  1 =>  potential;
+					  2 =>  potential div 4;
+					  _ =>  0;
+				      esac;
+
+			    fun app3 f
+				=
+				loop
+				where
+				    fun loop (a . b, c . d, e . r)
+					    =>
+					    { f (a, c, e); loop (b, d, r);};
+					loop _
+					    =>
+					    ();
+				    end;
+				end;
+
+			    app3
+				(\\ (v, s, z) =  setsave (v, s + savings + (z-s)))
+				(vl, sl, zl);
+
+			end
+
+		also
+		primreal
+		    =
+		    \\ (level, (_, vl, w, _, e))
+			=
+			{   notereal w;
+
+			    apply
+				(\\ v =  incsave (v, 1))
+				vl;
+
+			    2*(length vl + 1) + pass1 level e;
+			}
+
+		# *****************************************************************
+		#  pass1: gather info on code.                                     
+		# *****************************************************************
+		also
+		pass1:  Int -> Nextcode_Expression -> Int
+		    =
+		    \\ level
+			=>
+			\\ RECORD(_, vl, w, e)
+			       =>
+			       {   len = length vl;
+				   apply (escape o #1) vl;
+				   noterec (w, vl, len);
+				   2 + len + pass1 level e;
+			       };
+
+			   SELECT (i, v, w, _, e)
+			       =>
+			       {   notesel (i, v, w);
+				   1 + pass1 level e;
+			       };
+
+			   OFFSET (i, v, w, e)
+			       =>
+			       {   noteother w;
+				   1 + pass1 level e;
+			       };
+
+			   APPLY (f, vl)
+			       =>
+			       {   call (f, vl); 
+				   apply escapeargs vl; 
+				   1 + ((length vl + 1) div 2);
+			       };
+
+			   FIX (l, e)
+			       => 
+			       {   apply (enter level) l; 
+
+				   within_sibling
+				       l
+				       (\\ ()
+					   =
+					   (sum
+					       (\\ (_, f, _, _, e)
+						   =
+						   setsize (f, within f (pass1 (level+1)) e))
+
+					       l  +  length l  +  pass1 level e
+					   )
+				       )
+				    ();
+			       };
+
+			   SWITCH (v, _, el)
+			       =>
+			       {   len = length el;
+				   jumps = 4 + len;
+				   branches = sum (pass1 level) el;
+				   incsave (v, muldiv (branches, len - 1, len) + jumps);
+				   jumps+branches;
+			       };
+
+			   BRANCH(_, vl, c, e1, e2)
+			       =>
+			       {   fun vbl (VAR v)
+					   =>
+					   case (get v)
+					       REC _ =>  0;
+					       _     =>  1;
+					   esac;
+
+					vbl _ => 0;
+				    end;
+
+				    nonconst = sum vbl vl;
+				    sl = map savesofar vl;
+
+				    branches = pass1 level e1 + pass1 level e2;
+
+				    zl = map savesofar vl;
+				    overhead = length vl;
+
+				    potential = overhead + branches div 2;
+
+				    savings = case nonconst   
+						  1 => potential;
+						  2 => potential div 4;
+						  _ => 0;
+					      esac;
+
+				    fun app3 f
+					=
+					loop
+					where
+					    fun loop (a . b, c . d, e . r)
+						    =>
+						    {   f (a, c, e);
+							loop (b, d, r);
+						    };
+
+						loop _ => ();
+					    end;
+					end;
+
+				    app3
+					(\\ (v, s, z)=  setsave (v, s + savings + (z-s) div 2))
+					(vl, sl, zl);
+
+				    overhead + branches;
+				};
+
+			   LOOKER(_, vl, w, _, e)
+			       =>
+			       {   noteother w;
+				   prim (level, vl, e);
+			       };
+
+			   SETTER(_, vl, e)
+			       =>
+			       prim (level, vl, e);
+
+			   MATH (args as (p::arith { kind=>p::FLOAT 64, ... }, _, _, _, _))
+			       =>
+			       primreal (level, args);
+
+			   MATH (args as (p::round _, _, _, _, _))
+			       =>
+			       primreal (level, args);
+
+			   MATH(_, vl, w, _, e)
+			       =>
+			       {   noteother w;
+				   prim (level, vl, e);
+			       };
+
+			   PURE (p::pure_arith { kind=>p::FLOAT 64, ... },[v], w, _, e)
+			       => 
+			       {   notereal w;
+				   incsave (v, 1);
+				   4+(pass1 level e);
+			       };
+
+			   PURE (p::real { to=>p::FLOAT 64, ... }, vl, w, _, e)
+			       =>
+			       {   notereal w;
+				   prim (level, vl, e);
+			       };
+
+			   PURE (_, vl, w, _, e)
+			       =>
+			       {   noteother w;
+				   prim (level, vl, e);
+			       };
+		       end;
+		   end;
+
+
+		# *******************************************************************
+		#  substitute (args, wl, e, alpha) : substitute args for wl in e.        
+		#  If alpha=TRUE, also rename all namings.                          
+		# *******************************************************************
+		fun substitute (args, wl, e, alpha)
+		    =
+		    {   exception ALPHA;
+
+			my vm:  intmap::Int_Map( Value )
+			     =  intmap::new (16, ALPHA);
+
+			fun get (v, default)
+			    =
+			    intmap::map vm v
+			    except
+				ALPHA = default;
+
+			enter = intmap::add vm;
+
+			fun use (v0 as VAR  v) =>  get (v, v0);
+			    use(v0 as LABEL v) =>  get (v, v0);
+			    use x => x;
+			end;
+
+			fun def v
+			    =
+			    if alpha
+				w = copy_lvar v; 
+				enter (v, VAR w); w;
+			    else
+				v;
+			    fi; 
+
+			fun defl v
+			    =
+			    if alpha
+				w = copy_lvar v; 
+				enter (v, label w);
+				w;
+			    else
+				v;
+			    fi;
+
+			fun bind (a . args, w . wl)
+				=> 
+				{   same_name (w, a);
+				    enter (w, a);
+				    bind (args, wl);
+				};
+
+			    bind _ => ();
+			end;
+
+			recursive my g
+			    =
+			    \\ RECORD (k, vl, w, ce)     =>  RECORD (k, map (map1 use) vl, def w, g ce);
+			       APPLY (v, vl)             =>  APPLY  (use v, map use vl);
+			       SWITCH (v, c, l)          =>  SWITCH (use v, def c, map g l);
+			       SELECT (i, v, w, t, ce)   =>  SELECT (i, use v, def w, t, g ce);
+			       OFFSET (i, v, w, ce)      =>  OFFSET (i, use v, def w, g ce);
+			       LOOKER (i, vl, w, t, e)   =>  LOOKER (i, map use vl, def w, t, g e);
+			       MATH (i, vl, w, t, e)    =>  MATH  (i, map use vl, def w, t, g e);
+			       PURE (i, vl, w, t, e)     =>  PURE   (i, map use vl, def w, t, g e);
+			       SETTER (i, vl, e)         =>  SETTER (i, map use vl, g e);
+			       BRANCH (i, vl, c, e1, e2) =>  BRANCH (i, map use vl, def c, g e1, g e2);
+
+			       FIX (l, ce)
+				   => 
+				   {   # Careful: order of evaluation is important here:
+
+				       fun h1 (fk, f, vl, cl, e)
+					   =
+					   (fk, defl f, vl, cl, e);
+
+				       fun h2 (fk, f', vl, cl, e)
+					   =
+					   { vl' = map def vl;
+					       e'= g e;
+					     (fk, f', vl', cl, e');
+					   };
+
+				       FIX (map h2 (map h1 l), g ce);
+				   };
+			    end;
+
+
+			bind (args, wl);
+
+			g e;
+		    };
+
+
+		fun whatsave (acc, size, (v: Value) . vl, a . al)
+			=>
+			if (acc >= size)
+			     acc;
+			else
+			    case (get a)   
+
+				arg { escape=>REF esc, savings=>REF save, record=>REF rl }
+				    =>
+				    {   my (this, nvl: List( Value ), nal)
+					    =
+					    case (getval v)
+
+						FUN { escape=>REF 1, ... }
+						    =>
+						    (if (esc>0 ) save; else 6+save;fi, vl, al);
+
+						FUN _ => (save, vl, al);
+
+						REC { escape=>REF ex, vars, size }
+						    =>
+						    {   loop (rl, vl, al)
+							except
+							    CHASE               => (0, vl, al);
+							    INDEX_OUT_OF_BOUNDS => (0, vl, al);
+							end;
+						    }
+						    where
+							exception CHASE;
+
+							fun chasepath (v, offp 0)
+								=>
+								v;
+
+							    chasepath (v, selp (i, p))
+								=>
+								case (getval v)
+
+								    REC { vars, ... }
+									=>
+									chasepath (chasepath (list::nth (vars, i)), p);
+
+								    _   =>
+									raise exception CHASE;
+								esac;
+
+							    chasepath _
+								=>
+								raise exception CHASE;
+							end;
+
+							fun loop ([], nvl, nal)
+								=> 
+								( ex > 1  or  esc > 0   ??   save
+											::   save + size + 2,
+								  nvl,
+								  nal
+								);
+
+							    loop((i, w) . rl, nvl, nal)
+								=>
+								loop (rl, chasepath (list::nth (vars, i)) . nvl, w . nal);
+							end;
+						    end; 
+
+					      # REAL  => (save, vl, al)
+
+						CONST => (save, vl, al);
+
+						_ => (0, vl, al);
+					    esac;
+
+					whatsave (acc+this - muldiv (acc, this, size), size, nvl, nal);
+				    };
+
+				sel { savings=>REF save }
+				    =>
+				    {   this = case v
+						   VAR v' => (case (get v')   
+							       FUN _ => save;
+							      REC _ => save;
+							      _ => 0;
+							      esac);
+						  _ => save;
+					       esac;
+
+					whatsave (acc + this - muldiv (acc, this, size), size, vl, al);
+				    };
+
+			    esac;
+			fi;
+
+		    whatsave (acc, size, _, _) => acc;
+		end;
+
+
+		# ***********************************************************
+		# should_expand: should a function application be inlined?  *
+		# ***********************************************************
+		#
+		fun should_expand
+                    ( d,	#  path length from entry to current function 
+		      u,	#  unroll level 
+		      e as APPLY (v, vl), 
+				  FUN { escape, call, unroll_call, size=>REF size, args, body,
+				      level, within=>REF within, ... } )
+		    =
+		    if (*call + *escape == 1)
+
+			 FALSE;
+		    else
+			 stupidloop		# Prevent infinite loops  at compile time.
+			     =
+			     case (v, body) 
+				 (VAR vv,   APPLY (VAR   v', _)) =>  vv==v'; 
+				 (LABEL vv, APPLY (LABEL v', _)) =>  vv==v'; 
+				 _                               =>  FALSE;
+			     esac;
+
+			 calls
+			     =
+			     case u
+				 UNROLL _ =>  *unroll_call;
+				 _        =>  *call;
+			     esac;
+
+			 small_fun_size
+			     =
+			     case u
+				 UNROLL _ =>   0;
+				 _        =>  50;
+			     esac;
+
+			 savings
+			     =
+			     whatsave (0, size, vl, args);
+
+			 predicted
+			     = 
+			     {   real_increase = size-savings-(1+length vl);
+				 real_increase * calls - 
+
+				 # Don't subtract off the original body if
+				 # the original body is huge (because we might
+				 # have guessed wrong and the consequences are
+				 # too nasty for big functions); or if we're
+				 # in unroll mode
+
+				 if (size < small_fun_size)   size;
+				 else                         0;
+                                 fi;
+			     };
+
+			 depth = 2;
+			 max   = 2;
+
+			 if (FALSE and debug)
+			      prettyprint_nextcode::print_nextcode_expression e;
+			      debugprint (int::to_string predicted);
+                              debugprint "   "; 
+			      debugprint (int::to_string bodysize );
+                              debugprint "\n";
+			 fi;
+
+			 not stupidloop
+			 and case u
+
+				 UNROLL lev
+                                     => 
+				     # Unroll if: the loop body doesn't make function
+				     # calls or "unroll_recursion" is turned on; and 
+				     # we are within the definition of the function; 
+				     # and it looks like things won't grow too much.
+
+				     (*coc::unroll_recursion or level >= lev)
+				     and within and predicted <= bodysize;
+
+				 NO_UNROLL
+				     =>
+				     *unroll_call == 0 and
+				     not within and
+				     (predicted <= bodysize  
+				     or (*escape==0 and calls == 1));
+
+				 HEADERS => FALSE;  #  shouldn't get here 
+
+				 ALL =>
+				   (predicted <= bodysize  
+				     or (*escape==0 and calls == 1));
+			     esac;
+
+		    fi;
+
+	    Decision = YES  { formals: List( Lambda_Variable ), body: Nextcode_Expression } 
+		     | NO  Int  #  how many no's in a row 
+		     ;	
+
+
+	    # There is really no point in making 'decisions' a REF.
+	    # This should be changed one day.    XXX BUGGO FIXME
+
+	    my decisions:  Ref( List( Decision ) )
+		       =   REF NIL;
+
+	    fun decide_yes x
+		=
+		decisions :=   YES x . *decisions;
+
+	    fun decide_no ()
+		=
+		decisions :=  case *decisions
+				  NO n . rest =>   NO (n+1) . rest;
+				  d           =>   NO 1 . d;
+			      esac;
+
+
+	    # *******************************************************************
+	    #  pass2: mark function applications to be inlined.                  
+	    # *******************************************************************
+	    #	
+	    fun pass2
+                ( d,		#  path length from start of current function 
+		  u,		#  unroll-info 
+		  e		#  expression to traverse 
+		)
+		=
+		case e
+		    RECORD (k, vl, w,    ce) => pass2 (d+2+length vl, u, ce);
+		    SELECT (i, v,  w, t, ce) => pass2 (d+1, u, ce);
+		    OFFSET (i, v,  w,    ce) => pass2 (d+1, u, ce);
+
+		    APPLY (v, vl)
+                        => 
+		        case (getval v)
+
+			    info as FUN { args, body, ... }
+                                =>
+			        if (should_expand (d, u, e, info))
+				     decide_yes { formals=>args, body };
+				else decide_no();
+                                fi;
+
+			   _ => decide_no ();
+			esac;
+
+		    FIX (l, ce)
+                        => 
+			{   fun fundef (NO_INLINE_INTO, _, _, _, _)
+                                    =>
+                                    ();
+
+				fundef (fk, f, vl, cl, e)
+                                    =>
+			            {   my FUN { level, within, escape=>REF escape, ... }
+                                            =
+                                            get f;
+
+				        u' = case u
+                                                 UNROLL _ => UNROLL level;
+                                                 _        => u;
+                                             esac;
+
+					fun conform ((VAR x) . r, z . l)
+                                                =>
+                                                x == z
+                                                and
+                                                conform (r, l);
+
+					    conform(_ . r, _ . l) => FALSE;
+					    conform([],       []) => TRUE;
+					    conform _             => FALSE;
+                                        end;
+
+			                within := TRUE; 
+
+				        pass2 (0, u', e)
+				        then
+                                        within := FALSE;
+			            };
+                            end;
+
+			    apply fundef l;
+
+			    pass2 (d+length l, u, ce);
+			};
+
+		    SWITCH (v, c, l)
+                        =>
+                        apply
+                            (\\ e = pass2 (d+2, u, e))
+                            l;
+
+		    LOOKER (i, vl, w, t, e) => pass2 (d+2, u, e);
+		    MATH  (i, vl, w, t, e) => pass2 (d+2, u, e);
+
+		    PURE   (i, vl, w, t, e) => pass2 (d+2, u, e);
+		    SETTER (i, vl, e)       => pass2 (d+2, u, e);
+
+		    BRANCH (i, vl, c, e1, e2)
+                        =>
+                        {   pass2 (d+2, u, e1); 
+			    pass2 (d+2, u, e2);
+                        };
+		esac;
+
+
+	   # Do loop-header optimizations,
+           # elimination of invariant loop arguments,
+	   # hoisting of invariant computations.
+	   #
+	   fun from_outside (_, f, _, _, _)
+	       =
+	       case (get f)
+
+		   FUN { escape, call, unroll_call, sibling_call, ... }
+		       =>
+		       *escape > 0 or
+		       *call > *unroll_call + *sibling_call;
+	       esac;
+
+	   fun loop_opt (bigexp)
+	       =
+	       {   exception GAMMA_LEVMAP;
+
+		   #  For each variable, tell what level of loop nesting at its definition
+
+		   my levmap:  intmap::Int_Map( Int )
+			    =  intmap::new (16, GAMMA_LEVMAP);
+
+		   level_of' = intmap::map levmap;
+
+		   fun level_of (VAR v)   => (level_of' v except GAMMA_LEVMAP = 0);
+						   #  ^^^ clean this up XXX BUGGO FIXME
+		       level_of (LABEL v) => level_of (VAR v);
+		       level_of _         => 0;
+		   end;
+
+		   note_level = intmap::add levmap;
+
+		   apply
+		       (\\ v =  note_level (v, 0))
+		       fargs;
+
+		   exception GAMMA_HOISTMAP;
+
+		   # For each level, tell what
+                   # expressions are hoisted there:
+		   #
+		   my hoistmap:   intmap::Int_Map (Nextcode_Expression -> Nextcode_Expression)
+			      =   intmap::new (16, GAMMA_HOISTMAP);
+
+		   fun hoisted_here  lev
+		       =
+		       intmap::map hoistmap lev 
+		       except
+			   GAMMA_HOISTMAP = (\\ e = e);
+
+		   fun any_hoisted_here (lev)
+		       =
+		       {   intmap::map hoistmap lev;
+			   TRUE;
+		       }
+		       except
+			   GAMMA_HOISTMAP = FALSE;
+
+		   fun reset_hoist (lev)
+		       =
+		       intmap::rmv hoistmap lev;
+
+		   fun add_hoist (lev, f)
+		       = 
+		       {   h = hoisted_here lev;
+			   intmap::add hoistmap (lev, h  o  f);
+		       };
+
+	       fun gamma_lev (level, e)
+		   =
+		   {   fun def w
+                           =
+                           note_level (w, level);
+
+		       fun formaldef wl
+                           =
+                           apply
+                               (\\ w = note_level (w, level+1))
+                               wl;
+
+		       fun gamma e
+                           =
+                           gamma_lev (level, e);
+
+		       fun tryhoist (vl, w, e, f)
+			   = 
+			   {   minlev = fold_backward
+                                            int::min
+                                            1000000000
+                                            (map level_of vl);
+
+			       if (minlev < level)
+				    add_hoist (minlev, f);
+				    note_level (w, minlev);
+				    click "#";
+				    gamma e;
+				else
+				    def w;
+				    f (gamma e);
+				fi;
+			   };
+
+		       case e
+
+			   RECORD (k, vl, w, ce)
+			       =>
+			       tryhoist
+				 ( map #1 vl, w, ce, 
+				   \\ e =  RECORD (k, vl, w, e)
+				 );
+
+			   SELECT (i, v, w, t, ce) => tryhoist([v], w, ce, \\ e = SELECT (i, v, w, t, e));
+			   OFFSET (i, v, w,    ce) => tryhoist([v], w, ce, \\ e = OFFSET (i, v, w, e));
+
+			   e as APPLY (v, vl) => e;
+
+			   SWITCH (v, c, l) => {   def c;   SWITCH (v, c, map gamma l);  };
+
+			   LOOKER (i, vl, w, t, e) => { def w; LOOKER (i, vl, w, t, gamma e);};
+			   MATH  (i, vl, w, t, e) => { def w; MATH (i, vl, w, t, gamma e);};
+			   PURE   (i, vl, w, t, e) => tryhoist (vl, w, e, \\ e=>PURE (i, vl, w, t, e); end );
+
+			   SETTER (i, vl, e) => SETTER (i, vl, gamma e);
+			   BRANCH (i, vl, c, e1, e2) => { def c; BRANCH (i, vl, c, gamma e1, gamma e2);};
+
+			   FIX (l, ce)
+			       =>
+			       {   fun fundef (z as (NO_INLINE_INTO, _, _, _, _))
+					   =>
+					   z;
+
+				       fundef (fk, f, vl, cl, e)
+					   => 
+					   {   my FUN { escape=>REF escape, call, unroll_call, invariant=>REF inv, ... }
+						   =
+						   get f;
+
+					       apply def vl;
+
+					       # A "loop" is a function called from inside itself.
+					       # Here we will ensure that any loop has a unique entry
+					       # point; that is, any loop has only one call from
+					       # outside itself.  We do this by making a "header"
+					       # and "pre-header".  Also, any argument passed around
+					       # the loop but never used is hoisted out.  See also:
+					       #
+					       # Loop Headers in Lambda-calculus or nextcode. Andrew W. Appel.
+					       # CS-TR-460-94, Princeton University, June 15, 1994. To appear
+					       # in  _Lisp and Symbolic Computation_ 7, 337-343 (1994).
+					       # ftp://ftp.cs.princeton.edu/reports/1994/460.ps.Z 
+
+
+					       if (escape == 0 and *unroll_call > 0)
+
+						   e' = gamma_lev (level+1, e);
+
+						   if (*call - *unroll_call > 1 
+							  or list::exists (\\ t=t) inv
+							  or any_hoisted_here level
+						   )
+
+						       my f' . vl' = map copy_lvar (f . vl);
+
+						       fun drop (FALSE . r, a . s) =>  a . drop (r, s);
+							   drop (TRUE  . r, _ . s) =>  drop (r, s);
+							   drop _ => NIL;
+						       end;
+
+						       newformals=label f' . map VAR (drop (inv, vl'));
+						       e'' =substitute (newformals,
+									   f . drop (inv, vl),
+									   e',
+									   FALSE); 
+						       hoisted = hoisted_here level;
+						       click "!"; debugprint (int::to_string f);
+						       reset_hoist level;
+						       #  Apply def (f' . vl'); Unnecessary 
+						       enter 0 (fk, f', vl', cl, e'');
+						       (fk, f, vl, cl,
+							hoisted (FIX([(fk, f', vl', cl, e'')], 
+								    APPLY (label f', map VAR vl))));
+
+						   else
+							(fk, f, vl, cl, e');
+						   fi;
+
+					       else
+						    (fk, f, vl, cl, gamma e);
+					       fi;
+
+					   };
+				   end;			# fun fundef
+
+				   case (split from_outside l)
+
+				       ([(fk, f, vl, cl, e)], others as _ . _)
+					   =>
+					   # For any FIX containing more than one function,
+					   # but only one of them called from the body of the FIX
+					   # itself, split into two levels to hide the
+					   # "auxiliary" functions inside the externally called
+					   # function.
+					   #
+					   {   my FUN { sibling_call as REF sib, unroll_call as REF unr, ... }
+						   =
+						   get f;
+
+					       sibling_call := 0;
+
+					       unroll_call := unr + sib;
+
+					       def f;
+
+					       click "`"; /* temporary: */ print "`";
+
+					       apply
+						   (\\ (_, ff, _, _, _)
+						       =
+						       {   my FUN { sibling_call, ... } = get ff;
+
+							   sibling_call := 0;  # I hope this is a conservative estimate.
+						       }
+						   ) 
+						   others;
+
+					       gamma (FIX([(fk, f, vl, cl, FIX (others, e))], ce));
+					   };
+
+				       # For any other kind of FIX, proceed with
+				       # loop detection on each function individually:
+				       #
+				      _ => {   apply (def o #2) l;
+					       FIX (map fundef l, gamma ce);
+					   };
+				   esac;
+			       };
+		       esac;
+		   };
+
+		   bigexp' = gamma_lev (1, bigexp);
+		   hoisted_here 0 bigexp';
+	       };
+
+	   recursive my beta
+	       =
+	       \\ RECORD (k, vl, w, ce) => RECORD (k, vl, w, beta ce);
+		  SELECT (i, v, w, t, ce) => SELECT (i, v, w, t, beta ce);
+		  OFFSET (i, v, w, ce) => OFFSET (i, v, w, beta ce);
+
+		  e as APPLY (v, vl)
+                      => 
+		      case *decisions
+
+			  YES { formals, body } . rest
+                              =>
+			      {   click "^";
+
+				  case v
+                                      VAR vv => debugprint (int::to_string vv);
+                                      _      => ();
+                                  esac;
+
+				  debugflush ();
+				  decisions := rest;
+				  substitute (vl, formals, body, TRUE);
+                              };
+
+			   NO 1 . rest => { decisions := rest; e;};
+			   NO n . rest => { decisions := NO (n - 1) . rest; e;};
+                      esac;
+
+		  FIX (l, ce)
+                      => 
+		      FIX (map fundef l, beta ce)
+                      where
+		          fun fundef (z as (NO_INLINE_INTO, _, _, _, _)) => z;
+			      fundef (fk, f, vl, cl, e) => (fk, f, vl, cl, beta e);
+                          end;
+		      end;
+
+		  SWITCH (v, c, l) => SWITCH (v, c, map beta l);
+		  LOOKER (i, vl, w, t, e) => LOOKER (i, vl, w, t, beta e);
+		  MATH (i, vl, w, t, e) => MATH (i, vl, w, t, beta e);
+		  PURE (i, vl, w, t, e) => PURE (i, vl, w, t, beta e);
+		  SETTER (i, vl, e) => SETTER (i, vl, beta e);
+		  BRANCH (i, vl, c, e1, e2) => BRANCH (i, vl, c, beta e1, beta e2);
+	       end;
+
+
+
+	    fun pass2_beta (mode, e)
+		=
+		{   pass2 (0, mode, e);
+		    discard_pass1_info();
+		    debugprint "Expand: finishing pass2\n"; debugflush();
+
+		    case *decisions
+
+		       [NO _] => { debugprint "No expansions to do.\n"; debugflush();
+				  e;};
+		      _ => {   decisions := reverse *decisions;
+			       debugprint "Beta: ";
+
+			       beta e
+			       then
+			           {   debugprint "\n";
+                                       debugflush();
+                                   };
+                           };
+		    esac;
+		};
+
+
+	    fun pr_cexp cexp
+		=
+		prettyprint_nextcode::print_nextcode_function (fkind, fvar, fargs, ctyl, cexp);
+
+
+	    gamma
+		=
+		\\ c
+		    =
+		    {   print "Before Gamma:\n";
+
+			pr_cexp c;
+
+			debugprint "Gamma: ";
+
+			{   c' = loop_opt c;
+			    print "After Gamma:\n";
+			    pr_cexp c';
+			    c';
+			}
+			then
+			    {   debugprint "\n";
+				debugflush ();
+			    };
+		    };
+
+	    # Body of expand 
+
+	    notearg fvar;
+	    apply notearg fargs;
+
+#	       *coc::printit  ?:  CPSprint::show controls::print::say cexp;
+
+
+	    debugprint("Expand: pass1: ");
+	    debugprint (int::to_string (pass1 0 cexp));
+	    debugprint "\n";
+	    debugflush();
+
+	    if unroll
+		debugprint(" (unroll)\n");
+		debugflush();
+		e' = pass2_beta (UNROLL 0, cexp);
+
+		if *clicked_any
+
+		     expand
+		       { function=>(fkind, fvar, fargs, ctyl, e'),
+			 table=>typetable,
+			 bodysize, click, unroll,
+			 after_closure,
+			 do_headers
+		       };
+
+		 else
+                     # debugprint("\nExpand\n"); 
+		     #   debugflush();
+		     #   (fkind, fvar, fargs, ctyl, pass2_beta (ALL, cexp))
+
+		     (fkind, fvar, fargs, ctyl, e');
+		 fi;
+
+	    elif *coc::unroll
+
+		debugprint(" (headers)\n");
+		debugflush();
+
+		e' =  (do_headers  ??  gamma cexp  :: cexp);
+
+		if *clicked_any
+		    #
+		    expand { function=>(fkind, fvar, fargs, ctyl, e'),
+			     table=>typetable, bodysize, click,
+			     unroll, after_closure, 
+			     do_headers=>FALSE
+			   };
+		else
+		    debugprint(" (non-unroll 1)\n");
+		    debugflush();
+		    (fkind, fvar, fargs, ctyl, pass2_beta (NO_UNROLL, e'));
+		fi;
+
+	    else
+		debugprint(" (non-unroll 2)\n");
+		debugflush();
+		(fkind, fvar, fargs, ctyl, pass2_beta (ALL, cexp));
+	    fi;
+	 };
+    };			# generic package expand_generic 
+end;			# stipulate
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

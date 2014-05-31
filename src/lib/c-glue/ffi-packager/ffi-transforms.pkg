@@ -1,0 +1,1190 @@
+# ffi-transforms.pkg
+
+
+
+#   "I hasten to laugh at everything,
+#    for fear of being obliged to weep."
+#
+#    [Fr., <<<Je me hate de me moquer de tous,
+#      de peur d'etre oblige d'en pleurer.>>>]
+#
+#    -- Pierre Auguste Caron de Beaumarchais
+#       (Barbier de Seville, act I, sc. 2)
+
+
+
+package ffi_transforms:  Ffi_Transforms {
+
+    package ca = Ast      #  CKit 
+    package cb = Namings #  CKit 
+
+    infix Then || &&
+
+    use ffi_packager
+
+    package raw = Ast
+    package u   = AstUtil
+    package i   = lib7_nlffi_gen_info
+    package t   = i::T
+    package cg  = i::Code			# 'cg' might have become 'backend' -- 2011-09-13 CrT
+
+    # ------------------------------------------------------------------------
+    # 
+    # The following combinators are used to specify 
+    # transformations on ffi functions.
+    #
+    # ------------------------------------------------------------------------
+    enum obj = OBJ of { id: Ast::id, cid: Ast::id }
+    enum type = TYPE of { ty: Ast::ty, cty: ca::ctype, mode: ffi_mode }
+    type item = obj * type
+    type convert X = ffi_g * tr::state -> X -> X * List (Ast::decl) * List (Ast::decl)
+    type cvt1 =  convert (item)
+    type cvt2 = convert (item * item) 
+
+      #  A condition 
+    type cond X = ffi_g -> X -> Bool
+    type cond1   = cond (item )
+    type cond2   = cond (item * item) 
+
+    exception Skip
+
+    #  Utilities 
+    fun App (path, f, x) = raw::APPLY_EXPRESSION (raw::ID_IN_EXPRESSION (raw::IDENT (path, f)), x)
+    dupML   = cg::dupML i::LIGHT
+    toML    = cg::toML i::LIGHT
+    free    = cg::free i::LIGHT
+    new     = cg::new i::LIGHT
+    allot   = cg::allot i::LIGHT
+    discard = cg::discard i::LIGHT
+    get     = i::getOf i::LIGHT
+    set     = i::setOf i::LIGHT
+    repTy   = i::repTy i::LIGHT
+    fun toSharedString (x, y) = u::MY (x, App(["c_utils", "Shared"], "zstring'", u::ID y))
+    my enref'    = CG.& i::LIGHT
+    ml_string_ty = raw::IDTY (raw::IDENT([], "string"))
+    ml_bool_ty   = raw::IDTY (raw::IDENT([], "bool"))
+    ml_char_ty   = raw::IDTY (raw::IDENT([], "char"))
+    signed_ty    = raw::IDTY (raw::IDENT(["mlrep", "Signed"], "int"))
+    unsigned_ty  = raw::IDTY (raw::IDENT(["mlrep", "Unsigned"], "word"))
+    fun ml_option_ty t = raw::APPTY (raw::IDENT([], "Null_Or"),[t])
+
+    fun declsToExp decls = raw::LETexp (decls,[u::UNIT])
+
+    i2s = int::to_string
+
+    fun getFields f s = 
+	 str::fieldsOf (fn::info f) s
+	    except FAIL s => (print s; raise exception Skip)
+
+    fun setTy (TYPE { cty, mode, ... } ) ty = TYPE { ty, cty, mode }
+
+    fun convert (f, st) (convert: cvt1) (names, ty, cty, mode)
+	=
+	{   type =   TYPE { ty, cty, mode };
+
+	    fun g ([], objs', init, clean)
+		    =
+		    (reverse objs', init, clean);
+
+	      | g (x . xs, objs', init, clean)
+		    = 
+		    {   obj =   OBJ { id=x, cid=x };
+
+			my ((OBJ { id, cid },
+			      TYPE { ty, cty, mode=m } ), i, c)
+			    =
+			    convert (f, st) (obj, type)   
+			    except
+				Skip => ((obj, type), [], []);
+
+			if id != x   then raise exception FAIL "convert: id changed"
+				     
+
+			if mode != m   then raise exception FAIL "convert: mode changed"
+				       
+
+			g (xs, ty . objs', init @ i, c @ clean);
+		    };
+
+	    g (names, [], [], []);
+	}
+
+    fun convertFields (f, st) (convert: cvt1) (fldName, mode, flds)
+	= 
+	{   fun g ([], objs', init, clean)
+		    =
+		    (reverse objs', init, clean);
+
+	      | g((x, ty, cty, i) . xs, objs', init, clean)
+		    = 
+		    {   fld =   fldName x;
+			obj =   OBJ { id=fld, cid=fld };
+			type =   TYPE { ty, cty, mode };
+
+			my ((OBJ { id, cid },
+			      TYPE { ty, cty, mode=m } ), i, c)
+			    =
+			    convert (f, st) (obj, type)   
+			    except
+				Skip => ((obj, type), [], []);
+
+			if id != fld   then raise exception FAIL "convertFields: id changed"     
+			if mode != m   then raise exception FAIL "convertFields: mode changed"   
+
+			g (xs, (x, ty, cty, i) . objs', init @ i, c @ clean);
+		    };
+
+	    g (flds, [], [], []);
+	}
+
+    fun nameOf (raw::ID_IN_EXPRESSION (raw::IDENT([], x))) = x
+      | nameOf (raw::APPLY_EXPRESSION(_, e)) = nameOf e
+      | nameOf _ = raise exception FAIL "nameOf"
+
+    #  Transformations on encoding 
+    fun changeArgEncoding (f_en, f_ty, f_arg) x decl
+	=
+	{   fun getArg (raw::TUPLE_IN_EXPRESSION [address, arg,
+				   nilExp as raw::ID_IN_EXPRESSION (raw::IDENT([], "NIL"))], _)
+		= 
+		  (case arg of 
+		    raw::TUPLE_IN_EXPRESSION args => args
+		  | arg => [arg]
+		  )
+
+	      | getArg(_, arg)
+		    =
+		    arg;
+
+	    fun getPos e
+		= 
+		{   args =   exp::fold [Fold::E getArg] [] e;
+
+		    fun findPos (i,[]) = raise exception FAIL("changeArgEncoding: can't find "$x$
+					       " in "$exp::show (raw::TUPLE_IN_EXPRESSION args))
+		      | findPos (i, e . es) = if nameOf e == x then i else findPos (i+1, es);
+
+		    findPos (0, args);
+		}
+
+	    fun changeTy i (raw::FUNTY (raw::TUPLETY[addrTy, argTy,
+			    raw::APPTY (raw::IDENT([], "list"),[raw::FUNTY (enArg, enRet)])],
+				  retTy))
+		    =
+		    {   fun replaceTy f i (raw::TUPLETY tys)
+				= 
+				raw::TUPLETY (list::take_n (tys, i)@ [f (list::nth (tys, i))] @
+					  list::drop_n (tys, i+1))
+
+			  | replaceTy f 0 ty = f ty
+			  | replaceTy f i ty = raise exception FAIL("replaceTy "$Ty::show ty);
+
+			enArg =   replaceTy f_en (i+1) enArg;
+			argTy =   replaceTy f_ty i argTy;
+
+			raw::FUNTY (raw::TUPLETY[addrTy, argTy,
+				  raw::APPTY (raw::IDENT([], "list"),[raw::FUNTY (enArg, enRet)])],
+				retTy);
+		    }
+
+	      | changeTy i ty
+		    =
+		    ty
+
+	    fun changeExp i (raw::TUPLE_IN_EXPRESSION [address, arg,
+				      nilExp as raw::ID_IN_EXPRESSION (raw::IDENT([], "NIL"))])
+		    = 
+		    {   fun replaceArg f i (raw::TUPLE_IN_EXPRESSION es)
+				= 
+				raw::TUPLE_IN_EXPRESSION (list::take_n (es, i)@ [f (list::nth (es, i))] @
+					   list::drop_n (es, i+1))
+
+			  | replaceArg f 0 e = f e
+			  | replaceArg f i e = raise exception FAIL("replaceArg "$exp::show e)
+
+			raw::TUPLE_IN_EXPRESSION [ address, replaceArg f_arg i arg, nilExp ];
+		    }
+
+	      | changeExp i e
+		    =
+		    e;
+
+	    fun trans i
+		=
+		exp::map [ Map::E (changeExp i), Map::T (changeTy i) ];
+
+	    decl = decl::map 
+		  [Map::D (\\ raw::FUN_DECL [raw::FUN("f'", [raw::CLAUSE (pat, NULL, exp)])]
+                                  =>
+			          raw::FUN_DECL [raw::FUN("f'", [raw::CLAUSE (pat, NULL, trans (getPos exp) exp)])]
+			  | d => d)] decl;
+	    decl;
+	}
+
+    fun MLObject t
+	=
+	changeArgEncoding 
+	    (\\ raw::IDTY (raw::IDENT([], "string")) => raw::IDTY (raw::IDENT([], "bool"))
+	      | ty => raise exception FAIL ("MLObject::f_en: "$Ty::show ty),
+	     \\ raw::IDTY (raw::IDENT(["c_memory"], "cc_addr")) => 
+		      raw::APPTY (raw::IDENT(["c_ext"], "vec"),[t])
+	      | ty => raise exception FAIL ("MLObject::f_ty: "$Ty::show ty),
+	     \\ e => u::ID (nameOf e)
+	    )
+
+    fun useMLRep (tr::ST { encoding, ... }, id, t)
+	= 
+	encoding := (MLObject t id o *encoding)
+
+    #  Conditions 
+    fun FunNameP  prior f _ =   prior(*(fn::name f))
+    fun FunCnameP prior f _ =   prior (fn::cname f)
+
+    fun FunNameIs  f =   FunNameP (\\ f' => f=f')
+    fun FunCnameIs f =   FunCnameP (\\ f' => f=f') 
+
+	#  Conditions on parameters 
+    fun TyP prior f (_, TYPE { ty, ... } ) = prior ty
+    fun NameP prior f (OBJ { id, ... }, _) = prior id
+    fun CnameP prior f (OBJ { cid, ... }, _) = prior cid
+    fun CtyP prior f (_, TYPE { cty, ... } ) = prior cty
+    fun ParamIsIn f (_, TYPE { mode, ... } ) = mode = INmode
+    fun ParamIsOut f (_, TYPE { mode, ... } ) = mode = OUTmode
+    fun ParamIsPtr f (_, TYPE { ty=raw::APPTY (raw::IDENT([], "ptr'"), _), ... } ) = TRUE
+      | ParamIsPtr f _ = FALSE
+
+    fun FirstArg i f (OBJ { id, ... }, _) =
+	parameter::name (list::nth (fn::args f, i)) = id except _ => FALSE
+    fun Args [] f xs = FALSE
+      | Args (i . is) f xs = FirstArg i f xs or Args is f xs
+
+    fun LastArg i f (OBJ { id, ... }, _)
+	=
+	{   args =   fn::args f;
+
+	    parameter::name (list::nth (args, length args - 1 - i)) = id
+	    except
+		_ => FALSE;
+	}
+
+    fun TyIs t
+	=
+	{   t =   Ty::parse t;
+
+	    TyP (\\ t' => t' = t);
+	}
+
+    fun NameIs x  =   NameP  (\\ x' => x' = x)
+    fun CnameIs x =   CnameP (\\ x' => x' = x)
+
+    fun CtyIs t f
+	=
+	CtyP (\\ ca::TypeRef cty => c::tidName (fn::info f) cty = t
+	       | _ => FALSE) f
+
+    fun FunNameMatches  re =   FunNameP (re::matches re)
+    fun FunCnameMatches re =   FunCnameP (re::matches re)
+
+    fun TyMatches    re =   TyP (re::matches re o Ty::show)
+    fun NameMatches  re =   NameP (re::matches re)
+    fun CnameMatches re =   CnameP (re::matches re)
+
+    fun CtyMatches re f =
+	 CtyP (\\ ca::TypeRef cty => re::matches re (c::tidName (fn::info f) cty) 
+	       | _ => FALSE) f
+
+    #  Combinators 
+    fun (a Then b) f x
+	=
+	{   fun doOne a f x
+		=
+		THE (a f x)
+		except
+		    Skip => NULL;
+
+	    case doOne a f x
+	      of 
+	      THE (x, init1, cleanup1) => 
+	       (case doOne b f x of
+		 THE (x, init2, cleanup2) => (x, init1@init2, cleanup2@cleanup1)
+	       | NULL => (x, init1, cleanup1)
+	       ) 
+	    | NULL => b f x;
+	}
+
+    fun Cond2 (p, q) f (x, y)
+	=
+	p f x and q f y 
+
+    fun Yes f _ = TRUE
+    fun No f _ = FALSE
+
+    fun Do []  = raise exception Skip
+      | Do [g] = g
+      | Do (g . gs) = g Then Do gs
+
+    fun If p convert (f, st) x
+	=
+	if p f x   then convert (f, st) x
+		   else raise exception Skip
+
+    fun (p && q) f x = p f x and q f x
+    fun (p || q) f x = p f x or q f x
+
+    fun Not p f x = not (p f x)
+
+    fun makeParam p
+	= 
+	 (OBJ { id= parameter::name p, cid=parameter::cname p },
+	  TYPE { mode= *(parameter::mode p),
+	      ty= *(parameter::ty p),
+	      cty= *(parameter::cty p) }
+	 )
+
+    fun updateResult (f, params, objs, init, clean)
+	=
+	(paired_lists::apply
+	   (\\ (p, (OBJ { id, cid, ... }, TYPE { mode, ty, cty, ... } )) =>
+	     (parameter::ty   p := ty;
+	      parameter::cty  p := cty;
+	      parameter::mode p := mode
+	     )
+	   ) (params, objs);
+	case init of [] => () | _ => fn::addInit (f, raw::SEQ_DECL init);
+	case clean of [] => () | _ => fn::addCleanUp (f, raw::SEQ_DECL clean)
+       )
+
+    fun DoParam convert (f, st) p
+	= 
+	{   my (x, init, clean)
+		=
+		convert (f, st) (makeParam p);
+
+	    updateResult (f,[p],[x], init, clean);
+	}
+	except Skip => ();
+
+    fun DoParam2 convert (f, st) (p, q)
+	= 
+	{   my ((x, y), init, clean)
+		=
+		convert (f, st) (makeParam p, makeParam q);
+
+	    updateResult (f,[p, q],[x, y], init, clean);
+	}
+	except Skip => ();
+
+    fun Foreach g (convert: cvt1) (f, st)
+	=
+	{   apply (DoParam convert (f, st)) (g f);
+	    (f, st);
+	}
+
+    ForeachParam =   Foreach fn::params 
+    ForeachIn    =   Foreach fn::args 
+    ForeachOut   =   Foreach fn::rets 
+
+    fun Foreach2 g (convert: cvt2) (f, st)
+	=
+	{   fun h (x . y . z)
+		    =
+		    {   DoParam2 convert (f, st) (x, y);
+			h (y . z);
+		    }
+	      | h _        = ()
+
+	    h (g f);
+	    (f, st);
+	}
+
+    ForeachParam2 =   Foreach2 fn::params 
+    ForeachIn2    =   Foreach2 fn::args 
+    ForeachOut2   =   Foreach2 fn::rets 
+
+    fun None (f, st) _
+	=
+	raise exception Skip
+
+       /* These actions convert a pointer argument/return value from
+	*   (uchar,C) ptr' to string
+	*/
+    fun StringArg _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (t::getPtr' ty, mode)
+
+	  of (THE (raw::IDTY (raw::IDENT([], "uchar")), _), INmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_string_ty, cty };
+
+		     ((x, type), [dupML (id, id)], [free id]);
+		 }
+	|  _ => raise exception Skip
+
+    fun StringRet _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	=
+	case (t::getPtr' ty, mode)
+
+	  of (THE (raw::IDTY (raw::IDENT([], "uchar")), _), OUTmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_string_ty, cty };
+
+		     ((x, type), [], [toML (id, id)]);
+		 }
+
+	|  _ => raise exception Skip
+
+    fun FastStringArg (f, st) (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (t::getPtr' ty, mode)
+
+	  of (THE (uchar as raw::IDTY (raw::IDENT([], "uchar")), _), INmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_string_ty, cty };
+
+		     useMLRep (st, id, uchar);
+		     ((x, type), [i::raw::c_string (id, id)], []);
+		 }
+
+	   |  _ => raise exception Skip;
+
+    fun SharedStringRet _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	=
+	case (t::getPtr' ty, mode)
+
+	  of (THE (raw::IDTY (raw::IDENT([], "uchar")), _), OUTmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_string_ty, cty };
+
+		     ((x, type), [], [toSharedString (id, id)]);
+		 }
+
+	   |  _ => raise exception Skip
+
+       # These actions convert an mlrep::XXX argument/return value 
+       # into type bool.
+
+    fun BoolArg _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", _], t as ("int" | "word"))), INmode)
+		=>
+		{   my (one, zero)
+			= 
+			case t
+			  of "int"  => (u::integer_constant_in_expression    1,   u::integer_constant_in_expression    0)
+			   | "word" => (u::WORDexp 0w1,   u::WORDexp 0w0)
+			   | _      => raise exception FAIL "BoolArg";
+
+			type =   TYPE { mode, ty=ml_bool_ty, cty };
+
+			convert =   u::MY (id, raw::TYPED_EXPRESSION (raw::IFexp (u::ID id, one, zero), ty));
+
+		   ((x, type), [convert], []);
+		}
+	   |  _ => raise exception Skip
+
+    fun BoolRet _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", _], t as ("int" | "word"))), OUTmode)
+		 =>
+		 {   my (zero, t)
+			 = 
+			 case t of
+			   "int" => (u::integer_constant_in_expression 0, signed_ty)
+			 | "word" => (u::WORDexp 0w0, unsigned_ty)
+			 | _      => raise exception FAIL "BoolRet";
+
+		     type =   TYPE { mode, ty=ml_bool_ty, cty };
+		     convert =    u::MY (id, u::APPLY("!=",
+				   raw::TUPLE_IN_EXPRESSION [u::ID id, raw::TYPED_EXPRESSION (zero, t)]));
+
+		     ((x, type), [], [convert]);
+		 }
+
+	|  _ => raise exception Skip
+
+       # These actions convert an mlrep::XXX argument/return value 
+       # into type char.
+
+    fun CharArg _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", _], t as ("int" | "word"))), INmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_char_ty, cty };
+		     exp =   App(["Char"], "ord", u::ID id);
+
+		     init =   u::MY (
+				  id,
+
+				  if t == "int"   then App(["mlrep", "Signed"  ], "from_int", exp)
+						  else App(["mlrep", "Unsigned"], "from_int", exp)
+			      );
+
+		     ((x, type), [init], []);
+		 }
+
+	|  _ => raise exception Skip
+
+    fun CharRet _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", _], t as ("int" | "word"))), OUTmode)
+		 =>
+		 {   type =   TYPE { mode, ty=ml_char_ty, cty };
+		     exp =   u::ID id
+
+		     exp =   if t == "int"   then App(["mlrep", "Signed"  ], "toInt",  exp)
+					     else App(["mlrep", "Unsigned"], "toIntX", exp);
+
+		     clean =   u::MY (id, App(["Char"], "chr", exp));
+
+		     ((x, type), [], [clean]);
+		 }
+
+	|  _ => raise exception Skip
+
+    fun Signed (t, mlty, convert, m) _ (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	=
+	case ty
+
+	  of raw::IDTY (raw::IDENT(["mlrep", ("Signed"|"Unsigned")], t'))
+		=> 
+		if t == t' and m == mode
+		then
+		     {   type =   TYPE { mode, ty=mlty, cty };
+			 convert =   u::MY (id, App(["lib7_ffilib_basis"], convert, u::ID id));
+
+			 my (init, clean)
+			     =
+			     if m == INmode   then ([convert], [])
+					      else ([], [convert]);
+
+			 ((x, type), init, clean);
+		     }
+		else
+		     raise exception Skip
+
+	| _ => raise exception Skip
+
+    SignedArg   =   Signed("word",   signed_ty,   "signed",  INmode) : cvt1
+    UnsignedArg =   Signed("int",  unsigned_ty, "unsigned",  INmode) : cvt1
+    SignedRet   =   Signed("word",   signed_ty,   "signed", OUTmode) : cvt1
+    UnsignedRet =   Signed("int",  unsigned_ty, "unsigned", OUTmode) : cvt1
+
+       # These actions convert an enum type that the ML side sees
+       # into mlrep::SInt::int.  
+
+    fun EnumArg (f, _) (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", "Signed"], "int") | raw::IDENT(_, "mlrep")), INmode)
+		 =>
+		 {   my (ty, convert)
+			 = 
+			 case enum::lookup (fn::info f) cty of
+			   NULL => raise exception Skip 
+			 | THE (ENUM { rep=REF NULL, cty, ... } ) =>
+			     raise exception FAIL ("EnumArg: no representation for enum "$cty)
+			 | THE (ENUM { rep=REF (THE (ENUM_REP { structName=s, ty=t, kind, ... } )),
+					     ... } ) =>
+			   (raw::IDTY (raw::IDENT([s], t)),
+			    case kind of 
+			     ENUM_AS_INT => []
+			   | ENUM_AS_DATATYPE { toC, ... } =>
+			      [A.@@@["my "$id$" = "$s$"."$toC$" "$id]]
+			   );
+
+		     type =   TYPE { mode, ty, cty };
+
+		     ((x, type), convert, []);
+		 }
+
+	| _ => raise exception Skip
+
+
+    fun EnumRet (f, _) (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	= 
+	case (ty, mode)
+
+	  of (raw::IDTY (raw::IDENT(["mlrep", "Signed"], "int") | raw::IDENT(_, "mlrep")), OUTmode)
+		 =>
+		 {   my (ty, convert)
+			 = 
+			 case enum::lookup (fn::info f) cty of
+			   NULL => raise exception Skip 
+			 | THE (ENUM { rep=REF NULL, cty, ... } ) =>
+			     raise exception FAIL ("EnumArg: no representation for enum "$cty)
+			 | THE (ENUM { rep=REF (THE (ENUM_REP { structName=s, ty=t, kind, ... } )),
+					     ... } ) =>
+			   (raw::IDTY (raw::IDENT([s], t)),
+			    case kind of 
+			     ENUM_AS_INT => []
+			   | ENUM_AS_DATATYPE { toML, ... } =>
+			      [A.@@@["my "$id$" = "$s$"."$toML$" "$id]]
+			   );
+
+		     type =   TYPE { mode, ty, cty } ;
+
+		     ((x, type), [], convert);
+		 }
+
+	| _ => raise exception Skip
+
+    my Enum:  cvt1 = EnumArg Then EnumRet
+
+       # This action transforms an input parameter 
+       # from call by reference to call by value.  
+
+    fun CallByValue convert (f, st) (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	=
+	case (t::getPtr' ty, mode)
+
+	 of (THE (t, "rw"), INmode)
+		=>
+		(   {   v     =   "v"$id;
+			get   =   i::getOf i::LIGHT t;
+
+			init  =   [new (v, t), enref' (id, v) ];
+			make  =   [u::MY (id, raw::APPLY_EXPRESSION (get, u::ID v))];
+
+			clean =   [discard v];
+			info  =   fn::info f;
+
+			mlTy  =   repTy t;
+			cty   =   c_type.* info cty;
+
+			my ([mlTy], init', clean')
+			      = 
+			      convert (f, st) convert ([id], mlTy, cty, OUTmode);
+
+			type   =   TYPE { mode=OUTmode, ty=mlTy, cty };
+
+			((x, type), init, init' @ make @ clean' @ clean);
+		    }
+		    except
+			i::NoRTTI t => raise exception FAIL ("CallByValue: "$Ty::show t)
+		)
+
+	| _ => raise exception Skip
+
+    fun FastCallByValue convert (f, st) (x as OBJ { id, ... }, TYPE { mode, ty, cty, ... } )
+	=
+	case (t::getPtr' ty, mode)
+
+	  of (THE (t, "rw"), INmode)
+		 =>
+		 (   {   init  =   [i::raw::allot (id, t, 1)];
+			 make  =   [i::raw::get (id, id, t, 0)];
+
+			 info  =   fn::info f;
+			 mlTy  =   repTy t;
+
+			 cty   =   c_type.* info cty;
+
+			 my ([mlTy], init', clean')
+			       = 
+			       convert (f, st) convert ([id], mlTy, cty, OUTmode)
+
+			 type   =   TYPE { mode=OUTmode, ty=mlTy, cty };
+
+			 useMLRep (st, id, t);
+
+			 ((x, type), init, init' @ make @ clean');
+		     }
+		     except
+			 i::NoRTTI t => raise exception FAIL ("FastCallByValue: "$Ty::show t)
+		 )
+
+	| _ => raise exception Skip
+
+
+       # These actions convert a pointer argument/return from
+       #   (X,Z) ptr' to 
+       #   (X,Z) ptr' Null_Or
+       # i.e., it treats Ptr::null' as raise exception Skip
+
+    fun optExp (x, id, yes, no)
+	= 
+	u::MY (x,
+	 raw::CASEexp (u::ID id,
+	  [raw::CLAUSE([raw::CONSPAT (raw::IDENT([], "THE"), THE (raw::IDPAT id))], NULL, yes),
+	   raw::CLAUSE([raw::CONSPAT (raw::IDENT([], "NULL"), NULL)], NULL, no)
+	  ]))
+
+    fun makeOptPtrArg (ptr, null, isNull) convert (f, st) 
+	    (x as OBJ { id, ... }, t as TYPE { mode, ty, ... } )
+	= 
+	case (mode, ty)
+
+	  of (INmode, raw::APPTY (raw::IDENT([], p), _))
+		 =>
+		 if   ptr == p
+		 then
+		      {   my ((x, TYPE { ty, mode, cty, ... } ), init', clean')
+			      = 
+			      convert (f, st) (x, t);
+
+			  init =   optExp (id, id, raw::LETexp (init',[u::ID id]), u::ID null);
+
+			  clean =   u::MY("_", raw::IFexp (u::APPLY (isNull, u::ID id), u::UNIT, declsToExp clean'));
+
+			  (   (x, TYPE { ty=ml_option_ty ty, cty, mode } ),
+			      [init],
+			      [clean]
+			  );
+		      }
+		else
+		     raise exception Skip;
+
+	   | _ => raise exception Skip
+
+    OptPtrArg  = makeOptPtrArg("ptr'", "c::Ptr::null'", "c::Ptr::isNull'")
+		  : cvt1 -> cvt1
+
+    OptFptrArg = makeOptPtrArg("fptr'", "c::Ptr::fnull'", "c::Ptr::isFnull'") 
+		  : cvt1 -> cvt1
+
+    fun makeOptPtrRet (ptr, isNull) convert 
+	    (f, st) (x as OBJ { id, ... }, t as TYPE { mode, ty, ... } )
+	=
+	case (mode, ty)
+
+	  of (OUTmode, raw::APPTY (raw::IDENT([], p), _))
+		 =>
+		 if   ptr == p
+		 then
+		      {   my ((x, TYPE { ty, mode, cty } ), init', clean')
+			      =
+			      convert (f, st) (x, t);
+
+			  clean
+			      = 
+			      A.@@@[   "my "$id$" = if "$isNull$" "$id$
+				       " then NULL else THE "$id
+				   ];
+
+			  (   (x, TYPE { ty=ml_option_ty ty, mode, cty } ),
+			      init',
+			      clean' @ [clean]
+			  );
+		      }
+		 else
+		      raise exception Skip
+
+	| _ => raise exception Skip
+
+    OptPtrRet  =   makeOptPtrRet("ptr'",  "c::Ptr::isNull'" ):   cvt1 -> cvt1
+    OptFptrRet =   makeOptPtrRet("fptr'", "c::Ptr::isFnull'"):   cvt1 -> cvt1
+
+       # These actions inserts non-null tests to pointer types.
+       # When the pointer is null, it inserts code that raises the
+       # exception.   The supplied function is of the form:
+       #   (function name * argument name -> exception to raise)
+       # The type of the argument/return value is unchanged.
+       # NOTE: it is up to the user to make sure the argument it
+       #       tests is actually a pointer.
+
+    fun NonNullPtrArg raiseFn convert (f, st) 
+	   (x as OBJ { id, ... }, t as TYPE { mode=INmode, ... } )
+	    = 
+	    {   init =   A.@@@["my () = if Ptr::null' "$id$" then raise exception " $
+				    exp::show (raiseFn (fn::cname f, id))$" else ()"]
+
+		my ((x, t), init', clean')
+		    =
+		    convert (f, st) (x, t);
+
+		((x, t), init . init', clean');
+	    }
+
+      | NonNullPtrArg _ _ _ _
+	    =
+	    raise exception Skip
+
+    fun NonNullPtrRet raiseFn convert (f, st) 
+	   (x as OBJ { id, ... }, t as TYPE { mode=OUTmode, ... } )
+	    = 
+	    {   clean = A.@@@["my () = if Ptr::null' "$id$" then raise exception " $
+				    exp::show (raiseFn (fn::cname f, id))$" else ()"];
+
+		my ((x, t), init', clean')
+		    =
+		    convert (f, st) (x, t);
+
+		((x, t), init', clean . clean');
+	    }
+
+      | NonNullPtrRet _ _ _ _
+	    =
+	    raise exception Skip;
+
+       # These conversions take a pointer to package type and flatten it
+       # into a tuple or a record.
+
+    fun strField sss f x
+	= 
+	raw::APPLY_EXPRESSION (raw::ID_IN_EXPRESSION (raw::IDENT([re::replace "^ST_+" "" sss], "f_"$f$"'")), x)
+
+    fun fld p x
+	=
+	p + "'" + x
+
+    fun StructPtrArg (makeTy, makePat) convert (f, st) 
+	  (x as OBJ { id, ... }, t as TYPE { mode, ty, cty, ... } )
+	=
+	case (mode, t::getPtr' ty)
+
+	  of (   INmode, 
+		 THE (strTy as raw::APPTY (raw::IDENT([], "su"),
+				       [raw::IDTY (raw::IDENT([sss], "tag"))]), _)
+	     )
+	     =>
+	     (   {   fields   = getFields f sss;
+
+		     my (fields, init', clean')
+			 =
+			 convertFields (f, st) convert (fld id, mode, fields);
+
+		     vars     = map (fld id o #1) fields;
+		     newTy    = makeTy fields;
+		     pat      = makePat (vars, fields);
+		     sss'       = i::structnameToMLname sss;
+		     bind     = raw::VAL_DECL [ raw::NAMED_VALUES (pat, u::ID id) ];
+		     allot    = u::MY (id, App([sss', "new"], "ptr", raw::TUPLE_IN_EXPRESSION (map u::ID vars)));
+		     clean    = free id;
+
+		     ((x, setTy t newTy),[bind] @ init' @ [allot], clean' @ [clean]);
+		 }
+		 except
+		    i::NoRTTI t => raise exception Skip;
+	     )
+	| _ => raise exception Skip
+
+    my TupleStructPtrArg:  cvt1 -> cvt1
+	  = 
+	  StructPtrArg
+	   (\\ flds => raw::TUPLETY (map (repTy o #2) flds),
+	    \\ (vars, flds) => raw::TUPLEPAT (map raw::IDPAT vars)) 
+
+    my RecordStructPtrArg:  cvt1 -> cvt1
+	  =
+	  StructPtrArg
+	   (\\ flds => raw::RECORDTY (map (\\ (f, t, _, _) => (f, repTy t)) flds),
+	    \\ (vars, flds) => raw::RECORD_PATTERN(
+		 paired_lists::map (\\ (v, (f, _, _, _)) => (f, raw::IDPAT v))
+		   (vars, flds), FALSE))
+
+    fun StructPtrRet (makeTy, makeExp) convert (f, st) 
+	  (x as OBJ { id, ... }, t as TYPE { mode, ty, cty, ... } )
+	=
+	case (mode, t::getPtr' ty)
+
+	  of (   OUTmode, 
+		 THE (strTy as raw::APPTY (raw::IDENT([], "su"),
+				 [raw::IDTY (raw::IDENT([sss], "tag"))]), _)
+	     )
+	     =>
+	     (   {   fields   = getFields f sss;
+		     my (fields, init', clean')
+			 =
+			 convertFields (f, st) convert (fld id, mode, fields);
+
+		     vars     = map (fld id o #1) fields;
+		     newTy    = makeTy fields;
+
+		     fun makeGets (v, (f, ty, _, _))
+			 = 
+			 u::MY (v, raw::APPLY_EXPRESSION (get ty, strField sss f (u::ID id)));
+
+		     gets     = paired_lists::map makeGets (vars, fields);
+		     exp      = makeExp (fields, vars);
+		     bind     = u::MY (id, exp);
+
+		     ((x, setTy t newTy),[], init' @ gets @ clean' @ [bind]);
+		 }
+		 except
+		     i::NoRTTI t => raise exception Skip;
+	     )
+
+	| _ => raise exception Skip
+
+    my TupleStructPtrRet:  cvt1 -> cvt1
+	   = 
+	   StructPtrRet 
+	     (\\ flds => raw::TUPLETY (map (repTy o #2) flds),
+	      \\ (flds, vars) => raw::TUPLE_IN_EXPRESSION (map u::ID vars))
+
+    my RecordStructPtrRet:  cvt1 -> cvt1
+	   = 
+	   StructPtrRet 
+	     (\\ flds => raw::RECORDTY (map (\\ (f, t, _, _) => (f, repTy t)) flds),
+	      \\ (flds, vars) => 
+		raw::RECORDexp (paired_lists::map (\\ ((f, _, _, _), x) => (f, u::ID x))
+		    (flds, vars))
+	     )
+
+       # These conversions take a pointer type and treat it as a fixed length
+       # tuple parameter 
+
+    fun index (p, ty, i)
+	= 
+	{   size =   i::sizeOf ty;
+
+	    App(["C", "Ptr"], "deref'",
+		raw::APPLY_EXPRESSION (App(["C", "Ptr"], "|+!", size), 
+		   raw::TUPLE_IN_EXPRESSION [u::ID p, u::integer_constant_in_expression i]));
+	}
+
+    fun ith p i
+	=
+	p + "'" + i2s i;
+
+    fun FixedTupleArg convert 
+	      n (f, st) (x as OBJ { id, ... }, t as TYPE { cty, ty, mode, ... } )
+	= 
+	case (mode, t::getPtr' ty)
+
+	  of (INmode, THE (ty, _))
+		 => 
+		 (   {   vars =   list::from_fn (n, ith id);
+
+			 bind = raw::VAL_DECL [raw::NAMED_VALUES (raw::TUPLEPAT (map raw::IDPAT vars),
+					      u::ID id)];
+
+			 info =   fn::info f;
+
+			 my (tys, init', clean')
+			     = 
+			     convert (f, st) convert (vars, repTy ty, c_type.* info cty, INmode);
+
+			 allot =   raw::VAL_DECL [raw::NAMED_VALUES (raw::TUPLEPAT [raw::IDPAT id, raw::WILDCARD_PATTERN],
+				   raw::APPLY_EXPRESSION(
+				     App(["c_utils"], "c_vector'", 
+					 raw::TUPLE_IN_EXPRESSION [set ty, i::sizeOf ty]),
+					   raw::VECTORexp (map u::ID vars)))];
+
+			 clean =   free id;
+			 newTy =   raw::TUPLETY tys;
+
+			 ((x, TYPE { ty=newTy, cty, mode } ),
+			  [bind] @ init' @ [allot] @ clean',[clean]);
+		     }
+		     except
+			 i::NoRTTI _ => raise exception Skip;
+		)
+
+	| _ => raise exception Skip
+
+    fun FastFixedTupleArg convert 
+	      n (f, st) (x as OBJ { id, ... }, t as TYPE { cty, ty, mode, ... } )
+	= 
+	case (mode, t::getPtr' ty)
+
+	  of (INmode, THE (ty, _))
+		 => 
+		 (   {   vars =   list::from_fn (n, ith id);
+			 bind =   raw::VAL_DECL [raw::NAMED_VALUES (raw::TUPLEPAT (map raw::IDPAT vars),
+					      u::ID id)];
+			 info =   fn::info f;
+
+			 my (tys, init', clean')
+			     = 
+			     convert (f, st) convert (vars, repTy ty, c_type.* info cty, INmode);
+
+			 allot =    i::raw::allot (id, ty, n);
+
+			 fun initialize (i,[])
+				 =
+				 [];
+
+			   | initialize (i, v . vs)
+				 =
+				 i::raw::set (id, ty, i, v) . initialize (i+1, vs);
+
+			 init =   initialize (0, vars);
+			 newTy =   raw::TUPLETY tys;
+
+			 useMLRep (st, id, ty);
+
+			 ((x, TYPE { ty=newTy, cty, mode } ),
+			  [bind] @ init' @ [allot] @ init @ clean',[]);
+		     }
+		     except
+			 i::NoRTTI _ => raise exception Skip;
+		)
+	| _ => raise exception Skip
+
+    fun FixedTupleRet convert n 
+	  (f, st) (x as OBJ { id, ... }, t as TYPE { cty, ty, mode, ... } )
+	= 
+
+	case (mode, t::getPtr' ty)
+
+	  of (INmode, THE (ty, _))
+		 => 
+		 (   {   allot =    allot (id, n, ty);
+			 vars  =    list::from_fn (n, ith id);
+			 a     =   "v" + id;
+
+			 rename =   u::MY (a, u::ID id);
+			 extract =   list::from_fn 
+				      (n, \\ i => u::MY (ith id i, raw::APPLY_EXPRESSION (get ty, index (a, ty, i))));
+
+			 clean =   free a;
+
+			 info  = fn::info f;
+
+			 my (tys, init', clean')
+			     = 
+			     convert (f, st) convert (vars, repTy ty, c_type.* info cty, OUTmode);
+
+			 make =   u::MY (id, raw::TUPLE_IN_EXPRESSION (map u::ID vars));
+			 newTy =   raw::TUPLETY tys;
+
+			 ((x, TYPE { ty=newTy, cty, mode=OUTmode } ), [allot],
+			    [rename] @ init' @ extract @ clean' @ [make, clean]);
+		     }
+		     except
+			i::NoRTTI _ => raise exception Skip;
+		)
+
+	| _ => raise exception Skip
+
+    fun FastFixedTupleRet convert n 
+	  (f, st) (x as OBJ { id, ... }, t as TYPE { cty, ty, mode, ... } )
+	= 
+	case (mode, t::getPtr' ty)
+
+	  of (INmode, THE (ty, _))
+		 => 
+		 (   {   allot =   i::raw::allot (id, ty, n);
+			 vars  =   list::from_fn (n, ith id);
+
+			 extract =   list::from_fn (n, \\ i => i::raw::get (ith id i, id, ty, i));
+
+			 info  =   fn::info f;
+
+			 my (tys, init', clean')
+			     = 
+			     convert (f, st) convert (vars, repTy ty, c_type.* info cty, OUTmode);
+
+			 make =   u::MY (id, raw::TUPLE_IN_EXPRESSION (map u::ID vars));
+
+			 newTy =   raw::TUPLETY tys;
+
+			 useMLRep (st, id, ty);
+
+			 ((x, TYPE { ty=newTy, cty, mode=OUTmode } ), [allot],
+			  init' @ extract @ clean' @ [make]);
+		     end except i::NoRTTI _ => raise exception Skip
+		 )
+
+	   | _ => raise exception Skip
+
+
+       # These actions take two parameters,
+       #   rw_vector:         ptr' (X,Z),
+       #   len:           mlrep::XXX::{ int, word }
+       # and convert it to an ML type
+
+    fun ArrLenArg (cvtFn, tc) convert (f, st) 
+	  ((arr, arrt as TYPE { mode=INmode, ty=arrTy, cty=arrCty, ... } ),
+	   (len, lent as TYPE { mode=INmode, ty=lenTy, cty=lenCty, ... } ))
+	= 
+	(   case (t::getPtr' arrTy, lenTy)
+
+	      of (THE (elemTy, _), raw::IDTY (raw::IDENT(["mlrep", ("Signed"|"Unsigned")],
+					      lent as ("int" | "word"))))
+		  =>
+		  {   my OBJ { id=arrId, ... } = arr;
+		      my OBJ { id=lenId, ... } = len;
+
+		      info =   fn::info f;
+
+		      my ([mlElemTy], init', clean')
+			  =
+			  convert (f, st) convert (["x"], repTy elemTy, c_type.* info arrCty,
+					    INmode);
+
+		      setIt =   "set_" + arrId;
+
+		      setFn =   u::FUN (setIt, raw::TUPLEPAT [raw::IDPAT "obj", raw::IDPAT "v"],
+				    declsToExp(
+				      init' @
+				      [u::MY("_",
+					 raw::APPLY_EXPRESSION (set elemTy, 
+						   raw::TUPLE_IN_EXPRESSION [u::ID "obj", u::ID "v"]))] @
+				      clean'));
+
+		      size =   i::sizeOf elemTy;
+
+		      pat =   raw::TUPLEPAT [raw::IDPAT arrId, raw::IDPAT lenId] ;
+
+		      init =   raw::VAL_DECL [raw::NAMED_VALUES (pat,
+				  raw::APPLY_EXPRESSION( 
+				    App(["c_utils"], cvtFn, raw::TUPLE_IN_EXPRESSION[u::ID setIt, size]),
+					 u::ID arrId))];
+
+		      init =   if   lent == "int"
+			       then [init]
+			       else [init, u::MY (lenId, 
+				     App(["lib7_ffilib_basis"], "signed", u::ID lenId))];
+
+		      clean =   free arrId;
+
+		      newTy =   raw::APPTY (raw::IDENT([], tc),[mlElemTy]);
+
+		      arrt' =   TYPE { mode=INmode,     ty=newTy, cty=arrCty };
+		      lent' =   TYPE { mode=IGNOREmode, ty=lenTy, cty=lenCty };
+
+		      (( (arr, arrt'), (len, lent')), setFn . init, [clean]);
+		  }
+
+	    | _ => raise exception Skip
+	)
+
+      | ArrLenArg _ _ _ _ = raise exception Skip
+
+    fun ListArg f = ArrLenArg ("c_list'", "list") f
+    fun ArrayArg f = ArrLenArg ("c_array'", "rw_vector") f
+    fun VectorArg f = ArrLenArg ("c_vector'", "vector") f
+
+    fun Swap g convert (f, st) (x, y)
+	= 
+	{   my ((y, x), i, c)
+		=
+		g convert  (f, st) (y, x);
+
+	    ((x, y), i, c);
+	}
+
+    ListArg' = Swap ListArg
+    ArrayArg' = Swap ArrayArg
+    VectorArg' = Swap VectorArg
+
+}
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

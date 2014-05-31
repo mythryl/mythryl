@@ -1,0 +1,342 @@
+% -*- latex -*-
+
+\section{The makelib model}
+
+\subsection{Basic philosophy}
+
+The venerable {\bf make} of Unix~\cite{feldman79} is {\em
+target-oriented}\/: one starts with a main goal (target) and applies
+production rules (with associated actions such as invoking a compiler)
+until no more rules are applicable. The leaves of the resulting
+derivation tree\footnote{``Tree'' is figurative speech here since the
+derivation really yields a DAG.} can be seen as defining the set of
+source files that are used to make the main target.
+
+makelib, on the other hand, is largely {\em source-oriented}\/: Whereas
+with {\bf make} one specifies the tree and lets the program derive the
+leaves, with makelib one specifies the leaves and lets the program derive
+the tree.  Thus, the programmer writes down a list of sources, and makelib
+will calculate and then execute a series of steps to make the
+corresponding program.  In {\bf make} terminology, this resulting
+program acts as the ``main goal'', but under makelib it does not need to be
+explicitly named.  In fact, since there typically is no corresponding
+single diskfile for it, a ``natural'' name does not even exist.
+
+For simple projects it is literally true that all the programmer has
+to do is tell makelib about the set of sources: a description file lists
+little more than the names of participating ML source files. However,
+larger projects typically benefit from a hierarchical structuring.
+This can be achieved by gathering source files into separate
+libraries and library components.  Dependencies between such libraries
+have to be specified explicitly and must form an acyclic directed
+graph (DAG).
+
+makelib's own semantics, particularly its dependency analysis, interact
+with the ML language in such a way that for any well-formed project
+there will be exactly one possible interpretation as far as static
+semantics are concerned.  Only well-formed projects are accepted by
+makelib; projects that are not well-formed will cause error messages.
+(Well-formedness is {\em defined} to enforce a unique definition-use
+relation for ML definitions~\cite{blume:depend99}.)
+
+\subsection{Description files}
+
+Technically, a makelib library is a (possibly empty) collection of Mythryl
+source files and may also contain references to other libraries.  Each
+library comes with an export interface which specifies the set of all
+toplevel-defined symbols of the library that shall be exported to its
+clients (see section~\REF{sec:exportcalculus}).  A library is
+described by the contents of its {\em description file}.\footnote{The
+description file may also contain references to input files for {\em
+tools} like {\tt mythryl-lex} or {\tt mythryl-yacc} that produce Mythryl source
+files.  See section~\REF{sec:ilks}.}
+
+\noindent Example:
+
+\begin{verbatim}
+  Library
+      api BAR
+      package Foo
+  is
+      bar.api
+      foo.pkg
+      helper.pkg
+
+      $/standard.lib
+      $/smlnj-lib.lib
+\end{verbatim}
+
+This library exports two definitions, one for a package named {\tt
+Foo} and one for a api named {\tt BAR}.  The specification for
+such exports appear between the keywords {\tt Library} and {\tt is}.
+The {\em members} of the library are specified after the keyword {\tt
+is}.  Here we have three Mythryl source files ({\tt bar.api}, {\tt
+foo.pkg}, and {\tt helper.pkg}) as well as references to two external
+libraries ({\tt \$/standard.lib} and {\tt \$/smlnj-lib.lib}).  The entry
+{\tt \$/standard.lib} typically denotes the description file for the {\it
+Standard ML Basis Library}~\cite{reppy99:basis}; most programs will
+want to list it in their own description file(s).  The other library
+in this example ({\tt \$/smlnj-lib.lib}) is a library of data
+packages and algorithms that comes bundled with the compiler.
+
+\subsection{Invoking makelib}
+
+Once a library has been set up as shown in the example above, one can
+load it into a running interactive session by invoking function {\tt
+makelib.make}.  If the name of the library's description file is, say, {\tt
+fb.lib}, then one would type
+
+\begin{verbatim}
+  makelib.make "fb.lib";
+\end{verbatim}
+
+at the compiler's interactive prompt.  This will cause makelib to
+
+\begin{enumerate}
+\item parse the description file {\tt fb.lib},
+\item locate all its sources and all its sub-libraries,
+\item calculate the dependency graph,
+\item issue warnings and errors (and skip the remaining steps) if
+necessary,
+\item compile those sources for which that is required,
+\item execute module initialization code,
+\item and augment the toplevel environment with namings for exported
+symbols, i.e., in our example for {\tt api BAR} and {\tt
+package Foo}.
+\end{enumerate}
+
+makelib does not compile sources that are not ``reachable'' from the
+library's exports.  For every other source, it will avoid
+recompilation if all of the following is true:
+
+\begin{itemize}
+\item The {\em .compiled file} for the source exists.
+\item The .compiled file has the same time stamp as the source.
+\item The current compilation environment for the source is precisely
+the same as the compilation environment that was in effect when the
+.compiled file was produced.
+\end{itemize}
+
+\subsection{Members of a library}
+
+Members of a library do not have to be listed in any particular order
+since makelib will automatically calculate the dependency graph.  Some
+minor restrictions on the source language are necessary to make this
+work:
+\begin{enumerate}
+\item All top-level definitions must be {\em module} definitions
+(packages, APIs, generics, or generic apis).  In other
+words, there can be no top-level type-, value-, or infix-definitions.
+\item For a given symbol, there can be at most one ML source file per
+library (or---more correctly---one file per library component; see
+Section~\REF{sec:libraries}) that defines the symbol at top level.
+\item If more than one of the listed libraries or components is
+exporting the same symbol, then the definition (i.e., the ML source
+file that actually defines the symbol) must be identical in all cases.
+\label{rule:diamond}
+\item The use of ML's {\bf use} construct is not permitted at the top
+level of ML files compiled by makelib.  (The use is still ok at the
+interactive top level.)
+\end{enumerate}
+
+Note that these rules do not require the exports of imported libraries
+to be distinct from the exports of ML source files in the current
+library.  If an ML source file $f$ re-defines a name $n$ that is also
+imported from library $l$, then the disambiguating rule is that the
+definition from $f$ takes precedence over that from $l$ in all sources
+except $f$ itself.  Free occurences of $n$ in $f$ refer to $l$$s
+definition.  This rule makes it possible to easily write code for
+exporting an ``augmented'' version of some module.  Example:
+
+\begin{verbatim}
+  package a = struct #  Defines augmented A 
+      use A           #  refers to imported A 
+      fun f x = B.f x + C.g (x + 1)
+  end
+\end{verbatim}
+
+Rule~\REF{rule:diamond} may come as a bit of a surprise considering
+that each ML source file can be a member of at most one library (see
+section~\REF{sec:multioccur}).  However, it is indeed possible for two
+libraries to (re-)export the ``same'' definition provided they both
+import that definition from a third library.  For example, let us
+assume that {\tt a.lib} exports a package {\tt X} which was defined
+in {\tt x.pkg}---one of {\tt a.lib}$s members.  Now, if both {\tt b.lib}
+and {\tt c.lib} re-export that same package {\tt X} after importing
+it from {\tt a.lib}, it is legal for a fourth library {\tt d.lib} to
+import from both {\tt b.lib} and {\tt c.lib}.
+
+The full syntax for library description files also includes provisions
+for a simple ``conditional compilation'' facility (see
+Section~\REF{sec:preproc}), for access control (see
+Section~\REF{sec:access}), and it accepts ML-style nestable comments
+delimited by \verb|(*| and \verb|*)|.
+
+\subsection{Name visibility}
+
+In general, all definitions exported from members (i.e., ML source
+files, sublibraries, and components) of a library are visible in all
+other ML source files of that library.  The source code in those
+source files can refer to them directly without further qualification.
+Here, ``exported'' means either a top-level definition within an ML
+source file or a definition listed in a sublibrary's export list.
+
+If a library is structured into library components using {\em libraries}
+(see Section~\REF{sec:libraries}), then---as far as name visibility is
+concerned---each component (library) is treated like a separate library.
+
+Cyclic dependencies among libraries, library components, or ML source
+files within a library are detected and flagged as errors.
+
+\subsection{Freezefile components (libraries)}
+\label{sec:libraries}
+
+makelib's library model eliminates a whole class of potential naming problems
+by providing control over name spaces for program linkage.  The library
+model in full generality sometimes requires namings to be renamed at
+the time of import. As has been described
+separately~\cite{blume:appel:cm99}, in the case of ML this can also be
+achieved using ``administative'' libaries, which is why makelib can get
+away with not providing more direct support for renaming.
+
+However, under makelib, the term ``library'' does not only mean namespace
+management (as it would from the point of view of the pure library
+model) but also refers to actual files (e.g., makelib
+description files and built-library files).  It would be inconvenient
+if name resolution problems would result in a proliferation of
+additional library files.  Therefore, makelib also provides the notion of
+library components (``libraries'').  Name resolution for libraries works
+like name resolution for entire freezefiles, but is entirely
+internal to each library.
+
+When a library is {\em frozen} (via {\tt makelib::freeze} -- see
+Section~\REF{sec:stable}), the entire library is compiled to a single
+file (hence sublibraries do not result in separate freezefiles).
+
+During development, each sublibrary has its own description file which will
+be referred to by the surrounding library or by other sublibraries of that
+library. The syntax of sublibrary description files is the same as that of
+library description files with the following exceptions:
+
+\begin{itemize}
+\item The initial keyword {\tt Library} is replaced with {\tt Group}.
+It is followed by the name of the surrounding library's description
+file in parentheses.
+\item The export list can be left empty, in which case makelib will provide
+a default export list: all exports from ML source files plus all
+exports from subcomponents of the component. from other libraries will
+not be re-exported in this case.\footnote{This default can be spelled
+out as {\tt source(-) group(-)}.  See
+section~\REF{sec:exportcalculus}.}  (Notice that an export list that
+is not {\em syntactically} empty but which effectively contains zero
+symbols because of conditional compilation---see
+Section~\REF{sec:preproc}---does not count as being ``left empty'' in
+the above sense.  Instead, the result would be an almost certainly
+useless component with truly no exports.)
+\item There are some small restrictions on access control
+specifications (see Section~\REF{sec:access}).
+\end{itemize}
+
+As an example, let us assume that
+{\tt foo-utils.lib} contains the following text:
+
+%note: emacs gets temporarily confused by the single dollar
+\begin{verbatim}
+  Group (foo-lib.lib)
+  is
+      set-util.pkg
+      map-util.pkg
+      $/standard.lib
+\end{verbatim}
+%$emacs unconfuse
+
+This description defines sublibrary {\tt foo-utils.lib} to have the
+following properties:
+
+\begin{itemize}
+\item it is a component of library {\tt foo-lib.lib} (meaning that only
+foo-lib.lib itself or other sublibraries thereof may list {\tt foo-utils.lib} as one
+of their members)
+\item {\tt set-utils.pkg} and {\tt map-util.pkg} are Mythryl source files
+belonging to this component
+\item exports from the Standard Basis Library are available when
+compiling these ML source files
+\item since the export list has been left blank, the only (implicitly
+specified) exports of this component are the top-level definitions in
+its ML source files
+\end{itemize}
+
+With this, the library description file {\tt foo-lib.lib} could list
+{\tt foo-utils.lib} as one of its members:
+
+\begin{verbatim}
+  Library
+      api FOO
+      package Foo
+  is
+      foo.api
+      foo.pkg
+      foo-utils.lib
+      $/standard.lib
+\end{verbatim}
+%$emacs unconfuse
+
+No harm is done if {\tt foo-lib.lib} does not actually mention {\tt
+foo-utils.lib}.  In this case it could be that\linebreak {\tt
+foo-utils.lib} is mentioned indirectly via a chain of other components
+of {\tt foo-lib.lib}.  The other possibility is that it is not
+mentioned at all (in which case makelib would never know about it, so it
+cannot complain).
+
+\subsection{Multiple occurences of the same member}
+\label{sec:multioccur}
+
+The following rules apply to multiple occurences of the same source
+file, the same library, or the same sublibrary within a program:
+
+\begin{itemize}
+\item Within the same description file, each member can be specified
+at most once.
+\item Libraries can be referred to freely from as many other sublibraries or
+libraries as the programmer desires.
+\item A sublibrary cannot be used from outside the uniquely defined library
+(as specified in its description file) of which it is a component.
+However, within that library it can be referred to from arbitrarily
+many other sublibraries.
+\item The same ML source file cannot appear more than once.  If an ML
+source file is to be referred to by multiple clients, it must first be
+``wrapped'' into a library (or---if all references are from within the
+same library---a sublibrary).
+\end{itemize}
+
+\subsection{Built libraries}
+\label{sec:built}
+
+makelib distinguishes between libraries that are {\em under development}
+and libraries that are {\em built}.  A built library is created by a
+call of {\tt makelib.build_library} (see Section~\REF{sec:api:compiling}).
+
+Access to built libraries is subject to less internal
+consistency-checking and touches far fewer diskfiles.
+Therefore, it is typically more efficient.  Built libraries
+play an additional semantic role in the context of access control (see
+Section~\REF{sec:access}).
+
+From the client program's point of view, using a built library is
+completely transparent.  When referring to a library---regardless of
+whether it is under development or built---one {\em always} uses the
+name of the library's description file.  makelib will check whether there
+is a built version of the library and provided that is the case use
+it.  This means that in the presence of a built version, the
+library's actual description file does not have to physically exists
+(even though its name is used by makelib to find the corresponding built
+library file).
+
+\subsection{Top-level sublibraries}
+
+Mainly to facilitate some superficial backward-compatibility, makelib also
+allows sublibraries to appear at top level, i.e., outside of any library.
+Such sublibraries must omit the parenthetical construction.plan and then
+cannot also be used within libraries. One could think of the top level
+itself as a ``virtual unnamed library'' whose components are these
+top-level sublibraries.

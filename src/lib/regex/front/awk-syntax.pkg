@@ -1,0 +1,339 @@
+## awk-syntax.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# This module implements the AWK syntax for regular expressions.  The
+# syntax is defined on pp. 28-30 of "The AWK Programming Language, "
+# by Aho, Kernighan and Weinberger.
+#
+# The meta characters are:
+#	"\" "^" "$" "." "[" "]" "|" "(" ")" "*" "+" "?"
+#    Atomic REs:
+#      c	matches the character c (for non-metacharacters c)
+#      "^"	matches the empty string at the beginning of a line
+#	"$"	matches the empty string at the end of a line
+#      "."	matches any single character (except \000 and \n)
+#
+#    Escape sequences:
+#	"\b"	matches backspace
+#	"\f"	matches formfeed
+#	"\n"	matches newline (linefeed)
+#	"\r"	matches carriage return
+#	"\t"	matches tab
+#	"\"ddd	matches the character with octal code ddd.
+#	"\"c	matches the character c (e.g., \\ for \, \" for ")
+#      "\x"dd  matches the character with hex code dd.
+#
+#    Character classes:
+#
+#    Compound regular expressions:
+#	A"|"B	matches A or B
+#	AB	matches A followed by B
+#	A"?"	matches zero or one As
+#	A"*"	matches zero or more As
+#	A"+"	matches one or more As
+#	"("A")"	matches A
+
+
+
+###                 "The primary purpose of the DATA statement is to give
+###                  names to constants; instead of referring to pi as
+###                  3.141592653589793 at every appearance, the variable
+###                  PI can be given that value with a DATA statement and
+###                  used instead of the longer form of the constant.
+###                  This also simplifies modifying the program, should
+###                  the value of pi change."
+###
+###                            -- FORTRAN manual for Xerox computers
+
+
+
+package awk_syntax: (weak)  Regular_Expression_Parser {	# Regular_Expression_Parser	is from   src/lib/regex/front/parser.api
+
+    package r = abstract_regular_expression;		# abstract_regular_expression	is from   src/lib/regex/front/abstract-regular-expression.pkg
+
+    package sc = number_string;				# number_string			is from   src/lib/std/src/number-string.pkg
+    package w8 = one_byte_unt;					# one_byte_unt				is from   src/lib/std/one-byte-unt.pkg
+    package c = char;					# char				is from   src/lib/std/char.pkg
+
+    is_meta = c::contains "\\^$.[]|()*+?";
+
+    exception ERROR;
+
+    dot_match
+	=
+	r::NONMATCH_SET (r::char_set::add_list (r::char_set::empty, explode "\000\n"));
+
+    fun scan getc cs
+        =
+	(   THE (scan_alt([], cs))
+            except
+                ERROR => NULL; end 
+        )
+        where 
+
+            fun getc' cs
+                =
+                case ( getc cs)
+		    THE arg =>   arg;
+		    NULL    =>   raise exception ERROR;
+                esac;
+
+	    fun is_oct_digit c
+                =
+                ('0' <= c) and (c <= '7');
+
+	    fun return_val (v, cl, cs)
+                = 
+		{   n = #1 (the (int::scan v list::get_item cl));
+
+		    (c::from_int n, cs)
+                    except
+                        _ = raise exception ERROR;
+
+		    #  sc::scan_string (int::scan sc::OCTAL) (implode [c1, c2, c3]) 
+		};
+
+	    fun get_hex_char (c, cs)
+                =
+                case (getc cs)
+		  
+		    NULL =>   return_val (sc::HEX,[c], cs);
+
+		    THE (c', cs')
+                        => 
+		        if (not (c::is_hex_digit c'))
+                            
+                             return_val (sc::HEX, [c],     cs);
+		        else return_val (sc::HEX, [c, c'], cs');
+                        fi;
+                esac;
+
+	    fun get_octal_char (c, cs)
+                =
+                case (getc cs)
+		  
+		    NULL =>   return_val (sc::OCTAL,[c], cs);
+
+		    THE (c', cs')
+                        => 
+			if   (not (is_oct_digit c'))
+                            
+                             return_val (sc::OCTAL,[c], cs);
+			else
+                             case (getc cs')
+			       
+			         NULL =>   return_val (sc::OCTAL,[c, c'], cs');
+
+			         THE (c'', cs'')
+                                     => 
+			             if   (not (is_oct_digit c''))
+                                         
+                                          return_val (sc::OCTAL, [c, c'],      cs' );
+			             else return_val (sc::OCTAL, [c, c', c''], cs'');
+                                     fi;
+                             esac;
+                        fi;
+                esac;
+
+	    fun get_escape_char cs
+                =
+                case (getc' cs)
+		    #		  
+		    ('b', cs) => ('\008', cs);
+		    ('f', cs) => ('\012', cs);
+		    ('n', cs) => ('\n',   cs);
+		    ('r', cs) => ('\013', cs);
+		    ('t', cs) => ('\t',   cs);
+		    ('x', cs)
+                        =>
+                        {   my (c1, cs) =   getc' cs;
+
+			    if   (c::is_hex_digit c1)
+                                
+                                 get_hex_char (c1, cs);
+                            else
+                                 raise exception ERROR;
+                            fi;
+		        };
+
+		    (c1, cs)
+                        =>
+			if   (is_oct_digit c1)
+                            
+                             get_octal_char (c1, cs);
+                        else
+                             (c1, cs);
+                        fi;
+                esac;
+
+	    fun scan_alt (stk, cs)
+                =
+                {   my (re, cs') =   scan_seq ([], cs);
+
+		    case (stk, getc cs')
+		      
+		        ([], NULL)          =>   (re, cs');
+		        (_, THE('|', cs'')) =>   scan_alt (re ! stk, cs'');
+		        _                   =>   (r::ALT (reverse (re ! stk)), cs');
+                    esac;
+		  }
+
+	    also
+	    fun scan_seq (stk, cs)
+                 =
+                 {  fun continue (re, cs')
+                        =
+                        scan_seq (re ! stk, cs');
+
+		    fun done ()
+                        =
+                        (r::CONCAT (reverse stk), cs);
+
+		    case (stk, getc cs)
+		      
+			([],   NULL) =>   raise exception ERROR;
+			([re], NULL) =>   (re, cs);
+			(_,    NULL) =>   done ();
+
+			(re ! r, THE('?', cs')) =>   scan_seq (r::OPTION re ! r, cs');
+			(re ! r, THE('*', cs')) =>   scan_seq (r::STAR   re ! r, cs');
+			(re ! r, THE('+', cs')) =>   scan_seq (r::PLUS   re ! r, cs');
+
+			(_, THE('|', _)) =>   done();
+			(_, THE(')', _)) =>   done();
+
+			(_, THE( '(', cs')) =>   continue (scan_grp cs');
+			(_, THE( '.', cs')) =>   continue (dot_match, cs');
+			(_, THE( '^', cs')) =>   continue (r::BEGIN, cs');
+			(_, THE( '$', cs')) =>   continue (r::END, cs');
+			(_, THE( '[', cs')) =>   continue (scan_ilk cs');
+			(_, THE('\\', cs')) =>   continue (scan_escape cs');
+			(_, THE (c, cs'))
+                            =>
+                            if   (is_meta c)
+			        
+                                 raise exception ERROR;
+			    else
+                                 scan_seq((r::CHAR c) ! stk, cs');
+                            fi;
+                    esac;
+		  }
+
+	    also
+	    fun scan_grp cs
+                =
+                {   my (re, cs')
+                        =
+                        scan_alt ([], cs);
+
+		    case (getc' cs')
+		      
+		        (')', cs'') =>   (r::GROUP re, cs'');
+		        _           =>   raise exception ERROR;
+                    esac;
+		}
+
+	    also
+	    fun scan_ilk cs
+                =
+                {   fun scan_ilk' cs
+                        =
+                        {   fun scan_range1 (set, cs)
+                                =
+                                case (getc' cs)
+				     (']',  cs) => (set, cs);
+				     ('\\', cs) => {   my (c, cs) = get_escape_char cs;
+					               scan_range2 (set, c, cs);
+					           };
+				     (c, cs) => scan_range2 (set, c, cs);
+                                esac
+
+			    also
+			    fun scan_range2 (set, c, cs)
+                                =
+                                case (getc' cs)
+				     (']',  cs) => (r::char_set::add (set, c), cs);
+				     ('\\', cs) => {   my (c', cs) = get_escape_char cs;
+
+					               scan_range2 (r::char_set::add (set, c), c', cs);
+					           };
+				     ('-', cs) => scan_range3 (set, c, cs);
+				     (c', cs)  => scan_range2 (r::char_set::add (set, c), c', cs);
+                                esac
+
+			    also
+			    fun scan_range3 (set, min_c, cs)
+                                =
+                                case (getc' cs)
+
+				    (']',  cs) => (r::char_set::add (r::char_set::add (set, min_c), '-'), cs);
+			            ('\\', cs) => {   my (c, cs) = get_escape_char cs;
+					              check_range (set, min_c, c, cs);
+					          };
+				    (c,    cs) => check_range (set, min_c, c, cs);
+                                esac
+
+			    also
+			    fun check_range (set, min_c, max_c, cs)
+				=
+				if (min_c > max_c)  scan_range1 (set, cs );  # raise exception ERROR  # as per bwk test suite 
+				else                scan_range1 (r::add_range (set, min_c, max_c), cs);
+                                fi;
+                                # r::CharSet::addList (set, list::from_fn (ord (maxC)-ord (minC)+1, \\ v => chr (v+ord (minC)))), cs) 
+
+			    case (getc' cs)
+				('-', cs) => scan_range1 (r::char_set::add (r::char_set::empty, '-'), cs);
+			        (']', cs) => scan_range2 (r::char_set::empty, ']', cs);  #  As per bwk test suite 
+			        _         => scan_range1 (r::char_set::empty, cs);
+                            esac;
+		        };
+
+		    case (getc' cs)
+		      
+		        ('^', cs) => {   my (set, cs) = scan_ilk' cs;
+			                 (r::NONMATCH_SET set, cs);
+			             };
+
+			_         => {   my (set, cs) = scan_ilk' cs;
+			                 (r::MATCH_SET set, cs);
+			             };
+                    esac;
+		}
+
+	    also
+	    fun scan_escape cs
+                =
+                {   my (c, cs) =   get_escape_char cs;
+
+		    (r::CHAR c, cs);
+		};
+
+	end;
+
+
+};					#  awk_syntax
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

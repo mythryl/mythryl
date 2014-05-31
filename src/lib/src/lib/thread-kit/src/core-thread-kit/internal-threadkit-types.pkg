@@ -1,0 +1,397 @@
+## internal-threadkit-types.pkg
+#
+# These are the concrete representations of the various threadkit types.
+# These types are abstract (or not even visible) outside this library.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+###	       "The programmer who is  not  in love with lisp by age twenty lacks romance.
+###		The programmer who is still in love with lisp at age thirty lacks sense."
+###
+###							-- Walt Filmore
+
+
+stipulate
+    package fat =  fate;								# fate		is from   src/lib/std/src/nj/fate.pkg
+herein
+
+    package internal_threadkit_types {
+	#
+	package state {
+	    #
+	    State = ALIVE
+		  | SUCCESS
+		  | FAILURE
+		  | FAILURE_DUE_TO_UNCAUGHT_EXCEPTION   Exception
+		  ;									# There is no provision for killing and then reviving a thread -- see Note[1].
+	};
+
+	Apptask =   APPTASK   { task_id:		Int,				# A unique ID. 
+				task_name:		String,				# Purely for display to humans.
+
+				task_state:		Ref( state::State ),		# 
+
+				alive_threads_count:	Ref( Int ),			# Count of threads which are current in this task and in state ALIVE.
+											# When this goes to zero, task state goes to SUCCEEDED and done_condvar is set.
+
+				task_condvar:		Condition_Variable,		# Set when the task exits ALIVE state.  I'd rather this were a oneshot-maildrop, but condvars have
+											# special logic allowing them to be set in an uninterruptible scope, which oneshot-maildrops lack,
+											# and at the moment at least I lack the energy to code it up.   -- 2012-08-11 CrT
+
+				cleanup_task:		Ref( Null_Or( Apptask )	)	# To handle work to be done when this task (or threads in this task) complete.
+			      }
+
+	also
+	Microthread = MICROTHREAD { thread_id:		Int,				# A unique ID. 
+				    name:		String,				# Purely for display to humans.
+				    task:		Apptask,			# Mainly allows killing an entire set of threads all at once via kill_task.
+				    #
+				    state:		Ref( state::State ),
+				    didmail:		Ref( Bool ),			# We set this whenever the thread does some concurrency operation; thread-scheduler favors mail-performing threads.
+				    #
+				    exception_handler:	Ref( Exception -> Void ),	# Root-level exception handler hook.
+				    properties:	        Ref( List(  Exception ) ),	# Holds thread-local properties.
+				    #
+				    done_condvar:	Condition_Variable		# Set when the thread exits ALIVE state.  I'd rather this were a oneshot-maildrop, but condvars have
+											# special logic allowing them to be set in an uninterruptible scope, which oneshot-maildrops lack,
+											# and at the moment at least I lack the energy to code it up.   -- 2012-08-11 CrT
+				  }
+				  #
+				  # Thread states get used primarily in
+				  #
+				  #     src/lib/src/lib/thread-kit/src/core-thread-kit/microthread.pkg
+				  #     src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+				  #
+				  # The full state of a thread consists of two components:
+				  #
+				  #   o The actual fate ("continuation").
+				  #   o The Microthread, which holds its book-keeping info.
+				  # 
+				  # These two components do not refer directly to each other; they are
+				  # explicitly joined only when (for example) thread-scheduler pushes
+				  # them as a pair onto background_run_queue or foreground_run_queue.
+
+
+	also
+	Do1mailoprun_Status
+	  #
+	  = DO1MAILOPRUN_IS_COMPLETE
+	  | DO1MAILOPRUN_IS_BLOCKED  Microthread
+	  #
+	  # One run of the 'do_one_mailop' fn from
+	  #
+	  #     src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+	  #
+	  # will pick and fire exactly one mailop
+	  # from the given list of mailops.
+	  #	
+	  # If no mailops on the list are ready to fire,
+	  # it will block until one is.
+	  #
+	  # It will block forever if the mailop list is empty.
+	  #
+	  # We use 'do1mailoprun' to designate one such invocation
+	  # of the 'do_one_mailop' fn, and we use Ref(Do1mailoprun_Status)
+	  # values to track the status of a do1mailoprun. We set
+	  # a Ref(Do1mailoprun_Status) to DO1MAILOPRUN_IS_COMPLETE
+	  # when the do1mailoprun is complete, in the sense that
+	  # no mailop in it is a candidate to fire.
+
+
+	also
+	Condition_Variable
+	    =
+	    CONDITION_VARIABLE  Ref( Condvar_State )
+	    #
+	    # See  src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+	    #
+	    # These are essentially Void-valued oneshot_maildrop instances,
+	    # and are used for various internal synchronization
+	    # conditions, e.g., nack mail_ops, I/O synchronization,
+	    # and thread termination:
+
+	also
+	Condvar_State										# "condvar" == "condition variable".
+	  #
+	  = CONDVAR_IS_NOT_SET  List								# Unset condvar together with the list of do1mailopruns waiting for it to be set.
+				  { do1mailoprun_status:	Ref( Do1mailoprun_Status ),	# 'do_one_mailop' is supposed to fire exactly one mailop: 'do1mailoprun_status' is basically a mutex enforcing this.
+				    finish_do1mailoprun:	Void -> Void,			# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+				    fate:			fate::Fate( Void )
+				  }
+	  | CONDVAR_IS_SET									# Condvar which has been set.
+	  ;
+
+	Suspend_Then_Eventually_Fire_Mailop__Fn(X)
+	  =
+	  # When a mailop is not ready to fire, we call a function
+	  #     set_up_maildready_watches
+	  # of this type to set up an alarm that will sound when it becomes
+	  # ready to fire.
+	  #
+	  # This typically involves putting it onto some jobqueue that will
+	  # be run when the condition currently blocking the mailop from
+	  # firing is resolved.
+	  #
+	  # The 'set_up_maildready_watches' will not actually do a normal
+	  # return-to-caller until the mailop is ready to fire.  In the
+	  # meantime it suspends itself by calling its
+	  #     return_to__suspend_then_eventually_fire_mailops__loop
+	  # argument:
+	  #
+	  { do1mailoprun_status:			    Ref( Do1mailoprun_Status ),		# This is basically a mutex to prevent more than one mailop firing per do1mailoprun; it is set to DO1MAILOPRUN_IS_COMPLETE by the first mailop to fire.
+	    finish_do1mailoprun:			    Void -> Void,			# Do any required end-of-do1mailoprun work such as  do1mailoprun_status := DO1MAILOPRUN_IS_COMPLETE;  and sending nacks as appropriate.
+	    return_to__suspend_then_eventually_fire_mailops__loop:    Void -> Void		# Used by maildrop.pkg/mailslot.pkg/etc to return control to mailop.pkg after starting up a mailop-ready-to-fire watch.
+	  }
+	  ->
+	  X;											# This is the actual eventual return type.
+
+
+
+	#################################################################
+	# Mailops -- see
+	#     src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+
+
+	Mailop_Readiness(X)
+	  #
+	  = READY_MAILOP									# 
+	      {
+		fire_mailop:	Void -> X							# We fire a mailop by calling fire_mailop(), which is what actually does the relevant mail operation.
+	      }											# (Everything up to that point is just choosing which mail operation to do.)   Reppy refers to 'fire_mailop' as 'doFn'.
+
+	  | UNREADY_MAILOP									# 
+	      #	
+	      Suspend_Then_Eventually_Fire_Mailop__Fn(X)
+	  ;
+
+	Base_Mailop(X)										# When 'do_one_mailop' needs to know if a given base mailop is ready to fire, it calls a fn of this type.
+	    =											# NB: A Base_Mailop is essentially an "is-this-mailop-ready-to-fire?" fn which returns the answer
+	    Void -> Mailop_Readiness(X);							#     (either READY_MAILOP or UNREADY_MAILOP) together with a function
+												#     encapsulating the appropriate thing to to in that case.
+	Mailop(X)
+	  = BASE_MAILOPS		List(      Base_Mailop(X) )				# This is the meat-and-potatoes usual case.
+	  | CHOOSE_MAILOP		List(           Mailop(X) )
+	  | DYNAMIC_MAILOP		Void         -> Mailop(X)				# Special hack which allows picking/generating a mailop on the fly during a call to   do_one_mailop [].
+	  | DYNAMIC_MAILOP_WITH_NACK	Mailop(Void) -> Mailop(X)
+	  ;
+
+	default_task
+	    =
+	    APPTASK
+	      {
+		task_name	    =>  "default task",
+		task_id		    =>  0,							# Default task cannot be killed. In practice we test for (task_id > 0) before killing a task.
+		task_state	    =>  REF state::ALIVE,
+		alive_threads_count =>  REF 1000000000,						# Large number because we don't want default_task ever going non-ALIVE due to lack of living threads.
+		task_condvar	    =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		cleanup_task	    =>  REF NULL	
+	      };	
+
+	default_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "default thread",
+		thread_id  =>  0,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# Thread scheduler temporary thread used by
+	#     microthread_preemptive_scheduler::dequeue_cpu_bound_thread
+	# to run
+	#    *no_runnable_threads_left__hook
+	#
+	no_runnable_threads_left_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "mps temp",
+		thread_id  =>  1,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# Thread scheduler temporary thread used by
+	#     microthread_preemptive_scheduler::run_thunk_immediately__iu,
+	# which is (only) used by
+	#     process_deathwatch::harvest_exit_statuses_of_dead_subprocesses__iu		# process_deathwatch		is from   src/lib/src/lib/thread-kit/src/process-deathwatch.pkg
+	# to signal a child-process death.
+	#
+	run_thunk_immediately_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "run_thunk_immediately thread",
+		thread_id  =>  2,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# Thread scheduler temporary thread used by
+	#     microthread_preemptive_scheduler::run_thunk_soon
+	#
+	run_thunk_soon_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "run_thunk_soon thread",
+		thread_id  =>  3,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# Thread scheduler temporary thread used by
+	#     microthread_preemptive_scheduler::run_thunk
+	#
+	run_thunk_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "run_thunk thread",
+		thread_id  =>  4,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# Thread scheduler temporary thread used by
+	# the inter-hosttrhead-communication logic.
+	#
+	thread_scheduler_requests_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "thread scheduler requests",
+		thread_id  =>  5,
+		task	   =>  default_task,
+		#
+		didmail    =>  REF FALSE,
+		state      =>  REF state::ALIVE,
+		#
+		properties => REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	# The error thread.
+	# This thread is used to trap attempts
+	# to run threadkit without proper initialization 
+	# (i.e., via thread_scheduler_control::start_up_threadkit).				# thread_scheduler_control	is from   src/lib/src/lib/thread-kit/src/posix/thread-scheduler-control.pkg
+	# This thread is enqueued by reset_thread_scheduler.
+	#
+	error_thread
+	    =
+	    MICROTHREAD
+	      {
+		name       =>  "microthread_preemptive_scheduler error thread",
+		thread_id  =>  6,
+		task	   =>  default_task,
+		#
+		state      =>  REF state::ALIVE,
+		didmail    =>  REF FALSE,
+		properties =>  REF [],
+		#
+		done_condvar      =>  CONDITION_VARIABLE (REF (CONDVAR_IS_NOT_SET [])),
+		exception_handler =>  REF (\\ _ = ())
+	      };
+
+	first_free_thread_id = 7;								#
+
+	error_fate
+	    =
+	    fat::make_isolated_fate 
+		(
+		    \\ _ =  {   printf "**** Must do run_threadkit() before using threadkit concurrency support. ****\n";	# This is somewhat obsolescent now. -- 2012-08-15 CrT
+				#
+				raise exception  FAIL "threadkit not initialized";
+			    }
+		)
+		:  fat::Fate( Void );
+
+										my _ =		# Because only declarations are syntactically legal here.
+	unsafe::set_current_microthread_register  error_thread;					# and in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    #
+	    # It is good to do the above as early as practical,
+	    # because prior to that fetching the value of the
+	    # register will probably segfault us (uninitialized value).
+
+	# Useful when debugging threadkit internals:
+	#
+	fun get_thread's_id_as_string (MICROTHREAD { thread_id, ... } )
+	    =
+	    cat [ "[",
+		   number_string::pad_left '0' 6 (int::to_string thread_id),
+		  "]"
+		];
+
+    };
+end;
+
+##############################################################################################
+# Note[1]
+#
+# There is no provision for killing and then reviving a thread.
+#
+# This is a deliberate design decision.
+#
+# In general a running thread will be in many wait queues,
+# and these queues will continue running (due to other threads)
+# while a given thread is dead.  The states of other threads
+# will also continue to evolve.
+#
+# Reviving a thread sanely would require re-establishing a
+# valid set of wait queue entries for the thread, together
+# with updating its internal state to be consistent with the
+# now-changed state of the other threads in the system.
+#
+# This task is impossible for the threadkit layer to accomplish,
+# so it is best to avoid even the suggestion that it can.
+#
+# It is much better to force the user to create the thread over from
+# scratch, and thus solve this problem himself, than to raise unrealistic
+# expectations that threadkit will solve these problems when in fact it cannot.
+#
+#						-- 2012-08-12 CrT
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

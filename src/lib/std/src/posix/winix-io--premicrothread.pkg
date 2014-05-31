@@ -1,0 +1,229 @@
+## winix-io--premicrothread.pkg
+#
+# A subpackage of winix_guts:
+#
+#     src/lib/std/src/posix/winix-guts.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+
+
+
+stipulate
+    package i1w =  one_word_int_guts;				# one_word_int_guts			is from   src/lib/std/src/one-word-int-guts.pkg
+    package int =  int_guts;					# int_guts				is from   src/lib/std/src/int-guts.pkg
+    package mig =  multiword_int_guts;				# multiword_int_guts			is from   src/lib/std/src/multiword-int-guts.pkg
+    package psx =  posixlib;					# posixlib				is from   src/lib/std/src/psx/posixlib.pkg
+    package tg  =  time_guts;					# time_guts				is from   src/lib/std/src/time-guts.pkg
+    package unt =  unt_guts;					# unt_guts				is from   src/lib/std/src/bind-unt-guts.pkg
+    package wty =  winix_types;					# winix_types				is from   src/lib/std/src/posix/winix-types.pkg
+    #
+    package ci  =  mythryl_callable_c_library_interface;	# mythryl_callable_c_library_interface	is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    #
+    fun cfun  fun_name						# For background see Note[1]		in   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+	=
+	ci::find_c_function'' { lib_name => "posix_os", fun_name };
+herein
+
+    package   winix_io__premicrothread
+    : (weak)  Winix_Io__Premicrothread				# Winix_Io__Premicrothread		is from   src/lib/std/src/winix/winix-io--premicrothread.api
+    {
+
+	Iod = wty::io::Iod;					# "Iod" == "I/O descriptor".
+								# An Iod is an abstract descriptor for an OS value that
+								# supports I/O e.g., file, tty device, socket, ....
+								# (In practice on posix it is an Int encoding a host-OS fd.)
+
+
+	Iod_Kind == wty::Iod_Kind;
+
+	# Return a hash value for the I/O descriptor:
+	#
+	fun hash fd
+	    =
+	    unt::from_int (wty::io::iod_to_fd fd);
+
+
+	# Compare two I/O descriptors:
+	#
+	fun compare (fd1, fd2)
+	    =
+	    int::compare
+		( wty::io::iod_to_fd  fd1,
+		  wty::io::iod_to_fd  fd2
+		);
+
+
+
+	fun iod_to_iodkind  io_descriptor			# Return the kind of I/O descriptor.
+	    =
+	    {
+		i    = wty::io::iod_to_fd  io_descriptor;
+		fd   = psx::int_to_fd      i;
+		stat = psx::fstat          fd;
+
+		if   (psx::stat::is_file       stat)  wty::FILE;
+		elif (psx::stat::is_directory  stat)  wty::DIRECTORY;
+		elif (psx::stat::is_char_dev   stat)  wty::CHAR_DEVICE;
+		elif (psx::stat::is_block_dev  stat)  wty::BLOCK_DEVICE;
+		elif (psx::stat::is_symlink    stat)  wty::SYMLINK;
+		elif (psx::stat::is_pipe       stat)  wty::PIPE;
+		elif (psx::stat::is_socket     stat)  wty::SOCKET;
+		else                                  wty::OTHER;
+		fi;
+	    };
+
+	Ioplea
+	  =
+	  { io_descriptor:	Iod,
+	    readable:		Bool,
+	    writable:		Bool,
+	    oobdable:		Bool								# Out-Of-Band-Data available on socket or PTY.
+	  };
+	  # Public representation of a polling operation on
+	  # an I/O descriptor.
+
+	Ioplea_Result	= Ioplea;								# A synonym to clarify declarations.
+
+	exception BAD_WAIT_REQUEST;
+
+
+
+	(cfun "select")										# select	is from   src/c/lib/posix-os/select.c
+	    ->
+	    (      poll__syscall:    ( (List( (Int, Unt) ),					# (fd, flags) pairs where 'flags' has three bits: readable/writable/oobdable
+				       Null_Or( (i1w::Int, Int) ))				# NULL or (THE timeout), where 'timeout' is a (seconds, microseconds) pair.
+				     )
+				     ->
+				     List( (Int, Unt) ),					# Result list of (fd, flags) pairs, where 'flags' is nonzero (if zero, the pair is dropped from the result list).
+		   poll__ref,
+	      set__poll__ref
+	    );
+
+
+	# 'wait_for_io_opportunity' checks to see which
+	# fds (of a given set) are ready for I/O:
+	#
+	stipulate
+
+	    fun conditional_bit_or (FALSE,   _, accumulator) =>  accumulator;
+		conditional_bit_or (TRUE,  bit, accumulator) =>  unt::bitwise_or (accumulator, bit);
+	    end;
+
+	    fun test (word, bit)
+		=
+		(unt::bitwise_and (word, bit) != 0u0);
+
+	    readable_bit =  0u1;
+	    writable_bit =  0u2;
+	    oobdable_bit =  0u4;
+
+	    fun from_wait_request { io_descriptor, readable, writable, oobdable }
+		=
+		( wty::io::iod_to_fd  io_descriptor,
+
+		  conditional_bit_or
+		    (
+		      readable,
+		      readable_bit,
+
+		      conditional_bit_or
+			(
+			  writable,
+			  writable_bit,
+
+			  conditional_bit_or
+			    (
+			      oobdable,
+			      oobdable_bit,
+			      0u0
+			    )
+		        )
+		    )
+		);
+
+
+	    fun to_poll_result (fd, w)
+		=
+		{ io_descriptor	=>  wty::io::int_to_iod  fd,
+		  readable	=>  test (w, readable_bit),
+		  writable	=>  test (w, writable_bit),
+		  oobdable	=>  test (w, oobdable_bit)
+		};
+
+	herein
+
+
+	    fun wait_for_io_opportunity { wait_requests, timeout }
+		=
+		{
+		    raw_results =  *poll__ref   (map  from_wait_request  wait_requests,   timeout);
+		    #
+		    map  to_poll_result  raw_results;
+		}
+		where
+		    timeout =   case timeout
+				    #
+				    THE time => {   usec = tg::to_microseconds  time;
+						    #
+						    (mig::div_mod (usec, 1000000))
+							->
+							(sec, usec);
+
+						    THE  (i1w::from_multiword_int  sec,  int::from_multiword_int  usec);
+						};
+
+				    NULL =>     NULL;
+				esac;
+		end;		
+
+	    fun wait_for_io_opportunity__without_syscall_redirection { wait_requests, timeout }			# Called (only) by server_loop()	from   src/lib/std/src/hostthread/io-wait-hostthread.pkg
+		=												# which is a secondary hostthread itself, hence has no need to redirect via a secondary hostthread.
+		{
+		    raw_results =  poll__syscall   (map  from_wait_request  wait_requests,   timeout);
+		    #
+		    map  to_poll_result  raw_results;
+		}
+		where
+		    timeout =   case timeout
+				    #
+				    THE time => {   usec = tg::to_microseconds  time;
+						    #
+						    (mig::div_mod (usec, 1000000))
+							->
+							(sec, usec);
+
+						    THE  (i1w::from_multiword_int  sec,  int::from_multiword_int  usec);
+						};
+
+				    NULL =>     NULL;
+				esac;
+		end;		
+	end;												# stipulate
+    };													# package winix_io__premicrothread 
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

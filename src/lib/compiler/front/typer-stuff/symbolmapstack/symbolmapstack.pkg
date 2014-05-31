@@ -1,0 +1,325 @@
+## symbolmapstack.pkg --  Core frontend "symbol table"
+#
+# See nomenclature comments in
+#
+#     src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.api
+#
+# In the early phases of the compiler we track
+# variables, functions, types etc by assigning
+# them symbols which we store in symbolmapstacks.
+#     These 'symbols' correspond directly to user
+# identifiers appearing in the source code.  See:
+#
+#     src/lib/compiler/front/basics/map/symbol.pkg
+#
+# In the later phases of the compiler, as we simplify
+# and abstract away from the sourcecode, we in essence
+# switch from *naming* things to *numbering* them.
+# Instead of looking up symbols in symbolmapstacks
+# we look up stamps in stampmapstacks, where 'stamps'
+# are in essence small integers sequentially assigned
+# starting at zero whose only property of interest is
+# uniqueness -- being unequal to all other stamps of
+# interest.  See:
+#
+#     src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+#     src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+
+#                 OVERVIEW
+#
+# The royal road to understanding the typical
+# large program is to study first its principal
+# datastructures.  Their definition will be perhaps
+# one percent of the size of the program as a whole,
+# and once understood, the rest of the program will
+# become reasonably intelligible.
+#
+# The heart and soul of the compiler frontend
+# is the symbol table, which records everything
+# the compiler knows about each user-defined
+# identifier.
+#
+# The compiler represents user-defined identifiers
+# using Symbols, defined essentially as a string
+# plus an integer hash of that string (for fast
+# hashtable lookups).  For details, see
+#
+#    src/lib/compiler/front/basics/map/symbol.pkg
+# 
+# Abstractly, the symbol table is just a mapping
+# from Symbols to values containing everything the
+# compiler frontend knows about that user-defined
+# symbol.
+# 
+# The compiler divides user-defined identifiers
+# into eight mutually exclusive namespaces:
+# A given identifier 'x' can have separate
+# values in all eight namespaces.
+#
+# These eight namespaces are:
+#
+#
+#
+# 1) Named values, introduced by syntax such a
+#
+#        my_val = 1;
+#
+#    Named functions introduced by syntax like
+#
+#        fun my_fun i = i + 1;
+#
+#    are included in this namespace, because they
+#    are just syntactic sugar for core syntax like
+#
+#        my_fun =   \\ i = i + 1;    
+#
+#
+#
+# 2) Named sumtype constructors such as LEAF and NODE,
+#    introduced by syntax like
+#
+#        My_Tree(X) = NODE (My_Tree, My_Tree)
+#                   | LEAF (X)
+# 		    ; 
+#
+#
+# 3) Named types, introduced by syntax like
+# 
+#        My_Type = Int;
+# 
+#
+#
+# 4) Named apis, introduced by syntax like
+# 
+#        api An_Api { ... };
+# 
+#
+#
+# 5) Named packages, introduced by syntax like
+# 
+#        package my_package { ... };
+# 
+#
+#
+# 6) Named generics, introduced by syntax like
+# 
+#        generic package my_package_g (...) { ... };
+# 
+#
+#
+# 7) Named generic apis.  I'm a bit baffled by this
+#        one, since it seems that generic apis can
+#        only be introduced anonymously by syntax such as
+#            generic package x( a: A ): B { ... }
+#        where the generic api A -> B has
+#        no explicit 'my_generic_api' name.
+# 
+#
+#
+# 8) Named fixities, introduced by syntax like
+# 
+#        infixr my 50 & ;
+#
+# Each Symbol is tagged with the namespace to
+# which it belongs (via a bitfield tucked into
+# the hashcode).
+#
+# The first thing the front end does when
+# encountering any user-defined identifier in
+# the source code is to assign it to one of
+# the above eight namespaces, and translate
+# it into an appropriate symbol.
+#
+# Consequently, identifiers in different
+# namespaces live entirely separate lives.
+#
+# The symbol table maps all identifiers in
+# a given namespace to a value of the same type,
+# recording everything which is known about that
+# identifier.
+#
+# That value type is however different for
+# different namespaces: We need to remember
+# different information about a type name
+# than about a generic name, for example.
+#
+# The resulting eight different value types
+# are declared and defined (respectively) in
+#
+#    src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.api
+#    src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+#
+# with the detailed records declared and defined in
+#
+#    src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.api
+#    src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+#    src/lib/compiler/front/typer-stuff/types/type-declaration-types.api
+#    src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+#    src/lib/compiler/front/typer-stuff/modules/module-level-declarations.api
+#    src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+#
+# Although conceptually we have eight separate symbol
+# tables, one per namespace, we actually implement them
+# all in one integrated package.  Since the same
+# user identifier is given different Symbols in
+# different namespaces, no conflicts result.
+#    
+# The key implementation component of the symbol
+# table is a hashtable mapping from symbols to
+# symbol table entries.
+#    
+# These hashtables are implemented in
+#    
+#     src/lib/compiler/front/typer-stuff/basics/symbol-hashtable-stack.api
+#     src/lib/compiler/front/typer-stuff/basics/symbol-hashtable-stack.pkg
+#    
+# In general, we maintain a stack of these
+# hashtables, one per lexical scope, pushing
+# and popping the stack as we enter and leave
+# lexical scopes in the source code.
+#
+# This stacking is likewise implemented in
+# the above symbol-hashtable module.
+
+
+stipulate
+    package lms =  list_mergesort;				# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package mld =  module_level_declarations;			# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package shs =  symbol_hashtable_stack;			# symbol_hashtable_stack	is from   src/lib/compiler/front/typer-stuff/basics/symbol-hashtable-stack.pkg
+    package sxe =  symbolmapstack_entry;			# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+herein 
+
+
+    package   symbolmapstack
+    : (weak)  Symbolmapstack					# Symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.api
+    {
+	Entry        =  sxe::Symbolmapstack_Entry;
+
+	Full_Entry   =  { entry:        Entry,
+                          modtree:  Null_Or(mld::Modtree)
+                        };
+
+	Symbolmapstack
+	    =
+	    shs::Symbol_Hashtable_Stack( Full_Entry );
+
+	exception UNBOUND = shs::UNBOUND;
+
+	fun entry_to_full_entry entry				# Convert a Entry -> Full_Entry by adding a null modtree.
+            =
+            { entry,
+              modtree => NULL
+            };
+
+	empty = shs::empty;
+
+	fun get (symbolmapstack, symbol)
+            =
+	    {   full_entry =   shs::get (symbolmapstack, symbol):   Full_Entry;
+		#
+                full_entry.entry;
+	    };
+
+	bind_full_entry =  shs::bind;
+
+	fun bind (symbol, symbolmapstack_entry, symbolmapstack)
+            =
+            shs::bind (symbol, entry_to_full_entry symbolmapstack_entry, symbolmapstack);
+
+	fun special (mkb, mks)
+            =
+            shs::special (entry_to_full_entry o mkb, mks);
+
+	atop             =  shs::atop;
+	consolidate      =  shs::consolidate;
+	consolidate_lazy =  shs::consolidate_lazy;
+
+	fun apply user_fn  symbolmapstack
+            =
+            shs::apply
+                (\\ (symbol, full_entry: Full_Entry) =  user_fn (symbol, full_entry.entry))
+                symbolmapstack;
+
+	fun map  user_fn  symbolmapstack
+            =
+            shs::map
+                (entry_to_full_entry  o  user_fn  o  .entry)
+                symbolmapstack;
+
+	fun fold  user_fn  result_initializer  symbolmapstack
+            =
+            shs::fold
+                (\\ ((symbol, full_entry: Full_Entry), result) =   user_fn  ((symbol, full_entry.entry), result))
+                result_initializer
+                symbolmapstack;
+
+	fold_full_entries =  shs::fold;
+
+	symbols  =  shs::symbols;
+
+	# sort: Sort the entries in a dictionary.
+	#  
+	# This is used for the assignment of dynamic access slots
+	# during typechecking, for printing, and for other purposes.
+	# The entries are sorted in the following order:
+	#
+	#   values
+	#   constructors
+	#   types
+	#   apis
+	#   packages
+	#   generic apis
+	#   generics
+	#   fixity declarations
+	#
+	# It is only correct to sort dictionaries which have no duplicate entries.
+	# All routines which build package dictionaries maintain this
+	# invariant, so it is ok to sort any package dictionary using
+	# this function.
+	#
+	fun to_sorted_list  dictionary
+            =
+            lms::sort_list  sxe::greater_than (fold (!) NIL dictionary);
+
+
+	fun filter (symbolmapstack, symbols)
+            =
+	    fold_forward add empty symbols
+            where
+	        fun add (symbol, symbolmapstack')
+                    =
+                    bind (symbol, get (symbolmapstack, symbol), symbolmapstack')
+                    except
+                        UNBOUND =  symbolmapstack';
+	    end;
+    };										# package symbolmapstack 
+end;										# stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## (C) 2001 Lucent Technologies, Bell Labs
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+

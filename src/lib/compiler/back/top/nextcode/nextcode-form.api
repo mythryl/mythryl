@@ -1,0 +1,601 @@
+## nextcode-form.api 
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# nextcode (our continuation-passing-style intermediate
+# code representation) is the core intermediate code representation
+# used by the Mythryl compiler backend tophalf,
+# which began life as the Yale FLINT project, home page
+#
+#     http://flint.cs.yale.edu/
+#
+# For authoritative background see Zhong Shal's PhD thesis:
+#
+#     Compiling Standard ML for Efficient Execution on Modern Machines
+#     http://flint.cs.yale.edu/flint/publications/zsh-thesis.html
+#
+# In particular see the compiler phases diagram on p32.
+#
+#
+#
+# Nomenclature translation table:
+#
+#   What he calls          We call                       See
+#   -------------          ----------                    -----------
+#   raw abstract syntax    raw  syntax                   src/lib/compiler/front/parser/raw-syntax/raw-syntax.api
+#       abstract syntax    deep syntax                   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+#   CPS                    nextcode                      src/lib/compiler/back/top/nextcode/nextcode-form.api
+#   continuation           fate
+# 
+#
+#
+# Two major differences between the compiler as described in his
+# thesis and the current Mythryl (and SML/NJ) compilers:
+#
+#  o The addition of an anormcode (A Normal) form pass between
+#    the lambdacode and nextcode phases.
+#
+#  o His binary machine code generation phase has been replaced
+#    by the much more elaborate MLRISC project (Mythryl compiler
+#    backend lowhalf, home page here:
+#
+#        http://www.cs.nyu.edu/leunga/www/MLRISC/Doc/html/index.html
+#
+#
+# Here is a concise definition of nextcode form:
+#
+#    "In general, a term is said to be in nextcode form if all the
+#    function calls are tail calls.  That means that non-tail function
+#    calls need to be modified by passing an explicit 'fate' (which is
+#    equivalent in some sense to a return address and an activation
+#    frame), which the called function will then call when it wants to
+#    return.  Also, all base operations only take immediate values or
+#    variables as arguments, rather than expressions, and bind their
+#    result to a variable, so every intermediate value has a name and
+#    all operations are explicitly sequentialized.
+#
+#    "Since tail-calls are only a step away from an assembly JUMP
+#    instruction, the nextcode representation of a program provides a
+#    nice mix of being very close to assembly code while still
+#    enjoying the high-level formalism provided by the
+#    lambda-calculus."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+#  See also the section "ADVANTAGES OF USING nextcode" in:
+#      src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+#
+# nextcode format code is produced from A-Normal code by:
+#
+#     src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+#
+# Translation of nextcode format to Treecode is managed by
+#
+#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# "nextcode" == "continuation passing style", the second
+# of the major middle-end intermediate code representations.
+#
+# For more context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+#
+
+
+
+
+# This file is apparently only actually directly used by
+#
+#     src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.api
+
+
+stipulate
+    package cty =  ctypes;							# ctypes		is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+herein
+
+    # This api is implemented in:
+    #
+    #     src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    #
+    api Nextcode_Form {
+	#
+	package rk: api {
+	    #	
+	    Record_Kind
+	      #	
+	      = VECTOR			# This has a header, unlike the rest.
+	      | RECORD
+	      | SPILL
+	      #	
+	      | PUBLIC_FN
+	      | PRIVATE_FN
+	      | FATE_FN
+	      | FLOAT64_FATE_FN		# A FATE_FN which happens to contain only float data, I think. We use this for 
+					# ncf::FATE_FN|ncf::PRIVATE_FATE_FN fns and FLOAT64_BLOCK for all other fns	in   src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg 
+	      #	
+	      #	
+	      #	
+	      | INT1_BLOCK
+	      #	
+	      | FLOAT64_BLOCK		# We      use this for records which happen to contain only floats		in   src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+	      #				# We also use this to contain spilled float values				in   src/lib/compiler/back/top/nextcode/nextcode-preimprover-transform-g.pkg
+	      #	
+	      ;
+	};
+
+	Record_Kind = rk::Record_Kind;	
+
+	Pointer_Kind			# Here used only by POINTER below.  Constructors used very rarely; this appears to be more code which died a-borning.
+	  = VPT				# Used mainly(?) by bogus_pointer in  src/lib/compiler/back/top/nextcode/nextcode-form.pkg.  Many functions are (POINTER VPT).
+	  | FPT  Int			# The 'Int' is length; appears to designate a pointer to a FLOAT64_BLOCK (packed Float64 data in a record/vector).
+	  | RPT  Int			# The 'Int' is length; appears to designate a pointer to a vanilla record.
+	  ;
+
+	package typ: api {
+	    Type
+	      = INT			# 31-bit Int
+	      | INT1			# 32-bit int
+	      | FLOAT64			# Float
+	      | POINTER  Pkind		# Pointer
+	      | FUN			# Function
+	      | FATE			# Fate (=="continuation")
+	      | DSP			# ???	Clues: size-in-bits == 32. is_float == FALSE. is_tagged == TRUE. (I think there was digital signal processor -- DSP -- hacking on the compiler at one point. Seems to have been mostly ripped out.)
+	      ;				# Empirically, ncftype_for_fun is either FATE, FUN or (POINTER VPT) in   convert_nextcode_public_fun_args_to_treecode  in  src/lib/compiler/back/low/main/nextcode/convert-nextcode-fun-args-to-treecode-g.pkg
+	};
+	Type = typ::Type;
+
+	package p:  api {
+	    #
+	    Number_Kind_And_Size		# A clone of   Number_Kind_And_Size   from   src/lib/compiler/back/top/highcode/highcode-baseops.api
+	      #
+	      = INT   Int			# Fixed-length   signed-integer type.  We mainly have INT 8, INT 31 (tagged ints) and INT 32 (untagged word-length ints);  Very occasionally also INT 16.
+	      | UNT   Int 			# Fixed-length unsigned-integer type.  We mainly have UNT 31 and UNT1; very occasionally UNT 8 and UNT 16.
+	      | FLOAT Int			# Fixed-length floating-point   type.  We mainly have FLOAT 64; very occasionally FLOAT 32.
+	      ;
+
+	    Arithop
+	      = ADD
+	      | SUBTRACT
+	      | MULTIPLY
+	      | DIVIDE
+	      | NEGATE
+	      | ABS 
+	      | FSQRT
+	      | FSIN
+	      | FCOS
+	      | FTAN 
+	      | LSHIFT
+	      | RSHIFT
+	      | RSHIFTL
+	      | BITWISE_AND
+	      | BITWISE_OR
+	      | BITWISE_XOR
+	      | BITWISE_NOT
+	      | REM
+	      | DIV
+	      | MOD
+	      ;
+
+	    Compare_Op = GT | GE | LT | LE | EQL | NEQ;
+
+	    # The IEEE std 754 predicates:
+	    #
+	    package f: api { 
+		#
+		Ieee754_Floating_Point_Compare_Op
+		  = EQ		#  = 
+		  | ULG		#  ?<> 
+		  | UN		#  ? 
+		  | LEG		#  <=>
+		  | GT		#  > 
+		  | GE		#  >= 
+		  | UGT		#  ?> 
+		  | UGE		#  ?>=
+		  | LT		#  < 
+		  | LE		#  <= 
+		  | ULT		#  ?< 
+		  | ULE		#  ?<=
+		  | LG		#  <> 
+		  | UE		#  ?= 
+		  ;
+	    };
+	    Ieee754_Floating_Point_Compare_Op = f::Ieee754_Floating_Point_Compare_Op;	
+
+	    # Two-way branches dependent on pure inputs:
+	    #
+	    Branch
+	      = COMPARE		{  op: Compare_Op,                         kind_and_size: Number_Kind_And_Size }
+	      | COMPARE_FLOATS	{  op: Ieee754_Floating_Point_Compare_Op,  size:     Int                  }
+	      #
+	      | IS_BOXED						# ((i & 1) == 0)	TRUE  for pointers, FALSE for tagged ints -- see fun   'boxed' in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	      | IS_UNBOXED						# ((i & 1) != 1)	FALSE for pointers, TRUE  for tagged ints -- see fun 'unboxed' in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	      #
+	      | POINTER_EQL						# Compiles to regular int EQ comparison.
+	      | POINTER_NEQ						# Compiles to regular int EQ comparison.
+	      #
+	      | STRING_EQL						# Compares two strings of known length via fully-unrolled word-compare loop.
+	      | STRING_NEQ						# Compares two strings of known length via fully-unrolled word-compare loop.
+	      ;								# Introduced (only) by  do_switch_fn  in   src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+		  # STRING_EQL (n, a, b) is defined only
+		  # if strings a and b have exactly
+		  # exactly the same length n>1 
+
+	    # These overwrite existing values in ram.
+	    # (The "ram" might possibly be cached in registers.)
+	    # Main clues to their meaning come from the code in
+	    #
+	    #     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	    #
+	    Store_To_Ram
+	      = RW_VECTOR_SET								# v[i] := w;	-- overwrites i-th slot in vector v.							Logs the update in heap changelog.
+	      | SET_VECSLOT_TO_BOXED_VALUE						# v[i] := w; Produces same code as 'RW_VECTOR_SET'. Used to store String and Float64 values. 		Logs the update in heap changelog.
+	      #
+	      | SET_VECSLOT_TO_TAGGED_INT_VALUE						# v[i] := w;										       Does NOT	log  the update in heap changelog.
+	      | SET_VECSLOT_TO_NUMERIC_VALUE { kind_and_size: Number_Kind_And_Size }		# v[i] := w; Store to byte and float vectors.						       Does NOT	log  the update in heap changelog.
+	      # 
+	      | SET_REFCELL								# a := v;	-- Implements the ':=' op.								Logs the update in heap changelog.
+	      | SET_REFCELL_TO_TAGGED_INT_VALUE						# a := v;	-- Implements the ':=' op for Ref(Tagged_Int) refcells.			       Does NOT	log  the update in heap changelog.
+	      #
+	      | SET_EXCEPTION_HANDLER_REGISTER						# Global 'register'. (Actually in ram on intel32.)
+	      | SET_CURRENT_MICROTHREAD_REGISTER					# Global 'register'. (Actually in ram on intel32.)
+	      #
+	      | SET_STATE_OF_WEAK_POINTER_OR_SUSPENSION					# Update tagword of weak pointer or suspension.
+	      #
+	      | USELVAR									# Appears to generate no actual runtime code.
+	      | FREE									# Appears to generate no actual runtime code.
+	      | ACCLINK									# Appears to generate no actual runtime code.
+	      | PSEUDOREG_SET								# Appears to generate no actual runtime code.
+	      | SETMARK									# Appears to generate no actual runtime code.
+	      #
+	      # I think the next two are intended to allow writing
+	      # to random non-heap memory (e.g., malloc'd C stuff).
+	      # So far as I can see, nothing currently generates
+	      # SET_NONHEAP_RAMSLOT (presumably c-kit/c-glue might), but
+	      # SET_NONHEAP_RAM does get generated by    src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+	      # One or both of these might also be intended to work
+	      # with RAWRECORDs on the heap:
+	      #
+	      | SET_NONHEAP_RAM  { kind_and_size: Number_Kind_And_Size }			# i      := x													Does NOT update heap changelog.
+											# *(i+j) := x	-- (No scaling of i or j.)  Different ops depending on whether 'args' list length is 2 or 3.	Does NOT update heap changelog.
+
+	      | SET_NONHEAP_RAMSLOT  Type						# v[i]   := w	-- 64-bit writes for FLOAT64, 32-bit writes otherwise.						Does NOT update heap changelog.
+	      ;										# These are presumably part of Matthias Blume's call-to-raw-C-function hack.
+
+	    # These fetch from the store,
+	    # never have functions as arguments:
+	    #
+	    Fetch_From_Ram
+	      = GET_REFCELL_CONTENTS							# Implements *ptr op.
+	      | GET_VECSLOT_CONTENTS							# Used to fetch 4-byte pointers from a tuple/vector    (and tagged ints...?)
+	      | GET_VECSLOT_NUMERIC_CONTENTS  { kind_and_size: Number_Kind_And_Size }	# Used to fetch 1-byte Tagged_Int values and 8-byte floats from a vector.
+	      #	
+	      | GET_STATE_OF_WEAK_POINTER_OR_SUSPENSION					# Returns C-tag for given heapchunk:  (v[-1] >> tagbits-1) | 1 -- fetch tagword, right-shift six bits, set lowbit to 1 to make it a valid Tagged_Int.
+	      | DEFLVAR									# Seems to return zero.  This may be more dead code.
+	      #
+	      | GET_RUNTIME_ASM_PACKAGE_RECORD						# I can find no evidence that this actually generates code.  I suspect it is dead code.
+	      #
+	      | GET_EXCEPTION_HANDLER_REGISTER						# Load dedicated register.  (A ram "register" on x86.)
+	      | GET_CURRENT_MICROTHREAD_REGISTER					# Load dedicated register.  (A ram "register" on x86.)
+	      #
+	      | PSEUDOREG_GET								# Returns Tagged_Int; looks like dead code.
+	      | GET_FROM_NONHEAP_RAM  { kind_and_size: Number_Kind_And_Size }		# Or maybe raw records on the heap?  Unclear.
+	      ;
+
+	    # These might raise exceptions,
+	    # never have functions as arguments:
+	    #
+	    Arith
+	      = ARITH  { op: Arithop, kind_and_size: Number_Kind_And_Size }
+	      | SHRINK_INT  (Int, Int)
+	      | SHRINK_UNT  (Int, Int)
+	      | SHRINK_INTEGER  Int
+	      | ROUND  { floor: Bool, from: Number_Kind_And_Size, to: Number_Kind_And_Size }
+	      ;
+
+	    # These don't raise exceptions
+	    # and don't access the store:
+	    #
+	    Pure
+	      = PURE_ARITH  			   { op: Arithop, kind_and_size: Number_Kind_And_Size }
+	      | PURE_GET_VECSLOT_NUMERIC_CONTENTS  { 		  kind_and_size: Number_Kind_And_Size }
+	      #
+	      | VECTOR_LENGTH_IN_SLOTS
+	      | HEAPCHUNK_LENGTH_IN_WORDS			# Length excludes tagword itself.
+	      #	
+	      | MAKE_REFCELL
+	      #	
+	      | STRETCH  (Int, Int)
+	      | CHOP     (Int, Int)
+	      | COPY     (Int, Int)
+	      #
+	      | STRETCH_TO_INTEGER  Int
+	      | CHOP_INTEGER        Int
+	      #
+	      | COPY_TO_INTEGER  Int
+	      | CONVERT_FLOAT { from: Number_Kind_And_Size, to: Number_Kind_And_Size }
+	      | RO_VECTOR_GET
+
+	      | GET_BTAG_FROM_TAGWORD				# Get (b-tag << 2 | a-tag) from a tagword by doing (tagword & 0x7F).
+								# Used in rep()		in   src/lib/std/src/unsafe/unsafe-chunk.pkg
+								# Used in poly_equal()	in   src/lib/core/init/core.pkg
+	      | MAKE_WEAK_POINTER_OR_SUSPENSION
+	      #
+	      | CAST						# chi::ptr_type		These three produce identical code -- essentially just a copy. They differ only in the heapcleaner type.
+	      | WRAP						# chi::ptr_type
+	      | UNWRAP						# chi::i32_type
+	      #
+	      | GETCON						# Presumably "get value of a constructor".		These three produce identical code -- essentially just  *x  (fetch what arg points to).
+	      | GETEXN						# Presumably "get value of an exception".
+	      | GETSEQDATA					# Presumably "get data-part of a vector".
+	      #
+	      | WRAP_FLOAT64					# Store float in  a  fresh Float64 heap record.
+	      | UNWRAP_FLOAT64					# Fetch float value from a Float64 heap record.
+	      #
+	      | IWRAP						# Currently unimplemented.
+	      | IUNWRAP						# Currently unimplemented.
+	      #
+	      | WRAP_INT1					# Store 32-bit value in a fresh Int1 heap record.
+	      | UNWRAP_INT1					# Fetch 32-bit value  from  an  Int1 heap record.
+	      #
+	      | RECORD_GET
+	      | RAW64_GET
+	      #
+	      | MAKE_ZERO_LENGTH_VECTOR
+	      | ALLOT_RAW_RECORD    Null_Or( Record_Kind )	# Allocate uninitialized heapchunk; optionally initialize tag.
+	      | CONDITIONAL_LOAD    Branch			# If A then load B else load C -- done without branching.
+	      ;
+
+	     opp:  Branch -> Branch;
+
+	     iadd:  Arith;
+	     isub:  Arith;
+	     imul:  Arith;
+	     idiv:  Arith;
+	     ineg:  Arith;
+
+	     fadd:  Arith;
+	     fsub:  Arith;
+	     fmul:  Arith;
+	     fdiv:  Arith;
+	     fneg:  Arith;
+
+	     ieql:  Branch;
+	     ineq:  Branch;
+	     igt:   Branch;
+	     ige:   Branch;
+	     ile:   Branch;
+	     ilt:   Branch;
+	#   my iltu:  branch
+	#   my igeu:  branch
+
+	     feql:  Branch;
+	     fneq:  Branch;
+	     fgt:   Branch;
+	     fge:   Branch;
+	     fle:   Branch;
+	     flt:   Branch;
+
+	     arity:  Arithop -> Int; 
+
+	}; #  P 
+
+	Codetemp;
+
+	Value 
+	  = CODETEMP		Codetemp
+	  | LABEL		Codetemp
+	  #
+	  | INT			Int
+	  | INT1		one_word_unt::Unt
+	  #
+	  | FLOAT64		String
+	  | STRING		String
+	  #
+	  | CHUNK		unsafe::unsafe_chunk::Chunk
+	  | TRUEVOID
+	  ;
+
+	Fieldpath  									# How do we access the value of a given RECORD/closure slot?
+	  = SLOT		Int							# Directly, as slot six or whatever.
+	  | VIA_SLOT		(Int, Fieldpath)					# Indirectly through a series of fetches, starting with slot six or whatever.
+	  ;
+
+	# Here we're mainly tracking whether we know all callers
+	# of a function.  This is critically important to us because
+	# if we know all callers of a function we can safely re-engineer
+	# the calling convention between caller and callee to take
+	# advantage of special-case conditions to improve efficiency,
+	# but if there is any slightest possibility of unknown callers
+	# lurking in the system, we must stick to the standard default
+	# calling convention.
+	# Independent of this, we're also tracking some other properties:
+	#
+	# NEEDS_HEAPLIMIT_CHECK:  User code and the heapcleaner ("garbage collector")
+	# form a cooperative-multitasking pair in which each depends on the other
+	# to regularly yield control of the CPU.  This means that it is critically
+	# important that there are no possible loop (== recursive) execution paths
+	# through the user code which do not call the heapcleaner out-of-ram check
+	# function at least once each time around the loop.  To assure this we analyse
+	# the function-call graph to find a minimal set of vertices (functions) in
+	# which to insert heap-limit checks, while still guaranteeing that every
+	# loop passes through one such vertex; each of these is marked by changing
+	# its Callers_Info from PRIVATE to PRIVATE_AND_NEEDS_HEAPLIMIT_CHECK.
+	# For this logic see:
+	#
+	#       src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+	#
+	Callers_Info
+	  = FATE_FN									# Fate ("continuation") functions. Fate functions are never recursive; there is at most one per ncf::DEFINE_FUNS.
+	  | PRIVATE_FN									# A fun is 'private' if we known all possible callers -- this lets us optimize the calling register conventions for it.
+	  | PRIVATE_RECURSIVE_FN							# Private recursive functions.
+	  | PRIVATE_FN_WHICH_NEEDS_HEAPLIMIT_CHECK					# Private functions that need a heap limit check.
+	  | PRIVATE_TAIL_RECURSIVE_FN							# Private tail-recursive kernel functions.
+	  | PRIVATE_FATE_FN								# Private next ("continuation") functions.
+
+	  | PUBLIC_FN									# Before the closure phase: any user function;
+											# After  the closure phase: Any externally visible fun -- the practical implication being that standard calling protocol must be used.
+
+	  | NO_INLINE_INTO								# A user function inside of which no in-line expansions
+	  ;										# should be performed.  (Not used after closure phase.)
+
+	Instruction									# One or more instructions chained through 'next'.
+	  #
+	  = DEFINE_RECORD								# Construct a record/closure of given 'kind' with 'fields', store in 'to_temp', then execute 'next'.
+	      { kind:		Record_Kind,						# record / fate / ... 
+		fields:		List( (Value, Fieldpath) ),				# The Fieldpaths are because a logical 'closure' (think "stackframe") may actually be implemented as a tree/lattice of records, for efficient sharing between fns.
+		to_temp:	Codetemp,
+		next:		Instruction						# Next instruction to execute.
+	      }
+	  #
+	  | GET_FIELD_I									# Fetch 'i'-th field from 'record', save it in 'to_temp' (which has 'type'), then execute 'next'.
+	      { i:		Int,
+		record:		Value,
+		to_temp:	Codetemp,
+		type:		Type,
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | GET_ADDRESS_OF_FIELD_I							# Store address of 'i'-th field of 'record' in 'to_temp', then execute 'next'.
+	      { i:		Int,
+		record:		Value,
+		to_temp:	Codetemp,
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | TAIL_CALL									# Apply 'fn' to 'args'. Nextcode fns don't return so there's no 'next' argument -- this is essentially a "jump with arguments".
+              { fn:		Value,
+		args:		List(Value)
+	      }			
+
+	  | DEFINE_FUNS									# Define 'funs', then execute 'next'. Often a single fun is defined, but potentially a set of mutually recursive fns.
+	      { funs:		List(Function),
+		next:		Instruction
+	      }
+
+	  | JUMPTABLE									# Jump to i-th of N nexts.                       xvar is for def/use accounting -- created at start of nextcode, discarded at end.
+	      { i:		Value,
+		xvar:		Codetemp,
+		nexts:		List(Instruction)
+	      }
+
+	  | IF_THEN_ELSE								# If 'op'('args') do 'then_next' else 'else_next'.
+	      { op:		p::Branch,						# Specifies comparison (GT, LE...), bit resolution etc.
+		args:		List(Value),
+		xvar:		Codetemp,						# xvar is for branch-probability estimation via def/use accounting -- created at start of nextcode, discarded at end.
+		then_next:	Instruction,						# Next instruction to execute if condition is TRUE.
+		else_next:	Instruction						# Next instruction to execute if condition is FALSE.
+	      }
+
+	  | STORE_TO_RAM
+	      { op:		p::Store_To_Ram,					# Are we storing into a refcell, rw_vector, global register...?  Are we storing a pointer or an immediate value?
+		args:		List(Value),						# Typically [v,i,w] if we're doing v[i] := w -- depends on 'op'.
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | FETCH_FROM_RAM								# Store 'op'('args') in 'to_temp' and give it 'type', then execute 'next'. Our 'op' never has functions as arguments.
+	      { op:		p::Fetch_From_Ram,					# Are we fetching from a refcell, rw_vector, global register...?
+		args:		List(Value),						# E.g. [v,i] if we're fetching v[i] -- depends on 'op'.
+		to_temp:	Codetemp,						# We publish fetch result under this name during execution of 'fate'.
+		type:		Type,							# We publish fetch result under this type during execution of 'fate'.
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | ARITH									# Store 'op'('args') in 'to_temp' and give it 'type', then execute 'next'.
+	      { op:		p::Arith,
+		args:		List(Value),
+		to_temp:	Codetemp,						# We publish fetch result under this name during execution of 'next'.
+		type:		Type,							# We publish fetch result under this type during execution of 'next'.
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | PURE									# Save 'op'('args') in 'to_emp' and give it 'type', then execute 'next'.
+	      { op:		p::Pure,
+		args:		List(Value),
+		to_temp:	Codetemp,						# 
+		type:		Type,							# 
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | RAW_C_CALL									# Invoke C function 'linkage' with 'args', publish return values as 'results' during execution of 'fate'.
+	      {										# This is special Matthias Blume stuff added late to the compiler and not normally used.
+		kind:		Rcc_Kind,
+		cfun_name:	String,
+		cfun_type:	cty::Cfun_Type,						# Either "" or else linkage info as   "shared_library_name/name_of_the_C_function".
+		args:		List(Value),
+		to_ttemps:	List( (Codetemp, Type) ),				# Like 'codetemp' above, but a list of (Codetemp,Type) pairs instead of a single Codetemp. "to_ttemps" == "'to' typed-temps".
+		next:		Instruction						# Next instruction to execute.
+	      }
+		#
+		# Experimental "raw C call"
+		# 
+		#     -- Matthias Blume, 1/2001
+
+	also
+	Rcc_Kind
+	  = FAST_RCC
+	  | REENTRANT_RCC
+
+	withtype
+	Function
+	    =
+	    ( Callers_Info,								# E.g., if all callers are known, we can construct a custom calling convention for better time and space performance.
+	      Codetemp,									# This serves as the fun_id (i.e., unique identifier) for the function.
+	      List( Codetemp ),								# Args for function.
+	      List( Type ),								# Arg types for function.
+	      Instruction								# Body of function.
+	    );
+
+	combinepaths:  (Fieldpath, Fieldpath) -> Fieldpath;
+
+	lenp:  Fieldpath -> Int;
+
+	cty_to_string:   Type       -> String;
+	has_raw_c_call:  Instruction -> Bool;
+	size_in_bits:    Type       -> Int;						# Size of its representation in bits.
+	is_float:        Type       -> Bool;						# Is it a floating point type? 
+	is_tagged:       Type       -> Bool; 
+
+	bogus_pointer_type:  Type;
+
+	ctyc:   highcode_type::Uniqtype -> Type;
+	ctype:  highcode_type::Uniqtypoid   -> Type;
+    };
+end;
+
+#######################################
+# Notes
+#
+# [1]  RECORD(kind,elements,result,fate).
+#      kind:     Record_Kind                        distinguishes vector / closure / ...
+#      elements: List( (Value, Fieldpath) )  lists all record elements, giving value and how to access that value.
+#      to_temp:   Codetemp                           constructed record will be available bound to this variable in 'fate'.
+#      next:     Instruction			    The "continuation" to be executed afterward.
+#      Note that the type of 'to_temp' is not specified here but can always be reconstructed.
+#           -- Paraphrased from p49 of http://flint.cs.yale.edu/flint/publications/zsh-thesis.pdf
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

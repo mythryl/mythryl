@@ -1,0 +1,382 @@
+## chunk-canvas.pkg
+## COPYRIGHT (c) 1994 AT&T Bell Laboratories.
+
+
+
+
+###      "Computer viruses are an urban myth."
+###
+###                         -- Peter Norton,  1988
+
+
+
+package ChunkCanvas:  CHUNK_CANVAS =
+  pkg
+
+    package w = widget
+    package XC = w::XC
+    package c = Canvas
+    package d = drawing
+    package g = geometry
+    package v = WorldView
+    package SFont = ScalableFont
+    package sb = Scrollbar
+    package md = maildrop
+
+    enum border_spec = enum World::border_spec
+    enum width_spec = enum World::width_spec
+    enum arrow_spec = enum World::arrow_spec
+    type chunk_id = World::chunk_id
+    type box = World::box
+
+    attributes = [
+	    (attributes::background,	attributes::AT_Color,	attributes::AV_Str "cornsilk1"),
+	    (attributes::foreground,	attributes::AT_Color,	attributes::AV_Str "black"),
+	    (attributes::attribute_fontSize,	attributes::AT_Int,	attributes::AV_Int 12),
+	    (attributes::width,		attributes::AT_Int,	attributes::AV_Int 600),
+	    (attributes::height,		attributes::AT_Int,	attributes::AV_Int 600)
+	  ]
+
+    fun getAttrs (root, view, args) = let
+	  getAttr = w::findAttr (w::attributes (view, attributes, args))
+	  in
+	    { background = attributes::getColor (getAttr attributes::background),
+	      foreground = attributes::getColor (getAttr attributes::foreground),
+	      fontSize = attributes::getInt (getAttr attributes::attribute_fontSize),
+	      width = attributes::getInt (getAttr attributes::width),
+	      height = attributes::getInt (getAttr attributes::height)
+	    }
+	  end
+
+  #  the external specification of a graphical chunk 
+    enum gr_chunk
+      = BOX of {
+	  wid:  real, ht:  real,
+	  fill:  Null_Or( w::XC::color ),
+	  border:  border_spec
+	}
+      | DIAMOND of {
+	  wid:  real, ht:  real,
+	  fill:  Null_Or( w::XC::color ),
+	  border:  border_spec
+	}
+      | ELLIPSE of {
+	  wid:  real, ht:  real,
+	  fill:  Null_Or( w::XC::color ),
+	  border:  border_spec
+	}
+      | LINE of {
+	  pts:   List { x:  real, y:  real },
+	  head:  arrow_spec,
+	  tail:  arrow_spec,
+	  wid:  width_spec,
+	  color:  w::XC::color
+	}
+      | TEXT of {
+	  size:  Int, style:  SFont::font_style,
+	  align:  (w::halign * w::valign),
+	  color:  w::XC::color,
+	  text:  String
+	}
+
+    enum pt_stream = ENTER | EXIT | PT of Geometry::point | END
+
+    enum plea_msg X
+      = AddChunk of (Int * World::chunk_desc * Null_Or(X) * chunk_id md::ivar)
+      | DelChunk of chunk_id
+      | DelAll
+      | Update
+      | Pick of (g::point * md::ivar(  List (chunk_id * X)))
+      | Track of {
+	    points:  threadkit::event( pt_stream ),
+	    chunk:  gr_chunk,
+	    hotSpot:  { x:  real, y:  real },
+	    replV:   md::ivar { x:  real, y:  real }
+	  }
+      | Redraw of List( g::box )
+      | Resize of g::box
+      | Zoom of (real * Void md::ivar)
+
+    enum chunk_canvas X = OC of {
+	widget:  w::widget,
+	drawCanvas:  c::canvas,
+	findFont:  (SFont::font_style * Int) ->  Null_Or( XC::font ),
+	plea_slot:  threadkit::chan(  plea_msg(X) ),
+	pixelsPerIn:  real,
+	defaultColor:  XC::color
+      }
+
+    # The imp loop, when there are scroll bars:
+
+    fun scroll_imp (world, pleaEvt, hsb, vsb) = let
+	  fun setSBVals () = let
+		v = World::viewOfWorld world
+		my { top, vSize, left, hSize } = WorldView::viewSize v
+		in
+		/* we do this asynchronously, since there might be a potential
+		 * deadlock with the scrollbar imp.
+		 */
+		  threadkit::make_thread "chunk_canvas scroll_imp" (\\ () => (
+		    sb::setVals hsb { top=THE left, size=THE hSize };
+		    sb::setVals vsb { top=THE top, size=THE vSize } ));
+		  ()
+		end
+	  pleaEvt = threadkit::wrap (pleaEvt, \\ FALSE => () | TRUE => setSBVals())
+	  hsbEvt = threadkit::wrap (sb::evtOf hsb,
+		\\ s => (World::hScroll (world, s); setSBVals()))
+	  vsbEvt = threadkit::wrap (sb::evtOf vsb,
+		\\ s => (World::vScroll (world, s); setSBVals()))
+	  fun loop () = (
+		threadkit::do_one_mailop [ pleaEvt, hsbEvt, vsbEvt ];
+		loop ())
+	  in
+	    loop ()
+	  end
+
+ #  the chunk canvas imp
+    fun imp (root, world, bbox, attributes, plea_slot, sb) () = let
+	  canvas = World::canvasOfWorld world
+	  drawable = c::drawableOfCanvas canvas
+	  setCursor = c::setCursor canvas
+	#  handle pleauests; return TRUE, if the vbox or bbox might have changed 
+	  fun handlePlea (AddChunk (depth, desc, info, replyV)) = let
+		id = World::addChunk (world, desc, info, depth)
+		in
+		  md::iPut (replyV, id); FALSE
+		end
+	    | handlePlea (DelChunk id) = (World::delChunk (world, id); FALSE)
+	    | handlePlea DelAll = raise exception FAIL "DelAll"
+	    | handlePlea Update = (World::updateCanvas world; TRUE)
+	    | handlePlea (Pick (pt, replyV)) = (
+		md::iPut (replyV, World::pickChunk (world, pt)); TRUE)
+	    | handlePlea (Track { points, chunk, hotSpot, replV } ) =
+		raise exception FAIL "Track chunk"
+	    | handlePlea (Redraw rl) = (World::redrawCanvas (world, rl); FALSE)
+	    | handlePlea (Resize (g::BOX { wid, ht, ... } )) =
+		(World::resizeCanvas (world, g::SIZE { wid=wid, ht=ht } ); TRUE)
+	    | handlePlea (Zoom (z, ackV)) = (
+		World::zoom (world, z);
+		md::iPut (ackV, ());
+		TRUE)
+/***
+	  fun loop () = (handlePlea (threadkit::get_mail plea_slot); loop())
+***/
+	  fun loop () = let
+		plea = threadkit::get_mail plea_slot
+		in
+		  handlePlea plea;
+		  loop()
+		end
+	  in
+	    case sb
+	     of NULL => loop()
+	      | (THE { hsb, vsb } ) => scroll_imp (world,
+		  threadkit::wrap (threadkit::recvEvt plea_slot, handlePlea), hsb, vsb)
+	    #  end case 
+	  end #  imp
+
+  #  Create an chunk canvas 
+    fun chunkCanvas (root, view, args) { bbox, font_imp, sb } = let
+	  attributes = getAttrs (root, view, args)
+	  w = attributes.width and h = attributes.height
+	  args = [
+		  (attributes::background, attributes::AV_Color attributes.background)
+		]
+	  my (canvas, g::SIZE { wid, ht }, inDict) = c::canvas (root, view, args)
+		  (w::mkBounds { x_dim=w::flexDim w, y_dim=w::flexDim h } )
+	  framedCanvas = frame::frame (root, view, args) (c::widgetOf canvas)
+	  plea_slot = threadkit::make_slot()
+	  world = World::makeWorld (
+		root, canvas, font_imp, attributes.background,
+		canvass::sizeOf canvas, bbox)
+	  ocanvas = OC {
+		  widget = frame::widgetOf framedCanvas,
+		  drawCanvas = canvas,
+		  findFont = SFont::findFont font_imp,
+		  plea_slot = plea_slot, defaultColor = attributes.foreground,
+		  pixelsPerIn = v::pixelsPerInch (World::viewOfWorld world)
+		}
+	  in
+	    threadkit::make_thread  "chunk_canvas"  (imp (root, world, bbox, attributes, plea_slot, sb));
+	    (ocanvas, inDict)
+	  end #  ChunkCanvas 
+
+
+ # * The chunk canvas operations *
+
+  #  get the underlying widget 
+    fun widgetOf (OC { widget, ... } ) = widget
+
+  #  set the cursor for the canvas 
+    fun setCursor (OC { drawCanvas, ... } ) = c::setCursor drawCanvas
+
+    fun makeLine { pts, head, tail, wid, color } = let
+	  fun transArrow (NoArrow, _) = World::NO_ARROW
+	    | transArrow (Arrow { len, wid }, selFn) = let
+		my (hd, tl) = selFn pts
+		in
+		  World::ARROW (Arrow::mkArrow {
+		      hd = hd, tl = tl, len = len, wid = wid
+		    } )
+		end
+	  fun firstLine (p0 . p1 . _) = (p0, p1)
+	    | firstLine _ = raise exception FAIL "makeLine::firstLine"
+	  fun lastLine [p1, p0] = (p0, p1)
+	    | lastLine (_ . r) = lastLine r
+	    | lastLine _ = raise exception FAIL "makeLine::lastLine"
+	  in
+	    World::CHUNK_LINE {
+		pts = pts,
+		head = transArrow (head, lastLine),
+		tail = transArrow (tail, firstLine),
+		width = wid, color = color
+	      }
+	  end #  makeLine 
+
+    fun placeChunk (oc as OC { plea_slot, ... } ) { at:  { x: real, y: real }, depth, chunk, info } =
+	  let
+	  replV = md::iVariable()
+	  chunkDesc = (case chunk
+		 of (BOX { wid, ht, fill, border } ) => World::CHUNK_BOX {
+			x = at.x, y = at.y, wid = wid, ht = ht,
+			fill = fill, border = border
+		      }
+		  | (ELLIPSE { wid, ht, fill, border } ) => World::CHUNK_ELLIPSE {
+			x = at.x, y = at.y, wid = wid, ht = ht,
+			fill = fill, border = border
+		      }
+		  | (LINE { pts, head, tail, wid, color } ) => let
+		      fun transPt { x, y } = { x = x + at.x, y = y + at.y }
+		      in
+			makeLine {
+			    pts = map transPt pts,
+			    head = head, tail = tail,
+			    wid = wid, color = color
+			  }
+		      end
+		  | (TEXT { size, style, align=(hAlign, vAlign), color, text } ) => let
+		      my OC { findFont, pixelsPerIn, ... } = oc
+		      my (size, naturalFont) = (case findFont (style, size)
+			     of NULL => let
+				  my (THE f) = findFont (style, SFont::dfltFontSz)
+				  in (SFont::dfltFontSz, f) end
+			      | (THE f) => (size, f)
+			    )		# end case
+		      ht = let my { ascent, descent } = Font::fontHt naturalFont
+			    in
+			      real (ascent+descent) / pixelsPerIn
+			    end
+		      wid = real (Font::text_width naturalFont text) / pixelsPerIn
+		      x = (case hAlign
+			     of w::HCenter => at.x
+			      | w::HRight => (at.x - (0.5 * wid))
+			      | w::HLeft => (at.x + (0.5 * wid))
+			    )		# end case
+		      y = (case vAlign
+			     of w::VCenter => at.y
+			      | w::VTop => at.y - (0.5 * ht)
+			      | w::VBottom => at.y + (0.5 * ht)
+			    )		# end case
+		      in
+			World::CHUNK_TEXT {
+			    x = x, y = y, wid = wid, ht = ht,
+			    text = text,
+			    color = color,
+			    ptSz = size, fontStyle = style
+			  }
+		      end
+		  | _ => raise exception FAIL "placeChunk"
+		)		# end case
+	  in
+	    threadkit::put_mail (plea_slot, AddChunk (depth, chunkDesc, info, replV));
+	    md::iGet replV
+	  end
+
+    fun drawLine (oc as OC { plea_slot, ... } ) { pts, depth, wid, color } = let
+	  replV = md::iVariable()
+	  chunkDesc = World::CHUNK_LINE {
+		  pts = pts, head = World::NO_ARROW, tail = World::NO_ARROW,
+		  width = wid, color = color
+		}
+	  in
+	    threadkit::put_mail (plea_slot, AddChunk (depth, chunkDesc, NULL, replV));
+	    md::iGet replV
+	  end
+
+    fun drawLine' (oc as OC { plea_slot, ... } ) {
+	  pts, head, tail, depth, wid, color
+	} = let
+	  replV = md::iVariable()
+	  chunkDesc = makeLine {
+		  pts=pts, head=head, tail=tail, wid=wid, color=color
+		}
+	  in
+	    threadkit::put_mail (plea_slot, AddChunk (depth, chunkDesc, NULL, replV));
+	    md::iGet replV
+	  end
+
+  #  remove an chunk from the picture 
+    fun delChunk (OC { plea_slot, ... } ) chunkId = threadkit::put_mail (plea_slot, DelChunk chunkId)
+
+  #  Delete all of the existing chunks 
+    fun delAll (OC { plea_slot, ... } ) = threadkit::put_mail (plea_slot, DelAll)
+
+  #  update the display 
+    fun update (OC { plea_slot, ... } ) = threadkit::put_mail (plea_slot, Update)
+
+  # This is support for feedback.  Given a stream of pixel coordinates,
+  # track the points with the chunk.  The stream of points will be
+  # terminated with NULL, at which point the resulting event is enabled
+  # with the final position (in world coordinates).
+
+    fun trackChunk (OC { plea_slot, ... } ) { points, chunk, hotSpot } = let
+	  replV = md::iVariable ()
+	  in
+	    threadkit::put_mail (plea_slot,
+	      Track { points=points, chunk=chunk, hotSpot=hotSpot, replV=replV } );
+	    md::iGetEvt replV
+	  end
+
+  #  redraw damaged regions (specified as a list of rectangles) 
+    fun redraw (OC { plea_slot, ... } ) rl = threadkit::put_mail (plea_slot, Redraw rl)
+
+  #  resize the canvas 
+    fun resize (OC { plea_slot, ... } ) r = threadkit::put_mail (plea_slot, Resize r)
+
+  # Zoom the canvas: a zoom of 1.0 is no change; a zoom of 2.0 doubles
+  # the size of chunks in the canvas (i.e., zooms in), while a zoom of
+  # 0.5 halves the size of chunks in the canvas.  This will not zoom
+  # out beyond the canvas's bounding box.
+
+    fun zoom (OC { plea_slot, ... } ) z = let
+	  ackV = md::iVariable()
+	  in
+	    threadkit::put_mail (plea_slot, Zoom (z, ackV));
+	    md::iGet ackV
+	  end
+
+  end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

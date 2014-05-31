@@ -1,0 +1,122 @@
+## task-junk.pkg
+#
+# Convenience functions built atop the
+#     src/lib/src/lib/thread-kit/src/core-thread-kit/microthread.pkg
+#     src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+# layer.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+stipulate
+    package ath =  microthread;											# microthread				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread.pkg
+    package itt =  internal_threadkit_types;									# internal_threadkit_types		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package mop =  mailop;											# mailop				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/mailop.pkg
+    package mps =  microthread_preemptive_scheduler;								# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+herein
+
+    package task_junk
+          : Task_Junk												# Task_Junk				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/task-junk.api
+    {
+	fun state_to_string    ath::state::ALIVE				=> "ALIVE";
+	    state_to_string    ath::state::SUCCESS				=> "SUCCESS";
+	    state_to_string    ath::state::FAILURE				=> "FAILURE";
+	    state_to_string    ath::state::FAILURE_DUE_TO_UNCAUGHT_EXCEPTION	=> "FAILURE_DUE_TO_UNCAUGHT_EXCEPTION";
+	end;
+
+	fun get_or_make_current_cleanup_task ()
+	    =
+	    # Get the cleanup task for current task,
+	    # or create it if there isn't one yet:
+	    #
+	    {	current_thread =  ath::get_current_microthread ();
+		current_task   =  ath::get_thread's_task      current_thread;
+
+		current_task -> itt::APPTASK { cleanup_task, task_name, ... };  
+
+		case *cleanup_task
+		    #
+		    THE task => task;										# We already have a cleanup task.
+		    #
+		    NULL     => {   name =  "Clean-up task for: " + task_name;					# No cleanup task, so
+				    task =  ath::make_task name [];						# make one.
+				    #
+														mps::assert_not_in_uninterruptible_scope "get_or_make_current_cleanup_task";
+				    log::uninterruptible_scope_mutex := 1;					# We do it this way to avoid calling  make_task  while in uninterruptible mode, since it may
+					#									# do a lot of work and it is safest to keep uninterruptible mode operations short and sweet.
+					task =  case *cleanup_task
+						    #
+						    THE task => task;						# Woops -- someone snuck in and registered a cleanup task ahead of us(!)  Discard ours and use theirs.
+						    NULL     => {   cleanup_task :=  THE task;			# Register cleanup task in current task.
+								    task;
+								};
+						esac;
+					#
+				    log::uninterruptible_scope_mutex := 0;
+
+				    task;
+				};
+		esac;
+	    };
+
+	fun note_thread_cleanup_action  action
+	    =
+	    # The idea here is to reliably run 'action'
+	    # after the current thread exits.
+	    #
+	    # Since someone might kill the current thread
+	    # or task, or either might be killed by an uncaught
+	    # exception (say), we implement this by setting up
+	    # a separate thread in a separate task, which will
+	    # wait upon our done_condvar and then execute 'action'.
+	    #
+	    # (Threadkit guarantees that done_condvar will be set
+	    # for a thread when it exits state::ALIVE, no matter
+	    # how that happens.)
+	    #
+	    {   current_thread	=  ath::get_current_microthread ();
+		#
+		cleanup_task	=  get_or_make_current_cleanup_task ();
+
+		thread_done'	=  ath::thread_done__mailop  current_thread;
+
+		thread_name	=  "Cleanup thread for: " + (ath::get_current_microthread's_name());
+
+		ath::make_thread'  [  ath::THREAD_NAME thread_name,  ath::THREAD_TASK cleanup_task  ]
+		   {.
+			mop::block_until_mailop_fires  thread_done';
+			action ();
+		    }
+		    ();
+
+		();
+	    };
+
+	fun note_task_cleanup_action   action
+	    =
+	    # The idea here is as above, except that we want to
+	    # run the given action when the current task exits,
+	    # rather than when the current thread exits:
+	    #
+	    {   cleanup_task	=  get_or_make_current_cleanup_task ();
+		#
+		current_task	=  ath::get_thread's_task  (ath::get_current_microthread ());
+
+		task_done'	=  ath::task_done__mailop  current_task;
+
+		thread_name	=  "Cleanup thread for task: " + (ath::get_task's_name current_task);
+
+		ath::make_thread'  [  ath::THREAD_NAME thread_name,  ath::THREAD_TASK cleanup_task  ]
+		   {.
+			mop::block_until_mailop_fires  task_done';
+			action ();
+		    }
+		    ();
+
+		();
+	    };
+    };
+end;
+
+## By Jeff Prothero Copyright (c) 2012-2012,
+## released per terms of SMLNJ-COPYRIGHT.

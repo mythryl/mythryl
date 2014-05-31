@@ -1,0 +1,1219 @@
+## type-type.pkg -- typecheck a type.
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# The center of the typer is
+#
+#      src/lib/compiler/front/typer/main/type-package-language-g.pkg
+# 
+#  -- see it for a higher-level overview.
+#  It calls us to do specialized typechecking
+#  of types.
+#
+
+
+
+###           "The future just ain't what it use to be
+###             -- and what's more it never was."
+###
+###                             -- Lee Hays
+
+
+
+stipulate
+    package mtt =  more_type_types;						# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package ds  =  deep_syntax;							# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package err =  error_message;						# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fst =  find_in_symbolmapstack;					# find_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/find-in-symbolmapstack.pkg
+    package ip  =  inverse_path;						# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package raw =  raw_syntax; 							# raw_syntax			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package sta =  stamp;							# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sxe =  symbolmapstack_entry;					# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package sy  =  symbol;							# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;							# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;						# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package trs =  typer_junk;							# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package ts  =  type_junk;							# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package tvs =  typevar_set;							# typevar_set			is from   src/lib/compiler/front/typer/main/type-variable-set.pkg
+    package tdt =  type_declaration_types;					# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+herein
+
+
+    package   type_type
+    : (weak)  Type_Type								# Type_Type		is from   src/lib/compiler/front/typer/main/type-type.api
+    {
+	debugging   =   typer_control::typecheck_type_debugging;		# eval:  set_control "typechecker::typecheck_type_debugging" "TRUE";
+	say         =   control_print::say;
+	#
+	fun if_debugging_say (msg: String)
+	    =
+	    if   *debugging
+                say msg;
+                say "\n";
+	    fi;
+	#
+	fun bug msg
+	    =
+	    error_message::impossible ("type_type: " + msg);
+	#
+        fun unparse_typoid
+            (
+              msg:		String,
+              typoid:		tdt::Typoid,
+              symbolmapstack:	syx::Symbolmapstack
+            )
+            =
+            if *debugging
+		print "\n";
+                print msg;
+                pp = standard_prettyprint_mill::make_standard_prettyprint_mill "/dev/stdout" [];
+
+                pps = pp.pp;
+
+                unparse_type::unparse_typoid  symbolmapstack  pp  typoid;
+
+                pp.flush ();
+                pp.close ();
+		print "\n";
+            fi;
+
+
+
+	##### TYPES #####
+
+	my --> =  mtt::(-->);
+
+	infix my  --> ;
+	#
+	fun typecheck_typevar (
+                typevar:       raw::Typevar,
+                error_function,
+                source_code_region:  ds::Source_Code_Region
+            )
+	    =
+	    case typevar
+
+	         raw::TYPEVAR  typevar_symbol		# X
+		     =>
+		     tdt::make_typevar_ref
+                       (
+                         ts::make_user_typevar  typevar_symbol,
+                         ["typecheck_typevar  from  type-type.pkg"]
+                       );
+
+	         raw::SOURCE_CODE_REGION_FOR_TYPEVAR (typevar, source_code_region)
+		     =>
+		     typecheck_typevar (typevar, error_function, source_code_region);
+            esac;
+	#
+	fun type_typevar_list (typevars, error_function, source_code_region)
+            =
+            typevars
+            where 
+
+	        typevars
+                    =
+                    map (\\ typevar =  typecheck_typevar (typevar, error_function, source_code_region))
+                         typevars;
+
+		names = map (   \\ { id, ref_typevar => REF (tdt::USER_TYPEVAR { name, ... } ) }
+					=>
+					name;
+
+				    _   =>   bug "type_typevar_list";
+                                end 
+                            )
+                            typevars;
+
+		trs::forbid_duplicates_in_list (
+                    (error_function source_code_region),
+                    "duplicate type variable name",
+                    names
+                );
+	    end;
+
+
+
+	# We get invoked from various places in
+	#     src/lib/compiler/front/typer/main/type-core-language.pkg
+        #
+	fun type_type
+            (
+	      raw_syntax_tree:     raw::Any_Type,
+	      symbolmapstack:         syx::Symbolmapstack,
+	      error_function:      error_message::Error_Function,
+	      source_code_region:  ds::Source_Code_Region
+	    )
+	    :
+            ( tdt::Typoid,
+              tvs::Typevar_Set
+            )
+	    =
+	    case raw_syntax_tree   
+
+		raw::TYPEVAR_TYPE typevar
+		    => 
+		    {   typevar
+                            =
+                            typecheck_typevar
+                                (typevar, error_function, source_code_region);
+
+			( tdt::TYPEVAR_REF  typevar,
+			  tvs::singleton    typevar
+			);
+		    };
+
+		raw::TYPE_TYPE (valcons, types)
+		    => 
+		    {   constructor1
+			    = 
+			    if ((sy::name (head valcons)) == "->")
+				#
+				mtt::arrow_type;
+			    else
+				fst::find_type_via_symbol_path_and_check_arity
+                                  (
+				    symbolmapstack,
+				    syp::SYMBOL_PATH valcons,
+				    length types,
+				    error_function  source_code_region
+				  );
+			    fi;
+
+			(typecheck_type_list (types, symbolmapstack, error_function, source_code_region))
+			    ->
+			    (lambda_types1, lambda_variable_type1);
+
+			( ts::make_constructor_typoid (constructor1, lambda_types1),
+			  lambda_variable_type1
+			);
+		    };
+
+		raw::RECORD_TYPE labels         #  (symbol*Any_Type) List 
+		    => 
+		    {   (typecheck_tlabel (labels, symbolmapstack, error_function, source_code_region))
+			    ->
+			    (lbs1, lvt1);
+
+			( mtt::record_typoid (trs::sort_record (lbs1, error_function source_code_region)),
+			  lvt1
+			);
+		    };
+
+		raw::TUPLE_TYPE types
+		    =>
+		    {   (typecheck_type_list (types, symbolmapstack, error_function, source_code_region))
+			    ->
+			    (lts1, lvt1);
+
+			( mtt::tuple_typoid lts1,
+			  lvt1
+			);
+		    };
+
+		raw::SOURCE_CODE_REGION_FOR_TYPE (type, source_code_region)
+		    =>
+		    type_type
+                        (type, symbolmapstack, error_function, source_code_region);
+            esac
+
+
+
+	also
+	fun typecheck_tlabel (labels, symbolmapstack, error_function, source_code_region:  ds::Source_Code_Region)
+	    =
+	    fold_backward 
+	      (   \\ (   ( lb2, t2),
+                         (lts2, lvt2)
+                     )
+                     =
+		     {   (type_type (t2, symbolmapstack, error_function, source_code_region))
+			     ->
+			     (t3, lvt3);
+
+			 ( (lb2, t3) ! lts2,
+			   tvs::union (lvt3, lvt2, error_function source_code_region)
+			 );
+		     }
+              )
+	      ([], tvs::empty)
+              labels
+
+	also
+	fun typecheck_type_list (ts, symbolmapstack, error_function, source_code_region:  ds::Source_Code_Region)
+	    =
+	    fold_backward 
+	      (   \\ (t2, (lts2, lvt2))
+                     =
+		     {   (type_type (t2, symbolmapstack, error_function, source_code_region))
+			     ->
+			     (t3, lvt3);
+
+                         ( t3 ! lts2,
+                           tvs::union (lvt3, lvt2, error_function source_code_region)
+                         );
+		     }
+              )
+	      ([], tvs::empty)
+              ts;
+
+
+	# *** VALCON DECLARATIONS ***
+
+	exception ISREC;
+	#
+	fun typecheck_named_constructor (
+                (type, args, name, def, source_code_region, is_lazy),
+                symbolmapstack,
+                inverse_path: ip::Inverse_Path,
+                error_function
+            )
+	    =
+	    {   rhs = ts::make_constructor_typoid   (type,   map tdt::TYPEVAR_REF args);
+		#
+		unparse_typoid ("typecheck_named_constructor processing: ", rhs, symbolmapstack );
+
+		#
+		fun checkrec (_, NULL)
+                        =>
+                        ();
+
+		    checkrec (_, THE type)
+			=> 
+		        findname type
+                        where
+			    fun findname (raw::TYPEVAR_TYPE _)
+                                    =>
+                                    ();
+
+				findname (raw::TYPE_TYPE ([co], ts))
+				    => 
+				    if (not (symbol::eq (co, name)))
+					#				         
+					apply findname ts;
+				    else
+					(raise exception ISREC); 
+				    fi;
+
+				findname (raw::TYPE_TYPE (_, ts))    => apply findname ts;
+				findname (raw::RECORD_TYPE  lbs)    => apply   (\\ (_, t) =  findname t)   lbs;
+				findname (raw::TUPLE_TYPE  ts)	    => apply findname ts;
+
+				findname (raw::SOURCE_CODE_REGION_FOR_TYPE (t, _)) => findname t;
+			    end;
+			end;
+		end;
+		#
+		fun typecheck_constr (name,  THE type)
+			=>
+			{   (type_type (type, symbolmapstack, error_function, source_code_region))
+				->
+				(t, typevar);
+
+			    ( (name, FALSE, (t --> rhs)),
+			      typevar
+			    );
+			};
+
+		    typecheck_constr (name, NULL)
+			=>
+			( (name, TRUE, rhs),
+			  tvs::empty
+			);
+		end;
+
+		arity   =   length args;
+
+		is_recursive
+		    =
+		    {   apply checkrec def;
+			FALSE;
+		    }
+		    except
+			ISREC = TRUE;
+
+		my (dcl, typevars)
+		    = 
+		    fold_backward
+		        (   \\ (d, (dcl1, typevars1))
+				=
+				{   (typecheck_constr d)
+					->
+					(dc2, typevar2);
+
+				    ( dc2 ! dcl1,
+				      tvs::union (typevar2, typevars1, error_function source_code_region)
+				    );
+				}
+		        )
+		        ([], tvs::empty)
+		        def;
+
+		trs::check_bound_typevars (typevars, args, error_function source_code_region);
+		ts::resolve_typevars_to_typescheme_slots args;
+
+		sdcl   =   trs::sort3 dcl;
+
+		(pick_valcon_form::infer is_recursive  sdcl)
+		    ->
+		    (reps, signature);
+
+		#
+		fun bind_dcons ((name, is_constant, typoid), form)
+		    =
+		    {   ts::drop_macro_expanded_indirections_from_type  typoid;
+			#
+		        typoid =    if (arity <= 0)
+					#	
+					typoid;
+				    else
+					tdt::TYPESCHEME_TYPOID
+					  {
+					    typescheme_eqflags
+						=>
+						ts::make_typeagnostic_api  arity,
+
+					    typescheme
+						=>
+						tdt::TYPESCHEME
+						  { arity,
+						    body  => typoid
+						  }
+					  };
+				    fi;
+
+		       tdt::VALCON
+			 {
+			   typoid,
+			   is_lazy,
+			   name,
+			   is_constant,
+			   #	
+			   form,
+			   signature
+			 };
+		    };
+		#
+		fun bind_dconslist
+			( (r1 as (name, _, _))  !  l1,
+			   r2                   !  l2
+			)
+			=>
+			{   valcon =   bind_dcons (r1, r2);
+			    #
+			    (bind_dconslist (l1, l2))
+				->
+				(dcl, e2);
+
+			    (   valcon ! dcl,
+				syx::bind (
+				    name,
+				    sxe::NAMED_CONSTRUCTOR valcon,
+				    e2
+				)
+			    );
+			};
+
+		    bind_dconslist ([],[]) =>   ([], syx::empty);
+		    bind_dconslist _       =>   bug "typecheckDB::bindDconslist";
+		end;
+
+
+		if (length sdcl < length dcl)    #  Duplicate constructor names 
+		    #	
+		    fun member (x: String,   []) =>   FALSE;
+			member (x,        y ! r) =>   (x == y)   or   member (x, r);
+		    end;
+		    #
+		    fun dups (  [], l)
+			    =>
+			    l;
+
+			dups (x ! r, l)
+			    =>
+			    if   (member (x, r)   and   not (member (x, l)))
+				 dups (r, x ! l);
+			    else dups (r,     l);
+			    fi;
+		    end;
+		    #
+		    fun add_commas []          =>   [];
+			add_commas (y as [_])  =>   y;
+			add_commas (s ! r)      =>   s ! ", " ! add_commas (r);
+		    end;
+
+		    duplicates
+			=
+			dups (map (\\ (n, _, _) => sy::name n; end ) dcl,[]);
+
+
+		    error_function
+			source_code_region
+			err::ERROR
+			(   cat [
+				"sumtype ",
+				sy::name name,
+				" has duplicate constructor name (s): ",
+				cat (add_commas (duplicates))
+			    ]
+			)
+			err::null_error_body;
+		fi;
+
+		bind_dconslist (sdcl, reps);
+	    };
+
+
+	# *** TYPE DECLARATIONS ***
+		    #
+	fun typecheck_named_types (
+		named_types:     List( raw::Named_Type ),
+		notwith: Bool,
+		symbolmapstack0,
+                inverse_path,
+		source_code_region,
+		{ make_fresh_stamp, error_fn, ... }: trs::Per_Compile_Data
+	    )
+	    :
+            ( List( tdt::Type ),
+              List( sy::Symbol ),
+              syx::Symbolmapstack
+            )
+	    =
+	    {   fun typecheck_named_type (
+                        tb: raw::Named_Type,
+                        symbolmapstack,
+                        source_code_region
+                    )
+                    : (tdt::Type, sy::Symbol)
+		    =
+		    case tb
+			#
+			raw::NAMED_TYPE   { name_symbol,   definition,   typevars }
+			    =>
+			    {   typevars =   type_typevar_list  (typevars, error_fn, source_code_region);
+				#
+				(type_type  (definition, symbolmapstack, error_fn, source_code_region))
+				    ->
+				    (type, typevar);
+
+				arity   =   length typevars;
+
+				trs::check_bound_typevars (typevar, typevars, error_fn source_code_region);
+
+				ts::resolve_typevars_to_typescheme_slots  typevars;
+
+				ts::drop_macro_expanded_indirections_from_type  type;
+																if_debugging_say "typecheck_named_type() introducing tdt::NAMED_TYPE  -- type-type.pkg\n";
+				type =  tdt::NAMED_TYPE  { stamp      =>  make_fresh_stamp (),
+							   namepath   =>  ip::extend (inverse_path, name_symbol),
+							   strict     =>  trs::calculate_strictness (arity, type),
+							   #
+							   typescheme => tdt::TYPESCHEME { arity, body=>type }
+							 };
+
+				(type, name_symbol);
+			    };
+
+			raw::SOURCE_CODE_REGION_FOR_NAMED_TYPE (tb', source_code_region')
+			    =>
+			    typecheck_named_type (tb', symbolmapstack, source_code_region');
+                    esac;
+
+                loop (named_types, NIL, NIL, syx::empty)
+                where
+		    fun loop (NIL, types, names, symbolmapstack)
+			    =>
+			    ( reverse types,
+			      reverse names,
+			      symbolmapstack
+			    );
+
+			loop (named_type ! rest, types, names, symbolmapstack)
+			    =>
+			    {  symbolmapstack'
+				    =
+				    if notwith      symbolmapstack0;
+				    else            syx::atop (symbolmapstack, symbolmapstack0);
+                                    fi;
+
+				(typecheck_named_type (named_type, symbolmapstack', source_code_region))
+				    ->
+				    (type, name);
+
+				loop (
+				    rest,
+				    type ! types,
+				    name ! names,
+				    syx::bind (name, sxe::NAMED_TYPE type, symbolmapstack)
+				);
+			    };
+		    end;
+		end;
+	    };
+	#
+	fun type_type_declaration (
+                named_types: List( raw::Named_Type ),
+                symbolmapstack,
+                inverse_path,
+                source_code_region,
+		per_compile_data as { error_fn, make_fresh_stamp, ... }: trs::Per_Compile_Data
+            )
+	    : (ds::Declaration, syx::Symbolmapstack)
+	    =
+	    {															if_debugging_say ">>type_type_declaration";
+		my (types, names, symbolmapstack')
+                    =
+		    typecheck_named_types (
+                        named_types,
+                        TRUE,
+                        symbolmapstack,
+                        inverse_path,
+                        source_code_region,
+                        per_compile_data
+                    );
+																if_debugging_say "--type_type_declaration: typecheck_named_types done";
+                trs::forbid_duplicates_in_list   (error_fn source_code_region,   "duplicate type definition",   names);
+																if_debugging_say "<<type_type_declaration";
+		(ds::TYPE_DECLARATIONS types,   symbolmapstack');
+	    };
+	#
+	fun type_sumtype_declaration
+              (
+                { sumtypes, with_types },
+                symbolmapstack0,
+                api_context, 
+	        api_typerstore,
+                is_free,
+                inverse_path,
+                source_code_region, 
+	        per_compile_data as { make_fresh_stamp, error_fn, ... }:   trs::Per_Compile_Data
+              )
+	    =
+	    {   #  predefine sumtypes 
+																if_debugging_say ">>type_sumtype_declaration";
+		#
+		fun preprocess
+                        source_code_region
+                        (   raw::SUM_TYPE {
+                                name_symbol       =>  name,
+                                right_hand_side   =>  raw::VALCONS  definition,
+                                typevars,
+                                is_lazy
+                            }
+                        )
+			=> 
+			{   typevars
+				=
+				type_typevar_list
+				    (typevars, error_fn, source_code_region);
+
+			    strict_name
+				=
+				if is_lazy     sy::make_type_symbol (sy::name name + "!");
+				else           name;
+                                fi;
+
+			    type =   tdt::SUM_TYPE
+					  {
+					    namepath	=>  ip::extend (inverse_path, strict_name),
+					    arity	=>  length typevars,
+					    stamp	=>  make_fresh_stamp(),
+					    is_eqtype	=>  REF tdt::e::DATA,
+					    kind	=>  tdt::TEMP,
+					    stub	=>  NULL
+					  };
+
+			    binddef =   if (not  is_lazy)
+					    #	
+					    type;
+					else
+					    tdt::NAMED_TYPE
+					      {
+						stamp      => make_fresh_stamp(),
+						#
+						namepath   => ip::extend (inverse_path, name),
+						#
+						strict     => map   (\\ _ = TRUE)   typevars,
+						#
+						typescheme => tdt::TYPESCHEME {
+								   arity => length typevars,
+								   body  => tdt::TYPCON_TYPOID (
+									       mtt::suspension_type,
+									       [   tdt::TYPCON_TYPOID (
+										       type,
+										       map tdt::TYPEVAR_REF typevars
+										   )
+									       ]
+									   )
+							       }
+					     };
+					fi;
+
+			    THE {
+				typevars,
+				name,
+				definition,
+
+				binddef,
+				is_lazy,
+
+				source_code_region,
+				type,
+				strict_name
+			    };
+			};
+
+		    preprocess source_code_region (raw::SUM_TYPE { name_symbol     =>  name,
+                                                                     right_hand_side =>  raw::REPLICAS _,
+                                                                     ...
+                                                                   }
+                                                  )
+			=> 
+			{   error_fn
+				source_code_region
+				err::ERROR
+				("sumtype replication mixed with regular sumtypes:" + sy::name name)
+				err::null_error_body;
+
+			    NULL;
+			};
+
+		    preprocess _ (raw::SOURCE_CODE_REGION_FOR_UNION_TYPE (db', source_code_region'))
+			=>
+			preprocess source_code_region' db';
+                end;
+
+		dbs = list::map_partial_fn
+                          (preprocess source_code_region)
+                          sumtypes;
+																if_debugging_say "--type_sumtype_declaration: preprocessing done";
+		env_dtypes         #  symbolmapstack containing preliminary sumtypes 
+                    =
+		    fold_forward
+                        (\\ ( { name, binddef, ... }, symbolmapstack)
+                            =
+			    syx::bind (name, sxe::NAMED_TYPE binddef, symbolmapstack)
+                        )
+			syx::empty
+                        dbs;
+																if_debugging_say "--type_sumtype_declaration: envDTypes defined";
+
+
+		#  Typecheck associated with_types: 
+
+		my (with_types, withtyc_names, env_wtypes)
+                    = 
+		    typecheck_named_types (
+                        with_types,
+                        FALSE,
+                        syx::atop (env_dtypes, symbolmapstack0),
+			inverse_path,
+                        source_code_region,
+                        per_compile_data
+                    );
+																if_debugging_say "--type_sumtype_declaration: with_types elaborated";
+
+
+		#  Check for duplicate type names: 
+
+                trs::forbid_duplicates_in_list (
+                    error_fn source_code_region,
+		    "duplicate type names in type declaration",
+	            map .name dbs @ withtyc_names
+                    );
+																if_debugging_say "--type_sumtype_declaration: uniqueness checked";
+
+		#  Add lazy auxiliary with_types if any: 
+
+		with_types
+                    =
+                    map .binddef
+                       (list::filter .is_lazy dbs) @ with_types;
+
+
+
+		# symbolmapstack containing only new
+                # sumtypes and with_types:
+
+		env_types   =   syx::atop (env_wtypes, env_dtypes);
+
+
+
+		# symbolmapstack for evaluating the
+                # Constructor types:
+
+		full_symbolmapstack   =   syx::atop (env_types, symbolmapstack0);
+																if_debugging_say "--type_sumtype_declaration: envTypes, fullSymbolmapstack defined";
+		prelim_dtypes   =   map .type dbs;
+
+
+
+		# Nomenclature:  "Definition of SML" calls typcons from apis "flexible" an all others "rigid".
+		#
+		# The following functions pull out all the flexible components
+		# inside the domains of the sumtypes, and put them into the
+		# free_types field in the SUMTYPE kind; this way, future 
+		# re-instantiations of the sumtypes only need to modify the
+		# free_types list, rather than all the domains (ZHONG)
+
+
+		free_types_ref
+                    =
+                    REF  ([]:  List( tdt::Type ),   0);
+		#
+		fun reg_free type
+                    = 
+                    h (ss, n)
+                    where
+		        (*free_types_ref) ->  (ss, n);
+                            
+			#
+			fun h (x ! rest, i)
+				=> 
+				if (ts::types_are_equal (type, x))
+				    #				    
+				    tdt::FREE_TYPE (i - 1);
+				else
+				    h (rest, i - 1);
+				fi;
+
+			    h ([], _)
+				=> 
+				{   (free_types_ref := (type ! ss, n+1));
+				    #
+				    tdt::FREE_TYPE n;
+				};
+                        end;
+		    end;
+		#
+		fun translate_type (type as tdt::SUM_TYPE { kind => tdt::TEMP, ... } )
+			=>
+			g (type, 0, prelim_dtypes)
+                        where
+			    fun g (type, i, x ! rest)
+				    =>
+				    if (ts::types_are_equal (type, x))
+					#				        
+					tdt::RECURSIVE_TYPE i;
+				    else
+					g (type, i+1, rest);
+				    fi;
+
+			        g (type, _, NIL)
+                                    =>
+                                    type;
+                            end;
+			end;
+
+		   translate_type (type as tdt::SUM_TYPE _)
+			=> 
+			if (is_free type)   reg_free type;
+			else                         type;
+                        fi;
+
+		   translate_type (type as (tdt::NAMED_TYPE _ | tdt::TYPE_BY_STAMPPATH _))
+			=> 
+			if (is_free type)   reg_free type;
+			else                         type;
+                        fi;
+
+		   translate_type type
+			=>
+			type;
+                end;
+
+		#
+		fun translate_typoid type
+                    = 
+		    case (ts::head_reduce_typoid  type)
+			#
+		        tdt::TYPCON_TYPOID (type, args)
+			    =>
+			    tdt::TYPCON_TYPOID (translate_type type, map translate_typoid args);
+
+		        tdt::TYPESCHEME_TYPOID { typescheme_eqflags, typescheme => tdt::TYPESCHEME { arity, body } }
+			    =>
+			    tdt::TYPESCHEME_TYPOID {
+				typescheme_eqflags,
+				typescheme => tdt::TYPESCHEME {
+						   arity,
+						   body  => translate_typoid body
+					       }
+			    };
+
+		        type => type;
+                    esac;
+
+
+
+		#  Typecheck the definition of a sumtype: 
+		#
+		fun typecheck_right_hand_side (
+                        {   typevars,
+                            name,
+                            definition,
+                            source_code_region,
+                            type,
+                            is_lazy,
+                            binddef,
+                            strict_name
+                        },
+			(i, done)
+                    )
+                    = 
+		    {   my (valcons, _)
+                            = 
+			    typecheck_named_constructor (
+                                (   type,
+                                    typevars,
+                                    name,
+                                    definition,
+                                    source_code_region,
+                                    is_lazy
+                                ),
+                                full_symbolmapstack,
+                                inverse_path,
+                                error_fn
+                            );
+			#
+			fun make_valcon_desc (tdt::VALCON { name, is_constant, form, signature, typoid, is_lazy } )
+                            = 
+			    {   name,
+                                form,
+			        domain         =>   if is_constant
+							#
+							NULL;
+						    else
+							case (translate_typoid  typoid)
+							    #
+							    tdt::TYPCON_TYPOID (_, [dom, _])
+								=>
+								THE dom;
+
+							    tdt::TYPESCHEME_TYPOID
+								{
+								  typescheme =>  tdt::TYPESCHEME {
+								  body        =>  tdt::TYPCON_TYPOID (_, [dom, _]), ... },
+								  ...
+								}
+								=>
+								THE dom;
+
+							   _ => bug "typecheck_right_hand_side";
+						       esac;
+						    fi
+                            };
+
+                        (   i+1,
+			    {   index       =>  i,
+
+				is_lazy,
+			        name,
+				type,
+				strict_name,
+
+				valcon_names  =>  map   (\\ tdt::VALCON { name, ... } = name)   valcons,
+				dcons       =>  valcons,
+				valcon_descs  =>  map  make_valcon_desc  valcons
+
+                            } ! done
+                        );
+		    };
+
+		my (_, dbs')
+                    =
+                    fold_forward
+                         typecheck_right_hand_side
+                         (0, NIL)
+                         dbs;
+
+		dbs'   =   reverse dbs';
+
+																if_debugging_say "--type_sumtype_declaration: RHS elaborated";
+		#
+		fun make_member
+			{
+			  name,
+			  valcon_descs,
+			  valcon_names,
+			  index,
+			  is_lazy,
+			  strict_name,
+			  dcons  =>  tdt::VALCON { signature, ... } ! _,
+			  type =>  tdt::SUM_TYPE { stamp, arity, is_eqtype, ... }
+			}
+			=>
+			#  Extract common signature from first Constructor 
+
+			( stamp,
+			  { valcons => valcon_descs,
+			     arity,
+			     is_eqtype,
+			     is_lazy,
+			     name_symbol => strict_name,
+			     an_api      => signature
+			  }
+			);
+
+		    make_member _   =>   bug "makeMember";
+                end;
+
+		(paired_lists::unzip (map make_member dbs'))
+		    ->
+		    (mstamps, members);
+
+		nstamps =   vector::from_list  mstamps;
+
+		nfamily
+                    =
+                    { members       => vector::from_list members,
+		      property_list => property_list::make_property_list (),
+		      mkey          => make_fresh_stamp()
+                    };
+
+		nfreetypes
+                    = 
+		    {   (*free_types_ref) ->   (x, n);
+			#
+                        if (length x != n)   #  Sanity check 
+			    bug "unexpected nfreetypes in type_sumtype_declaration";
+                        fi;
+
+                        reverse x; 
+		    };
+
+																if_debugging_say "--type_sumtype_declaration: members defined";
+		#
+		fun fix_dtyc {
+                        name,
+                        index,
+		        type as tdt::SUM_TYPE { namepath, arity, stamp, is_eqtype, kind, stub },
+			valcon_names,
+                        dcons,
+                        valcon_descs,
+                        is_lazy,
+                        strict_name
+                    }
+                    =>
+		      { old  => type,
+			name => strict_name,
+			#
+		        new  => tdt::SUM_TYPE
+				  {
+			           stub  => NULL,
+                                   namepath,
+                                   arity,
+				   # 
+                                   stamp,
+                                   is_eqtype,
+				   # 
+				   kind  => tdt::SUMTYPE
+                                              {
+						index,
+						stamps       =>  nstamps,
+						family       =>  nfamily,
+						#
+						free_types =>  nfreetypes,
+						root         =>  NULL
+                                              }
+                               }
+                      };
+
+		   fix_dtyc _ => bug "fixDtyc"; end;
+
+		dtycmap =   map fix_dtyc dbs';											# Map preliminary to final sumtypes 
+
+																if_debugging_say "--type_sumtype_declaration: fixDtypes done";
+		final_dtypes   =   map .new dtycmap;
+																if_debugging_say "--type_sumtype_declaration: finalDtypes defined";
+                eq_types::define_eq_props (final_dtypes, api_context, api_typerstore);
+																if_debugging_say "--type_sumtype_declaration: defineEqProps done";
+		#
+		fun apply_map m
+                    =
+                    f
+                    where
+		        fun same_type_identifier
+				( tdt::SUM_TYPE g1,
+				  tdt::SUM_TYPE g2
+				)
+				=>
+				sta::same_stamp
+                                  ( g1.stamp,
+				    g2.stamp
+				  );
+
+			    same_type_identifier
+                                ( type1 as tdt::NAMED_TYPE _,
+                                  type2 as tdt::NAMED_TYPE _
+                                )
+				=>
+				ts::type_equality (type1, type2);
+
+			    same_type_identifier _ =>   FALSE;
+                        end;
+			#
+			fun f (tdt::TYPCON_TYPOID (type, args))
+				=>
+				tdt::TYPCON_TYPOID
+				  ( get m,
+				    map  (apply_map m)  args
+				  )
+				where
+				    fun get ( { old, new, name } ! rest)
+					    => 
+					    if (same_type_identifier (old, type))
+						 new;
+					    else
+						 get rest;
+					    fi;
+
+					get NIL =>  type;
+				    end;
+				end;
+
+			    f (   tdt::TYPESCHEME_TYPOID
+                                    {
+                                      typescheme_eqflags,
+                                      typescheme => tdt::TYPESCHEME { arity, body }
+                                    }
+                              )
+				=>
+				tdt::TYPESCHEME_TYPOID {
+				    typescheme_eqflags,
+
+				    typescheme => tdt::TYPESCHEME { arity,
+								 body  => f body
+							       }
+				};
+
+			    f t   =>   t;
+                        end;
+		    end;
+		#
+		fun aug_tycmap
+			( type as
+			      tdt::NAMED_TYPE {
+				  stamp,
+				  strict,
+				  namepath,
+				  typescheme => tdt::TYPESCHEME { arity, body }
+			      },
+			  tycmap
+			)
+			=>
+			{ old  => type,
+			  #
+			  name => ip::last  namepath,
+
+			  new  => tdt::NAMED_TYPE
+				    {
+				      strict,
+				      stamp,
+				      namepath,
+				      #
+				      typescheme => tdt::TYPESCHEME
+                                                       {
+							 arity,
+							 body  => apply_map tycmap body
+						       }
+				    }
+			}
+			! tycmap;
+
+		    aug_tycmap _
+			=>
+			bug "aug_tycmap";
+                end;
+
+		# Use fold_forward to process the
+                # with_types in their
+                # original order:
+                # 
+		alltycmap
+                    =
+                    fold_forward
+                        aug_tycmap
+                        dtycmap
+                        with_types;
+
+																if_debugging_say "--type_sumtype_declaration: alltycmap defined";
+		#
+		fun header (_,     0, z)  =>  z;
+		    header (a ! r, n, z)  =>  header (r, n - 1, a ! z);
+		    header (  [],  _, _)  =>  bug "header2 in type_sumtype_declaration";
+                end;
+
+		final_withtypes =   map .new (header (alltycmap, length with_types, []));
+																if_debugging_say "--type_sumtype_declaration: finalWithtypes defined";
+		#
+		fun fix_valcon (tdt::VALCON { name, is_constant, form, signature, typoid, is_lazy } )
+                    = 
+		    tdt::VALCON
+                      {
+			typoid =>   apply_map  alltycmap  typoid,
+			#
+                        name,
+                        is_constant,
+                        form,
+                        signature,
+                        is_lazy
+                      };
+
+		final_dcons =   list::cat (map (map fix_valcon) (map .dcons dbs'));
+																if_debugging_say "--type_sumtype_declaration: finalDcons defined";
+		env_dcons   =   fold_forward
+				    (\\ (d as tdt::VALCON { name, ... },   e)
+					=
+					syx::bind   (name,   sxe::NAMED_CONSTRUCTOR d,   e)
+				    )
+				    syx::empty 
+				    final_dcons;
+
+		final_symbolmapstack
+                    =
+                    fold_backward
+                        (\\ ( { old, name, new },   e)
+                            =
+			    syx::bind   (name,   sxe::NAMED_TYPE new,   e)
+                        ) 
+			env_dcons
+                        alltycmap;
+																if_debugging_say "--type_sumtype_declaration: envDcons, finalSymbolmapstack defined";
+		trs::forbid_duplicates_in_list
+		  ( error_fn source_code_region,
+                    "duplicate Constructor names in sumtype declaration",
+		    list::cat (map .valcon_names dbs')
+                  );
+																if_debugging_say "<<type_sumtype_declaration";
+
+		(final_dtypes, final_withtypes, final_dcons, final_symbolmapstack);
+
+	    };			# fun type_sumtype_declaration 
+    };				# package type_type
+end;				# stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

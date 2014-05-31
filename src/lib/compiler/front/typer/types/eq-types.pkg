@@ -1,0 +1,942 @@
+## eq-types.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# This file does not belong here.
+# It relies on the module semantics and
+# it should be moved to modules/ directory. (ZHONG)    XXX SUCKO FIXME
+
+
+stipulate
+    package mld =  module_level_declarations;					# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package tdt =  type_declaration_types;					# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+herein
+
+    api Eq_Types {
+	#
+	eq_analyze:  (mld::Package,
+		      (stamp::Stamp -> Bool),
+		      error_message::Plaint_Sink)
+			-> Void;
+
+	define_eq_props:  ( List( tdt::Type ),
+			    expand_type::Api_Context,
+			    typerstore::Typerstore
+                          )
+			-> Void;
+
+	check_eq_ty_sig:  ( tdt::Typoid,
+			    tdt::Typescheme_Eqflags
+			  ) 
+		       -> Bool;
+
+	# check whether type type is an equality type, given a Typescheme_Eqflags
+	# indicating which TYPESCHEME_ARG elements are equality types.  
+	# This isn't accurate on (relatized) types containing PATHtypes,
+	# which are effectively treated as ty::CHUNK
+
+
+	is_equality_type:	tdt::Type  -> Bool;
+	is_equality_typoid:	tdt::Typoid -> Bool;
+
+	debugging:		Ref(  Bool );
+    };
+end;
+
+
+stipulate
+    package err =  error_message;						# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package ip  =  inverse_path;						# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lms =  list_mergesort;						# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package mj  =  module_junk;							# module_junk			is from   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+    package mld =  module_level_declarations;					# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package sta =  stamp;							# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package ts  =  type_junk;							# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package tdt =  type_declaration_types;					# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package tyj =  type_junk;							# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package mtt =  more_type_types;						# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    #
+herein 
+
+    package   eq_types
+    : (weak)  Eq_Types								# Eq_Types			is from   src/lib/compiler/front/typer/types/eq-types.pkg
+    {
+        # Functions to determine and check equality types 
+        #
+
+	# Debugging:
+	#
+	fun bug msg = err::impossible("EqTypes: " + msg);
+	say       = control_print::say;
+	debugging = REF FALSE;
+
+	fun if_debugging_say (msg: String)
+            =
+	    if *debugging 
+		say msg;
+		say "\n";
+            fi;
+
+	fun all (f: X -> Bool) [] =>   TRUE;
+	    all f (x ! r)         =>   f x  and  all f r;
+        end;
+
+	#  join of eqprops 
+
+	exception INCONSISTENT;
+
+	fun join (tdt::e::UNDEF,         tdt::e::YES          ) => tdt::e::YES;
+	    join (tdt::e::YES,           tdt::e::UNDEF        ) => tdt::e::YES;
+	    join (tdt::e::UNDEF,         tdt::e::NO           ) => tdt::e::NO;
+	    join (tdt::e::NO,            tdt::e::UNDEF        ) => tdt::e::NO;
+	    join (tdt::e::UNDEF,         tdt::e::INDETERMINATE) => tdt::e::INDETERMINATE;
+	    join (tdt::e::INDETERMINATE, tdt::e::UNDEF        ) => tdt::e::INDETERMINATE;
+	    join (tdt::e::UNDEF,         tdt::e::DATA         ) => tdt::e::DATA;
+	    join (tdt::e::DATA,          tdt::e::UNDEF        ) => tdt::e::DATA;
+	    join (tdt::e::UNDEF,         tdt::e::UNDEF        ) => tdt::e::UNDEF;
+	    join (tdt::e::DATA,          tdt::e::YES          ) => tdt::e::YES;
+	    join (tdt::e::YES,           tdt::e::DATA         ) => tdt::e::YES;
+	    join (tdt::e::DATA,          tdt::e::NO           ) => tdt::e::NO;
+	    join (tdt::e::NO,            tdt::e::DATA         ) => tdt::e::NO;
+	    join (tdt::e::DATA,          tdt::e::INDETERMINATE) => tdt::e::INDETERMINATE;
+	    join (tdt::e::INDETERMINATE, tdt::e::DATA         ) => tdt::e::INDETERMINATE;
+	    join (tdt::e::DATA,          tdt::e::DATA         ) => tdt::e::DATA;
+	    join (tdt::e::INDETERMINATE, tdt::e::YES          ) => tdt::e::YES; #  ? 
+	    join (tdt::e::YES,           tdt::e::INDETERMINATE) => tdt::e::YES; #  ? 
+	    join (tdt::e::INDETERMINATE, tdt::e::NO           ) => tdt::e::NO;
+	    join (tdt::e::NO,            tdt::e::INDETERMINATE) => tdt::e::NO;
+	    join (tdt::e::INDETERMINATE, tdt::e::INDETERMINATE) => tdt::e::INDETERMINATE;
+	    join (tdt::e::YES,           tdt::e::YES          ) => tdt::e::YES;
+	    join (tdt::e::NO,            tdt::e::NO           ) => tdt::e::NO;
+	    join (tdt::e::CHUNK,         tdt::e::CHUNK        ) => tdt::e::CHUNK;
+	    #
+	    join (tdt::e::EQ_ABSTRACT, e) => join (tdt::e::NO, e);
+	    join (e, tdt::e::EQ_ABSTRACT) => join (e, tdt::e::NO);
+	    #
+	    join (e1, e2)
+                => 
+	        {   say (string::cat [tyj::equality_property_to_string e1, ", ", tyj::equality_property_to_string e2, "\n"]);
+	            raise exception INCONSISTENT;
+                };
+        end;
+
+	fun chunk_type (tdt::SUM_TYPE { is_eqtype => REF tdt::e::CHUNK, ... } ) => TRUE;
+	    chunk_type _ => FALSE;
+        end;
+
+	#  Calculating eqtypes in toplevel apis 
+
+	exception NOT_EQ;
+	exception UNBOUND_STAMP;
+
+	# eq_analyze is called in just one place,					# As of 2013-12-29 I cannot find any calls to eq_analyze   -- CrT
+        # in MacroExpand, to compute the actual
+        # eqprops of types in a macro expanded api.
+        #
+        # It has to propagate equality properties to respect type equivalences
+	# induced by sharing  constraints. 
+	#
+	fun eq_analyze (str, local_stamp:  sta::Stamp -> Bool, err:  err::Plaint_Sink)
+            =
+	    {   types   =  REF stamp_map::empty;
+		depend  =  REF stamp_map::empty;
+		dependr =  REF stamp_map::empty;
+
+		equality_property     =  REF stamp_map::empty;
+		depends_indeterminate =  REF FALSE;
+
+		my tyc_stamps_ref:  Ref( List( sta::Stamp ) )
+                    =
+                    REF NIL;
+
+		fun dfl_apply dfl (mr, k)
+                    =
+		    case (stamp_map::get (*mr, k))
+			#
+			NULL => dfl;
+			THE x => x;
+                    esac;
+
+		fun apply_map'  x   =   dfl_apply [] x;
+		fun apply_map'' x   =   dfl_apply tdt::e::UNDEF x;
+
+		fun update_map mr (k, v)
+                    =
+                    mr := stamp_map::set (*mr, k, v);
+
+		err   =   \\ s =  err err::ERROR s err::null_error_body;
+
+		fun checkdcons ( datatyc_stamp:	sta::Stamp,
+			         evalty:	tdt::Typoid -> tdt::Typoid,
+			         dcons: 	List( tdt::Valcon_Info ),
+			         stamps,
+                                 members,
+                                 free_types
+                               )
+                               : (tdt::e::Is_Eqtype, List(sta::Stamp))
+                    =
+		    {   depend                =  REF ([]: List( sta::Stamp ));
+			depends_indeterminate =  REF FALSE;
+
+			fun member (stamp,[]) => FALSE;
+			    member (st, st' ! rest) => sta::same_stamp (st, st') or member (st, rest);
+                        end;
+
+			fun eqtyc (tdt::SUM_TYPE { stamp, is_eqtype, ... } )
+				=>
+				case *is_eqtype
+				    #
+				    tdt::e::YES               =>  ();
+				    tdt::e::CHUNK             =>  ();
+
+				   (tdt::e::NO | tdt::e::EQ_ABSTRACT) =>  raise exception NOT_EQ;
+				   tdt::e::INDETERMINATE      =>  depends_indeterminate := TRUE;
+
+				   (tdt::e::DATA | tdt::e::UNDEF)
+					=>
+					if (not ( (member (stamp,*depend)) 
+						  or
+						  sta::same_stamp (stamp, datatyc_stamp)
+					   )    )
+
+					    depend :=  stamp ! *depend;
+					fi;
+				esac;
+
+			    eqtyc (tdt::RECORD_TYPE _) => ();
+			    eqtyc _ => bug "eqAnalyze::eqtyc";
+                        end 
+
+			also
+			fun eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } ) 
+				=>
+				eqty type;			# Shouldn't happen.
+
+			    eqty (typoid as tdt::TYPCON_TYPOID (type, args))
+				=>
+				{   ntyc = case type
+					       #
+					       tdt::FREE_TYPE i
+						 =>
+						 (list::nth (free_types, i) except _ =
+						    bug "unexpected free_types in eqty");
+
+					       _ => type;
+					   esac;
+
+				    case ntyc
+				        #
+					tdt::SUM_TYPE _
+					    =>
+					    if (not (chunk_type ntyc)) 
+						eqtyc ntyc;
+						apply eqty args;
+					    fi;
+
+					tdt::NAMED_TYPE { typescheme, ... }
+					    =>
+					    eqty (tyj::head_reduce_typoid typoid);
+
+					tdt::RECURSIVE_TYPE i
+					    =>
+					    {   stamp =  vector::get (stamps, i);
+						#
+						(vector::get (members, i))
+						    ->
+						    { name_symbol, valcons, ... }:   tdt::Sumtype_Member;
+
+
+						if (   not (member (stamp,*depend))
+						   and not (sta::same_stamp (stamp, datatyc_stamp))
+						   )
+						    depend := stamp ! *depend;
+						fi;
+					    };
+
+				       _ => apply eqty args;
+				  esac;
+				};
+
+			    eqty _ => ();
+                        end;
+
+		    
+                        apply eqdcon dcons
+			where
+			    fun eqdcon { domain => THE type',  name,  form } => eqty type';
+				eqdcon _ => ();
+			    end;
+			end;
+
+			case (*depend, *depends_indeterminate)
+			    #
+			    ([], FALSE) => (tdt::e::YES,[]);
+			    (d,  FALSE) => (tdt::e::DATA, d);
+			    (_,  TRUE ) => (tdt::e::INDETERMINATE,[]);
+                        esac;
+		    }
+		    except
+                        NOT_EQ =  (tdt::e::NO, []);
+
+		fun addstr (str as mld::A_PACKAGE { an_api, typechecked_package => { typerstore, ... }, ... } )
+			=>
+			{   fun addtyc (type as (tdt::SUM_TYPE { stamp, is_eqtype, kind, namepath, ... } ))
+				    =>
+				    if (local_stamp stamp)	  #  local spec 
+					#
+					{   update_map types
+						    (stamp, type ! apply_map'(types, stamp));
+						    tyc_stamps_ref := stamp ! *tyc_stamps_ref;
+
+					    case kind
+						#
+						tdt::SUMTYPE { index, stamps, family=> { members, ... }, root, free_types }
+						    =>
+						    {   dcons =  .valcons (vector::get (members, index));
+							#
+							eq_orig = *is_eqtype;
+
+							my (eqp_calc, deps)
+							    =
+							    case eq_orig
+								#
+								tdt::e::DATA
+								    => 
+								    checkdcons (stamp,
+									       mj::translate_typoid  typerstore,
+									       dcons, stamps, members,
+									       free_types);
+
+								e => (e,[]);
+							    esac;
+
+							#  ASSERT: e = tdt::YES or tdt::NO 
+							eq' =
+							    join (join (eq_orig,
+								      apply_map''(equality_property, stamp)),
+								 eqp_calc);
+
+							is_eqtype :=  eq';
+
+							update_map equality_property (stamp, eq');
+
+							apply (\\ s = update_map dependr (s, stamp ! apply_map'(dependr, s)))
+							      deps;
+
+							update_map depend
+							      (stamp, deps @ apply_map'(depend, stamp));
+						    };
+
+						(tdt::FLEXIBLE_TYPE _ | tdt::ABSTRACT _ | tdt::BASE _)
+						    =>
+						    {   eq' = join (apply_map''(equality_property, stamp), *is_eqtype);
+							#
+							is_eqtype :=  eq';
+							#
+							update_map equality_property (stamp, eq');
+						    };
+
+						  _ => bug "eqAnalyze::scan::tscan";
+					    esac;
+					}
+					except
+					    INCONSISTENT
+						= 
+						err "inconsistent equality properties";
+
+				    fi; #  external -- assume equality_property already defined 
+
+				addtyc _ => ();
+			    end;
+
+			    if (local_stamp (mj::get_package_stamp str))
+				list::apply (\\ s => addstr s; end ) (mj::get_packages str);
+				list::apply (\\ t => addtyc t; end ) (mj::get_types str);
+				#  BUG? - why can we get away with ignoring generic elements??? XXX BUGGO FIXME 
+			    fi;
+			};
+
+		    addstr _ => ();   #  must be external or error package 
+                end;
+
+		fun propagate (eqp, depset, earlier)
+                    =
+                    prop
+                    where
+		        fun prop stamp'
+                            =
+			    apply (\\ s
+                                     =
+				     {   eqpold = apply_map''(equality_property, s);
+				         eqpnew = join (eqp, eqpold);
+
+				         if (eqpold != eqpnew)
+					       update_map equality_property (s, eqp);
+					       if (earlier s) prop s; fi;
+					 fi;
+				      }
+                                      except
+                                          INCONSISTENT
+                                              =
+					      err "inconsistent equality properties B"
+                                  )
+				  (depset (stamp')); 
+		    end;
+
+		#  Propagate the tdt::e::NO equality_property forward and the tdt::YES equality_property backward 
+
+		fun propagate_yes_no (stamp)
+                    =
+		    {   fun earlier s
+                            =
+                            sta::compare (s, stamp) == LESS;
+		    
+                        case (apply_map''(equality_property, stamp))
+			    #			  
+			    tdt::e::YES => propagate (tdt::e::YES, (\\ s =  apply_map'(depend,  s)), earlier) stamp;
+			    tdt::e::NO  => propagate (tdt::e::NO,  (\\ s =  apply_map'(dependr, s)), earlier) stamp;
+			    _   => ();
+                        esac;
+		    };
+
+
+		#  Propagate the IND equality_property 
+
+		fun propagate_ind (stamp)
+                    =
+		    {   fun depset s
+                            =
+                            apply_map'(dependr, s);
+
+			fun earlier s
+                            =
+                            sta::compare (s, stamp) == LESS;
+		    
+                        case (apply_map''(equality_property, stamp))
+			    #			  
+			    tdt::e::UNDEF
+				=>
+				{   update_map equality_property (stamp, tdt::e::INDETERMINATE);
+				      propagate (tdt::e::INDETERMINATE, depset, earlier) stamp;
+				};
+
+			    tdt::e::INDETERMINATE =>
+				propagate (tdt::e::INDETERMINATE, depset, earlier) stamp;
+
+			    _ => ();
+                        esac;
+		    };
+
+		# Phase 0: scan api strenv, joining
+                # eqprops of shared types 
+		#
+		addstr str;
+
+		tyc_stamps
+                    =
+                    lms::sort_list
+                        (\\ xy =  sta::compare xy == GREATER)
+                        *tyc_stamps_ref;
+	     
+		#  Phase 1: propagate tdt::YES backwards and tdt::e::NO forward 
+		#
+		apply propagate_yes_no tyc_stamps;
+
+		#  Phase 2: convert tdt::e::UNDEF to tdt::e::INDETERMINATE and propagate tdt::e::INDETERMINATEs 
+		#
+		apply propagate_ind tyc_stamps;
+
+		#  Phase 3: convert tdt::DATA to tdt::YES; reset stored eqprops from equality_property map 
+		#
+		apply
+                    (\\ s = {   eqp = case (apply_map''(equality_property, s))
+					  tdt::e::DATA => tdt::e::YES;
+					  e => e;
+                                      esac;
+
+				fun set (tdt::SUM_TYPE { is_eqtype, ... } )
+                                        =>
+                                        is_eqtype :=  eqp;
+
+				    set _ => ();
+				end;
+
+				apply set (apply_map'(types, s)); 
+			    }
+                    )
+		    tyc_stamps;
+	    };
+
+	exception CHECKEQ;
+
+
+	# WARNING - define_eq_props uses eq field REF as a type identifier.  
+	# Since define_eq_props is called only within type_sumtype_declaration, this
+	# should be ok.
+
+	void_typoid =  mtt::void_typoid;
+
+	fun member (_,[])
+                =>
+                FALSE;
+
+	    member (i: Int, j ! rest)
+                =>
+                i == j   or
+                member (i, rest);
+        end;
+
+	fun names_to_string ([]: List( symbol::Symbol ))
+                =>
+                "[]";
+
+	    names_to_string (x ! xs)
+		=>
+		string::cat ("["
+                              ! (symbol::name x)
+                              ! fold_forward (\\ (y, l) = ", " ! (symbol::name y) ! l)    ["]"]    xs
+                            );
+        end;
+
+	fun define_eq_props (sumtypes, api_context, api_typerstore)
+            = 
+	    {   names =   map tyj::name_of_type sumtypes;
+
+		if_debugging_say (">>defineEqProps: "  +  names_to_string  names);
+
+		n = list::length sumtypes;
+
+		my { family => { members, ... },   free_types, ... }
+                    =
+		    case (list::head  sumtypes)
+			#
+			tdt::SUM_TYPE { kind => tdt::SUMTYPE x, ... }
+                            =>
+                            x;
+
+			_ => bug "defineEqProps (list::head sumtypes)";
+                    esac;
+
+		eqs = map  get  sumtypes
+                      where
+		          fun get (tdt::SUM_TYPE { is_eqtype, ... } ) => is_eqtype;
+			      get _ => bug "eqs: get";
+			  end;
+		      end;
+
+		fun get_eq i
+                    = 
+		    *(list::nth (eqs, i))
+		    except
+                        INDEX_OUT_OF_BOUNDS
+                            =
+			    {   say "@@@getEq ";
+                                say (int::to_string i);
+                                say " from ";
+				say (int::to_string (length eqs));
+                                say "\n";
+				raise exception INDEX_OUT_OF_BOUNDS;
+                            };
+
+
+		fun set_eq (i, eqp)
+                    =
+		    {   if_debugging_say (string::cat ["setEq: ", int::to_string i, " ",
+					 tyj::equality_property_to_string eqp]);
+
+		        (list::nth (eqs, i) := eqp)
+		        except
+                            INDEX_OUT_OF_BOUNDS
+                                =
+		                {   say (string::cat ["@@@setEq ", (int::to_string i), " from ",
+			                (int::to_string (length eqs)), "\n"]);
+
+		                    raise exception INDEX_OUT_OF_BOUNDS;
+                                };
+                    };
+
+		visited = REF ([]: List( Int ));
+
+		fun check_type (type0 as tdt::SUM_TYPE { is_eqtype, kind, namepath, ... } )
+                     =>
+		     case (*is_eqtype, kind)
+			#
+			(tdt::e::DATA, tdt::SUMTYPE { index, ... } )
+			    =>
+			    {   if_debugging_say (">>check_type: " +
+						  symbol::name (ip::last namepath) + " " +
+						  int::to_string index);
+
+				fun eqtyc (tdt::SUM_TYPE { is_eqtype => e', kind => k', namepath, ... } )
+					=>
+					case (*e', k')
+					    #
+					    (tdt::e::DATA, tdt::SUMTYPE { index, ... } )
+						=>
+						{   if_debugging_say ("eqtyc[tdt::SUM_TYPE (tdt::DATA)]: " +
+							   symbol::name (ip::last namepath) +
+							   " " + int::to_string index);
+
+						    #  ASSERT: argument type is a member of sumtypes 
+
+						    check_domains index;
+						};
+
+					    (tdt::e::UNDEF, _)
+						=>
+						{   if_debugging_say ("eqtyc[tdt::SUM_TYPE (tdt::e::UNDEF)]: " +
+							   symbol::name (ip::last namepath));
+
+						    tdt::e::INDETERMINATE;
+						};
+
+					    (eqp, _)
+						=>
+						{   if_debugging_say ("eqtyc[tdt::SUM_TYPE(_)]: " +
+							   symbol::name (ip::last namepath) +
+							   " " + tyj::equality_property_to_string eqp);
+
+						    eqp;
+						};
+					esac;
+
+				    eqtyc (tdt::RECURSIVE_TYPE i)
+					=> 
+					{   if_debugging_say ("eqtyc[tdt::RECURSIVE_TYPE]: " + int::to_string i);
+					    #
+					    check_domains i;
+					};
+
+				    eqtyc (tdt::RECORD_TYPE       _) =>  tdt::e::YES;
+				    eqtyc (tdt::ERRONEOUS_TYPE     ) =>  tdt::e::INDETERMINATE;
+				    eqtyc (tdt::FREE_TYPE         i) =>  bug "eqtyc - tdt::FREE_TYPE";
+				    eqtyc (tdt::TYPE_BY_STAMPPATH _) =>  bug "eqtyc - tdt::TYPE_BY_STAMPPATH";
+				    eqtyc (tdt::NAMED_TYPE        _) =>  bug "eqtyc - tdt::NAMED_TYPE";
+				end 
+
+				also
+				fun check_domains i
+				    =
+				    if (member (i, *visited))
+					#
+					get_eq i;
+				    else
+					visited := i ! *visited;
+
+					my { name_symbol, valcons, ... }:   tdt::Sumtype_Member
+					    =
+					    vector::get (members, i)
+					    except
+						INDEX_OUT_OF_BOUNDS
+						    =
+						    {   say (string::cat
+							      ["@@@getting member ",
+							       int::to_string i,
+							       " from ",
+							       int::to_string (vector::length members), "\n"]);
+
+							raise exception INDEX_OUT_OF_BOUNDS;
+						    };
+
+					if_debugging_say (  "checkDomains: visiting "
+							 +  symbol::name  name_symbol
+							 +  " "
+							 +  int::to_string i
+							 );
+
+					domains
+					    = 
+					    map \\ { domain=>THE type, name, form } =>        type;
+						   { domain=>NULL,     name, form } =>   void_typoid;
+						end
+						valcons;
+
+					eqp = eqtylist (domains);
+
+					set_eq (i, eqp);
+
+					if_debugging_say
+					  (
+					      "checkDomains: setting "
+					    + int::to_string i
+					    + " to "
+					    + tyj::equality_property_to_string eqp
+					  );
+
+					eqp;
+				    fi
+
+				also
+				fun eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+					=>
+					#  shouldn't happen 
+					eqty type;
+
+				    eqty (tdt::TYPCON_TYPOID (type, args))
+					=>
+					case (expand_type::expand_type ( type, api_context, api_typerstore))
+					    #
+					    tdt::FREE_TYPE i
+						=>
+						{   if_debugging_say ("eqtyc[tdt::FREE_TYPE]: " + int::to_string i);
+
+						    tc = (list::nth (free_types, i)
+							      except _ =
+								     bug "unexpected free_types 343");
+
+						    eqty (tdt::TYPCON_TYPOID (tc, args));
+						};
+
+					    tdt::NAMED_TYPE { typescheme, ... }
+						=>
+						# shouldn't happen - type abbrevs in domains
+						# should have been expanded
+						eqty (tyj::apply_typescheme (typescheme, args));
+
+					    type
+						=> 
+						case (eqtyc type)
+
+						    ( tdt::e::NO
+						    | tdt::e::EQ_ABSTRACT
+						    )          =>  tdt::e::NO;
+
+						    tdt::e::CHUNK     =>  tdt::e::YES;
+						    tdt::e::YES       =>  eqtylist args;
+
+						    tdt::e::DATA => case (eqtylist args)
+								    #
+								    tdt::e::YES =>  tdt::e::DATA;
+								    e          =>  e;
+								esac;
+
+						    tdt::e::INDETERMINATE => tdt::e::INDETERMINATE;
+
+						    tdt::e::UNDEF
+							=> 
+							bug ("defineEqType::eqty: tdt::e::UNDEF - " + symbol::name (tyj::name_of_type type));
+						esac;
+					esac;
+
+				    eqty _ => tdt::e::YES;
+				end 
+
+				also
+				fun eqtylist tys
+				    =
+				    loop (tys, tdt::e::YES)
+				    where
+					fun loop ([], eqp)
+						=>
+						eqp;
+
+					    loop (type ! rest, eqp)
+						=>
+						case (eqty type)
+						    #
+						    ( tdt::e::NO
+						    | tdt::e::EQ_ABSTRACT
+						    )    => tdt::e::NO;			# Return tdt::NO immediately; no further checking.
+
+						    tdt::e::YES           => loop (rest, eqp);
+						    tdt::e::INDETERMINATE => loop (rest, tdt::e::INDETERMINATE);
+
+						    tdt::e::DATA => case eqp
+							            tdt::e::INDETERMINATE => loop (rest, tdt::e::INDETERMINATE);
+							            _             => loop (rest, tdt::e::DATA         );
+							        esac;
+
+						    _ => bug "defineEqType::eqtylist";
+						esac;
+					end;
+				    end;
+
+
+				case (eqtyc type0)
+				    #
+				    tdt::e::YES => apply (\\ i = case (get_eq i)
+							         tdt::e::DATA => set_eq (i, tdt::e::YES);
+							         _    => ();
+							     esac
+						     )
+
+						 *visited;
+
+				    tdt::e::DATA => apply (\\ i = case (get_eq i)
+							          tdt::e::DATA => set_eq (i, tdt::e::YES);
+							          _ => ();
+							      esac
+						  )
+
+						  *visited;
+
+				    tdt::e::NO => apply (\\ i = if (i > index)
+							     case (get_eq i)
+								 tdt::e::INDETERMINATE => set_eq (i, tdt::e::DATA);
+								_ => ();
+							     esac;
+							fi
+						)
+
+					       *visited;
+
+				    # Have to be reanalyzed, throwing away information ???  XXX BUGGO FIXME
+				    #
+				    tdt::e::INDETERMINATE =>  ();
+				    _             =>  bug "defineEqType";
+
+				esac;
+
+				#  ASSERT: equality_property of typeconstructor0 is tdt::e::YES, tdt::e::NO, or tdt::e::INDETERMINATE 
+				#	
+				case *is_eqtype
+				    #
+				    (tdt::e::YES | tdt::e::NO | tdt::e::INDETERMINATE) =>   ();
+				    #
+				    tdt::e::DATA =>   bug ("checkTypeConstructor[=>tdt::e::DATA]: " + symbol::name (ip::last namepath));
+				    _            =>   bug ("checkTypeConstructor[=>other]: "        + symbol::name (ip::last namepath));
+				esac;
+			    };
+			#
+			_ => ();
+                    esac;
+
+		    check_type _ => ();
+                end;
+	    
+		list::apply check_type sumtypes;
+	    };
+
+	fun is_equality_typoid typoid
+            =
+	    {   fun eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+                        =>
+                        eqty type;
+
+		    eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::META_TYPEVAR { eq, ... } ) } )
+			=>
+			if eq  ();
+			else   raise exception CHECKEQ;
+                        fi;
+
+		    eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::INCOMPLETE_RECORD_TYPEVAR { eq, ... } ) } )
+			=>
+			if eq  ();
+			else   raise exception CHECKEQ;
+                        fi;
+
+		    eqty (tdt::TYPCON_TYPOID (tdt::NAMED_TYPE { typescheme, ... }, args))
+			=>
+			eqty (tyj::apply_typescheme (typescheme, args));
+
+		    eqty (tdt::TYPCON_TYPOID (tdt::SUM_TYPE { is_eqtype, ... }, args))
+			=>
+			case *is_eqtype
+			    #
+			    tdt::e::CHUNK => ();
+			    tdt::e::YES   => apply eqty args;
+			    (tdt::e::NO | tdt::e::EQ_ABSTRACT | tdt::e::INDETERMINATE) => raise exception CHECKEQ;
+			    _ => bug "isEqType";
+                        esac;
+
+		    eqty (tdt::TYPCON_TYPOID (tdt::RECORD_TYPE _, args))
+                        =>
+                        apply eqty args;
+
+		    eqty _ => ();
+                end;
+	    
+                eqty typoid;
+                TRUE;
+	    }
+	    except
+                CHECKEQ = FALSE;
+
+	fun check_eq_ty_sig
+              ( typoid,
+                an_api:   tdt::Typescheme_Eqflags
+              )
+            =
+	    {   fun eqty (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+                        =>
+                        eqty type;
+
+		    eqty (tdt::TYPCON_TYPOID (tdt::NAMED_TYPE { typescheme, ... }, args))
+			=>
+			eqty (tyj::apply_typescheme (typescheme, args));
+
+		    eqty (tdt::TYPCON_TYPOID (tdt::SUM_TYPE { is_eqtype, ... }, args))
+			=>
+			case *is_eqtype
+			    #
+			    tdt::e::CHUNK => ();
+			    tdt::e::YES => apply eqty args;
+			    (tdt::e::NO | tdt::e::EQ_ABSTRACT | tdt::e::INDETERMINATE) => raise exception CHECKEQ;
+			    _ => bug "checkEqTySig";
+			esac;
+
+		    eqty (tdt::TYPESCHEME_ARG n)
+			=> 
+			{   eq = list::nth (an_api, n);
+			    #	
+			    if (not eq)   raise exception CHECKEQ;   fi;
+			};
+
+		    eqty _ => ();
+                end;
+	    
+                eqty typoid;
+		TRUE;
+	    }
+	    except
+                CHECKEQ = FALSE;
+
+	fun replicate (0, x)  =>  NIL;
+            replicate (i, x)  =>  x ! replicate (i - 1, x);
+        end;
+
+	fun is_equality_type (tdt::SUM_TYPE { is_eqtype, ... } )
+		=>
+		case *is_eqtype
+		    #
+		    tdt::e::YES   => TRUE;
+		    tdt::e::CHUNK => TRUE;
+		    _             => FALSE;
+                esac;
+
+	    is_equality_type (tdt::NAMED_TYPE { typescheme as tdt::TYPESCHEME { arity, ... }, ... } )
+		=>
+		is_equality_typoid (tyj::apply_typescheme (typescheme, replicate (arity, mtt::int_typoid)));
+
+	    is_equality_type _
+                =>
+                bug "is_equality_type";
+        end;
+    };												# package eq_types 
+end;												# stipulate
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,229 @@
+## threadkit-base-for-os-g.pkg
+#
+# This generic combines the platform-specific driver with
+# platform-independent code to construct a full platform-dependent
+# base layer for threadkit.
+#
+# Our main business here is managing I/O bound
+# background sorts of stuff:
+#
+#  o Detecting when a pipe or socket has input available,
+#    and arranging for it to be read.
+#
+#  o Detecting when a subprocess has exited and harvesting
+#    its exit status, allowing its zombie to die and any
+#    code waiting for its exit to run.
+#
+#  o Waking any threads whose timeouts have expired.
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+stipulate
+    package ci  =  unsafe::mythryl_callable_c_library_interface;	# unsafe				is from   src/lib/std/src/unsafe/unsafe.pkg
+    #									# mythryl_callable_c_library_interface	is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    package cbp =  cpu_bound_task_hostthreads;				# cpu_bound_task_hostthreads		is from   src/lib/std/src/hostthread/cpu-bound-task-hostthreads.pkg
+    package cu  =  run_at;						# run_at				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/run-at.pkg
+    package fat =  fate;						# fate					is from   src/lib/std/src/nj/fate.pkg
+    package ibp =  io_bound_task_hostthreads;				# io_bound_task_hostthreads		is from   src/lib/std/src/hostthread/io-bound-task-hostthreads.pkg
+    package iow =  io_wait_hostthread;					# io_wait_hostthread			is from   src/lib/std/src/hostthread/io-wait-hostthread.pkg
+    package th  =  microthread;						# microthread				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread.pkg
+    package rwq =  rw_queue;						# rw_queue				is from   src/lib/src/rw-queue.pkg
+    package ri  =  runtime_internals;					# runtime_internals			is from   src/lib/std/src/nj/runtime-internals.pkg
+    package tim =  time;						# time					is from   src/lib/std/time.pkg
+    package mps =  microthread_preemptive_scheduler;			# microthread_preemptive_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    package tsr =  thread_scheduler_is_running;				# thread_scheduler_is_running		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler-is-running.pkg
+    package wnx =  winix__premicrothread;				# winix__premicrothread			is from   src/lib/std/winix--premicrothread.pkg
+    #
+    fun cfun  fun_name
+       =
+       ci::find_c_function  { lib_name => "heap",  fun_name };		# heap					is from   src/c/lib/heap/libmythryl-heap.c
+	    #
+	    ###############################################################
+	    # 'cfun' here is used only for spawn_to_disk which should be called
+	    # only on a quiescient system with only one active posix thread, so
+	    # our usual latency-minimization reasons for indirecting
+	    # syscalls through other posix threads do not apply.
+	    #
+	    # Consequently I'm not taking the time and effort to switch it
+	    # over from using find_c_function() to using find_c_function'().
+	    # 				   -- 2012-04-21 CrT
+herein
+
+    # This generic is invoked (only) by:
+    #
+    #     src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+    #
+    generic package   threadkit_base_for_os_g  (
+	#								# threadkit_driver_for_posix		is from   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-posix.pkg
+	drv:  Threadkit_Driver_For_Os					# Threadkit_Driver_For_Os		is from   src/lib/src/lib/thread-kit/src/posix/threadkit-driver-for-os.api
+    )
+    : (weak)
+		api {
+		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate:	fat::Fate( Void );
+		    no_runnable_threads_left__fate:								fat::Fate( Void );
+
+		    Pair (X, Y) =   PAIR (X, Y);
+
+		    wrap_for_export
+			:
+			((String, List(String)) -> wnx::process::Status,  Null_Or( tim::Time ))
+			->  Pair( String, List(String) )
+			->  wnx::process::Status;
+		}
+    {
+	wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate		# This winds up as the value for   run_next_runnable_thread__xu__hook   in   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+	    =												# courtesy of start_up_thread_scheduler'' in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    fat::make_isolated_fate
+		(\\ _
+		    =
+		    {
+#			log::uninterruptible_scope_mutex := 1;
+			#
+			drv::wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__iu ();
+			#
+			mps::dispatch_next_thread__xu__noreturn ();
+		    }
+		)
+	    :  fat::Fate( Void );
+
+	no_runnable_threads_left__fate							# This winds up as the value for   no_runnable_threads_left__hook   in   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+	    =										# courtesy of			   start_up_thread_scheduler''	    in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    fat::make_isolated_fate
+		(\\ _
+		    =
+		    {
+											mps::assert_not_in_uninterruptible_scope "no_runnable_threads_left__fate";
+			log::uninterruptible_scope_mutex := 1;
+			#
+			drv::wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__iu ();
+
+			if (not (rwq::queue_is_empty  mps::foreground_run_queue))    mps::dispatch_next_thread__xu__noreturn ();	fi;
+			if (not (rwq::queue_is_empty  mps::background_run_queue))    mps::dispatch_next_thread__xu__noreturn ();	fi;
+			if (drv::block_until_some_thread_becomes_runnable())	     mps::dispatch_next_thread__xu__noreturn ();	fi;
+
+			if (iow::is_doing_useful_work ()				# If we have active file descriptors (e.g., sockets we're listening on) then we're not provably deadlocked and shouldn't exit().
+			or  cbp::is_doing_useful_work ()				# If we have a cpu-bound background hostthread running                  then we're not provably deadlocked and shouldn't exit().
+			or  ibp::is_doing_useful_work ())				# If we have an io-bound background hostthread running                   then we're not provably deadlocked and shouldn't exit().
+											# NB: I'm assuming here that iow,cbp,ipb talk only to ts, not to each other -- otherwise we have a race condition here
+											#     where useful work could (say) move from cpb to iow during our check and get missed.
+											#     If this becomes possible we should probably switch to using a single mutex for the
+											#     request queues of all three packages and hold that mutex while making this check.
+											#     Maybe we should do so anyhow, since app programmer code could violate this constraint. XXX THINKO FIXME.
+
+			    # Actually, uncommenting this appears to increase
+			    # the frequency of the compiler hanging. -- 2013-03-18 CrT
+#			    log::uninterruptible_scope_mutex := 0;			# I lack any clear analysis of the interactions between
+											# signal, exception, posix-mutex and microthread-mutex stuff here,
+											# but empirically holding the microthread-mutex here while doing
+											#     mps::block_until_inter_hostthread_request_queue_is_nonempty ();
+											# was resulting in the mutex winding up hung when we ^C at the
+											# interactive prompt, so dropping that mutex at this point seems
+											# at the least a useful palliative.
+
+			    mps::block_until_inter_hostthread_request_queue_is_nonempty ();
+			    mps::dispatch_next_thread__xu__noreturn  ();
+			fi;
+
+			if (not (mps::inter_hostthread_request_queue_is_empty()))    mps::dispatch_next_thread__xu__noreturn ();	fi;	# Could have been set while we were doing above threee is_doing_useful_work() checks -- this is Race Condition City here. :-)
+
+			# If we arrive here not only do we have no runnable
+			# threads left, we also have no way to ever generate
+			# a runnable thread in future, so it is time to exit():
+			#
+			log::note_on_stderr {. "============================================================================================================="; };
+			log::note_on_stderr {. "no_runnable_threads_left__fate: Nothing to do, ever, so TIME TO SHUT DOWN!.    -- threadkit-base-for-os-g.pkg"; };
+			log::note_on_stderr {. "============================================================================================================="; };
+
+			log::uninterruptible_scope_mutex := 0;
+			fat::switch_to_fate   *mps::thread_scheduler_shutdown_hook   (TRUE, wnx::process::failure);		# 
+
+		    }
+		)
+	    : fat::Fate( Void );
+
+
+	Pair (X, Y) =   PAIR (X, Y);
+
+							# "Cmdt" might be "command_type"?
+	Cmdt =  Pair (String, List(String) )		# Here the Pair is probably  (program_to_run, arguments_for_program)
+		->
+		wnx::process::Status;
+
+
+	spawn_to_disk' =   cfun "spawn_to_disk" :   (String, Cmdt) -> Void;
+
+
+	fun wrap_for_export (f, tq) (PAIR args)					# This fn is used (only) in a spawn_to_disk' call in   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+	    =
+	    {
+		ri::initialize_posix_interprocess_signal_handler_table  ();
+		#
+		th::reset_thread_package  { running => TRUE };
+
+		drv::start_threadkit_driver  ();
+
+		mps::run_next_runnable_thread__xu__hook
+		    :=
+		    wake_sleeping_threads_and_schedule_fd_io_and_harvest_dead_subprocesses__xu__fate;
+
+		mps::no_runnable_threads_left__hook
+		    :=
+		    no_runnable_threads_left__fate;
+
+		fun initial_proc ()
+		    =
+		    wnx::process::exit
+			(   f args
+			    except
+				_ = wnx::process::failure
+			);
+
+		my  (clean_up, status)
+		    =
+		    fat::call_with_current_fate
+			(
+			 \\ done_fate
+			    =
+			    {   mps::thread_scheduler_shutdown_hook :=   done_fate;
+				#
+				case tq
+				    #
+				    THE tq =>     mps::start_thread_scheduler_timer  tq;
+				     _     =>   mps::restart_thread_scheduler_timer  ();
+				esac;
+
+				cu::do_actions_for  cu::APP_STARTUP;
+
+				th::make_thread  "export_function_g"  initial_proc;
+
+				th::thread_exit { success => TRUE };
+			    }
+			);
+
+		if (tsr::thread_scheduler_is_running ()			# Try to be robust against different shutdown sequences etc.
+		and (not *tsr::started_thread_scheduler_shutdown)
+		)	
+		    #
+		    tsr::started_thread_scheduler_shutdown :=  TRUE;
+		    #
+		    cu::do_actions_for  cu::APP_SHUTDOWN;		# Compare this block with corresponding block in   start_up_thread_scheduler''()   from   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+		    drv::stop_threadkit_driver   ();
+		    mps::stop_thread_scheduler_timer ();
+		    th::reset_thread_package  { running => FALSE };
+
+		    tsr::thread_scheduler_is_running_as_pid			# Thread scheduler is no longer running.
+			:=
+			NULL;
+		fi;
+
+		status;
+	    };
+    };
+end;
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

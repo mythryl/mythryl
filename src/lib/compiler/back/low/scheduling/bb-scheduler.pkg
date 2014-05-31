@@ -1,0 +1,146 @@
+
+# This is a very light weight, not very extensible, basic block scheduler.
+# When you don't want to pay the price of all the global scheduling
+# stuff.
+
+
+###         "Only those who attempt the absurd
+###          will achieve the impossible."
+###
+###                       -- M C Escher
+
+
+generic package BBScheduler
+   (package machcode_universals:   Machcode_Universals
+    package SchedProps:  SCHEDULING_PROPERTIES
+    package Rank:        SCHEDULING_RANKS
+       where type edge = Int
+    package viewer:      BASIC_BLOCK_SCHEDULER_DDG_VIEWER
+       sharing Rank::DDG = Viewer::DDG
+       sharing Rank::DDG::I = machcode_universals::I = SchedProps::I = Viewer::I
+    my prepass:  Bool
+   ) : BASIC_BLOCK_SCHEDULER =  
+pkg
+   package i          = machcode_universals::I
+   package c          = i::C
+   package ddg        = Rank::DDG
+   package SchedProps = DDG::SchedProps
+   package pq         = priority_queue
+   package a          = rw_vector
+   package da         = DynArray
+   package g          = graph
+   package Build = 
+     BasicBlockSchedulerDDGBuilder
+        (package ddg        = DDG
+         package machcode_universals  = machcode_universals
+         package SchedProps = SchedProps     
+        )
+
+   view_ddg = LowhalfControl::getFlag "view-ddg"
+   view_IR  = LowhalfControl::getFlag "view-IR"
+
+   debug    = LowhalfControl::getFlag "debug-scheduling"
+   dump     = LowhalfControl::getFlag "dump-test-block"
+   id       = LowhalfControl::getCounter "block-id"
+   block    = LowhalfControl::getInt "test-block"
+
+   fun error msg = lowhalf_error_message::error("BBScheduler.", msg)
+
+   fun schedule { cpu } =
+   let my cpu_info as 
+            SchedProps::CPU_INFO
+            { newTable, findSlot, pipeline, insert, defUse, ... } = 
+             SchedProps::info { backward=TRUE, cpu=SchedProps::cpu cpu }
+       split = SchedProps::splitCopies 
+
+       fun sched instructions = 
+       let instructions' = if prepass then 
+                           list::fold_backward list::revAppend [] (map split instructions)
+                        else instructions
+           N      = length instructions'
+       in  if N <= 3 then instructions else schedInstructions'(N, instructions')
+       end
+
+       and schedInstructions'(N, instructions) =
+           (id := *id + 1;
+           if *debug and *id != *block then instructions else 
+           let if *dump then dumpInstructions("Before", instructions) 
+               instructions = schedInstructions (N, instructions)
+           in  if *debug then print("BLOCK " + int::to_string *id  +  "\n") 
+               if *dump then dumpInstructions("After", instructions) 
+               instructions
+           end  
+           )
+
+       and dumpInstructions (title, instructions) = 
+           (print (title + " BLOCK " + int::to_string (*id) + "\n");
+            apply (\\ i => 
+                 let my (d, u) = defUse i 
+                     d     = map #1 d
+                     fun pr rs = apply (\\ r => print (c::to_string r)) rs
+                 in  print (Viewer::to_string i + "\n");
+                     /* print "defs="; pr d;
+                     print " uses="; pr u;
+                     print "\n" */ ()
+                 end) (reverse instructions)
+           )
+       and schedInstructions (N, instructions) =
+       let my DDG as g::GRAPH ddg = DDG::newDDG (N)
+           my { next, prior, nodes } = DDG::internalInfo DDG
+           Build::buildDDG { ddg=DDG, cpu_info=cpu_info } instructions
+           if *view_IR and *view_ddg 
+                        then Viewer::view DDG else ()
+           rank   = Rank::rank DDG
+           issueTimes   = a::rw_vector (N, 0)
+           outDeg       = a::rw_vector (N, 0)
+           instructions = da::rw_vector (N, [])
+           ready        = pq::create rank
+
+           fun init (i, i') =
+           let n = length (a::sub (next, i))
+           in  if n == 0 then pq::set ready (i, i')
+               else a::update (outDeg, i, n)
+           end
+    
+           fun updatePred (i) =
+           let fun process (j, i, latency) =
+               let c = a::sub (outDeg, j)
+               in  if c == 1 then pq::set ready (j, ddg.node_info j)
+                   else a::update (outDeg, j, c - 1)
+               end
+           in  apply process (a::sub (prior, i)) end
+    
+           fun findASlot (rt, i, i') =
+           let fun latest ([], t) = t
+                 | latest((i, j, latency) . es, t) =
+                   latest (es, int::min (t, a::sub (issueTimes, j)-latency - 1))
+               t = latest (a::sub (next, i), 0)
+               p = pipeline i'
+               t' = findSlot (rt, t, p) 
+           in  insert (rt, t', p); 
+               da::update (instructions,-t, i' . da::sub (instructions,-t));
+               t'
+           end 
+    
+           fun sched (rt) = 
+           let my (i, i') = pq::deleteMin ready
+               t      = findASlot (rt, i, i')
+           in  # print("[" + int::to_string t + "]" + Viewer::to_string i' + "\n");
+               a::update (issueTimes, i, t);
+               updatePred (i);
+               sched (rt)
+           end
+    
+           ddg.forall_nodes init
+           rt = newTable (length instructions)
+           sched (rt) except pq::EMPTY_PRIORITY_QUEUE => ()
+
+           fun linearize table = 
+               da::fold_backward (\\ (instrs, l) => list::revAppend (instrs, l)) [] table
+
+       in  linearize instructions
+       end
+   in  sched 
+   end
+
+end

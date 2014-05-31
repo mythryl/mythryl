@@ -1,0 +1,1970 @@
+## burg.pkg
+
+# Compiled by:
+#     src/app/burg/mythryl-burg.lib
+
+
+
+
+
+api Burg_Emit {
+  exception BURG_ERROR;
+   emit:  (file__premicrothread::Input_Stream, (Void -> file__premicrothread::Output_Stream)) -> Void;
+};
+
+
+stipulate
+    package hs  =  hash_string;					# hash_string	is from   src/lib/src/hash-string.pkg
+    package rwv =  rw_vector;					# rw_vector	is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    package   burg_emit
+    : (weak)  Burg_Emit						# Burg_Emit	is from   src/app/burg/burg.pkg
+    {
+	package hash_string_key: (weak)  Hash_Key {		# Hash_Key	is from   src/lib/src/hash-key.api
+	    Hash_Key = String;
+	    hash_value = hs::hash_string;
+	    same_key = ((==)) : (String, String) -> Bool;
+	};
+
+	package sht
+	    =
+	    typelocked_hashtable_g( hash_string_key );
+
+	exception NOT_THERE;				  #  raised by BurgHash::find 
+
+	exception BURG_ERROR;				  #  for error reporting 
+
+	inf = 16383;
+
+	include burg_ast;
+
+	#  Debugging 
+	fun debug s
+	    =
+	    {   file__premicrothread::write (file__premicrothread::stderr, s); 
+		file__premicrothread::flush file__premicrothread::stderr;
+	    };
+
+
+	#  Output functions 
+
+	s_out =   REF file__premicrothread::stdout;	   #  Changed into the output stream 
+
+	fun say    s =   file__premicrothread::write (*s_out, s);
+	fun saynl  s =   say (s + "\n");
+	fun sayi   s =   say ("\t" + s);
+	fun sayinl s =   say ("\t" + s + "\n");
+
+
+	fun arrayapp (function, rw_vector)
+	    =
+	    loop 0
+	    where
+		len =   rwv::length rw_vector;
+
+		fun loop pos
+		    =
+		    if (pos != len)
+			function (rwv::get (rw_vector, pos));
+			loop (pos+1);
+		    fi;
+	    end;
+
+	fun arrayiter (function, rw_vector)
+	    =
+	    loop 0
+	    where
+		len =   rwv::length rw_vector;
+
+		fun loop pos
+		    =
+		    if (pos != len)
+			function (pos, rwv::get (rw_vector, pos));
+			loop (pos+1);
+		    fi;
+	    end;
+
+	fun iter (function, n)
+	    =
+	    loop 0
+	    where
+		fun loop pos
+		=
+		if (pos != n)
+		    function pos;
+		    loop (pos+1);
+		fi;
+	    end;
+
+	fun listiter (function, lis)
+	    =
+	    loop (0, lis)
+	    where
+		fun loop (pos, li)
+		    =
+		    case li
+
+			[]       => ();
+
+			(l ! ll) => {   function (pos, l);
+					loop ((pos+1), ll);
+				    };
+		    esac;
+	    end;
+
+	exception NOT_SAME_SIZE;
+
+	fun exists2 (function, list1, list2)
+	    =
+	    {   exception FOUND;
+
+		fun loop ([],[])
+			=>
+			();
+
+		    loop (e1 ! l1, e2 ! l2)
+			=>
+			if   (function (e1, e2)) raise exception FOUND;
+			else                     loop (l1, l2);
+			fi;
+
+		    loop _
+			=>
+			raise exception NOT_SAME_SIZE;
+		end;
+
+		{   loop (list1, list2); 
+		    FALSE;
+		}
+		except FOUND = TRUE;
+	    };
+
+
+	fun forall2 (f, l1, l2)
+	    =
+	    not (exists2 (not o f, l1, l2));
+
+
+	fun map2 (function, list1, list2)
+	    =
+	    loop (list1, list2, [])
+	    where
+		fun loop (     [],      [], acc) =>   reverse acc;
+		    loop (e1 ! l1, e2 ! l2, acc) =>   loop (l1, l2, (function (e1, e2)) ! acc);
+		    loop _                       =>   raise exception NOT_SAME_SIZE;
+		end;
+	    end;
+
+
+	fun tofirstupper s
+	    =
+	    case (string::explode s)
+		  []     =>  "";
+		 (c ! r) =>  implode (char::to_upper c ! (map char::to_lower r));
+	    esac;
+
+
+	fun emit (s_in, oustreamgen)
+	    =
+	    {   spec =   #1 (parse::parse s_in) then file__premicrothread::close_input s_in;
+		reparse_decls spec;
+
+		(reparse_rules spec) ->   (rules, arity);
+
+		start
+		    =
+		    case *start_sym
+			#
+			NULL => 0;
+
+			THE symbol
+			     =>
+			     case (get_id symbol)
+				 TERMINAL _    => error ("cannot start on a terminal");
+				 NONTERMINAL n => n;
+			     esac;
+		    esac;
+
+
+		# Rule numbers for each nonterminal (rw_vector): 
+
+		my  ( rules_for_lhs,
+		      chains_for_rhs,
+		      rule_groups
+		    )
+		    =
+		    build_rules_tables rules;
+
+		check_reachable (start, rules_for_lhs);
+		s_out := (oustreamgen ());
+
+		put_header           spec;
+		put_debug            rules;
+
+		put_struct_burmterm ();
+		put_sig_burmgen     ();
+
+		put_sig_burm         rules;
+		put_generic_start   (rules, arity);
+		put_val_cst         (rules, arity, chains_for_rhs, rule_groups);
+		put_label_function  (rules, arity, chains_for_rhs, rule_groups);
+		put_reduce_function  rules;
+
+		put_generic_end     start;
+		put_tail            spec;
+
+		file__premicrothread::close_output (*s_out);
+	    }
+	    where
+
+		# Error reporting
+
+		error_encountered
+		    =
+		    REF FALSE;
+
+		fun warning s
+		    =
+		    {   error_encountered := TRUE;
+			file__premicrothread::write (file__premicrothread::stderr, "Error: " + s + "\n");
+			file__premicrothread::flush file__premicrothread::stderr;
+		    };
+
+		fun error s
+		    =
+		    {   file__premicrothread::write (file__premicrothread::stderr, "Error: " + s + "\n");
+			file__premicrothread::flush file__premicrothread::stderr;
+			raise exception BURG_ERROR;
+		    };
+
+		fun stop_if_error ()
+		    =
+		    if *error_encountered
+
+			raise exception BURG_ERROR;
+		    fi;
+
+
+		# ids (for hashing) :
+		# TERMINAL (internal terminal number, external terminal string/number)
+		# NONTERMINAL (internal nonterminal number)
+
+		Ids = TERMINAL     (Int, String)
+		    | NONTERMINAL  Int;
+
+		#  hashtable type 
+
+		Htt =   sht::Hashtable( Ids );
+
+
+		# rule_pat :
+		# NT (nonterminal)
+		# T (terminal, sons)
+
+		Rule_Pat =   NT  Int | TRM  (Int, List( Rule_Pat ));
+
+
+		# rule
+
+		Ern =   String;		      #  type for external rule name 
+
+		Rule =   {   nt:      Int,
+			     pattern: Rule_Pat,
+			     ern:     Ern,
+			     cost:    Int,
+			     num:     Int
+			 };
+
+
+
+		# hashtable symbols 
+		#
+		ht = sht::make_hashtable  { size_hint => 60,  not_found_exception => NOT_THERE }
+		   : Htt;
+
+		# hashtable for rule names and the arity of the pattern 
+		#
+		hr = sht::make_hashtable  { size_hint => 60,  not_found_exception => NOT_THERE }
+		   : sht::Hashtable(  Int );
+
+
+		start_sym =   REF (NULL:  Null_Or( String ));		#  %start symbol 
+		start     =   REF 0;					#  nonterminal where to start 
+
+
+		term_prefix =   REF "";					#  prefix for terminals 
+		rule_prefix =   REF "";					#  prefix for rules 
+		sig_name    =   REF "";					#  BURM by default 
+		struct_name =   REF "";					#  Burm (first upper, rest lower) 
+
+		nb_t  =   REF 0;						#  Current internal terminal number 
+		nb_nt =   REF 0;						#  Current internal nonterminal number 
+
+		#  Return a new internal terminal number 
+		#
+		fun gen_tnum ()
+		    =
+		    *nb_t
+		    then
+			(nb_t := *nb_t+1);
+
+		#  Return a new internal nonterminal number 
+		#
+		fun gen_ntnum ()
+		    =
+		    *nb_nt
+		    then
+			(nb_nt := *nb_nt+1);
+
+
+
+		# Emit the header
+		#
+		fun put_header (SPEC { head, ... } )
+		    =
+		    apply say head;
+
+
+
+		# Emit the tail
+		#
+		fun put_tail (SPEC { tail, ... } )
+		    =
+		    apply say tail;
+
+
+
+		# Give each terminal an internal terminal number,
+		# and remember the external terminal number.
+		# Also, find start symbol.
+		#
+		fun reparse_decls (SPEC { decls, ... } )
+		    =
+		    {   t_prefix =   REF (NULL:  Null_Or( String ));
+			r_prefix =   REF (NULL:  Null_Or( String ));
+			s_name   =   REF (NULL:  Null_Or( String ));
+
+			fun newt (symbol, etn')
+			    =
+			    {   etn =   case etn'
+					    THE str => str;
+					    NULL    => symbol;
+					esac;
+
+				case ((sht::find ht symbol) : Null_Or( Ids ))
+				    #
+				    NULL  =>  sht::set ht (symbol, TERMINAL (gen_tnum(), etn));
+				    THE _ =>  warning ("term " + symbol + " redefined");
+				esac;
+			    };
+
+			fun newdecl (START s)
+				=>
+				case *start_sym   
+				    NULL  =>  start_sym := (THE s);
+				    THE _ =>  warning "%start redefined";
+				esac;
+
+			   newdecl (TERM l)
+				=>
+				apply newt l;
+
+			   newdecl (TERMPREFIX tp)
+				=>
+				case (*t_prefix)   
+				    NULL => t_prefix := (THE tp);
+				    _    => warning "%termprefix redefined";
+				esac;
+
+			   newdecl (RULEPREFIX rp)
+				=>
+				case (*r_prefix)   
+				    NULL =>  r_prefix :=  THE rp;
+				    _    =>  warning "%ruleprefix redefined";
+				esac;
+
+			   newdecl (BEGIN_API s)
+				=>
+				case *s_name
+				    NULL =>  s_name :=  THE s;
+				    _    =>  warning "%sig redefined";
+				esac;
+			end;
+
+			apply newdecl decls;
+
+			if (*nb_t == 0)
+			    error "no terminals !";
+			fi;
+
+			term_prefix
+			    :=
+			    case *t_prefix
+				 NULL   => "";
+				 THE tp => tp;
+			    esac;
+
+			rule_prefix
+			    :=
+			    case *r_prefix
+				NULL   =>  "";
+				THE rp =>  rp;
+			    esac;
+
+			sig_name
+			    :=
+			    case *s_name
+				NULL  =>  "BURM";
+				THE s =>  string::translate (string::from_char o char::to_upper) s;
+			    esac;
+
+
+			struct_name
+			    :=
+			    tofirstupper  *sig_name;
+
+		    };	 #  fun reparse_decls 
+
+
+		fun get_id symbol
+		    =
+		    case ((sht::find ht symbol) : Null_Or( Ids ))
+			#
+			THE id => id;
+			NULL   => error ("symbol " + symbol + " not declared");
+		    esac;
+
+
+
+		# Arrays that contain for each
+		# t or nt its external symbol.
+		#
+		sym_terminals    =   REF (rwv::make_rw_vector (0, ("", "")));
+		sym_nonterminals =   REF (rwv::make_rw_vector (0, ""));
+
+
+		fun build_num_to_sym_arrays ()
+		    =
+		    {   fun store (symbol, TERMINAL (t, etn))
+				=>
+				rwv::set (*sym_terminals, t, (symbol, etn));
+
+			   store (symbol, NONTERMINAL nt)
+				=>
+				rwv::set (*sym_nonterminals, nt, symbol);
+			end;
+
+			sym_terminals    :=   rwv::make_rw_vector (*nb_t,  ("", ""));
+			sym_nonterminals :=   rwv::make_rw_vector (*nb_nt, (""));
+
+			sht::keyed_apply store ht;
+		    };
+
+		fun get_ntsym nt =       rwv::get (*sym_nonterminals, nt);
+		fun get_tsym t   =   #1 (rwv::get (*sym_terminals,     t));
+
+
+		fun reparse_rules (SPEC { rules=>spec_rules, ... } )
+		    =
+		    {   # Arity for terminals. 
+			#
+			t_arity =   rwv::make_rw_vector (*nb_t, NULL:  Null_Or( Int ));
+
+			fun newnt (RULE (ntsym, _, _, _))
+				=
+				case ((sht::find ht ntsym) : Null_Or( Ids ))
+				    #
+				    NULL                =>  sht::set ht (ntsym, NONTERMINAL (gen_ntnum ()));
+				    #
+				    THE (TERMINAL _)    =>  warning (ntsym + " redefined as a nonterminal");
+				    #
+				    THE (NONTERMINAL _) =>  ();
+				esac;
+
+
+			rule_num =   REF 0;		     #  first rule is rule 1 
+
+			fun newrule (RULE (ntsym, pattern, ern, costlist))
+			    =
+			    {   num =   {   rule_num := *rule_num + 1;
+					    *rule_num;
+					};
+
+				nt =    case (sht::find ht ntsym)
+					    #
+					    THE (NONTERMINAL nt) => nt;
+					    _                    => error "internal:  get nt";
+					esac;
+
+				cost =  case costlist
+					    []     => 0;
+					    c ! _  => c;
+					esac;
+
+				pattern
+				    =
+				    makepat pattern
+				    where
+					fun makepat (PAT (symbol, sons))
+					    =
+					    case (get_id symbol)
+
+						NONTERMINAL nt
+						    =>
+						    (NT nt)
+						    then
+							if (not (null sons))
+							   warning ("nonterminal " + symbol + " is not a tree");
+							fi;
+
+						TERMINAL (t, _)
+						    =>
+						    {   len =   list::length sons;
+
+							case (rwv::get (t_arity, t))
+
+							    NULL     => rwv::set (t_arity, t, THE len);
+
+							    THE len' =>  if (len != len')
+										warning ("bad arity for terminal " + symbol);
+									   fi;
+							esac;
+
+							TRM (t, map makepat sons);
+						    };
+					     esac;
+				    end;   			#  pattern 
+
+				patarity
+				    =
+				    count (pattern, 0)
+				    where
+					fun count (NT _, n)
+						=>
+						n+1;
+
+					    count (TRM (_, pattern), n)
+						=>
+						list::fold_forward count n pattern;
+					end;
+				    end;
+
+				case (sht::find hr ern)
+				    #
+				    NULL   =>   sht::set hr (ern, patarity);
+
+				    THE ar =>   if (ar != patarity)
+						    warning ("rulename " + ern + " is used with patterns of different arity");
+						fi;
+				esac;
+
+				{ nt, pattern, ern, cost, num };
+
+			    };						#  fun newrule 
+
+			apply newnt spec_rules;
+			stop_if_error ();
+
+			if (*nb_nt == 0)
+			    error "no rules !"; 
+			fi;
+
+			rules =   rwv::from_list (map newrule spec_rules);
+
+			stop_if_error ();
+
+			build_num_to_sym_arrays ();
+
+			arity =     rwv::from_fn (
+
+					*nb_t,     #  terminals numbers begin at 0 
+
+					\\ i =  case (rwv::get (t_arity, i))
+						    #
+						    THE len =>  len;
+						    NULL    =>  0  then  (warning ("terminal " + (get_tsym i) + " unused"));
+					       esac
+				   );
+
+			stop_if_error ();
+
+			(rules, arity);
+		    };				#  fun reparse_rules 
+
+
+		fun print_intarray rw_vector
+		    =
+		    arrayiter (printit, rw_vector)
+		    where
+			fun printit (pos, n)
+			    =
+			    {   if (pos > 0)
+				    say ", ";
+				fi;
+
+				say (int::to_string n);
+			    };
+		    end;
+
+
+		# Print a rule.
+		#
+		fun print_rule ( { nt, pattern, ern, cost, ... } : Rule)
+		    =
+		    {   fun print_sons []
+				=>
+				();
+
+			    print_sons [p]
+				=>
+				print_pat p;
+
+			    print_sons (p ! pl)
+				=>
+				{   print_pat p;
+				    say ", ";
+				    print_sons pl;
+				};
+			end 
+
+			also
+			fun print_pat (NT nt)
+				=>
+				say (get_ntsym nt);
+
+			    print_pat (TRM (t, sons))
+				=>
+				{   say (get_tsym t);
+
+				    case (list::length sons)
+
+					0 => ();
+
+					len =>  {   say "(";
+						    print_sons sons;
+						    say ")";
+						};
+				    esac;
+				};
+			 end;
+
+			 say ((get_ntsym nt) + ":\t");
+			 print_pat pattern;
+			 say (   "\t= "
+			     +   ern
+			     +   " ("
+			     +   (int::to_string cost)
+			     +   ");\n"
+			     );
+		    };
+
+
+		fun prep_rule_cons ( { ern, ... } : Rule)
+		    =
+		    *rule_prefix + ern;
+
+
+		fun prep_node_cons t
+		    =
+		    {   my (symbol, _)
+			    =
+			    rwv::get (*sym_terminals, t);
+
+			"N_" + symbol;
+		    };
+
+
+		fun prep_term_cons t
+		    =
+		    (*term_prefix)
+		    +
+		    (#2 (rwv::get (*sym_terminals, t)));
+
+
+
+		# rules_for_lhs:   Rw_Vector with the rules for a given lhs nt
+		# chains_for_rhs:  Rw_Vector with the chain rules for a given rhs nt
+		# rule_groups :
+		#      (rl, ntl, str_for_match, uniqstr, iscst, iswot) List List Rw_Vector
+		# rw_vector of, for each terminal that begin a pattern
+		#   list of, for each different "case of"
+		#     list of, for each pattern in "case of"
+		#       (rule List * ntl) List
+		#	 string for the match expression printing
+		#	 unique string for constant patterns
+		#       is_cst (Bool: is the pattern without nonterminals)
+		#       is_wot (Bool: is the pattern without terminals:  A (x, y, z, t))
+		#
+		fun build_rules_tables (rules:  Rw_Vector( Rule ))
+		    =
+		    {   rules_for_lhs  =   rwv::make_rw_vector (*nb_nt, []:List( Rule ));
+			chains_for_rhs =   rwv::make_rw_vector (*nb_nt, []:List( Rule ));
+
+			fun add_lhs_rhs (rule as { nt, pattern, ... } : Rule)
+			    =
+			    {   rwv::set (
+				    rules_for_lhs,
+				    nt,
+				    rule ! (rwv::get (rules_for_lhs, nt)));
+
+				case pattern
+
+				    NT rhs => rwv::set (
+						  chains_for_rhs,
+						  rhs,
+						  rule ! (rwv::get (chains_for_rhs, rhs))
+					      );
+
+				    _ => ();
+				esac;
+			    };
+
+
+			fun findntl (rule as { pattern, ... } : Rule)
+			    =
+			    (rule, flat (pattern,[]))
+			    where
+				fun flat (NT nt, ntl)
+					=>
+					nt ! ntl;
+
+				    flat (TRM (_, sons), ntl)
+					=>
+					list::fold_backward flat ntl sons;
+				end;
+			    end;
+
+
+			stipulate
+
+			    exception NOT_SAME_PATTERN;
+
+			    fun samepattern (NT _, NT _)
+				    =>
+				    TRUE;
+
+				samepattern (TRM (t1, spat1), TRM (t2, spat2))
+				    =>
+				    if (t1 == t2)   samepatternsons (spat1, spat2);
+				    else            raise exception NOT_SAME_PATTERN;
+				    fi;
+
+				samepattern _
+				    =>
+				    raise exception NOT_SAME_PATTERN;
+			   end 
+
+			   also
+			   fun samepatternsons (l1, l2)
+				=
+				if  ( (forall2 (\\ (p1, p2) = samepattern (p1, p2), l1, l2))
+				      except
+					  NOT_SAME_SIZE =   raise exception NOT_SAME_PATTERN
+				    )
+
+				    TRUE;
+				else
+				    raise exception NOT_SAME_PATTERN;
+				fi;
+
+			herein
+
+			    fun samepat (p1, p2)
+				=
+				samepattern (p1, p2)
+				except
+				    NOT_SAME_PATTERN = FALSE;
+			end;
+
+			fun clustersamepat (zap as ( { pattern, ... }:Rule, _), rg)
+			    =
+			    loop (rg, [])
+			    where
+				fun loop ([], _)
+					=>
+					(pattern,[zap]) ! rg;
+
+				    loop ((e as (p, zapl)) ! rest, acc)
+					=>
+					if (samepat (p, pattern))  acc@((p, zap ! zapl) ! rest);	 #  Don't keep order 
+					else                       loop (rest, e ! acc);
+					fi;
+				end;
+			    end;
+
+
+			fun minmaxcostlhss (pattern, zapl)
+			    =
+			    {   fun min (( { cost, ... }:Rule, _), b) = if (cost <= b) cost; else b; fi;
+				fun max (( { cost, ... }:Rule, _), b) = if (cost >= b) cost; else b; fi;
+
+				mincost =   list::fold_forward min inf zapl;
+				maxcost =   list::fold_forward max  -1 zapl;
+
+				fun addlhs (( { nt=>lhs, ... }:Rule, _), lhss)
+				    =
+				    loop (lhss, [])
+				    where
+					fun loop ([], _)
+						=>
+						lhs ! lhss;
+
+					    loop (e as (i ! il), acc)
+						=>
+						if     (lhs == i)   lhss;
+						elif   (lhs <  i)   (reverse acc) @ (lhs ! e);
+						else                loop (il, i ! acc);
+						fi;
+					end;
+				    end;
+
+				lhss =   list::fold_forward addlhs [] zapl;
+
+				(pattern, zapl, mincost, maxcost, lhss);
+			    };
+
+
+			# zapl is (rule, ntl) List 
+			#
+			fun clustersamentl (pattern, zapl, min, max, lhss)
+			    =
+			    {   fun scan ((r, ntl), clusters)
+				    =
+				    loop (clusters, [])
+				    where
+					fun loop ([], _)
+						=>
+						([r], ntl) ! clusters;
+
+					    loop ((e as (rl, ntl')) ! rest, acc)
+						=>
+						if  (ntl == ntl')   acc @ ((r ! rl, ntl) ! rest);	 #  Don't keep order 
+						else                loop (rest, e ! acc);
+						fi;
+					end;
+				    end;
+
+				rlntll =   list::fold_forward scan [] zapl;
+
+				#  rlntll is (rule List, ntl) List
+				#
+				(pattern, rlntll, min, max, lhss);
+			    };
+
+
+
+			Utype =   NOT_UNIF | NO_MG | SAME_G | FIRST_MG | SECOND_MG;
+
+			stipulate
+
+			    exception FORCED  Utype;
+
+			    fun uniftype (NT _, NT  _) =>  SAME_G;
+				uniftype (NT _, TRM _) =>  FIRST_MG;
+				uniftype (TRM _, NT _) =>  SECOND_MG;
+
+				uniftype (TRM (t1, spat1), TRM (t2, spat2))
+				    =>
+				    if  (t1 != t2)
+					raise exception FORCED NOT_UNIF;
+				    else
+					{   sonsg =   map2 (uniftype, spat1, spat2);
+
+					    fun addson (NOT_UNIF, _) => raise exception FORCED NOT_UNIF;
+						addson (_, NOT_UNIF) => raise exception FORCED NOT_UNIF;
+						addson (NO_MG, _) => NO_MG;
+						addson (_, NO_MG) => NO_MG;
+						addson (SAME_G, x) => x;
+						addson (x, SAME_G) => x;
+						addson (FIRST_MG, FIRST_MG) => FIRST_MG;
+						addson (SECOND_MG, SECOND_MG) => SECOND_MG;
+						addson _ => NO_MG;
+					    end;
+
+					    list::fold_forward addson SAME_G sonsg;
+					}
+					except
+					    NOT_SAME_SIZE =  error "bug:  uniftype";
+				    fi;
+			    end;
+
+			herein
+
+			    fun unify (p1, p2)
+				=
+				(uniftype (p1, p2))
+				except
+				    FORCED x = x;
+			end;
+
+
+			# "matches" is a list.  Each element is a list of (pattern, ...)
+			# in increasing order of minimum cost for the rl, and with
+			# either non-unifiable patterns, or with a pattern more general
+			# than another -- but only if the more general one is second, and
+			# it has a strictly higher cost, and all lhs of rules in the more
+			# general pattern are also lhs of some rules in the less general
+			# one (that is, if the less general rule matches, we lose
+			# nothing in not seeing the more general one).
+			# That's all.
+			#
+			fun clustermatches (   element as (pattern, _, mincost, maxcost, lhss),
+					       matches
+					   )
+			    =
+			    try (matches, [])
+			    where
+				# Works on already (increasing, unique) ordered lists:
+				#
+				fun subset ([], _) =>  TRUE;
+				    subset (_, []) =>  FALSE;
+
+				    subset (a1 as (e1 ! l1), e2 ! l2)
+					=>
+					if   (e1==e2 )       subset (l1, l2);
+					elif (e1>(e2: Int))  subset (a1, l2);
+					else                 FALSE;
+					fi;
+				end;
+
+				Sowhat = ANOTHER | NOTU | AFTER | BEFORE  Int;
+
+				fun loop (prev, i, [])
+					=>
+					prev;
+
+				    loop (prev, i, (p, _, min, max, lh) ! rest)
+					=>
+					case (unify (pattern, p))
+
+					    NOT_UNIF => loop (prev, i+1, rest);
+					    NO_MG    => ANOTHER;
+					    SAME_G   => error "bug:  clustermatches::SAME_G";
+
+					    FIRST_MG
+						=>
+						if (mincost > (max: Int) and subset (lhss, lh))
+
+						    case prev   
+							NOTU => loop (AFTER, i+1, rest);
+							AFTER => loop (AFTER, i+1, rest);
+							BEFORE k => ANOTHER;
+							_ => error "bug:  clustermatches::FIRST_MG";
+						    esac;
+						else
+						    ANOTHER;
+						fi;
+
+					    SECOND_MG
+						=>
+						if (min > (maxcost: Int) and subset (lh, lhss))
+
+						    case prev   
+							NOTU => loop (BEFORE i, i+1, rest);
+							AFTER => loop (BEFORE i, i+1, rest);
+							BEFORE k => ANOTHER;
+							_ => error "bug:  clustermatches::SECOND_MG";
+						    esac;
+						else
+						    ANOTHER;
+						fi;
+					esac;
+				end;
+
+				fun insertat (0, prev,     next, e) => (reverse prev)@(e ! next);
+				    insertat (n, prev, x ! next, e) => insertat (n - 1, x ! prev, next, e);
+				    insertat (_, prev,       [], e) => reverse (e ! prev);
+				end;
+
+				fun try ([], _)
+					=>
+					[element] ! matches;
+
+				    try (l ! ll, acc)
+					 =>
+					 case (loop (NOTU, 0, l))
+					     ANOTHER  => try (ll, l ! acc);
+					     NOTU     => acc @ ((element ! l) ! ll);	 #  Don't keep order 
+					     AFTER    => acc @ ((l @ [element]) ! ll);
+					     BEFORE i => acc @ ((insertat (i,[], l, element)) ! ll);
+					 esac;
+				end;
+
+			    end;		# fun clustermatches
+
+
+			uniq_count =   REF 0;
+
+			fun compute (pattern, rlntll, _, _, _)
+			    =
+			    {   fun do_pat (NT nt, count, iswot)
+					=>
+					{   s =   int::to_string count;
+
+					    ("(s" + s + "_c, s" + s + "_r, _, _)", count+1, iswot);
+					};
+
+				    do_pat (TRM (t, sons), count, _)
+					=>
+					{   my (s, count', _)
+						=
+						do_sons (sons, count);
+
+					    ( "(_, _, "
+						  +   (prep_node_cons t)
+						  +   (   if (null sons)   "";
+							  else
+							       if  (null (tail sons))   s;
+							       else                     "(" + s + ")";  fi;
+							  fi
+						      )
+						  +   ", _)",
+
+					      count',
+					      FALSE
+					    );
+					};
+				end 
+
+				also
+				fun do_sons (sons, count)
+				    =
+				    (s, count, iswot)
+				    where
+					my (s, count, _, iswot)
+					     =
+					     list::fold_forward
+
+						 (\\ (pattern, (s, count, first, iswot))
+						      =
+						      {   my (s', count', iswot')
+							      =
+							      do_pat (pattern, count, iswot);
+
+							  (   if (first   ) s';
+									 else s + ", " + s';fi,
+							      count',
+							      FALSE,
+							      iswot'
+							  );
+						      }
+						 )
+
+						 ("", count, TRUE, TRUE)
+
+						 sons;
+				    end;
+
+				my (string_for_match, iscst, iswot)
+				    =
+				    case pattern   
+
+					TRM (_, sons)
+					    =>
+					    {   my (s, c, iswot)
+						    =
+						    do_sons (sons, 0);
+
+						(s, c==0, iswot);
+					    };
+
+					NT _ =>   error "bug:  string_for_match";
+				    esac;
+
+				uniqstr =   int::to_string (*uniq_count)
+					    then
+						 (uniq_count := *uniq_count + 1);
+
+
+				(rlntll, string_for_match, uniqstr, iscst, iswot);
+			    };
+
+			tgroup =   rwv::make_rw_vector (*nb_t, []:List( Rule ));
+
+			fun addt (rule as { pattern, ... } : Rule)
+			    =
+			    case pattern
+				TRM (t, _) =>  rwv::set (tgroup, t, rule ! (rwv::get (tgroup, t)));
+				NT _       =>  ();
+			    esac;
+
+			arrayapp (addt, rules);
+
+			fun eacht t
+			    =
+			    {   v1 = rwv::get (tgroup, t);				#  v1:  List(  rule ) 
+				#
+				v2 = map findntl v1;					#  v2:  List (rule * ntl)  (= List zap) 
+
+				v3 = list::fold_forward clustersamepat [] v2;		#  v3:  List (pattern * List zap)
+
+				v4 = map minmaxcostlhss v3;				#  v4:  List (pattern * List zap * mincost * maxcost * lhss)
+
+				v5 = map clustersamentl v4;				#  v5:  Same thing with  List (List rule * ntl)  (= rlntll)
+											#	instead of List zap.
+
+				v6 = list::fold_forward clustermatches [] v5;		# v6:  List list  (pattern * rlntll * min * max * lhss)
+
+				# Now, inside each subgroup,
+				# compute the elements:
+				#
+				map (map compute) v6;					#  : (rlntll*str_for_match*uniqstr*iscst*iswot) List list 
+			    };
+
+			rule_groups =   rwv::from_fn (*nb_t, eacht);
+
+			arrayapp (add_lhs_rhs, rules);
+
+			(rules_for_lhs, chains_for_rhs, rule_groups);
+		    };									# fun build_rules_tables
+
+
+
+		# Check that each nonterminal
+		# is reachable from start.
+		#
+		fun check_reachable (start, rules_for_lhs:  Rw_Vector(  List(  Rule ) ))
+		    =
+		    {   notseen =   rwv::make_rw_vector (*nb_nt, TRUE);
+
+			fun explore_nt nt
+			    =
+			    {   rwv::set (notseen, nt, FALSE);
+				#
+				apply
+				    (\\ ( { pattern, ... }:Rule) =  reach pattern)
+				    (rwv::get (rules_for_lhs, nt));
+			    }
+
+			also
+			fun reach (NT nt)
+				=>
+				if (rwv::get (notseen, nt))
+				    explore_nt nt;
+				fi;
+
+			    reach (TRM (t, sons))
+			       =>
+			       apply reach sons;
+			end;
+
+			fun test (nt, b)
+			    =
+			    if b   warning ("nonterminal " + (get_ntsym nt) + " is unreachable");   fi;
+
+			explore_nt start;
+			arrayiter (test, notseen);
+			stop_if_error ();
+		    };
+
+
+
+		# Emit the code:
+		#
+		fun put_type_rule rules
+		    =
+		    {   #  I just want a map, really, not a hashtable. 
+
+			hhh =   sht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE }
+			     :  sht::Hashtable(  Void );
+
+			first =   REF TRUE;
+
+			fun onerule (rule as { ern, ... } : Rule)
+			    =
+			    {   name =   prep_rule_cons rule;
+
+				case (sht::find hhh name)
+
+				    NULL =>
+					{   patarity
+						=
+						case (sht::find hr ern)
+						    NULL   =>  error "put_type_rule, no rule name ?";
+						    THE ar =>  ar;
+						esac;
+
+					    fun pr 0 =>  "";
+						pr 1 =>  " (rule, tree)";
+						pr n =>  ((pr (n - 1)) + ", (rule, tree)");
+					    end;
+
+					    constructor
+						=
+						name + (pr patarity);
+
+					    sht::set hhh (name, ());
+
+					    if (*first)   first := FALSE;
+					    else          say "\t\t| ";
+					    fi;
+
+					    saynl constructor;
+					};
+
+				    THE _ => ();
+				esac;
+			    };
+
+			say "  type rule = ";
+			arrayapp (onerule, rules);
+		    };
+
+
+
+		fun put_rule_to_string rules
+		    =
+		    {   my hhh:  sht::Hashtable( Void )
+			      =  sht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE };
+
+			first =   REF TRUE;
+
+			fun onerule (rule as { ern, ... }:Rule)
+			    =
+			    {   name =   prep_rule_cons rule;
+
+				case (sht::find hhh name)
+
+				    NULL
+					=>
+					{   patarity
+						= 
+						case (sht::find hr ern)
+						    NULL   => error "put_ruleToString::onerule";
+						    THE ar => ar;
+						esac;
+
+					    fun pr 0 =>  "";
+						pr _ =>  " _";
+					    end;
+
+					    constructor
+						=
+						"(" + name + (pr patarity) + ")";
+
+					    sht::set hhh (name, ());
+
+					    if *first   first := FALSE; 
+					    else        say "      | ruleToString";
+					    fi;
+
+					    say constructor;
+
+					    saynl (" = " + "\"" + name + "\"");
+					};
+
+				    THE _ => ();
+				esac;
+			    };
+
+			say "    fun ruleToString ";
+			arrayapp (onerule, rules);
+		    };
+
+
+
+		fun put_debug rules
+		    =
+		    {   fun p_nterm (i, symbol)
+			    =
+			    saynl ("nonterm " + (int::to_string i) + " : " + symbol);
+
+			fun p_rule (i, rule as { num, ... } : Rule)
+			    =
+			    {   say ("rule " + (int::to_string num) + " : ");
+				print_rule rule;
+			    };
+
+			saynl "/***** debug info *****";
+			arrayiter (p_nterm, *sym_nonterminals);
+			say "\n";
+			arrayiter (p_rule, rules);
+			saynl "**********************/\n\n";
+		    };
+
+
+		fun put_struct_burmterm ()
+		    =
+		    {   fun loop t
+			    =
+			    {   if (t !=0)
+				    say "\t       | ";
+				fi;
+
+				saynl (prep_term_cons t);
+			    };
+
+			saynl ("package " + (*struct_name) + "Ops {");
+			say "  type ops = ";
+			iter (loop, *nb_t);
+			saynl "}\n\n";
+		    };
+
+		fun put_sig_burmgen ()
+		    =
+		    {   saynl ("api " + (*sig_name) + "_INPUT_SPEC = api");
+			saynl "  type tree";
+
+			saynl ("  my opchildren:  tree -> " + (*struct_name)
+			       + "Ops::ops * (List( tree ) )");
+
+			saynl "end\n\n";
+		    };
+
+		fun put_sig_burm rules
+		    =
+		    {   saynl ("api " + (*sig_name) + " = api");
+			saynl "  exception NoMatch";
+			saynl "  type tree";
+
+			put_type_rule rules;
+
+			saynl "  my reduce:  tree -> rule * tree";
+			saynl "  my ruleToString:  rule -> String";
+			saynl "end\n\n";
+		    };
+
+		fun put_generic_start (rules, arity)
+		    =
+		    {   fun loop_node t
+			    =
+			    {   ar =   rwv::get (arity, t);
+
+				fun loop_sons i
+				    =
+				    {   say "s_tree";
+
+					if (i != ar)
+					    say " * ";
+					    loop_sons (i+1);
+					fi;
+				    };
+
+				say  (t == 0   ??   "      "
+					       ::   "    | ");
+
+				say (prep_node_cons t);
+
+				if (ar > 0)
+				    say "\t\tof ";
+				    loop_sons 1;
+				fi;
+
+				say "\n";
+			    };
+
+			saynl ("generic package " + (*struct_name) + "Gen (In:  "
+			       + (*sig_name) + "_INPUT_SPEC) : " + (*sig_name)+" =");
+
+			saynl "  pkg\n";
+			saynl "    type tree = In::tree\n";
+			saynl "    exception NoMatch";
+
+			put_type_rule rules;
+
+			say "\n\n";
+
+			put_rule_to_string rules; say "\n\n";
+
+			saynl "    type s_cost =  rwv::make_rw_vector (Int)";
+			saynl "    type s_rule =  rwv::make_rw_vector (Int)";
+			saynl "    type s_node =";
+
+			iter (loop_node, *nb_t);
+
+			saynl "    withtype s_tree = s_cost * s_rule * s_node * tree\n\n";
+			saynl "    sub = rwv::get";
+			saynl "    update = rwv::set";
+		    };
+
+
+		fun put_val_cst (rules, arity, chains_for_rhs, rule_groups)
+		    =
+		    {   fun do_cstrule (t, rlntll:  List( (List( Rule ), List( Int )) ),
+					uniqstr, iscst)
+			    =
+			    if iscst
+
+				ar     =   rwv::get (arity, t);
+				a_cost =   rwv::make_rw_vector (*nb_nt, inf);
+				a_rule =   rwv::make_rw_vector (*nb_nt, 0);
+
+				fun record ( { nt=>lhs, cost, num, ... } : Rule, c)
+				    =
+				    {   cc =   c + cost;
+
+					if (cc < (rwv::get (a_cost, lhs)))
+
+					     rwv::set (a_cost, lhs, cc);
+					     rwv::set (a_rule, lhs, num);
+
+					     apply 
+						 (\\ rule =  record (rule, cc))
+						 (rwv::get (chains_for_rhs, lhs));
+
+					fi;
+				    };
+
+				apply
+				    ((apply (\\ rule =  record (rule, 0))) o #1)
+				    rlntll;
+
+				if (ar == 0)
+
+				    saynl ("    my leaf_" + (prep_node_cons t) + " =");
+				    say "      (rwv::from_list [";
+				    print_intarray a_cost;
+				    say "],\n       rwv::from_list [";
+				    print_intarray a_rule;
+				    saynl ("],\n       " + (prep_node_cons t) + ")");
+
+				else
+				    say ("    my cst_cost_" + uniqstr + " = rwv::from_list [");
+				    print_intarray a_cost;
+				    saynl "]";
+				    say ("    my cst_rule_" + uniqstr + " = rwv::from_list [");
+				    print_intarray a_rule;
+				    saynl "]";
+				fi;
+
+			    fi;
+
+			fun do_cstrules (t, ll)
+			    =
+			    apply (apply (\\ (rlntll, _, uniqstr, iscst, _)
+					      =
+					      do_cstrule (t, rlntll, uniqstr, iscst)))
+				  ll;
+
+			n    =   int::to_string (*nb_nt);
+			sinf =   int::to_string inf;
+
+			arrayiter (do_cstrules, rule_groups);
+
+			saynl ("    s_c_nothing = rwv::make_rw_vector (" + n + ", " + sinf + ")");
+			saynl ("    s_r_nothing = rwv::make_rw_vector (" + n + ", 0)");
+			say "\n\n";
+		    };
+
+
+		fun put_label_function (rules, arity, chains_for_rhs, rule_groups)
+		    =
+		    {   firstcl =   REF TRUE;
+
+			fun put_closure (nt, rl:  List( Rule ))
+			    =
+			    {   firstrule = REF TRUE;
+
+				fun put_cl ( { nt=>lhs, cost, num, ... } : Rule)
+				    =
+				    {   c    =   int::to_string cost;
+					slhs =   int::to_string lhs;
+
+					if *firstrule   firstrule := FALSE;
+					else            say ";\n\t   ";
+					fi;
+
+					saynl ("if c + " + c + " < sub (s_c, " + slhs + ") then");
+					sayinl ("     (update (s_c, " + slhs + ", c + " + c + ");");
+
+					sayi ("      update (s_r, " + slhs + ", " + (int::to_string num)
+					      + ")");
+
+					if (not (null (rwv::get (chains_for_rhs, lhs))))
+
+					    say (   ";\n\t      closure_"
+						+   (get_ntsym lhs)
+						+   " (s_c, s_r, c + "
+						+   c
+						+   ")"
+						);
+					fi;
+
+					saynl "\n\t     )";
+					sayinl "   else";
+					sayi "     ()";
+				    };
+
+				if (not (null rl))
+
+				    if *firstcl
+					firstcl := FALSE;
+					say "\tfun";
+				    else
+					say "\tand";
+				    fi;
+
+				    saynl (" closure_" + (get_ntsym nt) + " (s_c, s_r, c) =");
+				    sayi "  (";
+				    list::apply put_cl rl;
+				    saynl "\n\t  )";
+				fi;
+			    };
+
+
+			nbnt =   int::to_string (*nb_nt);
+			sinf =   int::to_string inf;
+
+			firstmatch =   REF TRUE;
+
+			fun put_match t
+			    =
+			    {   #  "(" 
+				ar = rwv::get (arity, t);
+
+				fun inlistofsons i
+				    =
+				    {   say ("t" + (int::to_string i));
+
+					if (i != (ar - 1))
+
+					    say ", ";
+					fi;
+				    };
+
+				fun listofsons ()
+				    =
+				    {   say " ("; iter (inlistofsons, ar);
+					say ")";
+				    };
+
+				firstcst =   REF TRUE;
+
+				fun put_match_cst (_, str, uniq, iscst, _)
+				    =
+				    if iscst
+
+					if *firstcst   say "\t    ";   firstcst := FALSE;
+					else           say "\t  | ";
+					fi;
+
+					saynl ("(" + str + ") =>");
+					sayinl ("\t      (cst_cost_" + uniq + ", cst_rule_" + uniq + ")");
+				    fi;
+
+
+
+				firstcase     =   REF TRUE;
+				firstcaseelem =   REF TRUE;
+
+				fun put_match_case (rlntll, str, uniq, iscst, iswot)
+				    =
+				    if (not iscst)
+
+					if *firstcase
+					    firstcase := FALSE;
+
+					    saynl "z =>";
+					    sayinl "\tlet";
+
+					    sayinl ("\t  s_c = rwv::make_rw_vector ("
+						       + nbnt + ", " + sinf + ")");
+
+					    sayinl ("\t  s_r = rwv::make_rw_vector ("
+							 + nbnt + ", 0)");
+
+					    sayinl "\tin";
+					fi;
+
+					if *firstcaseelem
+					    firstcaseelem := FALSE;
+
+					    sayinl "\tcase z of";
+					    sayi "\t    ";
+					else
+					    sayi "\t  | ";
+					fi;
+
+					saynl ("(" + str + ") =>");
+					sayinl "\t      (";
+
+					{   fun dorules (rl:  List( Rule ), ntl)
+						=
+						{   fun dorule ( { nt=>lhs, num, cost, ... } : Rule)
+							=
+							{   slhs =   int::to_string lhs;
+							    c    =   int::to_string cost;
+
+							    sayinl ("\t\t   if c + " + c + " < sub (s_c, " + slhs
+								     + ") then");
+
+							    sayinl ("\t\t     (update (s_c, " + slhs
+								     + ", c + " + c + ");");
+
+							    sayinl ("\t\t      update (s_r, " + slhs
+								     + ", " + (int::to_string num) + ");");
+
+							    if (not (null (rwv::get (chains_for_rhs, lhs))))
+
+								 sayinl (   "\t\t      closure_"
+									+   (get_ntsym lhs)
+									+   " (s_c, s_r, c + " + c + ");"
+									);
+							    fi;
+
+							    sayinl "\t\t     ())";
+							    sayinl "\t\t   ";
+							};
+
+						    sayi "\t       if ";
+
+						    listiter ((\\ (i, nt)
+							       =
+							       {  if (i != 0)   say "and ";  fi;
+
+								  say ("sub (s" + (int::to_string i) + "_r, "
+									+ (int::to_string (nt: Int))
+									+ ")!=0 ");
+							       }),
+							      ntl);
+
+						    saynl "then";
+						    sayinl "\t\t stipulate";
+						    sayi ("\t\t   c = ");
+
+						    listiter ((\\ (i, nt)
+							       =
+							       {  if (i != 0)   say " + ";  fi;
+
+								  say ("sub (s" + (int::to_string i) + "_c, "
+									+ (int::to_string (nt: Int)) + ")");
+							       }),
+							      ntl);
+
+						    saynl "\n\t\t\t herein";
+
+						    apply dorule rl;
+
+						    sayinl "\t\t   ()";
+						    sayinl "\t\t end";
+						    sayinl "\t       ";
+						};
+
+					    apply dorules rlntll;
+					};
+					sayinl "\t       ()";
+					sayinl "\t      )";
+				fi;					 #  fun put_match_case 
+
+
+				if *firstmatch
+				    firstmatch := FALSE;
+
+				    sayi "  ";
+				else
+				    sayi "| ";
+				fi;
+
+				say ((*struct_name) + "Ops.");
+				saynl ((prep_term_cons t) + " =>");
+
+				if (ar == 0)			#  leaf term 
+
+				    if (null (rwv::get (rule_groups, t)))
+
+					sayinl (   "    (s_c_nothing, s_r_nothing, "
+					       +   (prep_node_cons t)
+					       +   ")"
+					       );
+
+				    else
+					sayinl ("    leaf_" + (prep_node_cons t));
+				    fi;
+				else						    #  ar!=0 
+				    group =   rwv::get (rule_groups, t);
+
+				    fun dosamecase eleml
+					=
+					{   firstcaseelem := TRUE;
+
+					    apply put_match_case eleml;
+
+					    if (not (*firstcaseelem) and
+						not (list::exists (\\ (_, _, _, _, iswot) =  iswot) eleml)
+					       )
+						 sayinl "\t  | _ => ()";
+					    fi;
+
+					    if (not (*firstcaseelem))
+
+						sayinl "\t  ;";
+					    fi;
+					};
+
+				    sayinl "    stipulate";
+				    sayi "      my [";
+
+				    iter (inlistofsons, ar);
+
+				    saynl "] = map rec_label children";
+				    sayinl "    herein";
+
+				    if (null group)  #  transfert rule 
+
+					sayi "      (s_c_nothing, s_r_nothing, ";
+					say (prep_node_cons t);
+					listofsons ();
+					saynl ")";
+				    else
+					sayi "      stipulate my (s_c, s_r) = case";
+
+					listofsons ();
+
+					saynl " of";
+
+					apply (apply put_match_cst) group;
+
+					sayi (*firstcst ?? "\t    "
+							:: "\t  ; ");
+
+					apply dosamecase group;
+
+					if *firstcase 
+					    saynl "_ => (s_c_nothing, s_r_nothing)";
+					else
+					    sayinl "\t  (s_c, s_r)";
+					    sayinl "\tend";
+					fi;
+
+					sayi "      herein (s_c, s_r, ";
+					say (prep_node_cons t);
+
+					listofsons ();
+
+					saynl ") end";
+				    fi;
+
+				    sayinl "    end";
+
+				fi;
+
+			    };		#  ")" fun put_match 
+
+			saynl "    fun rec_label (tree:  In::tree) =";
+			saynl "      stipulate";
+
+			arrayiter (put_closure, chains_for_rhs);
+
+			sayinl "my (term, children) = In::opchildren tree";
+			sayinl "my (s_c, s_r, t) = case term of";
+
+			iter (put_match, *nb_t);
+
+			saynl "      herein";
+			saynl "        (s_c, s_r, t, tree)";
+			saynl "      end\n";
+		    };
+
+
+		fun put_reduce_function rules
+		    =
+		    {   firstmatch =   REF TRUE;
+
+			fun domatch (rule as { num, pattern, ... } : Rule)
+			    =
+			    {   fun flatsons (the_sons, count, ntl)
+				    =
+				    list::fold_forward
+					(   \\ (patson, (b, c, l, ss))
+						=
+						{   my (c', l', ss')
+							=
+							flat (patson, c, l);
+
+						  (FALSE, c', l', (if b  ss'; else ss + ", " + ss';fi));
+						}
+					)
+					(TRUE, count, ntl, "")
+					the_sons
+
+			       also
+			       fun flat (pattern, count, ntl)
+				    =
+				    case pattern
+
+					NT nt
+					    =>
+					    (   count+1,
+						nt ! ntl,
+						"t" + (int::to_string count)
+					    );
+
+					TRM (t, sons)
+					    =>
+					    {   len =   list::length sons;
+
+						my (_, count', ntl', s')
+						    =
+						    flatsons (sons, count, ntl);
+
+						nexts = "(_, _, "
+						      + (prep_node_cons t)
+						      + if    (len == 0)  "";
+							elif  (len == 1)  " " + s';
+							else              " (" + s' + ")";
+							fi
+
+						      + ", _)";
+
+						(count', ntl', nexts);
+					    };
+				    esac;
+
+				my (count, ntl, s)
+				    =
+				    flat (pattern, 0, []);
+
+				ntl =   reverse ntl;
+
+				if  *firstmatch
+				     firstmatch := FALSE;
+
+				     say "\t\t(";
+				else say "\t      | (";
+				fi;
+
+				saynl ((int::to_string num) + ", " + s + ") =>");
+				sayi ("\t  (" + (prep_rule_cons rule));
+
+				case pattern
+
+				    NT nt
+					=>
+					say (" (doreduce (t0, " + (int::to_string nt) + "))");
+
+				    TRM (t, _)
+					=>
+					case (list::length ntl)
+
+					    0 => ();
+
+					    _ =>
+						{   say " (";
+
+						    listiter
+						      ( (   \\ (i, nt)
+							       =
+							       {   if  (i != 0)   say ", ";   fi;
+
+								   say (   "doreduce (t"
+								       +   (int::to_string i)
+								       +   ", "
+								       +   (int::to_string nt)
+								       +   ")"
+								       );
+							       }
+							),
+							ntl
+						      );
+
+						    say ")";
+						};
+					esac;
+				esac;
+
+				saynl ")";
+			    };
+
+			saynl "    fun doreduce (stree:  s_tree, nt) =";
+			saynl "      stipulate";
+			sayinl "my (s_c, s_r, _, tree) = stree";
+			sayinl "cost = sub (s_c, nt)";
+			saynl "      herein";
+
+			sayinl ("if cost==" + (int::to_string inf) + " then");
+			sayinl ("  (print (\"No Match on nonterminal \" + (int::to_string nt) + \"\\n\");");
+			sayinl ("   print \"Possibilities were :\\n\";");
+			sayinl ("   stipulate");
+			sayinl ("     fun loop n =");
+			sayinl ("       stipulate");
+			sayinl ("         c = rwv::get (s_c, n);");
+			sayinl ("         r = rwv::get (s_r, n);");
+			sayinl ("       herein");
+			sayinl ("         if c==16383 then () else");
+			sayinl ("           print (\"rule \" + (int::to_string r) + \" with cost \"");
+			sayinl ("                   + (int::to_string c) + \"\\n\");");
+			sayinl ("         loop (n+1)");
+			sayinl ("       end");
+			sayinl ("   herein");
+			sayinl ("     (loop 0) except exceptions::INDEX_OUT_OF_BOUNDS => ()");
+			sayinl ("   end;");
+			sayinl ("   raise exception NoMatch)");
+			sayinl ("else");
+
+
+			sayinl "  stipulate";
+			sayinl "    rulensons =";
+			sayinl "      case (sub (s_r, nt), stree) of";
+
+			arrayapp (domatch, rules);
+
+			sayinl "      | _ => raise exception NoMatch #  Bug in iburg ";
+			sayinl "  herein";
+			sayinl "    (rulensons, tree)";
+			sayinl "  end";
+			saynl "      end\n";
+		    };
+
+
+		fun put_generic_end (start:  Int)
+		    =
+		    {   saynl "    fun reduce tree =";
+			saynl ("      doreduce (rec_label tree, " + (int::to_string start) + ")");
+			saynl "  end\n\n";
+		    };
+
+	    end;			#  fun emit 
+
+    };
+end;
+
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+# $Log: burg.pkg, v $
+# Revision 1.2  2000/06/01 18:33:42  monnier
+# bring revisions from the vendor branch to the trunk
+#
+# Revision 1.1.1.8  1999/04/17 18:56:04  monnier
+# version 110.16
+#
+# Revision 1.2  1997/10/28 15:02:45  george
+#    Made compatible with new basis
+#
+# Revision 1.1.1.1  1997/01/14  01:37:59  george
+#   Version 109.24
+#
+# Revision 1.1.1.2  1997/01/11  18:52:29  george
+#   mythryl-burg Version 109.24
+#
+# Revision 1.3  1996/06/03  17:48:15  jhr
+# Changes to bring Mythryl-Burg upto new Lib7 library.
+#
+# Revision 1.2  1996/02/26  15:02:05  george
+#    print no longer overloaded.
+#    use of makestring has been removed and replaced with int::to_string ..
+#    use of IO replaced with file
+#
+# Revision 1.1.1.1  1996/01/31  16:01:24  george
+# Version 109
+#
+# Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+# released per terms of SMLNJ-COPYRIGHT.
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

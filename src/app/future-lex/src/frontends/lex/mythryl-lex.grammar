@@ -1,0 +1,233 @@
+# mythryl-lex.grammar
+
+package s = lex_spec;
+
+package re = regular_expression;
+package sis = re::symbol_set;
+
+my sym_table: Ref quickstring_map::Map re::Re
+            = REF quickstring_map::empty ;
+
+wildcard = sis::complement (sis::singleton 0u10);      # Everything but \n.
+
+fun char_to_sym c = one_word_unt::from_int (char::to_int c);
+fun str_to_sym s = char_to_sym (string::get (s, 0));
+
+%%
+
+%name Ml_Lex
+
+%term 
+    EOFX
+  | DECLS of String
+  | LT		# <
+  | GT		# >
+  | LP		# (
+  | RP		# )
+  | LB		# [
+  | RB		# ]
+  | RBD		# -]
+  | LCB		# {
+  | RCB		# }
+  | QMARK    
+  | STAR     
+  | PLUS     
+  | BAR
+  | CARAT 
+  | DOLLAR 
+  | SLASH 
+  | DASH
+  | CHAR of String
+  | UNICHAR of one_word_unt::Unt
+  | DOT
+  | EQ
+  | REPS of Int
+  | ID of String 
+  | ARROW
+  | ACT of String
+  | SEMI 
+  | LEXMARK 
+  | COMMA
+  | STATES
+  | LEXSTATE of String
+  | COUNT
+  | REJECTTOK
+  | FULL
+  | UNICODE
+  | STRUCTX
+  | HEADER
+  | ARG
+  | POSARG
+
+%nonterm
+    start of s::Spec
+  | declss of String               # The extra 's' is to avoid conflicting with DECLS above in the compiled code. 2007-05-17 CrT
+  | defs of s::Config
+  | start_states of quickstring_set::Set
+  | rules of List s::Rule
+  | rule of s::Rule
+  | rule_states of quickstring_set::Set
+  | or_expression of re::Re
+  | cat_expression of re::Re
+  | expression of re::Re
+  | in_expression of re::Re
+  | char_ilk of sis::Set
+  | char_ilk' of sis::Set
+  | char_range of sis::Set
+  | a_char of one_word_unt::Unt
+  | non_carat of one_word_unt::Unt
+
+%left BAR
+%nonassoc QMARK
+%left PLUS
+%nonassoc STAR
+
+%pos Int
+%eop EOFX
+%noshift EOFX
+%start start
+%verbose
+
+%%
+
+start
+	: declss LEXMARK defs LEXMARK rules
+		(s::SPEC { decls => declss, 
+		          conf  => defs, 
+			  rules => rules})
+
+declss
+	: DECLS	
+		(decls)
+	| /* empty */
+		("")
+
+defs
+	: /* empty */
+		(s::make_config())
+	| defs STATES start_states SEMI
+		(s::upd_start_states (defs, start_states))
+	| defs HEADER ACT
+		(s::upd_header (defs, 
+		   string::substring (act, 1, string::length act - 2)))
+	| defs STRUCTX ID
+		(s::upd_struct_name (defs, id))
+	| defs ARG ACT
+		(s::upd_arg (defs, act))
+	| defs UNICODE
+		(s::upd_clamp (defs, s::NO_CLAMP))
+	| defs FULL
+		(s::upd_clamp (defs, s::CLAMP255))
+	| defs COUNT
+		(defs)
+	| defs REJECTTOK
+		(defs)
+	| defs ID EQ or_expression SEMI
+		( {  sym_table :=   quickstring_map::set (*sym_table, quickstring__premicrothread::from_string id, or_expression);
+		     defs;
+                  }
+                )
+
+start_states
+	: LEXSTATE
+		(quickstring_set::singleton (quickstring__premicrothread::from_string lexstate))
+	| LEXSTATE start_states
+		(quickstring_set::add (start_states, quickstring__premicrothread::from_string lexstate))
+
+rules
+	: /* empty */
+		([])
+	| rule rules
+		(rule ! rules)
+
+rule	
+	: or_expression ARROW ACT
+		((NULL, or_expression), act)
+	| LT rule_states GT or_expression ARROW ACT
+		((THE rule_states, or_expression), act)
+
+rule_states
+	: LEXSTATE
+		(quickstring_set::singleton (quickstring__premicrothread::from_string lexstate))
+	| rule_states COMMA LEXSTATE
+		(quickstring_set::add (rule_states, quickstring__premicrothread::from_string lexstate))
+
+or_expression
+	: or_expression BAR cat_expression
+		(re::make_or (or_expression, cat_expression))
+	| cat_expression
+		(cat_expression)
+
+cat_expression
+	: cat_expression expression
+		(re::make_meld (cat_expression, expression))
+	| expression
+		(expression)
+
+expression
+	: expression QMARK
+		(re::make_option expression)
+	| expression STAR
+		(re::make_closure expression)
+	| expression PLUS
+		(re::make_at_least (expression, 1))
+	| expression REPS RCB
+		(re::make_repetition (expression, reps, reps))
+	| expression REPS COMMA REPS RCB
+		(re::make_repetition (expression, reps1, reps2))
+	| in_expression
+		(in_expression)
+
+in_expression
+	: CHAR
+		(re::make_symbol_set (sis::singleton (str_to_sym char)))
+	| UNICHAR
+		(re::make_symbol_set (sis::singleton unichar))
+	| DOT
+		(re::make_symbol_set wildcard)
+	| ID RCB
+		(case (quickstring_map::get (*sym_table, quickstring__premicrothread::from_string id))
+		      THE re =>  re;
+		      NULL   =>  raise exception FAIL ("'" + id + "' not defined");
+                 esac
+                )
+	| LP or_expression RP
+		(or_expression)
+	| LB CARAT char_ilk 
+		(re::make_symbol_set (sis::complement char_ilk))
+	| LB char_ilk 
+		(re::make_symbol_set char_ilk)
+
+char_ilk
+	: char_ilk' RB
+		(char_ilk')
+	| DASH char_ilk' RB
+		(sis::add (char_ilk', char_to_sym '-'))
+	| char_ilk' RBD
+		(sis::add (char_ilk', char_to_sym '-'))
+
+char_ilk'
+	: non_carat
+		(sis::singleton non_carat)
+	| non_carat DASH a_char
+		(sis::interval (non_carat, a_char))
+	| char_ilk' char_range
+		(sis::union (char_range, char_ilk'))
+
+char_range
+	: a_char DASH a_char
+		(sis::interval (a_char1, a_char2))
+	| a_char
+		(sis::singleton a_char)
+
+a_char	
+	: CARAT
+		(char_to_sym '^')
+	| non_carat
+		(non_carat)
+
+non_carat
+	: CHAR
+		(str_to_sym char)
+	| UNICHAR
+		(unichar)

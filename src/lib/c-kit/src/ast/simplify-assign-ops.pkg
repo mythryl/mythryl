@@ -1,0 +1,219 @@
+## simplify-assign-ops.pkg
+
+# Compiled by:
+#     src/lib/c-kit/src/ast/ast.sublib
+
+# Main Function: simplifyAssignOp { lookUpAid, getCoreType, wrapEXPR, getLoc, top_level, bindSym }
+#                           (processBinop, opn, { preOp }, expr1, expr2)
+#
+#       processBinop -- function to call for typechecking and building binop expressions
+#       opn -- an raw_syntax binary operation 
+#       { preOp } -- TRUE if operation should be performed before result
+#                  e.g. ++x becomes simplifyAssignOp(+, { preOp=TRUE }, x, 1)
+#                  e.g. x+=e becomes simplifyAssignOp(+, { preOp=TRUE }, x, e)
+#               -- FALSE if operation should be done after result
+#                  e.g. x++ becomes simplifyAssignOp(+, { preOp=FALSE }, x, 1)
+#       expr1, expr2 -- expressions
+#   function returns an equivalent simplified expr.
+# 
+# Issues: 
+#  1. copying must maintain unique pid invariant.
+#  2. copying of rvals (simpleDup) versus lvals (duplicateLval) versus (duplicateRval)
+#  3. must be careful with types of new variables (bug #1)
+#     e.g. 
+#        struct { int count[3]; } *p;
+#        ....
+#        p->count[i]++;
+#     generates 
+#        int tmp1[3], tmp2; tmp1=p->count, tmp2=tmp1[i], tmp1[i]=tmp2, tmp2;
+#
+# AUTHORS: Nevin Heintze (nch@research.bell-labs.com)
+#
+# TBD: More testing...
+
+
+
+package simplify_assign_ops {
+
+  # Note: lvals are either
+  #          raw_syntax::Id
+  #          raw_syntax::Sub
+  #          raw_syntax::Arrow
+  #          raw_syntax::Deref
+  #          raw_syntax::Dot where first arg is an lval
+
+ fun simplify_assign_ops { get_aid, get_core_type, wrap_expr, get_loc, top_level, bind_sym, push_tmp_vars }
+     =
+     simplify_ass
+     where 
+
+         fun wrap_expr' x
+             =
+             {   my (type, expr) = wrap_expr x;
+                 expr;
+             };
+
+	 fun combine_exprs' (x1, x2 as raw_syntax::EXPRESSION (_, adorn, _))
+	     =
+	     wrap_expr' (get_core_type (get_aid adorn), raw_syntax::COMMA (x1, x2));
+
+	 fun combine_exprs (NULL, x) => x;
+	     combine_exprs (THE x1, x2) => combine_exprs'(x1, x2);
+         end;
+
+	 fun combine_exprs_opt (NULL, x) => x;
+	     combine_exprs_opt (x, NULL) => x;
+	     combine_exprs_opt (THE x1, THE x2) => THE (combine_exprs'(x1, x2));
+         end;
+
+	 fun get_expr_type (raw_syntax::EXPRESSION(_, adorn, _))
+             =
+             get_core_type (get_aid adorn);
+
+	 # Can't just introduce id of type type: may not be legal to do assignment (e.g. for arrays).
+	 # So, first convert arrays to pointers, functions to pointers, and eliminate qualifiers.
+	 # Potential problem: elimination of volatile qualifiers on temporary variables?
+
+	 fun nice_type type
+             =
+	     case (get_core_type type)
+                 
+		  raw_syntax::ARRAY (_, array_tp) =>   raw_syntax::POINTER array_tp;
+	          raw_syntax::FUNCTION x         =>   raw_syntax::POINTER type;
+	          _                              =>   type;
+             esac;
+
+	 fun simple_dup expr		#  given e, return: (tmp = e, tmp, tmp) 
+	     =
+	     {   type = get_expr_type expr;
+		 symbol = symbol::chunk "tmp";
+		 id = { name=>symbol, uid => pid::new(), location => get_loc(),
+			   ctype => nice_type type, st_ilk => raw_syntax::DEFAULT, status => raw_syntax::DECLARED,
+			   kind => raw_syntax::NONFUN, global => top_level() };
+		 push_tmp_vars id;
+		 bind_sym (symbol, namings::ID id);
+		 expr_new_variable = wrap_expr'(type, raw_syntax::ID id);
+
+		 { assigns=>THE (wrap_expr'(type, raw_syntax::ASSIGN (expr_new_variable, expr))),
+		  var1=>wrap_expr'(type, raw_syntax::ID id),
+		  var2=>wrap_expr'(type, raw_syntax::ID id) };
+	     };
+
+	 fun duplicate_rval (expr as raw_syntax::EXPRESSION (raw_syntax::ID _, _, _)) => { assigns=>NULL, var1=>expr, var2=>expr };
+	     duplicate_rval expr => simple_dup expr;
+         end;
+
+	 fun duplicate_lval expr			#  Copy lval, factoring out side-effecting expressions 
+	     =
+	     {   fun dup (mk_expression, expr)
+		     = 
+		     {   my { assigns, var1, var2 } =   duplicate_rval expr;
+
+			 { assigns,
+			   copy1=> mk_expression var1,
+			   copy2=> mk_expression var2
+                         };
+		     };
+
+		 fun dup2 (mk_expression, expr1, expr2)
+		     =
+		     {
+			 my { assigns=>assigns1, var1=>var1a, var2=>var1b } = duplicate_rval expr1;
+			 my { assigns=>assigns2, var1=>var2a, var2=>var2b } = duplicate_rval expr2;
+			 assigns = combine_exprs_opt (assigns1, assigns2);
+
+			 { assigns,
+			   copy1=>mk_expression (var1a, var2a),
+			   copy2=>mk_expression (var1b, var2b) };
+		     };
+
+	       case expr
+                  
+		    raw_syntax::EXPRESSION (raw_syntax::ID pid, _, _)
+                        =>
+                        { assigns=>NULL,
+						    copy1=>expr,
+						    copy2=>wrap_expr'(get_expr_type expr, raw_syntax::ID pid) };
+
+		    raw_syntax::EXPRESSION (raw_syntax::ARROW (expr1, member), adorn, loc)
+			=>
+			dup (\\ e => wrap_expr'(get_aid adorn, raw_syntax::ARROW (e, member)); end, expr1);
+
+		    raw_syntax::EXPRESSION (raw_syntax::DEREF (expr1), adorn, loc)
+                        =>
+		        dup (\\ e => wrap_expr'(get_aid adorn, raw_syntax::DEREF e); end, expr1);
+
+		    raw_syntax::EXPRESSION (raw_syntax::SUB (expr1, expr2), adorn, loc)
+			=>
+			dup2 (\\ e => wrap_expr'(get_aid adorn, raw_syntax::SUB e); end, expr1, expr2);
+
+		    raw_syntax::EXPRESSION (raw_syntax::MEMBER (expr1, member), _, _)
+			=>
+			{   type = get_expr_type expr;
+
+			    my { assigns, copy1, copy2 } =   duplicate_lval (expr1);
+
+			    { assigns,
+			      copy1 => wrap_expr'(type, raw_syntax::MEMBER (copy1, member)),
+			      copy2 => wrap_expr'(type, raw_syntax::MEMBER (copy2, member))
+                            };
+			};
+
+		    raw_syntax::EXPRESSION (_, adorn, loc)
+                        => 
+			#  not an lval --> just use simple duplication (should never occur, unless error) 
+			{   my { assigns, var1, var2 } =   duplicate_rval expr;
+
+			    { assigns, copy1=>var1, copy2=>var2 };
+			};
+               esac;
+	     };
+
+	 fun simplify_ass (process_binop, opn, { pre_op=>TRUE }, expr1, expr2)	#  e.g. ++x; ++( *p ); x += 5; *p += 5; 
+		 =>
+		 {   my { assigns, copy1, copy2 } = duplicate_lval expr1;
+		     fun proc_binop x = { my (type, expr) = process_binop x;  expr; };
+		     new_expr = raw_syntax::ASSIGN (copy1, proc_binop (get_expr_type copy2, copy2, get_expr_type expr2, expr2, opn));
+		     new_expr = wrap_expr'(get_expr_type expr1, new_expr);
+		     final_expr = combine_exprs (assigns, new_expr);
+
+		     (get_expr_type final_expr, final_expr);
+		 };
+
+	     simplify_ass (process_binop, opn, { pre_op=>FALSE }, expr1, expr2)	#  e.g. x++; ( *p )++;  
+                 =>
+		 {   my { assigns, copy1, copy2 } = duplicate_lval expr1;
+		     my { assigns=>assigns2, var1, var2 } = simple_dup copy1;
+		     fun proc_binop x = { my (type, expr) = process_binop x;  expr; };
+		     new_expr = raw_syntax::ASSIGN (copy2, proc_binop (get_expr_type var1, var1, get_expr_type expr2, expr2, opn));
+		     new_expr = wrap_expr'(get_expr_type expr1, new_expr);
+		     final_expr = combine_exprs (assigns, combine_exprs (assigns2, combine_exprs'(new_expr, var2)));
+
+		     (get_expr_type final_expr, final_expr);
+		 };
+         end;
+     end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+##  Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,241 @@
+## binarytree-ximp.pkg
+#
+# This file supports testing of basic imp functionality.
+
+# Compiled by:
+#     src/lib/test/unit-tests.lib
+
+
+
+
+
+stipulate
+    include threadkit;													# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package btp =  binarytree_port;											# binarytree_port			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/binarytree-port.pkg
+herein
+
+
+    package   binarytree_ximp
+    : (weak)  Binarytree_Ximp												# Binarytree_Ximp			is from   src/lib/x-kit/xclient/src/wire/binarytree-ximp.api
+    {
+	include binarytree_port;											# binarytree_ximp_clientport		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/binarytree-ximp-clientport.pkg
+	#
+	Binarytree_Ximp_State = Ref( Int );										# Holds all nonephemeral mutable state maintained by ximp.
+
+	Clientplea  =  SET_STATE Int
+		    |  PASS_SUBTREE_SUM Oneshot_Maildrop( Int )
+		    ;
+	Clientq     = Mailqueue( Clientplea );
+
+	Imports = {  leftkid:  Null_Or( btp::Binarytree_Port ),								# Ports we use, provided by other imps.
+                    rightkid:  Null_Or( btp::Binarytree_Port )
+		};
+
+	Me_Slot = Mailslot ( { imports: 	Imports,
+				  me:		Binarytree_Ximp_State,
+				  run_gun':	Run_Gun,
+				  end_gun':	End_Gun
+				}
+			      );
+
+	Exports	= { binarytree_port:	btp::Binarytree_Port								# Ports we provide for use by other imps.
+		  };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Binarytree_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:			Binarytree_Ximp_State,								# State which is preserved across imp shutdown/restart cycles.
+		  imports:		Imports,									# Ximps to which we send requests.
+		  to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		  end_gun':		End_Gun,									# We shut down the microthread when this fires.
+		  clientq:		Clientq										# 
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                         ==>  shut_down_binarytree_imp'),
+			    (take_from_mailqueue' clientq     ==>  do_clientplea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_binarytree_imp' ()
+			    =
+			    {
+				thread_exit { success => TRUE };							# Will not return.
+			    };
+
+			fun do_clientplea  (SET_STATE i)
+			        =>
+				me := i;
+
+			    do_clientplea  (PASS_SUBTREE_SUM reply_oneshot)
+				=>
+				case imports.leftkid
+				    #
+				    THE leftkid =>  leftkid.pass_subtree_sum to {.
+							#
+							sum =  *me  +  #subtree_sum;
+
+							case imports.rightkid
+							    #
+							    THE rightkid => rightkid.pass_subtree_sum to {.
+										#
+										put_in_oneshot (reply_oneshot, sum + #subtree_sum);
+									    };
+
+
+							    NULL    =>  put_in_oneshot (reply_oneshot, sum);
+							esac;
+						    };
+
+				    NULL    =>  case imports.rightkid
+						    #
+						    THE rightkid => rightkid.pass_subtree_sum to {.
+									#
+									put_in_oneshot (reply_oneshot, *me + #subtree_sum);
+								    };
+
+						    NULL    =>  put_in_oneshot (reply_oneshot, *me);
+						esac;
+				esac;
+			end;
+		    end;
+	    end;	
+
+
+
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying -- second arg is provided by make_thread.
+	    =
+	    {   me_slot =  make_mailslot  ()	:  Me_Slot;
+		#
+		binarytree_port  = { set_state, pass_subtree_sum, get_subtree_sum };
+
+		to         =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { binarytree_port }));						# Return value from binarytree_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from binarytree_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run { me, clientq, imports, to, end_gun' };								# Will not return.
+	    }
+	    where
+		clientq =  make_mailqueue (get_current_microthread())	:  Clientq;
+
+		fun set_state (i: Int)											# PUBLIC.
+		    =	
+		    put_in_mailqueue  (clientq, SET_STATE i);
+
+
+		fun pass_subtree_sum  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
+		    =
+		    {
+			reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (clientq, PASS_SUBTREE_SUM reply_oneshot);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+		fun get_subtree_sum  ()											# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (clientq, PASS_SUBTREE_SUM reply_oneshot);
+
+			get_from_oneshot reply_oneshot;
+		    };
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_binarytree_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	      (
+		i:		Int,
+		options:	List(Option)
+	      )	
+	    =
+	    {   (process_options (options, { name => "binarytree" }))
+		    ->
+		    { name };
+	
+		me = REF i;
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop();							# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+
+
+	fun clientport_to_mailqueue x = x;										# For debugging
+
+    };															# package binarytree_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

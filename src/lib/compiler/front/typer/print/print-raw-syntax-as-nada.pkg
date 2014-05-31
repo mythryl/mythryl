@@ -1,0 +1,2483 @@
+## print-raw-syntax-as-nada.pkg
+## Jing Cao and Lukasz Ziarek 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+stipulate
+    package err =  error_message;			# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+#   package mld =  module_level_declarations;		# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package pp  =  standard_prettyprint_mill;		# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package sci =  sourcecode_info;			# sourcecode_info		is from   src/lib/compiler/front/basics/source/sourcecode-info.pkg
+    package sy  =  symbol;				# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+#   package syx =  symbolmapstack_entry;		# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package tc  =  typer_control;			# typer_control			is from   src/lib/compiler/front/typer/basics/typer-control.pkg
+    package mtt =  more_type_types;			# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    #
+    include  raw_syntax;
+    include  tuples;
+    include  fixity;
+    include  variables_and_constructors;
+    include  pp;
+    include  print_as_nada_junk;
+    include  unparse_type;
+    include  unparse_value;
+herein
+
+    package   print_raw_syntax_tree_as_nada
+    : (weak)  Print_Raw_Syntax_Tree_As_Lib7		# Print_Raw_Syntax_Tree_As_Lib7	is from   src/lib/compiler/front/typer/print/print-raw-syntax-as-nada.api
+    {
+#	internals =  tc::internals;
+internals = log::internals;
+
+	lineprint = REF FALSE;
+
+	fun by f x y
+	    =
+	    f y x;
+
+	null_fix = INFIX (0, 0);
+	inf_fix  = INFIX (1000000, 100000);
+
+	fun stronger_l (INFIX(_, m), INFIX (n, _))   =>   m >= n;
+	    stronger_l _ => FALSE; 			#  should not matter 
+	end;
+
+	fun stronger_r (INFIX(_, m), INFIX (n, _)) => n > m;
+	    stronger_r _ => TRUE; 			#  should not matter 
+	end;
+
+	fun prpos (   pp:  	pp::Prettyprint_Mill,
+		      source:  sci::Sourcecode_Info,
+		      charpos: Int
+		  )
+	    =
+	    if *lineprint
+		#
+		(sci::filepos  source  charpos)
+		    ->	
+		    (file: String, line: Int, pos: Int);
+
+		 pp::lit pp (int::to_string line);
+		 pp::lit pp ".";
+		 pp::lit pp (int::to_string pos);
+	    else
+		 pp::lit pp (int::to_string charpos);
+	    fi;
+
+
+	fun bug msg
+	    =
+	    err::impossible("unparse_raw_syntax: " + msg);
+
+
+	arrow_stamp =  mtt::arrow_stamp;
+
+
+	fun strength (type)
+	    =
+	    case type
+		#
+		TYPEVAR_TYPE(_) => 1;
+
+		TYPE_TYPE (type, args)
+		    => 
+		    case type
+			#
+			[type] =>   if   (sy::eq (sy::make_type_symbol("->"), type))
+					 0;
+				    else 2;
+				    fi;
+
+			_ => 2;
+		    esac;
+
+	        RECORD_TYPE _ => 2;
+
+	        TUPLE_TYPE _ => 1;
+
+	        _ => 2;
+	    esac;
+
+	fun checkpat (n, NIL) => TRUE;
+	    checkpat (n, (symbol, _) ! fields) => sy::eq (symbol, number_to_label n) and checkpat (n+1, fields);
+	end;
+
+
+	fun checkexp (n, NIL) => TRUE;
+	    checkexp (n, (symbol, expression) ! fields)
+		=>
+		sy::eq (symbol, number_to_label n)   and
+		checkexp (n+1, fields);
+	end;
+
+	fun is_tuplepat (RECORD_PATTERN { definition => [_], ...                } ) => FALSE;
+	    is_tuplepat (RECORD_PATTERN { definition => defs, is_incomplete => FALSE } ) => checkpat (1, defs);
+	    is_tuplepat _ => FALSE;
+	end;
+
+	fun is_tupleexp (RECORD_IN_EXPRESSION [_])      =>   FALSE;
+	    is_tupleexp (RECORD_IN_EXPRESSION fields)   =>   checkexp (1, fields);
+	    is_tupleexp (SOURCE_CODE_REGION_FOR_EXPRESSION (a, _))       =>   is_tupleexp a;
+	    is_tupleexp _ => FALSE;
+	end;
+
+	fun get_fix (dictionary, symbol)
+	    =
+	    find_in_symbolmapstack::find_fixity_by_symbol (dictionary, sy::make_fixity_symbol (sy::name symbol));
+
+
+
+	fun strip_source_code_region_data (SOURCE_CODE_REGION_FOR_EXPRESSION (a, _))
+		=>
+		strip_source_code_region_data a;
+
+	    strip_source_code_region_data x
+		=>
+		x;
+	end;
+
+
+
+	fun trim [x] => [];
+	    trim (a ! b) => a ! trim b;
+	    trim [] => [];
+	end;
+
+
+	fun pp_path pp symbols
+	    =
+	    {   fun pr pp (symbol)
+		    =
+		    (print_symbol_as_nada pp symbol);
+
+
+		print_sequence_as_nada
+		    pp
+		    {   sep   => (\\ pp => (pp::lit pp "."); end ),
+			pr,
+			style => INCONSISTENT
+		    }
+		    symbols;
+	    };
+
+	fun print_pattern_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		pp_symbol_list = pp_path pp;
+
+		fun print_pattern_as_nada' (WILDCARD_PATTERN,                 _)   =>   (ppsay "_");
+		    print_pattern_as_nada' (VARIABLE_IN_PATTERN         p,    d)   =>   pp_symbol_list (p);
+		    print_pattern_as_nada' (INT_CONSTANT_IN_PATTERN i,    _)   =>   ppsay (multiword_int::to_string i);
+		    print_pattern_as_nada' (UNT_CONSTANT_IN_PATTERN    w,    _)   =>   ppsay (multiword_int::to_string w);
+		    print_pattern_as_nada' (STRING_CONSTANT_IN_PATTERN  s,    _)   =>   print_lib7_string_as_nada pp s;
+		    print_pattern_as_nada' (CHAR_CONSTANT_IN_PATTERN s,  _)   =>   { ppsay "#";   print_lib7_string_as_nada pp s;};
+
+		    print_pattern_as_nada' (AS_PATTERN { variable_pattern, expression_pattern }, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_pattern_as_nada'(variable_pattern, d); ppsay " as "; print_pattern_as_nada'(expression_pattern, d - 1);
+			    shut_box pp;
+			};
+
+		    print_pattern_as_nada' (RECORD_PATTERN { definition => [],   is_incomplete }, _)
+			=>
+			if is_incomplete      ppsay "{... }";
+			else                  ppsay "()";
+			fi;
+
+		    print_pattern_as_nada' (r as RECORD_PATTERN { definition, is_incomplete }, d)
+			=>
+			if   (is_tuplepat r)
+
+			     print_closed_sequence_as_nada
+				 pp
+				 {   front => (by pp::lit "("),
+				     sep   => (\\ pp => { pp::lit pp ", ";
+							break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				     back  => (by pp::lit ")"),
+				     pr    => (\\ _ => \\ (symbol, pattern) => print_pattern_as_nada' (pattern, d - 1); end; end ),
+				     style => INCONSISTENT
+				 }
+				 definition;
+			else
+			     print_closed_sequence_as_nada
+				 pp
+				 {   front => (by pp::lit "{ "),
+				     sep   => (\\ pp => { pp::lit pp ", ";
+						    break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				     back  => (\\ pp => if is_incomplete  pp::lit pp ", ... }";
+						    else pp::lit pp "}";fi; end ),
+				     pr    => (\\ pp => \\ (symbol, pattern) => {   print_symbol_as_nada pp symbol;
+										      pp::lit pp "=";
+										      print_pattern_as_nada' (pattern, d - 1);
+										    };
+					       end;         end 
+					     ),
+				     style => INCONSISTENT
+				 }
+				 definition;
+		       fi;
+
+		    print_pattern_as_nada' (LIST_PATTERN NIL, d)
+			=>
+			ppsay "[]";
+
+		    print_pattern_as_nada' (LIST_PATTERN l, d)
+			=>	
+			{   fun pr _ pattern = print_pattern_as_nada'(pattern, d - 1);
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "["),
+				    sep   => (\\ pp => { pp::lit pp ", ";
+							   break pp { blanks=>0, indent_on_wrap=>0 } ;}; end 
+					    ),
+				    back  => (by pp::lit "]"),
+				    pr,
+				    style => INCONSISTENT
+				}
+				l;
+			};
+
+		    print_pattern_as_nada' (TUPLE_PATTERN t, d)
+			=> 
+			{   fun pr _ pattern = print_pattern_as_nada'(pattern, d - 1);
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "("),
+				    sep   => (\\ pp => {   pp::lit pp ", ";
+							      break pp { blanks=>0, indent_on_wrap=>0 }
+							  ;}; end 
+					    ),
+				    back  => (by pp::lit ")"),
+				    pr,
+				    style => INCONSISTENT
+				}
+				t;
+			};
+
+		    print_pattern_as_nada' (PRE_FIXITY_PATTERN fap, d)
+			=>
+			{   fun pr _ { item, fixity, source_code_region } = print_pattern_as_nada'(item, d - 1);
+
+			    print_sequence_as_nada
+				pp
+				{   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				    pr,
+				    style => INCONSISTENT
+				}
+				fap;
+			};
+
+		    print_pattern_as_nada' (APPLY_PATTERN { constructor, argument }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_pattern_as_nada' (constructor, d);
+			    ppsay " as ";
+			    print_pattern_as_nada'(argument, d);
+			    shut_box pp;
+			};
+
+		    print_pattern_as_nada' (TYPE_CONSTRAINT_PATTERN { pattern, type_constraint }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			    print_pattern_as_nada' (pattern, d - 1);
+			    ppsay " :";
+			    break pp { blanks => 1,   indent_on_wrap => 2 };
+			    print_typoid_as_nada context pp (type_constraint, d);
+			    shut_box pp;
+			};
+
+		    print_pattern_as_nada' (VECTOR_PATTERN NIL, d)
+			=>
+			ppsay "#[]";
+
+		    print_pattern_as_nada' (VECTOR_PATTERN v, d)
+			=> 
+			{   fun pr _ pattern = print_pattern_as_nada'(pattern, d - 1);
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "#["),
+				    sep   => (\\ pp => { pp::lit pp ", ";break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				    back  => (by pp::lit "]"),
+				    pr,
+				    style => INCONSISTENT
+				}
+				v;
+			};
+
+		    print_pattern_as_nada' (SOURCE_CODE_REGION_FOR_PATTERN (pattern, (s, e)), d)
+			=> 
+			case source_opt
+
+			     THE source
+				 =>
+				 if *internals
+
+				     ppsay "<MARK(";
+				     prpos (pp, source, s); ppsay ", ";
+				     prpos (pp, source, e); ppsay "): ";
+				     print_pattern_as_nada'(pattern, d); ppsay ">";
+
+				 else
+				     print_pattern_as_nada'(pattern, d);
+				 fi;
+
+			    NULL => print_pattern_as_nada'(pattern, d);
+		      esac;
+
+		    print_pattern_as_nada' (OR_PATTERN orpat, d)
+			=>
+			{   fun pr _ pattern = print_pattern_as_nada'(pattern, d - 1);
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "("),
+				    sep   => (\\ pp => { break pp { blanks=>1, indent_on_wrap=>0 }; pp::lit pp "| ";}; end ),
+				    back  => (by pp::lit ")"),
+				    pr,
+				    style => INCONSISTENT
+				};
+			} (orpat);
+		end;
+
+		print_pattern_as_nada';
+	    }
+
+
+	also
+	fun print_expression_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+		fun lparen () = ppsay "(" ;
+		fun rparen () = ppsay ")";
+		fun lpcond atom = if atom  ppsay "("; fi;
+		fun rpcond atom = if atom  ppsay ")"; fi;
+
+		pp_symbol_list = pp_path pp;
+
+		fun print_expression_as_nada' (_, _, 0) => ppsay "<expression>";
+		    print_expression_as_nada' (VARIABLE_IN_EXPRESSION   p, _, _) => pp_symbol_list p;
+		    print_expression_as_nada' (IMPLICIT_THUNK_PARAMETER p, _, _) => { ppsay " #";  pp_symbol_list p; };
+		    print_expression_as_nada' (FN_EXPRESSION NIL, _, d) => ppsay "<function>";
+
+		    print_expression_as_nada' (FN_EXPRESSION rules, _, d)
+			=>	
+			{   fun pr _ pattern = print_rule_as_nada context pp (pattern, d - 1);
+
+			    print_sequence_as_nada
+				pp
+				{   sep   => (\\ pp => { pp::lit pp "|";break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				    pr,
+				    style => INCONSISTENT
+				}
+				rules;
+			};
+
+		    print_expression_as_nada' (PRE_FIXITY_EXPRESSION fap, _, d)
+			=> 
+			{   fun pr _ { item, fixity, source_code_region } = print_expression_as_nada'(item, TRUE, d);
+
+			    print_sequence_as_nada
+				pp
+				{   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				    pr,
+				    style => INCONSISTENT
+				}
+				fap;
+			};
+
+		    print_expression_as_nada' (e as APPLY_EXPRESSION _, atom, d)
+			=>
+			{   infix0 = INFIX (0, 0);
+
+			    lpcond atom;
+			    print_app_expression_as_nada (e, null_fix, null_fix, d);
+			    rpcond atom;
+			};
+
+		    print_expression_as_nada' (OBJECT_FIELD_EXPRESSION { object, field }, _, d)
+			=>
+			{   print_expression_as_nada' (object, TRUE, d - 1);
+			    ppsay "->";
+			    print_symbol_as_nada pp field;
+			};
+
+
+		    print_expression_as_nada' (CASE_EXPRESSION { expression, rules }, _, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    ppsay "case ("; print_expression_as_nada'(expression, TRUE, d - 1); newline_indent pp 2;
+			    ppvlist pp (") ", ";", (\\ pp =  \\ r =  print_rule_as_nada context pp (r, d - 1)), trim rules);
+			    ppsay "esac";
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (LET_EXPRESSION { declaration, expression }, _, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    ppsay "stipulate ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_declaration_as_nada context pp (declaration, d - 1); 
+			    shut_box pp;
+			    break pp { blanks=>1, indent_on_wrap=>0 };
+			    ppsay "herein ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada'(expression, FALSE, d - 1);
+			    shut_box pp;
+			    break pp { blanks=>1, indent_on_wrap=>0 };
+			    ppsay "end";
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (SEQUENCE_EXPRESSION exps, _, d)
+			=>
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (by pp::lit "("),
+				sep   => (\\ pp => { pp::lit pp ";";
+					      break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				back  => (by pp::lit ")"),
+				pr    => (\\ _ => \\ expression => print_expression_as_nada'(expression, FALSE, d - 1); end; end ),
+				style => INCONSISTENT
+			    }
+			    exps;
+
+		    print_expression_as_nada' (  INT_CONSTANT_IN_EXPRESSION   i, _, _)   =>   ppsay (multiword_int::to_string i);
+		    print_expression_as_nada' (     UNT_CONSTANT_IN_EXPRESSION   w, _, _)   =>   ppsay (multiword_int::to_string w);
+		    print_expression_as_nada' (     FLOAT_CONSTANT_IN_EXPRESSION   r, _, _)   =>   ppsay r;
+		    print_expression_as_nada' (   STRING_CONSTANT_IN_EXPRESSION   s, _, _)   =>   print_lib7_string_as_nada pp s;
+		    print_expression_as_nada' (CHAR_CONSTANT_IN_EXPRESSION   s, _, _)   =>   { ppsay "#"; print_lib7_string_as_nada pp s;};
+
+		    print_expression_as_nada'(r as RECORD_IN_EXPRESSION fields, _, d)
+			=>
+			if   (is_tupleexp r)
+
+			     print_closed_sequence_as_nada
+				 pp
+				 {   front => (by pp::lit "("),
+				     sep   => (\\ pp => { pp::lit pp ", ";
+						       break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				     back  => (by pp::lit ")"),
+				     pr    => (\\ _ => \\ (_, expression) => print_expression_as_nada'(expression, FALSE, d - 1); end;  end ),
+				     style => INCONSISTENT
+				 }
+				 fields;
+			else
+			     print_closed_sequence_as_nada
+				 pp
+				 {   front => (by pp::lit "{"),
+				     sep   => (\\ pp => { pp::lit pp ", ";
+						       break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				     back  => (by pp::lit "}"),
+				     pr    => (\\ pp => \\ (name, expression)
+							   =>
+							   {   print_symbol_as_nada pp name; ppsay "=";
+							       print_expression_as_nada'(expression, FALSE, d)
+							   ;}; end; end 
+					     ),
+				    style  => INCONSISTENT
+				 }
+				 fields;
+			fi;
+
+		    print_expression_as_nada' (LIST_EXPRESSION p, _, d)
+			=> 
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (by pp::lit "["),
+				sep   => (\\ pp => { pp::lit pp ", ";
+						break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				back  => (by pp::lit "]"),
+				pr    => (\\ pp => \\ expression =>
+						      (print_expression_as_nada'(expression, FALSE, d - 1)); end; end ),
+				style => INCONSISTENT
+			    }
+			    p;
+
+		    print_expression_as_nada' (TUPLE_EXPRESSION p, _, d)
+			=>
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (by pp::lit "("),
+				sep   => (\\ pp => { pp::lit pp ", ";
+						       break pp { blanks=>0, indent_on_wrap=>0 } ;}; end ),
+				back  => (by pp::lit ")"),
+				pr    => (\\ pp => \\ expression =>
+						      (print_expression_as_nada'(expression, FALSE, d - 1)); end; end ),
+				style => INCONSISTENT
+			    }
+			    p;
+
+		    print_expression_as_nada'(RECORD_SELECTOR_EXPRESSION name, atom, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    lpcond atom;
+			    ppsay "#"; print_symbol_as_nada pp name;
+			    ppsay ">";
+			    rpcond atom;
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (TYPE_CONSTRAINT_EXPRESSION { expression, constraint }, atom, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			    lpcond atom;
+			    print_expression_as_nada'(expression, FALSE, d); ppsay ":";
+			    break pp { blanks=>1, indent_on_wrap=>2 };
+			    print_typoid_as_nada context pp (constraint, d);
+			    rpcond atom;
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada'(EXCEPT_EXPRESSION { expression, rules }, atom, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    lpcond atom;
+			    print_expression_as_nada'(expression, atom, d - 1); newline pp; ppsay "except ";
+			    newline_indent pp 2;
+			    ppvlist pp ("  ", "also ",
+				(\\ pp => \\ r => print_rule_as_nada context pp (r, d - 1); end; end ), rules);
+			    rpcond atom;
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (RAISE_EXPRESSION expression, atom, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    lpcond atom;
+			    ppsay "raise exception "; print_expression_as_nada'(expression, TRUE, d - 1);
+			    rpcond atom;
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (IF_EXPRESSION { test_case, then_case, else_case }, atom, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    lpcond atom;
+			    ppsay "if ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada' (test_case, FALSE, d - 1);
+			    shut_box pp;
+			    break pp { blanks=>1, indent_on_wrap=> 0 };
+			    ppsay "then ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada' (then_case, FALSE, d - 1);
+			    shut_box pp;
+			    break pp { blanks=>1, indent_on_wrap=> 0 };
+			    ppsay "else ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada' (else_case, FALSE, d - 1);
+			    shut_box pp;
+			    rpcond atom;
+			    shut_box pp;
+			};
+
+		    print_expression_as_nada' (AND_EXPRESSION (e1, e2), atom, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    lpcond atom;
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada' (e1, TRUE, d - 1);
+			    shut_box pp;
+			    break pp { blanks=>1, indent_on_wrap=> 0 };
+			    ppsay "also ";
+			    pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_expression_as_nada' (e2, TRUE, d - 1);
+			    shut_box pp;
+			    rpcond atom;
+			    shut_box pp;
+			 };
+
+		     print_expression_as_nada' (OR_EXPRESSION (e1, e2), atom, d)
+			 =>
+			 {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     lpcond atom;
+			     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     print_expression_as_nada' (e1, TRUE, d - 1);
+			     shut_box pp;
+			     break pp { blanks=>1, indent_on_wrap=> 0 };
+			     ppsay "or ";
+			     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     print_expression_as_nada' (e2, TRUE, d - 1);
+			     shut_box pp;
+			     rpcond atom;
+			     shut_box pp;
+			 };
+
+		     print_expression_as_nada' (WHILE_EXPRESSION { test, expression }, atom, d)
+			 =>
+			 {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     ppsay "while ";
+			     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     print_expression_as_nada'(test, FALSE, d - 1);
+			     shut_box pp;
+			     break pp { blanks=>1, indent_on_wrap=> 0 };
+			     ppsay "do ";
+			     pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     print_expression_as_nada'(expression, FALSE, d - 1);
+			     shut_box pp;
+			     shut_box pp;
+			 };
+
+		    print_expression_as_nada'(VECTOR_IN_EXPRESSION NIL, _, d)
+			=>
+			ppsay "#[]";
+
+		    print_expression_as_nada' (VECTOR_IN_EXPRESSION exps, _, d)
+			=>
+			{   fun pr _ expression = print_expression_as_nada'(expression, FALSE, d - 1);
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "#["),
+				    sep   => (\\ pp => { pp::lit pp ", ";
+						  break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				    back  => (by pp::lit "]"),
+				    pr,
+				    style => INCONSISTENT
+				}
+				exps;
+			};
+
+		    print_expression_as_nada' (SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), atom, d)
+			=>
+			case source_opt
+
+			    THE source
+				=>
+				if *internals
+
+				      ppsay "<MARK(";
+				      prpos (pp, source, s); ppsay ", ";
+				      prpos (pp, source, e); ppsay "): ";
+				      print_expression_as_nada'(expression, FALSE, d); ppsay ">";
+				else
+				      print_expression_as_nada'(expression, atom, d);
+				fi;
+
+			    NULL => print_expression_as_nada'(expression, atom, d);
+			esac;
+
+		   end 
+
+		   also
+		   fun print_app_expression_as_nada (_, _, _, 0)
+			   =>
+			   pp::lit pp "<expression>";
+
+		       print_app_expression_as_nada arg
+			   =>
+			   {   ppsay = pp::lit pp;
+
+			       fun fixitypp (name, operand, left_fix, right_fix, d)
+				   =
+				   {   dname = symbol_path::to_string (symbol_path::SYMBOL_PATH name);
+
+				       this_fix = case name
+							  [id] => get_fix (dictionary, id);
+							 _ => NONFIX; esac;
+
+				       fun pr_non expression
+					   =
+					   {   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 ); 	
+					       ppsay dname; break pp { blanks=>1, indent_on_wrap=>0 };
+					       print_expression_as_nada'(expression, TRUE, d - 1);
+					       shut_box pp;
+					   };
+
+				       case this_fix
+
+					    INFIX _
+						=>
+						case (strip_source_code_region_data operand)
+
+						     RECORD_IN_EXPRESSION [(_, pl), (_, pr)]
+							 =>
+							 {   atom = stronger_l (left_fix, this_fix) or
+									stronger_r (this_fix, right_fix);
+
+							     my (left, right)
+								 =
+								 if atom      (null_fix, null_fix);
+								 else         (left_fix, right_fix);
+								 fi;
+
+							     {   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+								 lpcond atom;
+								 print_app_expression_as_nada (pl, left, this_fix, d - 1);
+								 break pp { blanks=>1, indent_on_wrap=>0 };
+								 ppsay dname;
+								 break pp { blanks=>1, indent_on_wrap=>0 };
+								 print_app_expression_as_nada (pr, this_fix, right, d - 1);
+								 rpcond atom;
+								 shut_box pp;
+							     };
+							 };
+
+						     e' => pr_non e';
+						esac;
+
+					   NONFIX => pr_non operand;
+
+				       esac;
+				   };
+
+			       fun apply_print (_, _, _, 0)
+				       =>
+				       ppsay "#";
+
+				   apply_print (APPLY_EXPRESSION { function=>operator, argument=>operand }, l, r, d)
+				       =>
+				       case (strip_source_code_region_data operator)
+
+					     VARIABLE_IN_EXPRESSION v
+						 =>
+						 {   path = v;
+
+						     fixitypp (path, operand, l, r, d);
+						 };
+
+					     operator
+						 =>
+						 {   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+						     print_expression_as_nada'(operator, TRUE, d - 1); break pp { blanks=>1, indent_on_wrap=>2 };
+						     print_expression_as_nada'(operand,  TRUE, d - 1);
+						     shut_box pp;
+						 };
+					esac;
+
+				   apply_print (SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), l, r, d)
+				       =>
+				       case source_opt
+
+					    THE source
+						=>
+						if *internals
+
+						     ppsay "<MARK(";
+						     prpos (pp, source, s); ppsay ", ";
+						     prpos (pp, source, e); ppsay "): ";
+						     print_expression_as_nada'(expression, FALSE, d); ppsay ">";
+						else
+						     apply_print (expression, l, r, d);
+						fi;
+
+					   NULL => apply_print (expression, l, r, d);
+				       esac;
+
+				   apply_print (e, _, _, d)
+				       =>
+				       print_expression_as_nada'(e, TRUE, d);
+			       end;
+
+			       apply_print arg;
+			   };
+		end;
+
+		(\\ (expression, depth) =  print_expression_as_nada' (expression, FALSE, depth));
+	    }
+
+	also
+	fun print_rule_as_nada (context as (dictionary, source_opt)) pp (CASE_RULE { pattern, expression }, d)
+	    =
+	    if (d > 0) 
+		#
+		pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+		print_pattern_as_nada context pp (pattern, d - 1);
+		pp::lit pp " =>"; break pp { blanks=>1, indent_on_wrap=>2 };
+		print_expression_as_nada context pp (expression, d - 1);
+		shut_box pp;
+	    else
+		pp::lit pp "<rule>";
+	    fi
+
+	also
+	fun print_package_expression_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+		pp_symbol_list = pp_path pp;
+
+		fun  print_package_expression_as_nada'(_, 0)
+			 =>
+			 ppsay "<package_expression>";
+
+		     print_package_expression_as_nada'(PACKAGE_BY_NAME p, d)
+			 =>
+			 pp_symbol_list (p);
+
+		     print_package_expression_as_nada'(PACKAGE_DEFINITION (SEQUENTIAL_DECLARATIONS NIL), d)
+			 =>
+			 {   ppsay "pkg";
+			     nonbreakable_blanks pp 1;
+			     ppsay "end";
+			 };
+
+		     print_package_expression_as_nada'(PACKAGE_DEFINITION de, d)
+			 =>
+			 {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::vertical,	100 );
+			     ppsay "pkg";  unparse_junk::newline_indent pp 2;
+			     print_declaration_as_nada context pp (de, d - 1);
+			     ppsay "end";
+			     shut_box pp;
+			 };
+
+		     print_package_expression_as_nada' (PACKAGE_CAST (stre, constraint), d)
+			 =>
+			 {   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			     print_package_expression_as_nada' (stre, d - 1);
+
+			     case constraint
+
+				  NO_PACKAGE_CAST => ();
+
+				  WEAK_PACKAGE_CAST api_expression
+				      => 
+				      {   ppsay ": (weak) "; break pp { blanks=>1, indent_on_wrap=>2 };
+					  print_api_expression_as_nada context pp (api_expression, d - 1);
+				      };
+
+				  PARTIAL_PACKAGE_CAST api_expression
+				      => 
+				      {   ppsay ": (partial) "; break pp { blanks=>1, indent_on_wrap=>2 };
+					  print_api_expression_as_nada context pp (api_expression, d - 1);
+				      };
+
+				  STRONG_PACKAGE_CAST api_expression
+				      => 
+				      {   ppsay ": "; break pp { blanks=>1, indent_on_wrap=>2 };
+					  print_api_expression_as_nada context pp (api_expression, d - 1);
+				      };
+			     esac;
+
+			     shut_box pp;
+			 };
+
+		     print_package_expression_as_nada'(CALL_OF_GENERIC (path, str_list), d)
+			 => 
+			 {   fun pr pp (strl, bool)
+				 =
+				 {   ppsay "("; print_package_expression_as_nada context pp (strl, d); ppsay ")";};
+
+			     pp_symbol_list (path);
+
+			     print_sequence_as_nada
+				 pp
+				 {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				     pr,
+				     style => INCONSISTENT
+				 }
+				 str_list;
+			 };
+
+		     print_package_expression_as_nada'(INTERNAL_CALL_OF_GENERIC (path, str_list), d)
+			 => 
+			 {   fun pr pp (strl, bool)
+				 =
+				   { ppsay "("; print_package_expression_as_nada context pp (strl, d); ppsay ")";};
+
+			     pp_symbol_list (path);
+
+			     print_sequence_as_nada
+				 pp
+				 {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				     pr,
+				     style => INCONSISTENT
+				 }
+				 str_list;
+			 };
+
+		     print_package_expression_as_nada' (LET_IN_PACKAGE (declaration, body), d)
+			 =>
+			 {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			     ppsay "stipulate "; print_declaration_as_nada context pp (declaration, d - 1); 
+			     newline pp;
+			     ppsay " herein "; print_package_expression_as_nada'(body, d - 1); newline pp;
+			     ppsay "end";
+			     shut_box pp;
+			 };
+
+		     print_package_expression_as_nada' (SOURCE_CODE_REGION_FOR_PACKAGE (body, (s, e)), d)
+			 =>
+			 print_package_expression_as_nada' (body, d);
+	      end;
+
+	/*	      case source_opt
+
+			   THE source
+			       =>
+			       (ppsay "SOURCE_CODE_REGION_FOR_PACKAGE(";
+				  print_package_expression_as_nada'(body, d); ppsay ", ";
+				  prpos (pp, source, s); ppsay ", ";
+				  prpos (pp, source, e); ppsay ")");
+
+			   NULL => print_package_expression_as_nada'(body, d);
+		      esac
+	*/
+
+		print_package_expression_as_nada';
+	    }
+
+	also
+	fun print_generic_expression_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		pp_symbol_list = pp_path pp;
+
+		fun print_generic_expression_as_nada'(_, 0) => ppsay "<generic_expression>";
+		    print_generic_expression_as_nada'(GENERIC_BY_NAME (p, _), d) => pp_symbol_list (p);
+
+		    print_generic_expression_as_nada'(LET_IN_GENERIC (declaration, body), d)
+		    =>
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppsay "stipulate "; print_declaration_as_nada context pp (declaration, d - 1); 
+			newline pp;
+			ppsay " herein "; print_generic_expression_as_nada'(body, d - 1); newline pp;
+			ppsay "end";
+			shut_box pp;
+		    };
+
+		    print_generic_expression_as_nada'(CONSTRAINED_CALL_OF_GENERIC (path, sblist, fsigconst), d)
+		    =>
+		    {   fun pr pp (package_expression, _)
+			    =
+			    {   ppsay "(";
+				print_package_expression_as_nada context pp (package_expression, d);
+				ppsay ")"
+			    ;};
+
+			pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			pp_symbol_list path;
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    sblist;
+
+			shut_box pp;
+		    };
+
+		    print_generic_expression_as_nada'(SOURCE_CODE_REGION_FOR_GENERIC (body, (s, e)), d)
+			=>
+			print_generic_expression_as_nada' (body, d);
+
+		    print_generic_expression_as_nada'(GENERIC_DEFINITION _, d)
+			=>
+			err::impossible "print_generic_expression_as_nada: GENERIC_DEFINITION";
+		end;
+
+		print_generic_expression_as_nada';
+	    }
+
+	also
+	fun print_where_spec_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_where_spec_as_nada'(_, 0) => ppsay "<WhereSpec>";
+		    print_where_spec_as_nada'(WHERE_TYPE([],[], type), d) => print_typoid_as_nada context pp (type, d);
+
+		    print_where_spec_as_nada'(WHERE_TYPE (slist, tvlist, type), d)
+		    => 
+		    {   fun pr _ symbol = print_symbol_as_nada pp symbol;
+			fun pr' _ tyv = print_typevar_as_nada context pp (tyv, d);
+
+			ppsay "type ";
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				pr    => pr',
+				style => INCONSISTENT
+			    }
+			    tvlist;
+
+			break pp { blanks=>1, indent_on_wrap=>0 };
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    slist;	 
+
+			ppsay" =";
+			break pp { blanks=>1, indent_on_wrap=>0 };
+			print_typoid_as_nada context pp (type, d);
+		    };
+
+		    print_where_spec_as_nada' (WHERE_PACKAGE (slist, slist'), d)
+		    =>
+		    {   fun pr _ symbol
+			    =
+			    print_symbol_as_nada pp symbol;
+
+			ppsay "package ";
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    slist;break pp { blanks=>1, indent_on_wrap=>0 };
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    slist';
+		    }; end;
+
+		print_where_spec_as_nada';
+	    }
+
+	also
+	fun print_api_expression_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_api_expression_as_nada'(_, 0) => ppsay "<api_expression>";
+		    print_api_expression_as_nada'(API_BY_NAME s, d) => (print_symbol_as_nada pp s);
+
+		    print_api_expression_as_nada'(API_WITH_WHERE_SPECS (an_api, wherel), d)
+		    =>
+		    {   print_api_expression_as_nada' (an_api, d);
+			break pp { blanks=>1, indent_on_wrap=>0 };
+			(   case an_api
+
+				 API_BY_NAME s
+				 =>
+				 ppvlist pp ("where ", "also ",
+							     (\\ pp => \\ r => print_where_spec_as_nada context pp (r, d - 1); end; end ), wherel);
+
+				SOURCE_CODE_REGION_FOR_API (API_BY_NAME s, r)
+				 =>
+				 ppvlist pp ("where ", "also ",
+							     (\\ pp => \\ r => print_where_spec_as_nada context pp (r, d - 1); end; end ), wherel);
+				_
+				 =>
+				 { newline pp;  ppvlist pp ("where ", "also ",
+							     (\\ pp => \\ r => print_where_spec_as_nada context pp (r, d - 1); end; end ), wherel);}; esac
+			);
+		    };
+
+		    print_api_expression_as_nada' (API_DEFINITION [], d)
+		    =>	
+		    {   ppsay "api";
+			nonbreakable_blanks pp 1;
+			ppsay "end";
+		    };
+
+		    print_api_expression_as_nada' (API_DEFINITION specl, d)
+		    => 
+		    {   fun pr pp speci = (print_specification_as_nada context pp (speci, d));
+
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::vertical,	100 );
+			    ppsay "api";
+
+			    unparse_junk::newline_indent pp 4;
+
+			    print_sequence_as_nada
+				pp
+				{   sep   => (\\ pp => (newline pp); end ),
+				    pr,
+				    style => INCONSISTENT
+				}
+				specl;
+
+			    newline pp;
+			    ppsay "end ";
+			    shut_box pp;
+			};
+		    };
+
+		    print_api_expression_as_nada' (SOURCE_CODE_REGION_FOR_API (m, r), d)
+		    =>
+		    print_api_expression_as_nada context pp (m, d);
+		end;
+
+		print_api_expression_as_nada';
+	    }
+
+	also
+	fun print_generic_api_expression_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_generic_api_expression_as_nada'(_, 0) => ppsay "<generic_api_expression>";
+		    print_generic_api_expression_as_nada'(GENERIC_API_BY_NAME s, d) => print_symbol_as_nada pp s;
+
+		    print_generic_api_expression_as_nada'(GENERIC_API_DEFINITION { parameter, result }, d)
+		    =>
+		    {   fun pr pp (THE symbol, api_expression)
+			    =>
+			    {   ppsay "("; print_symbol_as_nada pp symbol; ppsay ":";
+				print_api_expression_as_nada context pp (api_expression, d);
+				ppsay ")"
+			    ;};
+
+			   pr pp (NULL, api_expression)
+			    =>
+			    { ppsay "("; print_api_expression_as_nada context pp (api_expression, d); ppsay ")";}; end;
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => (newline pp); end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    parameter;
+
+			break pp { blanks=>1, indent_on_wrap=>2 };
+			ppsay "=> ";
+			print_api_expression_as_nada context pp (result, d);
+		    };
+
+		    print_generic_api_expression_as_nada' (SOURCE_CODE_REGION_FOR_GENERIC_API (m, r), d)
+		    =>
+		    print_generic_api_expression_as_nada context pp (m, d);
+		end;
+
+		print_generic_api_expression_as_nada';
+	    }
+
+	also
+	fun print_specification_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun pp_tyvar_list ([], d) => ();
+
+		    pp_tyvar_list ( [typevar], d)
+		    => 
+		    {   print_typevar_as_nada context pp (typevar, d);
+			break pp { blanks=>1, indent_on_wrap=>0 };
+		    };
+
+		    pp_tyvar_list (tyvar_list, d)
+		    => 
+		    {   fun pr _ (typevar)
+			    =
+			    (print_typevar_as_nada context pp (typevar, d));
+
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (\\ pp => pp::lit pp "("; end ),
+				sep   => { pp::lit pp ", ";\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ;},
+				back  => { pp::lit pp ")";\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ;},
+				pr,
+				style => INCONSISTENT
+			    }
+			    tyvar_list;
+		    };
+		end;
+
+		fun print_specification_as_nada'(_, 0) => ppsay "<Specification>";
+
+		    print_specification_as_nada'(PACKAGES_IN_API sspo_list, d)
+		    =>
+		    {   fun pr _ (symbol, api_expression, path)
+			    =
+			    (   case path
+
+				     THE p => { print_symbol_as_nada pp symbol; ppsay " = ";
+						print_api_expression_as_nada context pp (api_expression, d);
+						break pp { blanks=>1, indent_on_wrap=>0 }; pp_path pp p;};
+
+				    NULL => { print_symbol_as_nada pp symbol; ppsay " = ";
+					      print_api_expression_as_nada context pp (api_expression, d);}; esac
+			    );
+
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (by pp::lit "package "),
+				sep   => (\\ pp => { pp::lit pp ", ";
+					     break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				back  => (by pp::lit ""),
+				pr,
+				style => INCONSISTENT
+			    }
+			    sspo_list;
+		    };
+
+		    print_specification_as_nada' (TYPES_IN_API (stto_list, bool), d)
+		    => 
+		    {   fun pr _ (symbol, tyvar_list, tyo)
+			    =
+			    (   case tyo
+
+				     THE type
+				     =>
+				     { pp_tyvar_list (tyvar_list, d);print_symbol_as_nada pp symbol; ppsay "= ";
+				      print_typoid_as_nada context pp (type, d);};
+
+				    NULL
+				     =>
+				     { pp_tyvar_list (tyvar_list, d);print_symbol_as_nada pp symbol;}; esac
+			    );
+
+			print_closed_sequence_as_nada
+			    pp
+			    {   front => (by pp::lit "type "),
+				sep   => (\\ pp => { pp::lit pp "|";newline pp;}; end ),
+				back  => (by pp::lit ""),
+				pr,
+				style => INCONSISTENT
+			    }
+			    stto_list;
+		    };
+
+		    print_specification_as_nada' (GENERICS_IN_API sf_list, d)
+		    =>
+		    {   fun pr pp (symbol, generic_api_expression)
+			    =
+			    {   print_symbol_as_nada pp symbol; ppsay " : ";
+				print_generic_api_expression_as_nada context pp (generic_api_expression, d - 1)
+			    ;}; 
+
+			pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("generic package ", "also ", pr, sf_list);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (VALUES_IN_API st_list, d)
+		    => 
+		    {   fun pr pp (symbol, type)
+			    = 
+			    { print_symbol_as_nada pp symbol; ppsay ":"; print_typoid_as_nada context pp (type, d);};
+
+			pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("my ", "also ", pr, st_list);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (VALCONS_IN_API { sumtypes, with_types => [] }, d)
+		    => 
+		    {   fun pr pp (dbing) = (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+
+			pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("enum ", "also ", pr, sumtypes);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (VALCONS_IN_API { sumtypes, with_types }, d)
+		    => 
+		    {   fun prd pp (dbing) = (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+			fun prw pp (tbing) = (print_type_naming_as_nada context pp (tbing, d));
+
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    ppvlist pp ("enum ", "also ", prd, sumtypes);
+			    newline pp;
+			    ppvlist pp ("enum ", "also ", prw, with_types);
+			    shut_box pp;
+			};
+		    };
+
+		    print_specification_as_nada' (EXCEPTIONS_IN_API sto_list, d)
+		    => 
+		    {   fun pr pp (symbol, tyo)
+			    =
+			    (   case tyo
+
+				     THE type
+				     =>
+				     {   print_symbol_as_nada pp symbol; ppsay " : ";
+					 print_typoid_as_nada context pp (type, d)
+				     ;};
+
+				    NULL
+				     =>
+				     print_symbol_as_nada pp symbol; esac
+			    );
+
+			pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("exception ", "also ", pr, sto_list);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (PACKAGE_SHARING_IN_API paths, d)
+		    => 
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("sharing ", " = ", pp_path, paths);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (TYPE_SHARING_IN_API paths, d)
+		    => 
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			ppvlist pp ("sharing ", " = ", pp_path, paths);
+			shut_box pp;
+		    };
+
+		    print_specification_as_nada' (IMPORT_IN_API api_expression, d)
+		    =>
+		    print_api_expression_as_nada context pp (api_expression, d);
+
+		    print_specification_as_nada' (SOURCE_CODE_REGION_FOR_API_ELEMENT (m, r), d)
+		    =>
+		    print_specification_as_nada context pp (m, d);
+		end;
+
+		print_specification_as_nada';
+	    }
+
+	also
+	fun print_declaration_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		pp_symbol_list = pp_path pp;
+
+		fun print_declaration_as_nada'(_, 0) => ppsay "<declaration>";
+
+		    print_declaration_as_nada' (VALUE_DECLARATIONS (vbs, typevars), d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist pp ("my ", "also ", (\\ pp => \\ named_value => print_named_value_as_nada context pp (named_value, d - 1); end; end ), vbs);
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (FIELD_DECLARATIONS (fields, typevars), d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist pp ("my ", "also ", (\\ pp = \\ named_field = print_named_field_as_nada context pp (named_field, d - 1)), fields);
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (RECURSIVE_VALUE_DECLARATIONS (rvbs, typevars), d)
+		       => 
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist
+			       pp
+			       (   "my rec ",
+				   "also ",
+				   (  \\ pp =>
+				      \\ named_recursive_values =>
+				      print_recursively_named_value_as_nada
+					  context
+					  pp
+					  (named_recursive_values, d - 1); end; end 
+				   ),
+				   rvbs
+			       );
+
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (FUNCTION_DECLARATIONS (fbs, typevars), d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist'
+			       pp
+			       (   "fun ",
+				   "also ",
+				   (   \\ pp =>
+				       \\ str =>
+				       \\ fb =>
+				       print_sml_named_function_as_nada
+					   context
+					   pp
+					   str
+					   (fb, d - 1); end;  end;  end 
+				   ),
+				   fbs
+			       );
+
+			   shut_box  pp;
+		       };
+
+		    print_declaration_as_nada' (NADA_FUNCTION_DECLARATIONS (fbs, typevars), d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist'
+			       pp
+			       (   "fun ",
+				   "also ",
+				   (   \\ pp =>
+				       \\ str =>
+				       \\ fb =>
+				       print_lib7_named_function_as_nada
+					   context
+					   pp
+					   str
+					   (fb, d - 1); end;  end;  end 
+				   ),
+				   fbs
+			       );
+
+			   shut_box  pp;
+		       };
+
+		    print_declaration_as_nada' (TYPE_DECLARATIONS types, d)
+		       =>
+		       {   fun pr pp  type
+			       =
+			       (print_type_naming_as_nada context pp (type, d));
+
+			   print_closed_sequence_as_nada
+			       pp
+			       {   front => (by pp::lit "type "),
+				   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				   back  => (by pp::lit ""),
+				   pr,
+				   style => INCONSISTENT
+			       }
+			       types;
+		       };
+
+		    print_declaration_as_nada' (SUMTYPE_DECLARATIONS { sumtypes, with_types => [] }, d)
+		       => 
+		       {   fun prd _ (dbing)
+			       =
+			       (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+
+
+			   print_closed_sequence_as_nada
+			       pp
+			       {   front => (by pp::lit "enum "),
+				   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				   back  => (by pp::lit ""),
+				   pr    => prd,
+				   style => INCONSISTENT
+			       }
+			       sumtypes;
+		       };
+
+		    print_declaration_as_nada' (SUMTYPE_DECLARATIONS { sumtypes, with_types }, d)
+		       => 
+		       {   fun prd pp dbing = (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+			   fun prw pp tbing = (print_type_naming_as_nada context pp (tbing, d));
+
+			   {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+
+			       print_closed_sequence_as_nada
+				   pp
+				   {   front => (by pp::lit "enum "),
+				       sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				       back  => (by pp::lit ""),
+				       pr    => prd,
+				       style => INCONSISTENT
+				   }
+				   sumtypes;
+
+			       newline pp;
+
+			       print_closed_sequence_as_nada
+				   pp
+				   {   front => (by pp::lit "withtype "),
+				       sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				       back  => (by pp::lit ""),
+				       pr    => prw,
+				       style => INCONSISTENT
+				   }
+				   with_types;
+
+			       shut_box pp;
+			   };
+		       };
+
+		    print_declaration_as_nada' (ABSTRACT_TYPE_DECLARATIONS { abstract_types, with_types => [], body }, d)
+		       => 
+		       {   fun prd pp dbing = (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+			   fun prw pp tbing = (print_type_naming_as_nada     context pp (tbing, d));
+
+			   {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			       (   print_closed_sequence_as_nada
+				       pp
+				       {   front => (by pp::lit "enum "),
+					   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					   back  => (by pp::lit ""),
+					   pr    => prd,
+					   style => INCONSISTENT
+				       }
+				       abstract_types
+			       );
+			       newline pp;
+			       print_declaration_as_nada' (body, d);
+			       shut_box pp;
+			   };
+		       };
+
+		    print_declaration_as_nada' (ABSTRACT_TYPE_DECLARATIONS { abstract_types, with_types, body }, d)
+		       => 
+		       {   fun prd _ (dbing) = (print_sumtype_naming_as_mythryl7 context pp (dbing, d));
+			   fun prw _ (tbing) = (print_type_naming_as_nada context pp (tbing, d));
+
+			   {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			       (   print_closed_sequence_as_nada
+				       pp
+				       {   front => (by pp::lit "enum "),
+					   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					   back  => (by pp::lit ""),
+					   pr    => prd,
+					   style => INCONSISTENT
+				       }
+				       abstract_types
+			       );
+			       newline pp;
+			       (   print_closed_sequence_as_nada
+				       pp
+				       {   front => (by pp::lit "withtype "),
+					   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					   back  => (by pp::lit ""),
+					   pr    => prw,
+					   style => INCONSISTENT
+				       }
+				       with_types
+			       );
+			       newline pp;
+			       print_declaration_as_nada' (body, d);
+			       shut_box pp;
+			   };
+		       };
+
+		    print_declaration_as_nada' (EXCEPTION_DECLARATIONS ebs, d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   (   (\\ pp => \\ eb => print_exception_naming_as_nada context pp (eb, d - 1); end;  end ),   ebs   );
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada'(PACKAGE_DECLARATIONS sbs, d)
+		       =>
+		       {   fun pr _ (sbing)
+			       =
+			       (print_named_package_as_nada context pp (sbing, d));
+
+			   print_closed_sequence_as_nada
+			       pp
+			       {   front => (by pp::lit "package "),
+				   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+				   back  => (by pp::lit ""),
+				   pr,
+				   style => INCONSISTENT
+			       }
+
+			   sbs;
+		       };
+
+		    print_declaration_as_nada' (GENERIC_DECLARATIONS fbs, d)
+		       => 
+		       {   fun f pp generic_naming
+			       =
+			       print_generic_naming_as_nada context pp (generic_naming, d);
+
+			   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist pp ("generic package ", "also ", f, fbs);
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (API_DECLARATIONS sigvars, d)
+		       => 
+		       {   fun f pp (NAMED_API { name_symbol=>fname, definition=>def } )
+			       =>
+			       {   print_symbol_as_nada pp fname; ppsay " =";
+				   newline pp;
+				   print_api_expression_as_nada context pp (def, d)
+			       ;};
+
+			      f pp (SOURCE_CODE_REGION_FOR_NAMED_API (t, r))
+			       => 
+			       f pp t; end;
+
+			   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppvlist pp ("api ", "also ", f, sigvars);
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (GENERIC_API_DECLARATIONS sigvars, d)
+		       => 
+		       {   fun pr pp sigv = print_generic_api_naming_as_nada context pp (sigv, d);
+
+			   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+
+			   print_sequence_as_nada
+			       pp
+			       {   sep   => newline,
+				   pr,
+				   style => CONSISTENT
+			       }
+			       sigvars;
+
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (LOCAL_DECLARATIONS (inner, outer), d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppsay "stipulate"; newline_indent pp 2;
+			   print_declaration_as_nada' (inner, d - 1); newline pp;
+			   ppsay "herein ";
+			   print_declaration_as_nada' (outer, d - 1); newline pp;
+			   ppsay "end ";
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (SEQUENTIAL_DECLARATIONS decs, d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+
+			   print_sequence_as_nada
+			       pp
+			       {   sep   => newline,
+				   pr    => (\\ pp => \\ declaration => print_declaration_as_nada'(declaration, d); end; end ),
+				   style => CONSISTENT
+			       }
+			       decs;
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (INCLUDE_DECLARATIONS named_packages, d)
+		       => 
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			   ppsay "use ";
+
+			   print_sequence_as_nada
+			       pp
+			       {   sep   => (\\ pp => break pp { blanks=>1, indent_on_wrap=>0 }; end  ),
+				   pr    => (\\ pp => \\ sp => pp_symbol_list sp; end;  end ),
+				   style => INCONSISTENT
+			       }
+			       named_packages;
+
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (OVERLOADED_VARIABLE_DECLARATION (symbol, type, explist, extension), d)
+			=>
+			{   ppsay "overloaded my ";
+			    print_symbol_as_nada pp symbol;
+			};
+
+		    print_declaration_as_nada' (FIXITY_DECLARATIONS { fixity, ops }, d)
+		       =>
+		       {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+
+			   case fixity   
+
+				NONFIX => ppsay "nonfix ";
+
+			       INFIX (i, _)
+				=> 
+				{   if   (i % 2 == 0)
+
+					 ppsay "infix ";
+				    else ppsay "infixr ";  fi;
+
+				    if   (i / 2 > 0)
+
+					 ppsay (int::to_string (i / 2));
+					 ppsay " ";
+				    fi;
+				};
+			   esac;
+
+			   print_sequence_as_nada
+			       pp
+			       {   sep   => (\\ pp => break pp { blanks=>1, indent_on_wrap=>0 }; end  ),
+				   pr    => print_symbol_as_nada,
+				   style => INCONSISTENT
+			       }
+			       ops;
+
+			   shut_box pp;
+		       };
+
+		    print_declaration_as_nada' (SOURCE_CODE_REGION_FOR_DECLARATION (declaration, (s, e)), d)
+			=>  
+			case source_opt
+			    #
+			    THE source
+				=>
+				{   ppsay "SOURCE_CODE_REGION_FOR_DECLARATION(";
+				    print_declaration_as_nada'(declaration, d); ppsay ", ";
+				    prpos (pp, source, s); ppsay ", ";
+				    prpos (pp, source, e); ppsay ")";
+				};
+
+			    NULL =>   print_declaration_as_nada'(declaration, d);
+			esac;
+
+		    print_declaration_as_nada' (PRE_COMPILE_CODE string, d)
+			=>
+			ppsay ("PRE_COMPILE_CODE \"" + string + "\"");
+		end;
+
+		  print_declaration_as_nada';
+	    }
+
+	also
+	fun print_named_value_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_named_value_as_nada'(_, 0)=> ppsay "<naming>";
+
+		    print_named_value_as_nada'(NAMED_VALUE { pattern, expression, ... }, d)
+		    => 
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			print_pattern_as_nada context pp (pattern, d - 1);
+			pp::lit pp " =";
+			break pp { blanks=>1, indent_on_wrap=>2 };
+			print_expression_as_nada context pp (expression, d - 1);
+			shut_box pp;
+		    };
+
+		    print_named_value_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_VALUE (named_value, source_code_region), d)
+		    =>
+		    print_named_value_as_nada' (named_value, d); end;
+
+		print_named_value_as_nada';
+	    }
+
+	also
+	fun print_named_field_as_nada (context as (dictionary, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_named_field_as_nada'(_, 0)=> ppsay "<field>";
+
+		    print_named_field_as_nada'(NAMED_FIELD { name => symbol, type, init }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    pp_path pp [symbol];
+			    pp::lit pp " =";
+			    print_typoid_as_nada context pp (type, d);
+			    shut_box pp;
+			};
+
+		    print_named_field_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_FIELD (named_field, source_code_region), d)
+			=>
+			print_named_field_as_nada' (named_field, d);
+		end;
+
+		print_named_field_as_nada';
+	    }
+
+	also
+	fun print_recursively_named_value_as_nada (context as (_, source_opt)) pp
+	    = 
+	    {   ppsay = pp::lit pp;
+
+		fun print_recursively_named_value_as_nada'(_, 0)=> ppsay "<rec naming>";
+
+		    print_recursively_named_value_as_nada'(NAMED_RECURSIVE_VALUE { variable_symbol, expression, ... }, d)
+		    =>
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			print_symbol_as_nada pp variable_symbol; pp::lit pp " =";
+			break pp { blanks=>1, indent_on_wrap=>2 }; print_expression_as_nada context pp (expression, d - 1);
+			shut_box pp;
+		    };
+
+		    print_recursively_named_value_as_nada' (SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (named_recursive_values, source_code_region), d)
+		    =>
+		    print_recursively_named_value_as_nada' (named_recursive_values, d);
+		end;
+
+		print_recursively_named_value_as_nada';
+	    }
+
+	also
+	fun print_sml_named_function_as_nada (context as (_, source_opt)) pp head
+	    = 
+	    {   ppsay = pp::lit pp;
+
+		fun print_sml_named_function_as_nada'(_, 0)
+			=>
+			ppsay "<FunNaming>";
+
+		    print_sml_named_function_as_nada'(NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type }, d)
+			=>
+			{
+			    case kind
+				PLAIN_FUN => ppsay " fun ";
+			       METHOD_FUN => ppsay " method fun ";
+			      MESSAGE_FUN => ppsay " message fun ";
+			    esac;
+
+			    case null_or_type
+				THE type => {   ppsay " : ";
+						print_typoid_as_nada context pp (type, d - 1);
+					    };
+				NULL => ();
+			    esac;
+
+			    ppvlist pp
+			      ( head, " ; ",
+				(\\ pp =  \\ (cl: Pattern_Clause) =  (print_pattern_clause_as_nada context pp (cl, d))),
+				pattern_clauses
+			      );
+			};
+
+		    print_sml_named_function_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_FUNCTION (t, r), d)
+			=>
+			print_sml_named_function_as_nada context pp head (t, d);
+		end;
+
+		print_sml_named_function_as_nada';
+	    }
+
+	also
+	fun print_lib7_named_function_as_nada (context as (_, source_opt)) pp head
+	    = 
+	    {   ppsay = pp::lit pp;
+
+		fun print_lib7_named_function_as_nada'(_, 0)=> ppsay "<FunNaming>";
+
+		    print_lib7_named_function_as_nada'(NADA_NAMED_FUNCTION (clauses, ops), d)
+		    =>
+		    ppvlist pp (head, "  | ",
+		       (\\ pp => \\ (cl: Nada_Pattern_Clause) => (print_lib7_pattern_clause_as_nada context pp (cl, d)); end;  end ),
+		       clauses);
+
+		    print_lib7_named_function_as_nada' (SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (t, r), d)
+		    =>
+		    print_lib7_named_function_as_nada context pp head (t, d);
+		end;
+
+		print_lib7_named_function_as_nada';
+	    }
+
+	also
+	fun print_pattern_clause_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_pattern_clause_as_nada' (PATTERN_CLAUSE { patterns, result_type, expression }, d)
+		    =
+		    {   fun pr _ {   item:   Case_Pattern,
+				     fixity: Null_Or( Symbol ),
+				     source_code_region: Source_Code_Region
+				 }
+			    =
+			    (   case fixity
+
+				     THE a
+				     =>
+				     print_pattern_as_nada context pp (item, d);
+
+				    NULL
+				     =>
+				     (   case item
+
+					      PRE_FIXITY_PATTERN p
+					      =>
+					      { pp::lit pp "(";print_pattern_as_nada context pp (item, d);
+					       pp::lit pp ")";};
+
+					     TYPE_CONSTRAINT_PATTERN p
+					      =>
+					      { pp::lit pp "(";print_pattern_as_nada context pp (item, d);
+					       pp::lit pp ")";};
+
+					     AS_PATTERN p
+					      =>
+					      { pp::lit pp"(";print_pattern_as_nada context pp (item, d);
+					       pp::lit pp ")";};
+
+					     OR_PATTERN p
+					      =>
+					      { pp::lit pp "(";print_pattern_as_nada context pp (item, d);
+					       pp::lit pp ")";};
+
+					     _ => print_pattern_as_nada context pp (item, d); esac
+				     ); esac
+			    );
+
+
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			    (   print_sequence_as_nada
+				    pp
+				    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					pr,
+					style => INCONSISTENT
+				    }
+				    patterns
+			    );
+			    (   case result_type
+
+				     THE type
+				     =>
+				    {   pp::lit pp ":";
+					print_typoid_as_nada context pp (type, d);
+				    };
+
+				    NULL => (); esac
+			    );
+			    pp::lit pp " =";
+			    break pp { blanks=>1, indent_on_wrap=>0 }; 
+			    print_expression_as_nada context pp (expression, d);
+			    shut_box pp;
+			};
+		    };
+
+		print_pattern_clause_as_nada';
+	    }
+
+	also
+	fun print_lib7_pattern_clause_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_lib7_pattern_clause_as_nada' (NADA_PATTERN_CLAUSE { pattern, result_type, expression }, d)
+		    =
+		    {   fun pr _  (item: Case_Pattern)
+			    =
+			    #  XXX BUGGO FIXME need to get intelligent about paren insertion, by and by 
+			    {   pp::lit pp "(";
+				print_pattern_as_nada context pp (item, d);
+				pp::lit pp ")"
+			    ;};
+
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			    (   print_sequence_as_nada
+				    pp
+				    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					pr,
+					style => INCONSISTENT
+				    }
+    #  XXX BUGGO FIXME this list is (obviously!) always length 1 -- the logic probably needs fixing. 
+				    [ pattern ]
+			    );
+			    case result_type
+
+				 THE type
+				 =>
+				{   pp::lit pp ":";
+				    print_typoid_as_nada context pp (type, d);
+				};
+
+				NULL => ();
+			    esac;
+
+			    pp::lit pp " =";
+			    break pp { blanks=>1, indent_on_wrap=>0 }; 
+			    print_expression_as_nada context pp (expression, d);
+			    shut_box pp;
+			};	
+		    };
+
+		print_lib7_pattern_clause_as_nada';
+	    }
+
+	also
+	fun print_type_naming_as_nada (context as (_, source_opt)) pp 
+	    = 
+	    {   ppsay = pp::lit pp;
+
+		fun pp_tyvar_list (symbol_list, d)
+		    =
+		    {   fun pr _ (typevar) = (print_typevar_as_nada context pp (typevar, d));
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => { pp::lit pp "*";
+					       break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    symbol_list;
+		    };
+
+		fun print_type_naming_as_nada'(_, 0)=> ppsay "<t::naming>";
+
+		    print_type_naming_as_nada' (NAMED_TYPE { name_symbol, definition, typevars }, d)
+		      => 
+		      {   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+			  print_symbol_as_nada pp name_symbol;
+			  pp::lit pp " =";
+			  break pp { blanks=>1, indent_on_wrap=>0 }; print_typoid_as_nada context pp (definition, d);
+			  pp_tyvar_list (typevars, d);
+			  shut_box pp;
+		      };
+
+		    print_type_naming_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_TYPE (t, r), d)
+		      =>
+		      print_type_naming_as_nada context pp (t, d);
+		end;
+
+		print_type_naming_as_nada';
+	    }
+
+	also
+	fun print_sumtype_naming_as_mythryl7 (context as (_, source_opt)) pp
+	    = 
+	    {   ppsay = pp::lit pp;
+
+		fun pp_tyvar_list (symbol_list, d)
+		    =
+		    {   fun pr _ (typevar) = (print_typevar_as_nada context pp (typevar, d));
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp => { pp::lit pp "*";
+					     break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				pr,
+				style => INCONSISTENT
+			    }
+			    symbol_list;
+		    };
+
+		fun print_sumtype_naming_as_mythryl7'(_, 0)=> ppsay "<d::naming>";
+
+		    print_sumtype_naming_as_mythryl7' (SUM_TYPE { name_symbol, typevars, right_hand_side, is_lazy }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE  { blanks => 1, tab_to => 0, tabstops_are_every => 4 },  pp::ragged_right, 100 );
+
+			    print_symbol_as_nada pp  name_symbol;
+			    pp::lit pp " =";
+
+			    break pp { blanks=>1, indent_on_wrap=>0 };
+			    print_sumtype_naming_right_hand_side_as_nada context pp (right_hand_side, d);
+
+			    shut_box pp;
+			};
+
+		    print_sumtype_naming_as_mythryl7'(SOURCE_CODE_REGION_FOR_UNION_TYPE (t, r), d)
+			=>
+			print_sumtype_naming_as_mythryl7 context pp (t, d); end;
+
+		print_sumtype_naming_as_mythryl7';
+	    }
+
+	also
+	fun print_sumtype_naming_right_hand_side_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_sumtype_naming_right_hand_side_as_nada'(_, 0)=> ppsay "<sumtype_naming_right_hand_side>";
+
+		    print_sumtype_naming_right_hand_side_as_nada' (VALCONS const, d)
+			=> 
+			{   fun pr pp (symbol: Symbol, tv: Null_Or( raw_syntax::Any_Type ))
+				=
+				case tv
+
+				     THE a
+					 =>
+					 {   print_symbol_as_nada pp symbol;
+    #    					 ppsay" of ";
+					     ppsay " ";
+					     print_typoid_as_nada context pp (a, d);
+					 };
+
+				     NULL
+					 =>
+					 (print_symbol_as_nada pp symbol);
+				esac;
+
+
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp = { pp::lit pp "; ";
+						break pp { blanks=>1, indent_on_wrap=>0 } ;}),
+				pr,
+				style => INCONSISTENT
+			    }
+			    const;
+		    };
+
+		    print_sumtype_naming_right_hand_side_as_nada' (REPLICAS symlist, d)
+			=> 
+			print_sequence_as_nada
+			    pp
+			    {   sep   => (\\ pp = { pp::lit pp "; ";
+					      break pp { blanks=>1, indent_on_wrap=>0 } ;}),
+				pr    => (\\ pp =  \\ symbol =  print_symbol_as_nada pp symbol),
+				style => INCONSISTENT
+			    }
+			    symlist;
+		end;
+
+		print_sumtype_naming_right_hand_side_as_nada';
+	    }
+
+	also
+	fun print_exception_naming_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+		#
+		pp_symbol_list = pp_path pp;
+
+		fun print_exception_naming_as_nada'(_, 0)
+			=>
+			ppsay "<Eb>";
+
+		    print_exception_naming_as_nada' (   NAMED_EXCEPTION {
+							 exception_symbol => exn,
+							 exception_type   => etype
+						     },
+						     d
+						 )
+			=> 
+		        case etype
+			    #
+			    THE a => {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+					 print_symbol_as_nada pp exn; pp::lit pp " =";
+					 break pp { blanks=>1, indent_on_wrap=>2 }; print_typoid_as_nada context pp (a, d - 1);
+					 shut_box pp;
+				     };
+
+			    NULL => {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+					print_symbol_as_nada pp exn; 
+					shut_box pp;
+				    };
+			esac;
+
+
+		    print_exception_naming_as_nada' ( DUPLICATE_NAMED_EXCEPTION { exception_symbol=>exn, equal_to=>edef }, d)
+			=> 
+			# ASK MACQUEEN IF WE NEED TO PRINT EDEF XXX BUGGO FIXME 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_symbol_as_nada pp exn;
+			    pp::lit pp " =";
+			    break pp { blanks=>1, indent_on_wrap=>2 };
+			    pp_symbol_list (edef);
+			    shut_box pp;
+			};
+
+		    print_exception_naming_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_EXCEPTION (t, r), d)
+			=>
+			print_exception_naming_as_nada context pp (t, d);
+		end;
+
+		print_exception_naming_as_nada';
+	    }
+
+	also
+	fun print_named_package_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_named_package_as_nada'(_, 0)=> ppsay "<NAMED_PACKAGE>";
+
+		    print_named_package_as_nada' ( NAMED_PACKAGE { name_symbol=>name, definition=>def, constraint, kind }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_symbol_as_nada pp name; pp::lit pp " :";
+			    break pp { blanks=>1, indent_on_wrap=>2 }; print_package_expression_as_nada context pp (def, d - 1);
+			    shut_box pp;
+			};
+
+		    print_named_package_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_PACKAGE (t, r), d)
+			=>
+			print_named_package_as_nada context pp (t, d);
+		end;
+
+		print_named_package_as_nada';
+	    }
+
+	also
+	fun print_generic_naming_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_generic_naming_as_nada' (_, 0) => ppsay "<NAMED_GENERIC>";
+
+		    print_generic_naming_as_nada' (
+			NAMED_GENERIC {
+			    name_symbol => name,
+			    definition => GENERIC_DEFINITION { parameters, body, constraint }
+			},
+			d
+		    )
+		    =>
+		    {   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			print_symbol_as_nada pp name;
+			{   fun pr pp (THE symbol, api_expression)
+				=>
+				{   ppsay "(";
+				    print_symbol_as_nada pp symbol;
+				    ppsay " : ";
+				    print_api_expression_as_nada context pp (api_expression, d);
+				    ppsay ")";
+				};
+
+				pr pp (NULL, api_expression)
+				=>
+				{   ppsay "(";
+				    print_api_expression_as_nada context pp (api_expression, d);
+				    ppsay ")";
+				};
+			    end;
+
+			    {   print_sequence_as_nada
+				    pp
+				    {   sep   => (\\ pp => (break pp { blanks=>1, indent_on_wrap=>0 } ); end ),
+					pr,
+					style => INCONSISTENT
+				    }
+				    parameters;
+
+				case constraint
+
+				NO_PACKAGE_CAST
+				    =>
+				    ();
+
+				WEAK_PACKAGE_CAST (api_expression)
+				    => 
+				    {   ppsay ": (weak)";
+					break pp { blanks=>1, indent_on_wrap=>2 };
+					print_api_expression_as_nada context pp (api_expression, d);
+				    };
+
+				PARTIAL_PACKAGE_CAST (api_expression)
+				    => 
+				    {   ppsay ": (partial)";
+					break pp { blanks=>1, indent_on_wrap=>2 };
+					print_api_expression_as_nada context pp (api_expression, d);
+				    };
+
+				STRONG_PACKAGE_CAST (api_expression)
+				    => 
+				    {   ppsay ":";
+					break pp { blanks=>1, indent_on_wrap=>2 };
+					print_api_expression_as_nada context pp (api_expression, d);
+				    };
+				esac;
+
+				nonbreakable_blanks pp 1;
+
+				ppsay "="; break pp { blanks=>1, indent_on_wrap=>0 };
+
+				print_package_expression_as_nada context pp (body, d);};
+			};
+			shut_box pp;
+		    };
+
+		    print_generic_naming_as_nada' ( NAMED_GENERIC { name_symbol=>name, definition=>def }, d)
+			=>
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    print_symbol_as_nada pp name;
+			    pp::lit pp " =";
+			    break pp { blanks=>1, indent_on_wrap=>2 };
+			    print_generic_expression_as_nada context pp (def, d - 1);
+			    shut_box pp;
+			}; 
+
+		    print_generic_naming_as_nada' (SOURCE_CODE_REGION_FOR_NAMED_GENERIC (t, r), d)
+			=>
+			print_generic_naming_as_nada context pp (t, d);
+		end;
+
+		print_generic_naming_as_nada';
+	    }
+
+	also
+	fun print_generic_api_naming_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_generic_api_naming_as_nada'(_, 0)=> ppsay "<NAMED_GENERIC_API>";
+
+		    print_generic_api_naming_as_nada' (NAMED_GENERIC_API { name_symbol=>name, definition=>def }, d)
+			=> 
+			{   pp::open_box (pp, pp::typ::BOX_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 },	pp::normal,	100	);
+			    ppsay "funsig "; print_symbol_as_nada pp name; ppsay " =";
+			    break pp { blanks=>1, indent_on_wrap=>2 }; print_generic_api_expression_as_nada context pp (def, d - 1);
+			    shut_box pp;
+			};
+
+		    print_generic_api_naming_as_nada' (SOURCE_REGION_FOR_NAMED_GENERIC_API (t, r), d)
+			=>
+			print_generic_api_naming_as_nada context pp (t, d);
+		end;
+
+		print_generic_api_naming_as_nada';
+	    }
+
+	also
+	fun print_typevar_as_nada (context as (_, source_opt)) pp
+	    =
+	    {   ppsay = pp::lit pp;
+
+		fun print_typevar_as_nada' (_, 0) => ppsay "<typevar>";
+		    print_typevar_as_nada' (TYPEVAR s, d) => (print_symbol_as_nada pp s); 
+		    print_typevar_as_nada' (SOURCE_CODE_REGION_FOR_TYPEVAR (t, r), d) => print_typevar_as_nada context pp (t, d);
+		end;
+
+		print_typevar_as_nada';
+	    }
+
+	also
+	fun print_typoid_as_nada (context as (dictionary, source_opt)) pp
+	    =			
+	    {   ppsay = pp::lit pp;
+		#
+		fun print_typoid_as_nada' (_, 0)
+			=>
+			ppsay "<type>";
+
+		    print_typoid_as_nada' (TYPEVAR_TYPE t, d)
+			=>
+			(print_typevar_as_nada context pp (t, d));
+
+		    print_typoid_as_nada' (TYPE_TYPE (type, []), d)
+			=>
+			{   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+			    pp_path pp type;
+			    shut_box pp;
+			};
+
+		    print_typoid_as_nada' (TYPE_TYPE (type, args), d)
+			=> 
+			{   pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::normal, 100 );
+			    #
+			    case type
+				#
+				[type] =>   if (sy::eq (sy::make_type_symbol("->"), type))
+						#
+						case args
+						    #
+						     [dom, ran]
+						     =>
+						     {   print_typoid_as_nada' (dom, d - 1);
+							 ppsay " ->";
+							 break pp { blanks=>1, indent_on_wrap=>2 };
+							 print_typoid_as_nada' (ran, d - 1);
+						     };
+
+						    _ => err::impossible "wrong args for -> type";
+						esac;
+
+					    else
+						print_type_args_as_nada (args, d);
+						print_symbol_as_nada pp type;
+						shut_box pp;
+					    fi;
+
+				_ => {  print_type_args_as_nada (args, d);
+					pp_path pp type;
+					shut_box pp;
+				     };
+			    esac;
+			};
+
+		    print_typoid_as_nada' (RECORD_TYPE s, d)
+			=> 
+			{   fun pr pp (symbol: Symbol, tv: raw_syntax::Any_Type)
+				= 
+				{   print_symbol_as_nada pp symbol;
+				    ppsay ":";
+				    print_typoid_as_nada context pp (tv, d)
+				;};
+
+			    print_closed_sequence_as_nada
+				pp
+				{   front => (by pp::lit "{"),
+				    sep   => (\\ pp => { pp::lit pp ", ";
+						  break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				    back  => (by pp::lit "}"),
+				    pr,
+				    style => INCONSISTENT
+				}
+				s;
+			};
+
+		    print_typoid_as_nada' (TUPLE_TYPE t, d)
+			=> 
+			{   fun pr _ (tv: raw_syntax::Any_Type)
+				=
+				(print_typoid_as_nada context pp (tv, d));
+
+			    print_sequence_as_nada
+				pp
+				{   sep   => (\\ pp => { pp::lit pp " *";
+						 break pp { blanks=>1, indent_on_wrap=>0 } ;}; end ),
+				    pr,
+				    style => INCONSISTENT
+				}
+				t;
+			};
+
+		    print_typoid_as_nada' (SOURCE_CODE_REGION_FOR_TYPE (t, r), d)
+			=>
+			(print_typoid_as_nada context pp (t, d));
+		end 
+
+		also
+		fun print_type_args_as_nada ([], d)
+			=>
+			();
+
+		    print_type_args_as_nada ( [type], d)
+			=> 
+			{   if (strength type <= 1)
+			        #
+				pp::open_box (pp, pp::typ::CURSOR_RELATIVE { blanks => 1, tab_to => 0, tabstops_are_every => 4 }, pp::ragged_right, 100 );
+				ppsay "("; 
+				print_typoid_as_nada' (type, d); 
+				ppsay ")";
+				shut_box pp;
+			    else 
+				print_typoid_as_nada' (type, d);
+			    fi;
+
+			    break pp { blanks => 1,  indent_on_wrap => 0 };
+			};
+
+		    print_type_args_as_nada (tys, d)
+			=>
+			print_closed_sequence_as_nada
+			    pp 
+			    {   front => by pp::lit "(",
+				sep   => \\ pp
+					     =
+					     {   pp::lit pp ", ";
+						 break pp { blanks=>0, indent_on_wrap=>0 };
+					     },
+				back  => by pp::lit ") ",
+				style => INCONSISTENT, 
+				pr    => \\ _ =  \\ type =  print_typoid_as_nada' (type, d)
+			    }
+			    tys;
+		end; 
+
+		print_typoid_as_nada';
+	    };
+    };									# package print_raw_syntax_tree_as_nada 
+end;
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 2003 by University of Chicago 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

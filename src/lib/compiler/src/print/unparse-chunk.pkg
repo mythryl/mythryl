@@ -1,0 +1,1142 @@
+# unparse-chunk.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# We get invoked only from
+#
+#     src/lib/compiler/src/print/unparse-interactive-deep-syntax-declaration.pkg
+
+
+stipulate
+    package tdt =  type_declaration_types;		# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package pp  =  standard_prettyprint_mill;		# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package syx =  symbolmapstack;			# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+herein
+    api Unparse_Chunk {
+	#
+	Chunk;
+	#
+	unparse_chunk:  syx::Symbolmapstack
+			 -> pp::Prettyprint_Mill
+			 -> (Chunk, tdt::Typoid, Int)
+			 -> Void;
+
+	debugging:  Ref(  Bool );
+    };
+end;
+
+stipulate
+    package f8b =  eight_byte_float;			# eight_byte_float		is from   src/lib/std/eight-byte-float.pkg
+    package fxt =  fixity;				# fixity			is from   src/lib/compiler/front/basics/map/fixity.pkg
+    package ip  =  inverse_path;			# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package mtt =  more_type_types;			# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package pp  =  standard_prettyprint_mill;		# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package tdt =  type_declaration_types;		# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package tu  =  type_junk;				# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package uc  =  unsafe::unsafe_chunk;		# unsafe			is from   src/lib/std/src/unsafe/unsafe.pkg
+    package uj  =  unparse_junk;			# unparse_junk			is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+    package ve  =  vector;				# vector			is from   src/lib/std/src/vector.pkg
+    package vh  =  varhome;				# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+    #
+    Pp = pp::Pp;
+herein
+
+    package   unparse_chunk
+    : (weak)  Unparse_Chunk				# Unparse_Chunk			is from   src/lib/compiler/src/print/unparse-chunk.pkg
+    {
+	# Debugging:
+	#
+	say =  global_controls::print::say;
+
+	debugging =  REF FALSE;
+
+	fun if_debugging_say (msg: String)
+	    =
+	    if *debugging
+		#
+		say msg;
+		say "\n";
+	    fi;
+
+	fun bug msg
+	    =
+	    error_message::impossible("PrettyprintChunk: " + msg);
+
+
+	Chunk = uc::Chunk;
+
+	fun gettag chunk
+	    =
+	    uc::to_int (uc::nth (chunk, 0));
+
+	exception SWITCH;
+
+	fun switch (chunk, dcons)
+	    =
+	    try dcons
+	    where
+		fun check (f, tag:  Int)
+		    =
+		    f chunk == tag
+		    except
+			uc::REPRESENTATION = FALSE;
+
+		fun try ((d as { name, form, domain } ) ! r)
+			=>
+			case form
+			    #
+			    vh::TAGGED i     =>  if (check (gettag, i) ) d; else try r;fi;
+			    vh::CONSTANT i   =>  if (check (uc::to_int, i) ) d; else try r;fi;
+			    vh::TRANSPARENT  =>  d;
+			    vh::UNTAGGED     =>  if (uc::boxed chunk ) d; else try r; fi;
+			    vh::REFCELL_REP  =>  d;
+			    vh::LISTCONS     =>  if (uc::boxed chunk ) d; else try r; fi;
+			    vh::LISTNIL      =>  if (check (uc::to_int, 0) ) d; else try r;fi;
+			    vh::SUSPENSION _ =>  d;  /* LAZY */           
+			    _                =>  bug "switch: funny Constructor";
+			esac;
+
+		    try [] =>   bug "switch: none of the valcons matched";
+		end;
+	    end;
+
+	# A temporary hack for printing UNTAGGEDREC chunks:
+	#
+	fun is_rec_type (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t) } )
+		=>
+		is_rec_type t;
+
+	    is_rec_type (tdt::TYPCON_TYPOID (tdt::RECORD_TYPE _, _ ! _))
+		=>
+		TRUE;
+
+	    is_rec_type _
+		=>
+		FALSE;
+	end;
+
+	fun is_ubx_type (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t) } )
+		=>
+		is_ubx_type t;
+
+	    is_ubx_type (tdt::TYPCON_TYPOID (tc as tdt::SUM_TYPE _, []))
+		=>
+		(tu::types_are_equal (tc, mtt::int1_type)) or 
+		(tu::types_are_equal (tc, mtt::unt1_type));
+
+	    is_ubx_type _ => FALSE;
+	end;
+
+
+	fun decon (chunk, { form, name, domain } )
+	    =
+	    case form
+		#
+		vh::UNTAGGED
+		    => 
+		    case domain 
+			#
+			THE t =>    if (is_rec_type t   or   is_ubx_type t)
+					#
+					chunk;
+				    else
+					uc::nth (chunk, 0)
+					except
+					    e = raise exception e;
+				    fi;
+
+			_ => bug "decon -- unexpected Valcon_Form-domain";
+		    esac;
+
+	      vh::TAGGED _ => (uc::nth (chunk, 1) except e => raise exception e; end );
+
+	/*    vh::TAGGEDREC _ =>
+		   {   #  skip first element, i.e. discard tag 
+		       a = tuple chunk;
+		       fun f i =   if (i < ve::length a)   ve::sub (a, i) ! f (i+1);
+				   else                    []; 
+				   fi;
+		       u::cast (ve::from_list (f (1)));
+		   }
+	*/
+		vh::CONSTANT _   =>  uc::to_chunk ();
+		vh::TRANSPARENT  =>  chunk;
+		vh::REFCELL_REP  =>  *(uc::to_ref chunk);
+		vh::EXCEPTION _  =>  (uc::nth (chunk, 0) except e = raise exception e);
+		vh::LISTCONS     =>  chunk; 
+		vh::LISTNIL      =>  bug "decon - constant Constructor in decon";
+		vh::SUSPENSION _ =>  chunk;
+	    esac;
+
+
+	noparen = fxt::INFIX (0, 0);
+
+	stipulate
+	    fun dcons_of (   tdt::SUM_TYPE {
+				kind => tdt::SUMTYPE {
+					   family => {   members => #[ { valcons, ... } ],
+							...
+						    },
+					   ...
+				       },
+				...
+			    }
+		)
+		    =>
+		    valcons;
+
+		dcons_of _ =>   bug "(u)listDcons";
+	    end;
+	herein
+	    list_dcons  =  dcons_of mtt::list_type;
+	    ulist_dcons =  dcons_of mtt::unrolled_list_type;
+	end;
+
+	stipulate
+	    # Counter to generate identifier:
+	    cpt = REF 0;
+
+	    # Test membership in an association
+	    # list and return second element.
+	    #
+	    fun mem (a: Ref( Void ))
+		=
+		m
+		where
+		    fun m []           =>   NULL; 
+			m ((x, r) ! l) =>   if   (a == x   )   THE r;
+							  else   m l;   fi;
+		    end;
+		end;
+
+	    # Check if a chunk has been seen and if
+	    # so return its identification number,
+	    # creating a new one if necessary:
+	    #
+	    fun is_seen  chunk  l
+		=
+		{   chunk' = unsafe::cast chunk:  Ref( Void );
+		    #
+		    case (mem chunk' l)
+			#
+			NULL => (FALSE, 0);
+			#
+			THE (r as REF NULL)
+			    =>
+			    {   id = *cpt;
+				cpt := id+1;
+				r := THE id;
+				(TRUE, id);
+			    };
+			#
+			THE (REF (THE id)) =>   (TRUE, id);
+		    esac;
+		};
+
+	herein
+
+	    # Reset the identifier counter:
+	    # 
+	    fun init_cpt ()
+		=
+		cpt := 0;
+
+	    # Print with sharing if necessary.
+	    # The "printer" already knows the  ppstream.
+	    #
+	    fun print_with_sharing  (pp:Pp)  (chunk, accu, printer)
+		= 
+		if *global_controls::print::print_loop
+		    #
+		    (is_seen  chunk  accu)
+			->
+		        (seen, nb);
+
+		    if seen
+			#
+			pp.lit "%";
+			pp.lit (int::to_string nb);
+		    else
+			modif = REF NULL;
+			nl_accu = (unsafe::cast chunk:  Ref( Void ), modif) ! accu;
+			printer (chunk, nl_accu);
+
+			case *modif 
+			    #
+			    NULL => (); 
+			    #
+			    THE i
+				=>
+				{   pp.lit " as %";
+				    pp.lit (int::to_string i);
+				};
+			esac;
+		    fi;
+	        else
+		    printer (chunk, accu);
+		fi;
+
+	end;							# stipulate
+
+
+	fun interp_args (tys, NULL)
+		 =>
+		 tys;
+
+	    interp_args (tys, THE (members, free_types))
+		=> 
+		map subst tys
+		where
+		    fun subst (tdt::TYPCON_TYPOID (tdt::RECURSIVE_TYPE n, args))
+			    =>
+			    {   type' = list::nth (members, n)
+					except
+					    INDEX_OUT_OF_BOUNDS = bug "interpArgs 1";
+
+				tdt::TYPCON_TYPOID  (type',  map subst args);
+			    };
+
+			subst (tdt::TYPCON_TYPOID (tdt::FREE_TYPE n, args))
+			    =>
+			    {   type' = list::nth (free_types, n)
+					except
+					    INDEX_OUT_OF_BOUNDS = bug "interpArgs 2";
+
+				tdt::TYPCON_TYPOID  (type',  map subst args);
+			    };
+
+		       subst (tdt::TYPCON_TYPOID (type, args))
+			   =>
+			   tdt::TYPCON_TYPOID (type, map subst args);
+
+		       subst (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR type) } )
+			   =>
+			   subst type;
+
+		       subst type
+			   =>
+			   type;
+		    end;
+		end;
+	end;
+
+	fun trans_members
+		(
+		  stamps:			Vector( stamp::Stamp ), 
+		  free_types:			List( tdt::Type ),
+		  root,
+		  family as { members, ... }:	tdt::Sumtype_Family
+		)
+	    = 
+	    ( vector::keyed_fold_backward  dtmember_to_type  NIL  members,
+              free_types
+            )
+	    where
+	        fun dtmember_to_type
+			(
+			  n,
+			  { name_symbol,
+			    arity,
+			    valcons,
+			    is_eqtype,
+			    an_api,
+			    is_lazy
+			  },
+			  l
+			)
+		    =
+		    tdt::SUM_TYPE
+			{
+			  stub	      =>  NULL,
+			  stamp	      =>  vector::get (stamps, n),
+			  arity,
+			  is_eqtype   =>  REF (tdt::e::YES),
+			  namepath    =>  ip::INVERSE_PATH [ name_symbol ], 
+			  kind        =>  tdt::SUMTYPE
+					    {
+					      index  =>  n,
+					      stamps,
+					      root,
+					      family,
+					      free_types
+					    }
+			} ! l;
+
+	    end;
+
+
+	# main function:
+	#     unparse_chunk
+	#         :
+	#         Symbolmapstack
+	#         -> ppstream
+	#         -> (Chunk, Type, Int)
+	#         -> Void 
+	#
+	fun unparse_chunk symbolmapstack pp
+	    =
+	    unparse_value
+	    where
+		fun unparse_value (chunk: Chunk, type: tdt::Typoid, depth: Int) : Void
+		    =
+		    unparse_val' (chunk, type, NULL, depth, noparen, noparen, [])
+
+		also
+		fun unparse_val_share ( chunk:		Chunk,
+					#
+					type:		tdt::Typoid,
+
+					members_op:	Null_Or( ( List( tdt::Type ),
+								   List( tdt::Type )
+								 )
+							       ),
+					depth:		Int,
+
+					accu
+				      )
+		    =
+		    unparse_val' (chunk, type, members_op, depth, noparen, noparen, accu)
+
+		also
+		fun unparse_val' (_, _, _, 0, _, _, _)
+			=>
+			pp.lit  "#";
+
+		    unparse_val' (chunk: Chunk, typoid: tdt::Typoid, members_op: Null_Or( (List( tdt::Type ), List( tdt::Type )) ), 
+			    depth: Int, l: fxt::Fixity, r: fxt::Fixity, accu) : Void
+			=>
+			case typoid
+			    #
+			    tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t) }
+				=>
+				unparse_val'(chunk, t, members_op, depth, r, l, accu);
+
+			    tdt::TYPESCHEME_TYPOID { typescheme=>tdt::TYPESCHEME { body, arity }, ... }
+				=>
+				if (arity == 0)
+				    unparse_val'(chunk, body, members_op, depth, l, r, accu);
+				else
+				    args = uc::make_tuple (list::from_fn (arity, \\ i => uc::to_chunk 0; end ));
+
+				    my tchunk:  Chunk -> Chunk   = unsafe::cast chunk;
+
+				    result = tchunk args;
+
+				    unparse_val'(result, body, members_op, depth, l, r, accu);
+
+				fi;
+
+
+			    tdt::TYPCON_TYPOID (type as tdt::SUM_TYPE { kind, stamp, is_eqtype, ... }, argtys)
+				=>
+				case (kind, *is_eqtype)
+				    #
+				    (tdt::BASE _, _)
+					=>
+					{   fun unparse_word s
+						=
+						pp.lit ("0wx" + s);
+
+					    if   (tu::types_are_equal (type, mtt::int_type))    pp.lit (int::to_string (uc::to_int chunk));
+					    elif (tu::types_are_equal (type, mtt::int1_type))   pp.lit (one_word_int::to_string (uc::to_int1 chunk));
+					    elif (tu::types_are_equal (type, mtt::multiword_int_type)) uj::unparse_integer pp (unsafe::cast chunk);
+					    elif (tu::types_are_equal (type, mtt::unt_type))   unparse_word (unt::to_string (uc::to_unt chunk));
+					    elif (tu::types_are_equal (type, mtt::unt8_type))   unparse_word (one_byte_unt::to_string (uc::to_unt8 chunk));
+					    elif (tu::types_are_equal (type, mtt::unt1_type))  unparse_word (one_word_unt::to_string (uc::to_unt1 chunk));
+					    elif (tu::types_are_equal (type, mtt::float64_type))   pp.lit (f8b::to_string (uc::to_float chunk));
+					    elif (tu::types_are_equal (type, mtt::string_type)) uj::unparse_mlstring pp (uc::to_string chunk);
+					    elif (tu::types_are_equal (type, mtt::char_type))   uj::unparse_mlstring' pp (string::from_char (char::from_int (uc::to_int chunk)));
+					    elif (tu::types_are_equal (type, mtt::arrow_type))  pp.lit  "\\";
+					    elif (tu::types_are_equal (type, mtt::exception_type))    {   name = exceptions::exception_name (uc::to_exn chunk);
+													  pp.lit name;
+													  pp.lit "(-)";
+												      };
+					    elif (tu::types_are_equal (type, mtt::fate_type))  pp.lit  "fate";
+					    elif (tu::types_are_equal (type, mtt::ro_vector_type))
+						    #
+						    unparse_vector (uc::to_vector chunk, head argtys, members_op, depth, *global_controls::print::print_length, accu)
+						    except
+							uc::REPRESENTATION =  pp.lit  "prim?";
+
+					    elif (tu::types_are_equal (type, mtt::rw_vector_type))
+						(   print_with_sharing pp
+						    (   chunk,
+							accu,
+
+							\\ (chunk, accu)
+							    =>
+							    case (uc::rep chunk)   
+								#
+								uc::TYPEAGNOSTIC_RW_VECTOR
+								    =>
+								    unparse_array (uc::to_rw_vector chunk, head argtys, members_op, depth, *global_controls::print::print_length, accu);
+
+							       uc::FLOAT64_RW_VECTOR
+								    =>
+								    unparse_real_array (uc::to_float64_rw_vector chunk, *global_controls::print::print_length);
+
+							       _    => bug "rw_vector (neither Float nor Poly)";
+							    esac; end 
+						    )
+						    except
+							uc::REPRESENTATION
+							   =
+							   pp.lit  "prim?"
+						);
+
+					    else pp.lit  "prim?";
+					    fi;
+					};
+
+				    (tdt::SUMTYPE _, tdt::e::EQ_ABSTRACT)
+					=>
+					unparse_table::pp_chunk pp stamp chunk 
+					except
+					    pp_not_installed = pp.lit  "-";
+
+				    (tdt::SUMTYPE { index, stamps,
+						family as { members, ... }, free_types, root }, _)
+					=>
+					if (tu::types_are_equal (type, mtt::unrolled_list_type))
+					    #
+					    unparse_ur_list
+					      (
+						chunk, head argtys, members_op, depth, *global_controls::print::print_length, accu
+					      );
+
+					elif (tu::types_are_equal (type, mtt::suspension_type) ) 
+					    #
+					    pp.lit  "@@";  #  LAZY 
+
+					elif (tu::types_are_equal (type, mtt::list_type) )
+					    #
+					    unparse_list
+					      (
+						chunk, head argtys, members_op, depth, *global_controls::print::print_length, accu
+					      );
+
+					elif (tu::types_are_equal (type, mtt::ref_type) )
+					    #
+					    (print_with_sharing pp
+					     (chunk, accu,
+					      { argtys' = interp_args (argtys, members_op);
+					       \\ (chunk, accu) =>
+						    unparse_valcon (chunk,
+							   (vector::get (stamps, index),
+							    vector::get (members, index)),
+							   THE([mtt::ref_type],[]), argtys',
+							   depth, l, r, accu); end ;
+					      }));
+					else
+					    argtys' = interp_args (argtys, members_op);
+
+					    unparse_valcon (chunk, (vector::get (stamps, index),
+							vector::get (members, index)),
+						   THE (trans_members (stamps, free_types, 
+								      root, family)),
+						   argtys', depth, l, r, accu);
+					fi;
+
+				    (tdt::ABSTRACT _, _)
+					=>
+					if (tu::types_are_equal (type, mtt::int2_type))
+					    #
+					    #									  # inline_t		is from   src/lib/core/init/built-in.pkg
+					    case (uc::to_tuple chunk)
+						#
+						[hi, lo]
+						    =>
+						    {   i = inline_t::i2::intern (uc::to_unt1 hi, uc::to_unt1 lo);		# "i2" == "two-word int" (64-bits on 32-bit architectures, 128-bits on 64-bit architectures.)
+							#
+							pp.lit (two_word_int::to_string i);
+						    };
+						_ => pp.lit "<two_word_int?>";
+					    esac;
+
+					elif (tu::types_are_equal (type, mtt::unt2_type) )
+
+					    case (uc::to_tuple chunk)
+						#
+						[hi, lo]
+						    =>
+						    {   w = inline_t::u2::intern (uc::to_unt1 hi, uc::to_unt1 lo);
+							#
+							pp.lit ("0wx" + two_word_unt::to_string w);
+						    };
+
+					       _ => pp.lit "<word64?>";
+					    esac;
+
+					else
+					    pp.lit "-";
+					fi;
+
+				    _ => pp.lit "-";
+				esac;
+
+			    tdt::TYPCON_TYPOID (type as tdt::RECORD_TYPE [], _)
+				=>
+				pp.lit  "()";
+
+			    tdt::TYPCON_TYPOID (type as tdt::RECORD_TYPE labels, argtys)
+			        =>
+			        if (tuples::is_tuple_type type)
+				     #
+				     unparse_tuple  (uc::to_tuple chunk, argtys, members_op, depth, accu);
+			        else unparse_record (uc::to_tuple chunk, labels, argtys, members_op, depth, accu);
+			        fi;
+
+			    tdt::TYPCON_TYPOID (type as tdt::NAMED_TYPE _, _)
+			        => 
+			        unparse_val'(chunk, tu::reduce_typoid typoid, members_op, depth, l, r, accu);
+
+			    tdt::TYPCON_TYPOID (type as tdt::RECURSIVE_TYPE i, argtys)
+			        =>
+			        case members_op
+				    #
+				    THE (member_types, _)
+					=> 
+					{   type' =  list::nth (member_types, i)
+						     except
+							INDEX_OUT_OF_BOUNDS
+							    =
+							    {   pp::flush_prettyprint_mill pp;
+								print "#prettyprintVal':  ";
+								print (int::to_string i);
+								print " "; print (int::to_string (length member_types));
+								print "\n";
+								bug "prettyprintVal': bad index for RECURSIVE_TYPE";
+							    };
+
+					    case type'
+						#
+						tdt::SUM_TYPE
+						    { kind => tdt::SUMTYPE
+								  { index,
+								    stamps,
+								    family =>  { members, ... },
+								    ...
+								  },
+						      ...
+						    }
+						    =>
+						    unparse_valcon (chunk, (vector::get (stamps, index),
+								vector::get (members, index)),
+							   members_op, argtys,
+							   depth, l, r, accu);
+						#
+						_ => bug "prettyprintVal': bad type in members";
+					    esac;
+					};
+
+				     NULL =>  bug "prettyprintVal': RECURSIVE_TYPE with no members";
+				esac;
+
+			    tdt::TYPCON_TYPOID (type as tdt::FREE_TYPE i, argtys)
+				=>
+				case members_op
+				    #
+				    THE (_, free_types)
+					=> 
+					{   type' =  list::nth (free_types, i)
+						    except
+							INDEX_OUT_OF_BOUNDS
+							    =
+							    {	pp::flush_prettyprint_mill pp;
+								print "#prettyprintVal':  ";
+								print (int::to_string i);
+								print " "; 
+								print (int::to_string (length free_types));
+								print "\n";
+								bug "prettyprintVal': bad index for FREE_TYPE";
+							    };
+
+					    unparse_val'
+						(
+						  chunk,
+						  tdt::TYPCON_TYPOID (type', argtys),
+						  members_op, 
+						  depth,
+						  l,
+						  r,
+						  accu
+						);
+					};
+
+				    NULL => bug "prettyprintVal': RECURSIVE_TYPE with no members";
+				esac;
+
+			_ => pp.lit  "-";
+		    esac
+		    except e = raise exception e;
+		end 
+
+		also
+		fun unparse_valcon (_, _, _, _, 0, _, _, _)
+			=>
+			pp.lit  "#";
+
+		    unparse_valcon (   chunk: Chunk,
+					(   stamp,
+					    {   name_symbol,
+						valcons,
+						...
+					    }
+					),
+					members_op:  Null_Or( (List( tdt::Type ), List( tdt::Type )) ),
+					argtys,
+					depth: Int,
+					l: fxt::Fixity,
+					r: fxt::Fixity,
+					accu
+		    )
+			=>
+			unparse_table::pp_chunk pp stamp chunk
+			       #  Attempt to find and apply user-defined prettyprint on chunk 
+			except
+			    pp_not_installed
+				=
+				if (length valcons == 0)
+				    #
+				    pp.lit "-";
+				else
+				    (switch (chunk, valcons))
+					->
+					valcon as { name, domain, ... };
+
+				    dname = symbol::name name;
+
+
+				    case domain
+					#
+					NULL => pp.lit dname;
+					#
+					THE dom
+					    =>
+					    {   fixity
+						    = 
+						    find_in_symbolmapstack::find_fixity_by_symbol
+							( symbolmapstack,
+							  symbol::make_fixity_symbol  dname
+							);
+
+						#  (??) may be inaccurate  XXX BUGGO FIXME
+
+						dom = tu::apply_typescheme (tdt::TYPESCHEME { arity=>length argtys, body=>dom },
+								    argtys);
+
+						dom = tu::head_reduce_typoid dom;	#  unnecessary 
+
+						fun prdcon ()
+						    =
+						    case (fixity, dom)
+							#
+							(fxt::INFIX _, tdt::TYPCON_TYPOID (dom_type as tdt::RECORD_TYPE _, [ty_l, ty_r]))
+							    =>
+							    {   my (a, b)
+								    =
+								    case (uc::to_tuple (decon (chunk, valcon)))
+									#
+									[a, b] => (a, b);
+									_      => bug "prettyprintDcon [a, b]";
+								    esac;
+
+								if (tuples::is_tuple_type  dom_type)
+								    #
+								    pp.wrap {.													pp.rulename "ucw1";
+									unparse_val'(a, ty_l,
+									       members_op,
+									       depth - 1, fxt::NONFIX, fixity, accu);
+									pp::break pp { blanks=>1, indent_on_wrap=>0 };
+									pp.lit  dname;
+									pp::break pp { blanks=>1, indent_on_wrap=>0 };
+									unparse_val'(b, ty_r,
+									       members_op,
+									       depth - 1, fixity, fxt::NONFIX, accu);
+								    };
+								else
+								    pp.cwrap {.													pp.rulename "uccw2";
+									#
+									pp.lit  dname;
+									pp::break pp { blanks=>1, indent_on_wrap=>0 };
+									unparse_val'(decon (chunk, valcon), dom,
+										members_op, depth - 1,
+										fxt::NONFIX, fxt::NONFIX, accu);
+								    };
+								fi;
+							    };
+
+							_   =>
+							    {   pp.cwrap {.													pp.rulename "ucw3";
+								    #
+								    pp.lit  dname;
+								    pp::break pp { blanks=>1, indent_on_wrap=>0 };
+								    unparse_val'(decon (chunk, valcon), dom, members_op, depth - 1,
+									 fxt::NONFIX, fxt::NONFIX, accu);
+								};
+							    };
+						    esac;
+
+						fun prpardcon ()
+						    =
+						    {   pp.wrap {.													pp.rulename "ucw4";
+							    pp.lit  "(";
+							    prdcon();
+							    pp.lit  ")";
+							};
+						    };
+
+						case (l, r, fixity)
+						    #
+						    (fxt::NONFIX,  fxt::NONFIX,  _) =>  prpardcon();
+						    (fxt::INFIX _, fxt::INFIX _, _) =>  prdcon();
+						      #  special case: only on first iteration, for no parens 
+
+						    (_, _, fxt::NONFIX) => prdcon();
+
+						    (fxt::INFIX(_, p1), _, fxt::INFIX (p2, _))
+							=>
+							if (p1 >= p2)   prpardcon();
+							else            prdcon   ();
+                                                        fi;
+
+						    (_, fxt::INFIX (p1, _), fxt::INFIX(_, p2))
+							=>
+							if (p1 > p2)   prpardcon();
+							else           prdcon   ();
+                                                        fi;
+						esac;
+					};
+				   esac;
+			       fi;
+		end 
+
+		also
+		fun unparse_list (chunk: Chunk, type: tdt::Typoid, members_op, depth: Int, length: Int, accu)
+		    =
+		    {   fun list_case p
+			    =
+			    case (switch (p, list_dcons))
+				#
+				{ domain=>NULL, ... }
+				    =>
+				    NULL;
+
+				valcon
+				    =>
+				    case (uc::to_tuple (decon (p, valcon)))
+					#
+					[a, b] =>  THE (a, b);
+					_      =>  bug "prettyprintList [a, b]";
+				    esac;
+			    esac;
+
+			fun unparse_tail (p, len)
+			    =
+			    case (list_case p)
+				#
+				NULL => ();
+				#
+				THE (hd, tl)
+				    => 
+				    if (len <= 0)
+					#
+					pp.lit  "...";
+				    else
+					case (list_case tl)
+					    #
+					    NULL => unparse_val_share (hd, type, members_op, depth - 1, accu);
+
+					     _   =>
+						 {   unparse_val_share (hd, type, members_op, depth - 1, accu);
+						     pp.lit  ", ";
+						     pp::break pp { blanks=>0, indent_on_wrap=>0 };
+						     unparse_tail (tl, len - 1);
+						 };
+					esac;
+				    fi;
+			    esac;
+
+			pp.cwrap {.													pp.rulename "uccw1";
+			    pp.lit  "["; 
+			    unparse_tail (chunk, length);
+			    pp.lit  "]";
+			};
+		    }
+
+		also
+		fun unparse_ur_list (chunk: Chunk, type: tdt::Typoid, members_op, depth: Int, length: Int, accu)
+		    =
+		    {   fun list_case p
+			    =
+			    case (switch (p, ulist_dcons))
+				#
+				{ domain => NULL, ... }
+				    =>
+				    NULL;
+
+				valcon
+				    =>
+				    case (uc::to_tuple (decon (p, valcon)))
+					#
+					[a, b] =>  THE (a, b);
+					_      =>  bug "prettyprintUrList [a, b]";
+				    esac;
+			    esac;
+
+			fun unparse_tail (p, len)
+			    =
+			    case (list_case p)
+				#
+				NULL => ();
+				#
+				THE (hd, tl)
+				    => 
+				    if (len <= 0)
+					#
+					pp.lit  "...";
+				    else 
+					case (list_case tl)
+					    #
+					    NULL => unparse_val_share (hd, type, members_op, depth - 1, accu);
+					    #
+					    _   =>
+						{   unparse_val_share (hd, type, members_op, depth - 1, accu);
+						    pp.lit  ", ";
+						    pp::break pp { blanks=>0, indent_on_wrap=>0 };
+						    unparse_tail (tl, len - 1);
+						};
+					esac;
+				    fi;
+			    esac;
+
+			pp.cwrap {.													pp.rulename "uccw2";
+			    pp.lit  "[ unrolled list "; 
+			    #  prettyprintTail (chunk, length); 
+			    pp.lit  "]";
+			};
+		    }
+
+		also
+		fun unparse_tuple (chunks: List(Chunk),  tys: List(tdt::Typoid),  members_op,  depth: Int,  accu):  Void
+		    =
+		    {   fun unparse_fields ([f],[type])
+				=>
+				unparse_val_share (f, type, members_op, depth - 1, accu);
+
+			    unparse_fields (f ! restf, type ! restty)
+				=> 
+				{   unparse_val_share (f, type, members_op, depth - 1, accu);
+				    pp.lit (", ");
+				    pp::break pp { blanks=>0, indent_on_wrap=>0 };
+				    unparse_fields (restf, restty);
+				};
+
+			    unparse_fields ([], [])
+				=>
+				();
+
+			    unparse_fields _
+				=>
+				bug "prettyprintFields in ppval.sml";
+			end;
+
+			pp.cwrap {.													pp.rulename "uccw3";
+			    pp.lit ("("); 
+			    unparse_fields (chunks, tys); 
+			    pp.lit (")");
+			};
+		    }
+
+		also
+		fun unparse_record
+                      ( chunks:		List(Chunk),
+                        labels:		List(tdt::Label),
+			tys:		List(tdt::Typoid),
+                        members_op,
+			depth:		Int,
+			accu
+                      )
+		    =
+		    {   fun unparse_fields ([f],[l],[type])
+				=> 
+				{   pp.box {.								pp.rulename "uc1";
+					pp.lit (symbol::name l); 
+					pp.lit ("="); 
+					unparse_val_share (f, type, members_op, depth - 1, accu);
+				    };
+				};
+
+			    unparse_fields (f ! restf, l ! restl, type ! restty)
+				=> 
+				{   pp.box {.								pp.rulename "uc2";
+					pp.lit (symbol::name l); 
+					pp.lit ("="); 
+					unparse_val_share (f, type, members_op, depth - 1, accu);
+				    };
+				    pp.lit (", "); 
+				    pp::break pp { blanks=>0, indent_on_wrap=>0 };
+				    unparse_fields (restf, restl, restty);
+				};
+
+			    unparse_fields([],[],[])
+				=>
+				();
+
+			    unparse_fields _
+				=>
+				bug "prettyprintFields in ppval.sml";
+			end;
+
+			pp.cwrap {.													pp.rulename "uccw4";
+			    pp.lit ("{ "); 
+			    unparse_fields (chunks, labels, tys); 
+			    pp.lit (" }");
+			};
+		    }
+
+		also
+		fun unparse_vector (chunks: Vector( Chunk ), type: tdt::Typoid, members_op, depth: Int, length, accu)
+		    =
+		    {   vector_length  = ve::length chunks;
+
+			my (len, closing)
+			    = 
+			    if (length >= vector_length)
+				#
+				(vector_length, \\ _ = pp.lit "]");
+			    else
+				( length,
+				  #
+                                  \\ sep = { pp.lit sep; 
+					     pp.lit "...]";
+                                           }
+                                );
+			    fi;
+
+			fun print_rest (sep, breaker, index)
+			    =
+			    if (index >= len)
+				#
+				closing sep;
+			    else
+				pp.lit  sep; breaker ();
+
+				unparse_val_share (ve::get (chunks, index), type, members_op, depth - 1, accu);
+
+				print_rest (", ", \\ () = pp::break pp { blanks=>0, indent_on_wrap=>0 }, index + 1);
+			    fi;
+
+			pp.cwrap {.													pp.rulename "uccw5";
+			    pp.lit "#["; print_rest("", \\ () = (), 0);
+			};
+		    }
+
+		also
+		fun unparse_array (chunks: Rw_Vector(Chunk),   type: tdt::Typoid,   members_op,   depth: Int,   length,   accu)
+		    =
+		    {   vector_length  =  rw_vector::length  chunks;
+			#
+			my (len, closing)
+			    = 
+			    if (length >= vector_length)
+				#
+				(vector_length, \\ _ = pp.lit "|]");
+			    else
+				( length,
+				  #
+                                  \\ sep = { pp.lit sep; 
+					     pp.lit "...|]";
+                                           }
+                                );
+			    fi;
+
+			fun print_rest (sep, breaker, index)
+			    =
+			    if (index >= len)
+				#
+				closing sep;
+			    else
+				pp.lit  sep;
+				breaker ();
+				unparse_val_share (rw_vector::get (chunks, index), type, members_op, depth - 1, accu);
+				print_rest (", ", \\ () = pp::break pp { blanks=>0, indent_on_wrap=>0 }, index + 1);
+			    fi;
+
+			pp.cwrap {.													pp.rulename "uccw6";
+			    pp.lit "[|";
+			    print_rest("", \\ () = (), 0);
+			};
+		    }
+
+		also
+		fun unparse_real_array (chunks:  rw_vector_of_eight_byte_floats::Rw_Vector, length: Int)
+		    =
+		    {   vector_length
+			    =
+			    rw_vector_of_eight_byte_floats::length chunks;
+
+			my (len, closing)
+			    = 
+			    if (length >= vector_length)
+				#
+				( vector_length,
+				  \\ _ = pp.lit "|]"
+				);
+			    else
+				( length,
+				  #
+				  \\ sep = {   pp.lit sep; 
+					       pp.lit "...|]";
+					   }
+				);
+			    fi;
+
+			fun print_rest (sep, breaker, index)
+			    =
+			    if (index >= len)
+				#
+				closing sep;
+			    else
+				pp.lit  sep; breaker ();
+				pp.lit (f8b::to_string (rw_vector_of_eight_byte_floats::get (chunks, index)));
+				print_rest (", ", \\ () =  pp::break pp { blanks=>0, indent_on_wrap=>0 }, index + 1);
+			    fi;
+
+			pp.cwrap {.													pp.rulename "uccw7";
+			    pp.lit "[|";
+			    print_rest("", \\ () = (), 0);
+			};
+		    };
+
+	    end;				# fun unparse_chunk
+    };						# package unparse_chunk
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# COPYRIGHT (c) 1989 by AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

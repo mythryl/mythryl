@@ -1,0 +1,317 @@
+
+# This module encapsulates all the ugliness in dealing with C macros.
+
+
+package define_g:  Define_Gen {
+
+   package g   =  ml_grinder
+   package raw =  g::Ast
+   package u   =  g::AstUtil
+   package re  =  g::RE
+
+   use G
+
+   package s = red_black_set_g (type Key = raw::id   compare = string::compare)
+   package m = red_black_map_g (type Key = raw::id   compare = string::compare)   
+
+   enum define =
+      DEFINE of { name: Ast::id,
+                 args: Null_Or(  List(  Ast::id ) ),
+                 body: String,
+                 exp:  Ref( Ast::exp ),
+                 rank:  Ref( Int ),
+                 line: Int
+                }
+   enum define_info = C_DEFINES of m::Map( define )
+
+   exception Illegal
+
+   basis = "infix << >> &"
+
+   #  Accessors 
+   fun line (DEFINE { line, ... } ) = line
+   fun name (DEFINE { name, ... } ) = name
+   fun exp (DEFINE { exp, ... } ) = exp
+   fun body (DEFINE { body, ... } ) = body
+   fun args (DEFINE { args, ... } ) = args
+
+   #  How to tokenize cpp stuff  
+   getDefine = re::grep "^\\s*#\\s*define ([a-zA-Z0-9_]+)(\\([a-zA-Z0-9_, ]*\\))?\\s+(.+)"
+   get_line   = re::grep ("^#\\s*\\d+\\s+[\"<](.*)[\">]")
+   getArgs   = re::findAll "[a-zA-Z0-9_]+"
+
+   hex     = number_string::scan_string (multiword_int::scan number_string::HEX) 
+   signbit = multiword_int::pow (multiword_int::from_int 2, 31)
+
+   fun convert e
+       =
+       {   fun exp (e as raw::ID_IN_EXPRESSION (raw::IDENT([], x)))
+               = 
+	       (case x of
+		 (">>" | "<<") => raw::ID_IN_EXPRESSION (raw::IDENT(["mlrep", "SignedBitOps"], x))
+	       | ("typedef" | "int" | "short" | "char" | "float" | "double" 
+		 | "struct" | "union" | "void") => raise exception Illegal
+	       | x => if re::matches "^_" x then raise exception Illegal else 
+		      case re::grep "^0[xX]([\\da-fA-F]+)$" x of  
+			     #  Bug in ml-grinder 
+			THE [i] =>
+			 (case hex i of
+			   THE i => 
+			    { i = 
+				if integer.>=(i, signbit)
+                                then
+				   integer.-(i, multiword_int::pow (multiword_int::from_int 2, 32))
+				else i;
+
+			        raw::LITERAL_IN_EXPRESSION (raw::INT1lit
+				    (one_word_int::fromLarge (multiword_int::toLarge i)))
+				   except e => 
+				     (print("Bad int: "$multiword_int::to_string i$"\n"); 
+				      raise exception e);
+			    }
+			 | NULL => raise exception Illegal
+			 )
+		      | _ => e
+	       )
+	     | exp (raw::LIST_IN_EXPRESSION _) = raise exception Illegal
+	     | exp e = e;
+
+           exp::map[Map::E exp] e;
+       }
+
+   fun ok (e as raw::LITERAL_IN_EXPRESSION _) = e
+     | ok (e as raw::ID_IN_EXPRESSION _) = e
+     | ok _ = raise exception Illegal #  for now 
+
+   fun parseExp exp
+       =
+       {   s =   *g::silent;
+
+	   fun undo ()
+               =
+               g::silent := s;
+
+           g::silent := TRUE;
+
+	   (   case exp::parse("stipulate "$basis$" herein "$exp$" end")
+
+	         of raw::LETexp(_,[e]) => {  undo;   ok (convert e); }
+	          | _                => {  undo(); raise exception Illegal; }
+	   )
+           except
+               e => {   undo();
+                        raise exception e;
+                    }
+       }
+
+   fun parseDefine line
+       =
+       case getDefine line
+
+         of THE [name, args, body]
+                =>
+                (   {   args =   if args == ""   then NULL
+                                                 else THE (getArgs args);
+
+                        THE (name, args, body, REF (parseExp body));
+                    }
+                    except _ => NULL
+                )
+       | _ => NULL
+
+   #  Get dependences 
+   fun depends e
+       =
+       {   fun exp (raw::ID_IN_EXPRESSION (raw::IDENT([], x)), S) = s::add (S, x)
+	     | exp(_, S) = S;
+
+           exp::fold[Fold::E exp] s::empty e
+       }
+
+   fun readDefines (filename, re)
+       =
+       {   lines =   io::read_lines filename   except _ => [];
+
+	   get_line =   re::grep ("^#\\s*\\d+\\s+[\"<](.*)[\">]");
+	   ok       =   re::matches re;
+
+	   fun define ([], tbl, accept, i) = tbl
+
+	     | define (line . lines, tbl, accept, i)
+	       = 
+	       case get_line line
+		 of THE[file] => define (lines, tbl, ok file, i+1)
+		  | _ =>
+		    if not accept
+		    then define (lines, tbl, FALSE, i+1);
+		    else
+			 case parseDefine line
+
+			   of   NULL
+				    =>
+				    define (lines, tbl, accept, i+1);
+
+			    |   THE (name, args, body, exp)
+				    =>
+				    {   d = DEFINE { name,
+						       args,
+						       body,
+						       exp,
+						       rank=REF 0,
+						       line=i };
+
+					define (lines, m::set (tbl, name, d), accept, i+1)
+				    }
+
+
+	   table =   define (lines, m::empty, FALSE, 0);
+
+	    #  Prune out undefined stuff 
+	   fun prune ([], WL', FALSE, D) = D
+	     | prune([], WL', TRUE, D)  = prune (WL', [], FALSE, D)
+	     | prune (d . ds, WL', changed, D)
+		   =
+		   {   fun look d
+                           =
+                           null_or::the (m::find (table, d));
+
+		       my DEFINE { exp, args, rank, ... }
+                           =
+                           look d;
+
+		       args =   fold_backward (\\ (x, S) => s::add (S, x)) 
+				     s::empty (null_or::the_else (args,[]));
+
+		       dep  =   s::difference (depends *exp, args);
+
+		       fun rankOf i
+                           =
+                           1
+                           +
+                           s::fold_backward
+                               (   \\ (d, r)
+                                      =>
+				      {   my DEFINE { rank, ... }
+                                              =
+                                              look d;
+
+				          int::max (*rank, r);
+                                      }
+                               )
+                               -1
+                               dep;
+
+		       if s::is_empty (s::difference (dep, D))
+                       then
+			  (rank := rankOf dep;
+			   prune (ds, WL', TRUE, s::add (D, d)) 
+			  )
+		       else
+			  prune (ds, d . WL', changed, D);
+		   }
+
+	   ddd =   prune (m::listKeys table, [], FALSE, s::empty);
+
+	   table =   m::keyed_filter (\\ (d, _) => s::member (ddd, d)) table;
+
+	   C_DEFINES table;
+       }
+
+
+   signedTy   =   raw::IDTY (raw::IDENT(["mlrep", "Signed"],   "int"));
+   unsignedTy =   raw::IDTY (raw::IDENT(["mlrep", "Unsigned"], "word"));
+
+   fun toUnsigned (x as raw::LITERAL_IN_EXPRESSION (raw::UNT_LIT _)) = raw::TYPED_EXPRESSION (x, unsignedTy)
+     | toUnsigned (x as raw::LITERAL_IN_EXPRESSION (raw::UNT1_LIT _)) = raw::TYPED_EXPRESSION (x, unsignedTy)
+
+     | toUnsigned (x as raw::LITERAL_IN_EXPRESSION (raw::INT_LIT i))
+           = 
+           raw::TYPED_EXPRESSION (u::WORD32exp (one_word_unt::from_int i), unsignedTy)
+
+     | toUnsigned (x as raw::LITERAL_IN_EXPRESSION (raw::INT1lit i))
+           = 
+           raw::TYPED_EXPRESSION (u::WORD32exp (one_word_unt::from_large_int i), unsignedTy);
+
+     | toUnsigned e
+           =
+           e;
+
+   fun toSigned (x as raw::LITERAL_IN_EXPRESSION (raw::INT_LIT i)) = raw::TYPED_EXPRESSION (x, signedTy)
+     | toSigned (x as raw::LITERAL_IN_EXPRESSION (raw::INT1lit i)) = raw::TYPED_EXPRESSION (x, signedTy)
+     | toSigned (raw::LITERAL_IN_EXPRESSION (raw::UNT_LIT w)) = 
+          raw::TYPED_EXPRESSION (u::INT1exp (unt::toLargeIntX w), signedTy)
+     | toSigned (raw::LITERAL_IN_EXPRESSION (raw::UNT1_LIT w)) = 
+          raw::TYPED_EXPRESSION (u::INT1exp (one_word_unt::toLargeIntX w), signedTy)
+     | toSigned e = e
+
+   fun orderByRankAndName
+         (DEFINE { name=x, exp=e1, rank=r1, ... },
+          DEFINE { name=y, exp=e2, rank=r2, ... } ) = 
+             case int::compare(*r1,*r2) of
+               EQUAL => string.>(x, y)
+             | GREATER => TRUE
+             | LESS => FALSE
+
+   sortByRankAndName = list_mergesort::sort orderByRankAndName
+
+   fun listDefines (C_DEFINES t)
+       =
+       sortByRankAndName (m::vals_list t);
+
+   fun findDefines defines re
+       =
+       {   ok  =   re::matches re ;
+           ok2 =   not o re::matches "^_";
+
+           fun f (DEFINE { name, ... } )
+                =
+                ok name and ok2 name;
+
+           list::filter f (listDefines defines);
+       }
+
+   fun genDefine f (DEFINE { name, args, exp, body, ... } )
+       = 
+       {   fun makeArgs xs
+               =
+               raw::TUPLEPAT (map raw::IDPAT xs);
+
+	   e = *exp;
+
+           case args of
+	     NULL      => u::MY (name, f e)
+	   | THE args => u::FUN (name, makeArgs args, f e);
+       }
+      
+   fun genConstants defines { regexp, signed }
+       = 
+       {   defs = findDefines defines regexp;
+	   convert  = if signed then toSigned else toUnsigned;
+	   convert  = exp::map [Map::E convert] ;
+
+           raw::SEQ_DECL (
+               comment [ "#define's matching "$regexp ]
+               .
+	       map (genDefine convert) defs
+           };
+       }
+
+};	# package
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

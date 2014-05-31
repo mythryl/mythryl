@@ -1,0 +1,233 @@
+
+# Perform elimination based dataflow analysis, using Sreedhar's DJ-graph  
+# based algorithm.  I'm using the eager elimination method because in 
+# practice it is linear and is much easier to implement.  
+
+generic package DJDataflow (Dom:  Dominator_Tree) : DJ_DATAFLOW
+{
+
+   package dom = Dom
+   package g   = graph
+   package a   = rw_vector
+
+   debug = TRUE
+
+   fun error msg = lowhalf_error_message::error("DJDataflow", msg)
+
+   fun analyze { closure, var_elim, fixpoint, compute } (Dom as g::GRAPH dom) =
+   let L                  = Dom::max_levels Dom
+       N                  = dom.capacity ()
+       my CFG as g::GRAPH mcg = Dom::mcg Dom
+       levelsMap          = Dom::levelsMap Dom
+       idomsMap           = Dom::idomsMap Dom
+
+
+       # These store the current join edges during the graph reduction process
+
+       joinOutEdges       = a::rw_vector (N,[])        
+       joinInEdges        = a::rw_vector (N,[])        
+
+       # Priority lists indexed by levels so that all non-join nodes
+       # always appear in front of the list
+
+       PriorityList       = a::rw_vector (L,[])
+
+       # A node i is a non-join node iff all its predecessors are either
+       # i or idom (i) 
+
+       fun isNonJoinNode i =
+           case a::sub (joinInEdges, i) of
+              [] => TRUE
+            | [(j, _, _)] => i = j 
+            | _  => FALSE
+
+       #  Remove the join edge y -> z with edge id 
+       fun removeJoinEdge (y, z, id) =
+       let fun rmvEdges((e as (_, _, id')) . es, es') =
+               if id' == id then list::revAppend (es', es)
+               else rmvEdges (es, e . es')
+             | rmvEdges _ = error "rmvEdges"
+       in  a::update (joinOutEdges, y, rmvEdges (a::sub (joinOutEdges, y), []));
+           a::update (joinInEdges, z, rmvEdges (a::sub (joinInEdges, z), []))
+       end
+
+       #  Remove all same level i join edges in nodes 
+       fun removeAllSameLevelEdges (i, nodes) =
+       let fun rmv ([], es') = es'
+             | rmv((e as (x, y, _)) . es, es') =
+               rmv (es, if a::sub (levelsMap, y) == i then es' else e . es')
+           fun loop [] = ()
+             | loop (x . xs) =
+               (a::update (joinOutEdges, x, rmv (a::sub (joinOutEdges, x), []));
+                a::update (joinInEdges, x, rmv (a::sub (joinInEdges, x), []));
+                loop xs
+               )
+       in  loop nodes 
+       end
+ 
+
+       #  Insert a new join edge 
+       fun insertJoinEdge (e as (x, y, _)) = 
+          (a::update (joinOutEdges, x, e . a::sub (joinOutEdges, x));
+           a::update (joinInEdges, y, e . a::sub (joinInEdges, y))
+          )
+
+       #  Does the edge y -> z exists? 
+       fun doesn'tHasEdge (y, z) =
+       let fun loop [] = TRUE
+             | loop((_, z', _) . es) = z!=z' and loop es
+       in  loop (a::sub (joinOutEdges, y)) end
+
+       # Put all nodes into its level in the priority list.
+       # Initialize the join edges arrays.
+
+       fun initialize () =
+       let edgeId = REF 0
+       in  mcg.forall_nodes
+             (\\ (i, _) => 
+              let lvl = a::sub (levelsMap, i)
+                  fun addJoinEdges([], id, outEdges) = 
+                        (a::update (joinOutEdges, i, outEdges); id)
+                    | addJoinEdges((i, j, _) . es, id, outEdges) =
+                      if a::sub (idomsMap, j) == i then 
+                         addJoinEdges (es, id, outEdges)
+                      else let e = (i, j, id)
+                           in  a::update (joinInEdges, j, e . a::sub (joinInEdges, j));
+                              addJoinEdges (es, id+1, e . outEdges)
+                           end
+              in  a::update (PriorityList, lvl, i . a::sub (PriorityList, lvl)); 
+                  edgeId := addJoinEdges (mcg.out_edges i, *edgeId, [])
+              end
+              )
+       end
+
+       /* All these nodes are on the same level and they cannot be reduced.
+        * Determine the SCC for the nodes at level i
+        */
+       fun CollapseIrreducible (i, joinNodes) = 
+       let fun out_edges y = 
+           let fun filter ([], es') = es'
+                 | filter((e as (y, z, _)) . es, es') =
+                   filter (es, if a::sub (levelsMap, z) == i then e . es' else es')
+           in  filter (a::sub (joinOutEdges, y), []) end
+           fun dumpSCC scc =
+              (print "scc:\n";
+               apply (\\ x => 
+                      (print (int::to_string x$" ");
+                       apply (\\ (x, y, _) => 
+                          print (int::to_string x$"->"$int::to_string y$" "))
+                            (out_edges x);
+                        print "\n"
+                       ))
+                   scc
+              )
+           fun processSCC (scc) = 
+               (if debug then dumpSCC scc 
+                fixpoint { scc=scc }
+               )
+           sccs = 
+               graph_strongly_connected_components::scc'
+                 { N         = mcg.capacity (),
+                  nodes     = joinNodes,
+                  out_edges = out_edges
+                 } op . []
+       in  apply processSCC sccs;
+           removeAllSameLevelEdges (i, joinNodes)
+       end
+      
+       /* Self loops y->y 
+        * Compute the closure H_y:  O_y = f$*_y (O_y)
+        * Then delete the edge y->y.
+        * y must be a non-join node before and after this transformation.
+        */ 
+       fun Eager1 (y, id) = 
+           (closure { y=y };
+            removeJoinEdge (y, y, id)
+           )
+
+       /* Same level y->z 
+        * Eliminate O_y in H_z by replacing it with the RHS of H_y
+        * Delete the edge y->z;
+        * if (z becomes a non-join node) then put z at the head of the 
+        *    priority list at level i
+        */
+       fun Eager2a (y, z, i, id, queue, prune) = 
+           (var_elim { y=y, z=z };
+            removeJoinEdge (y, z, id);
+            if isNonJoinNode z then (z . queue, TRUE) else (queue, prune)
+           )
+
+       /* Different levels y->z 
+        * Eliminate O_y in H_z by replacing it with RHS of H_y
+        * x = idom (y)
+        * Delete the edge y->z
+        * if (x->z does not exist) then
+        *    Insert a new J edge x->z
+        */
+       fun Eager2b (y, z, id) = 
+           (var_elim { y=y, z=z };
+            let x = a::sub (idomsMap, y)
+            in  removeJoinEdge (y, z, id);
+                if doesn'tHasEdge (x, z) then insertJoinEdge (x, z, id)
+                else ()
+            end
+           )
+
+       fun ReduceLevel i = 
+       let fun loop ([], [], _) = ()
+             | loop([], joinNodes, prune) =  
+               let fun filter ([], ns) = ns
+                     | filter (z . zs, ns) = 
+                       if isNonJoinNode z then filter (zs, ns)
+                       else filter (zs, z . ns)
+                   /* If prune is TRUE, then the joinNodes list may
+                    * contain processed non-join nodes, 
+                    * so we have to prune them out first.
+                    */
+                   joinNodes = 
+                       if prune then filter (joinNodes,[]) else joinNodes
+               in  case joinNodes of
+                     [] => ()
+                   | _ => (CollapseIrreducible (i, joinNodes); ReduceLevel i)
+               end
+             | loop (y . Q, joinNodes, prune) = 
+                if isNonJoinNode y then
+                   let fun process ([], Q, prune) = (Q, prune)
+                         | process((y, z, id) . es, Q, prune) = 
+                           if z == y then (Eager1 (y, id); process (es, Q, prune))
+                           else if a::sub (levelsMap, z) == i then 
+                                let my (Q, prune) = Eager2a (y, z, i, id, Q, prune)
+                                in process (es, Q, prune) end
+                           else (Eager2b (y, z, id); process (es, Q, prune))
+                       my (Q, prune) = process (a::sub (joinOutEdges, y), Q, prune)
+                   in  loop (Q, joinNodes, prune)
+                   end
+                else loop (Q, y . joinNodes, prune)
+       in  loop (a::sub (PriorityList, i), [], FALSE) 
+       end
+
+       /* Propagate the results from the top of the dominator tree
+        * down to its children.
+        */
+       fun DomTDPropagate() = 
+       let ENTRY = hd (dom.entries ())
+           fun walk y =
+           let fun walkChildren [] = ()
+                 | walkChildren((_, z, _) . es) =
+                    (compute { y=y, z=z }; walk z; walkChildren es) 
+           in walkChildren (dom.out_edges y) end
+       in  walk ENTRY 
+       end
+              
+       fun MainDFA() =
+       let fun loop -1 = ()
+             | loop i = (ReduceLevel i; loop (i - 1))
+       in  initialize();
+           loop (L - 1);
+           DomTDPropagate()
+       end
+          
+   in  MainDFA()
+   end
+
+}

@@ -1,0 +1,321 @@
+## standard-prettyprint-mill.api
+#
+# I find the original prettyprinter interface ugly and clumsy;
+# this is an attempt to provide something simpler and cleaner.
+#
+# My idea here is to do
+#
+#     pp.box {.
+#         pp.txt "Various stuff of consequence.\n";
+#     };
+#
+# instead of the previous-prettyprinter-generation sequence
+#
+#     pp::begin_align_4box pp;
+#     pp::lit          pp "Various";
+#     pp::break        pp { spaces=>1; indent_on_wrap=>4 };
+#     pp::lit          pp "stuff";
+#     pp::break        pp { spaces=>1; indent_on_wrap=>4 };
+#     pp::lit          pp "of";
+#     pp::break        pp { spaces=>1; indent_on_wrap=>4 };
+#     pp::lit          pp "consequence.";
+#     pp::newline      pp;
+#     pp::shut_box     pp;
+#
+# approximately.  In particular, I see the former as:
+#
+#  o  Inherently keeping block open/close pairs matched.
+#     (The original code had at least one such bug.)
+#
+#  o  Reducing clutter by making the 'pp' arguments implicit.
+#
+#  o  Reducing clutter by allowing newlines, breaks and tabs to be
+#     included in strings instead of having to be separate calls.
+#
+# For concise usage examples see pp_expression() and pp_statement() in
+#     src/lib/prettyprint/big/src/test/prettyprint-mill-lib-unit-test.pkg
+#
+# More generally, look at any of the client packages:
+#     src/lib/compiler/front/typer/print/prettyprint-deep-syntax.pkg
+#     src/lib/compiler/front/typer/print/prettyprint-type.pkg
+#     (... about 80 more)
+#
+# As a brief introduction, the previously mentioned pp_statement()
+# is typical:
+#
+#		fun pp_statement (pp:Pp, s: Statement)
+#		    =
+#		    case s
+#			#
+#			ASSIGNMENT { lhs, rhs } 	=>  {   pp.box' 0 0 {.									# Open a new identation-level box. Emit zero blanks then more blanks until (column % tabsize) == 0.
+#								    pp.rulename "b4";								# Name the box "b4". This is only to aid human debugging -- setenv MYTHRYL_PRETTYPRINT_SHOW_BOXES to see this. 
+#								    pp_expression (pp, lhs);							# Prettyprint the left-hand-side subexpression.
+#								    pp.ind 4; 									# Move left margin 4 chars to right.
+#								    pp.txt " "; 								# Emit a blank if the statement fits on one line, otherwise indent the rest of the block four spaces.
+#								    pp.txt "= ";								# Print a '=' and a blank which is also a breakpoint if the block is multiline.
+#								    pp_expression (pp, rhs);							# Print the right-hand-side subexpression.
+#								    pp.endlit ";";								# Print a terminal ';' immediately after the preceding printed stuff, even if blanks and newlines intervene.
+#								};
+#							    };
+#			BLOCK xs			=>  {   pp.box' 0 0 {.									# See above.
+# 								    pp.rulename "b5";								# See above.
+#								    pp.lit "{";									# Print a left-justified '{' in our box.
+#								    pp.ind 4; 									# Move left margin 4 chars to right.
+#								    pp.txt " "; 								# Print a space if the box fits on one line, otherwise indent this and the following lines by four spaces.
+#								    pp::seq  {. pp.txt' 0 -1 "   "; }  {. pp_statement (pp, #x); }   xs;	# Print elements in the 'xs' list separated by triple-blanks if the box is monoline, else by by doing a newline. 	
+#								    pp.ind 0;	 								# Return to the original box indentation level.
+#								    pp.txt " "; 								# Print a blank if the box is monoline, otherwise do a newline.
+#								    pp.lit "}";									# Print a left-justified '}' in our box.
+#								};
+#							    };
+#		    esac;
+#
+# This function prettyprints the type
+#
+#		Statement
+#		  = ASSIGNMENT  { lhs:	    Expression,
+#				  rhs:	    Expression
+#				}
+#		  | BLOCK       List( Statement )
+#
+# The critical concepts are
+#
+#  o  pp.lit:   Literal text to be printed as shown.
+#
+#  o  pp.newline(): Returns cursor to currently active left margin.
+#
+#  o  pp.tab(): Prints some number of blanks, then more blanks
+#               until (column % tabsize) == tab_to. If tab_to
+#               is -1, the latter operation is a no-op.
+#
+#  o  pp.box    Boxes. These are made monoline if possible, else multiline.
+#
+#  o  Breaks. To a first approximation a break prints as a blank if
+#     the immediately enclosing box is monoline, else as a newline
+#     followed by enough blanks to reach the current left margin.
+#         In a 'normal' box either all breaks are "wrapped"
+#     (newline-indent) or none are.
+#     In more detail, a break has two clauses, 'ifwrap' + 'ifnotwrap'
+#     each containing two values:
+#         blanks: Int
+#         tab_to: Int
+#     pp will print 'blanks' blanks and then continue printing blanks
+#     until it reaches a column such that (column % tabsize) == tab_to.
+#     tabsize defaults to 4 and is set at prettyprint-mill creation time
+#     via the TABSTOPS_ARE_EVERY optional parameter.
+#     pp::break' allows a break to be specified in full generality; usually
+#     this is far too general and (consequently) verbose and you will want
+#     to use more concise alternatives like pp.cut() or pp.txt().
+#
+#  o  pp.ind i  If the box is multiline does an indent -- moves the left margin
+#               left or right 'i' positions.  If i==0, resets left margin to original
+#		value for the box.
+#
+#  o  pp.txt' blanks to_tab "string":
+#     This shorthand convenience fn scans "string" emitting multiple primitive commands:
+#      *  Spaces   turn into breaks with 'blanks' and 'to_tab' per pp.txt' args.
+#      *  Newlines turn into typ::NEWLINE commands, as if pp.newline() had been called.
+#      *  tabs     turn into typ::TAB commands,     as if pp.tab() had been called.
+#      *  other text turns into typ::LIT commands,  as if pp.lit() had been called.
+#
+#  o  pp::seq is a little convenience function for printing a list of values
+#     with separators, such as a comma-separated list:
+#        The first arg is a Void -> Void fn that prints the separator;
+#        The second arg is a X -> Void fn that prints one value from the list;
+#        The third arg is the List(X) list of values to be printed.
+#
+# One general convention:
+#    pp.foo    Most concise form of foo().
+#    pp.foo'   More verbose form of foo(), accepting additional arguments.
+#
+####################################################################################3
+# Debug support
+#
+#
+# Environment variables:
+#
+#
+# MYTHRYL_PRETTYPRINT_SHOW_RULES
+#
+#     If this environment variable is set, mythryl will print the
+#     rulename and id of each box at start and end of its printout.
+#
+#     Use pp.rulename to set the rulename:
+#
+#         pp.box {.                           pp.rulename "tp1";
+#             ...
+#         };
+#
+####################################################################################3
+# Pending work:
+#
+# If we haven't already done so, we should probably(?) move this
+# library into standard.lib so we can use it pervasively for
+# error messages and such.  Since error-message.pkg apparently
+# uses us, something of the sort must already have been done...?
+#
+# We should likely add additional environment variables
+#
+#    MYTHRYL_SHOW_PRETTYPRINT_BOXTREE      # If set, we display the boxtree
+#    MYTHRYL_SHOW_PRETTYPRINT_OPS          # If set, we show the op-by-op trace
+#
+# In the long run, likely(?) everyone depending on base-prettyprint-mill-g.pkg
+# should be eliminated or recoded to use standard-prettyprint-mill-g.pkg,
+# and then base-prettyprint-mill-g.pkg eliminated.
+#
+#
+# We should try to find some way to disentangle the circular near-dependencies
+# in the prettyprint-mill stuff to allow cleaner code. 
+# For example, what if we eliminated
+# core-prettyprint-mill.api, which isn't used, and
+# base-prettyprint-mill.api, which shouldn't really exist, and rewrote
+# standard-prettyprint-mill.api as a standalone interface file...?
+#
+####################################################################################3
+
+# Compiled by:
+#     src/lib/prettyprint/big/prettyprint-mill.lib
+
+stipulate
+    package fil =  file__premicrothread;						# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+herein
+
+    api Standard_Prettyprint_Mill {
+	#
+	Private_State;
+
+	Left_Margin_Is									# How should we compute the left margin for a box?
+	  = BOX_RELATIVE	{ blanks: Int, tab_to: Int, tabstops_are_every: Int }	# Indent left margin relative to left margin of containing box.
+	  | CURSOR_RELATIVE	{ blanks: Int, tab_to: Int, tabstops_are_every: Int }	# Set left margin by tabbing from cursor, where tabstops are every 'Int' chars.
+	  ;
+
+	Standard_Prettyprint_Mill
+	  =
+	  { pp:      Private_State,
+	    #
+	    tabstops_are_every:		Int,						# This section records the prettyprint mill configuration for client reference.
+	    default_target_box_width:	Int,						#
+	    default_left_margin_is:	Left_Margin_Is,					#
+	    default_wrap_policy:	String,						# It would be nice to have   default_wrap_policy: Wrap_Policy   here but I think that will produce nasty circularity issues.
+	    
+	    box':	Int -> Int ->	(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::BOX_RELATIVE    { blanks=>i1, tab_to=>i2, tabstops_are_every },  default_wrap_policy );  thunk();  pp::shut_box pp;  }
+	    wrap':    	Int -> Int ->	(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::BOX_RELATIVE    { blanks=>i1, tab_to=>i2, tabstops_are_every },  ragged_right	     );  thunk();  pp::shut_box pp;  }
+	    cbox':   	Int -> Int ->	(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::CURSOR_RELATIVE { blanks=>i1, tab_to=>i2, tabstops_are_every },  default_wrap_policy );  thunk();  pp::shut_box pp;  }
+	    cwrap':    	Int -> Int ->	(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::CURSOR_RELATIVE { blanks=>i1, tab_to=>i2, tabstops_are_every },  ragged_right	     );  thunk();  pp::shut_box pp;  }
+
+	    box:			(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::BOX_RELATIVE    { blanks=>i1, tab_to=>i2, tabstops_are_every },  default_wrap_policy );  thunk();  pp::shut_box pp;  }
+	    wrap:    			(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::BOX_RELATIVE    { blanks=>i1, tab_to=>i2, tabstops_are_every },  ragged_right	     );  thunk();  pp::shut_box pp;  }
+	    cbox:   			(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::CURSOR_RELATIVE { blanks=>i1, tab_to=>i2, tabstops_are_every },  default_wrap_policy );  thunk();  pp::shut_box pp;  }
+	    cwrap:			(Void -> Void) -> Void,				# ==   {   pp::open_box  (pp,  pp::typ::CURSOR_RELATIVE { blanks=>i1, tab_to=>i2, tabstops_are_every },  ragged_right	     );  thunk();  pp::shut_box pp;  }
+
+	    flush:     Void   -> Void,
+	    close:     Void   -> Void,
+
+	    break':   { ifwrap:	    { blanks: Int, tab_to: Int },
+			ifnotwrap:  { blanks: Int, tab_to: Int }
+		      }
+		      ->
+		      Void,
+
+	    tab:    Void		 -> Void,					# 
+	    cut:    Void		 -> Void,					# 
+
+	    tab':   Int -> Int		 -> Void,					# Emit 'blanks' blanks, then additional blanks until (column % tabstops_are_every) == tab_to.
+	    cut':   Int -> Int		 -> Void,					# If wrapped, emit newline, blank to left margin of current box, then do save as above.
+
+	    txt':		Int -> Int -> String -> Void,
+	    txt:			      String -> Void,
+
+	    ind:    			      Int -> Void,				# Move left margin by given amount; if arg is zero, reset left margin to original value for box.
+
+	    lit:           String -> Void,						# Like txt except blanks are treated literally instead of as breaks.
+	    endlit: 	   String -> Void,						# Special hack to let ';'s be at end of preceding box instead of on a new line.  Identical to 'lit' except for end-of-box handling.
+
+	    newline:	   Void -> Void,						# Starts a new line at the current left margin.
+
+	    rulename:	   String -> Void						# Debug support: associates an arbitrary rulename with the innermost currently open box.
+	  };  
+
+	include Base_Prettyprint_Mill							# Make standard_prettyprint_mill a 100% drop-in replacement for base_prettyprint_mill.
+		where Prettyprint_Mill == Standard_Prettyprint_Mill;
+
+	package box: api {								# Type for optional args for open_box().
+	    #
+	    Arg = LEFT_MARGIN_IS	typ::Left_Margin_Is
+		| WIDTH			Int
+		| FORMAT		typ::Wrap_Policy
+		;
+	};
+											# pp::box is the fully general call to open a formatting box;   pp.box provides a subset of the functionality but more convenience.
+	start_box:	Standard_Prettyprint_Mill					# Prettyprint mill -- effectively the buffer into which we're writing prettyprinted text.
+			-> List( box::Arg )						# Box width, format etc.
+			-> Void								# Possibly someday we should return the box, so that formatters can do stuff like "if box.multiline ... "...?
+			;								# Call   end_box pp;   to terminate the box.
+
+	seq:    (Void -> Void)								# Separator.                     Might be:  {. pp.txt ", "; }	
+		->  (X -> Void)								# Print one element of the list. Might be:  {. pp.lit (sprintf "%d" #i); }
+		->  List(X)								# Elements to print.             Might be:   [ 1, 2, 3 ]
+		->  Void
+		;									# A little convenience fn for prettyprinting lists.
+		
+											# Next four are conveniences for printing standard Mythryl constructs: records, tuples, lists and blocks.
+
+	record:	Prettyprint_Mill							# Print a record as either   { key1 => val1,  key2 => val2,  ... }  or
+		-> String					# Title.		#   { key1 => val1,
+		-> List( (String, Void -> Void) )		# Key-val pairs		#     key2 => val2,
+		-> Void									#     ...
+		;									#   }
+											# Special hack to support printing incomplete records: If key == "...", value is ignored (not printed). 
+
+	tuple:	Prettyprint_Mill							# Print a tuple as either   (val1, val2, ... )  or
+		-> String					# Title.		#   ( val1,
+		-> List( Void -> Void )				# Print-element thunks.	#     val2,
+		-> Void									#     ...
+		;									#   )
+
+	tuplex:	Prettyprint_Mill							# Print a tuple as either   (val1, val2, ... )  or
+		-> (X -> Void)					# Print one element.	#   ( val1,
+		-> String					# Title.		#     val2,
+		-> List( X )					# Elements.		#     ...
+		-> Void									#   )
+		;									# 
+
+	list:	Prettyprint_Mill							# Print a list as either   [ val1, val2, ... ]  or
+		-> (X -> Void)					# Print one element.	#   [ val1,
+		-> String					# Title.		#     val2,
+		-> List(X)					# Elements.		#     ...
+		-> Void									#   ]
+		;
+
+	block:	Prettyprint_Mill							# Print a block as either   { exp1;  exp2;  ... }  or
+		-> List( Void -> Void )				# Print-element thunks.	# {   exp1;
+		-> Void									#     exp2; 
+		;									#     ...
+											# }
+
+	with_standard_prettyprint_mill
+	    :
+	    Prettyprint_Output_Stream
+	    -> List( typ::Prettyprint_Mill_Configuration_Args )
+	    -> (Prettyprint_Mill -> Void)
+	    -> Void
+	    ;
+
+	prettyprint_to_string
+	    :
+	    List( typ::Prettyprint_Mill_Configuration_Args )
+	    -> (Prettyprint_Mill -> Void)
+	    -> String
+	    ;
+
+	make_standard_prettyprint_mill
+	    :
+	    String
+	    -> List( typ::Prettyprint_Mill_Configuration_Args )
+            -> Standard_Prettyprint_Mill
+	    ;
+    };
+end;
+
+## Code by Jeff Prothero: Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,967 @@
+## compiledfile.pkg
+#
+#
+# For a high-level overview see:
+#
+#     src/A.COMPILEDFILE.OVERVIEW
+#
+#
+# .compiled file layout
+# =====================
+#
+# This revised version of package compiledfile is now machine-independent.
+# Moreover, it deals with the file format only and does not know how to
+# create new compiledfile contents (aka "compile") or how to interpret the
+# pickles.  As a result, it does not statically depend on the compiler.
+# (Eventually we might want to support a light-weight compiledfile loader.)
+# 
+# ----------------------------------------------------------------------------
+# COMPILED_FILE FORMAT description:
+#
+#  Every 4-byte integer field is stored in big-endian format.
+#
+#        Start Size Purpose
+# ----BEGIN OF HEADER----
+#            0 16  magic string
+#           16  4  number of import values (import_count)
+#           20  4  number of exports (export_count -- currently always 0 or 1)
+#           24  4  size of import tree area in bytes (import_bytes)
+#           28  4  size of makelib-specific info in bytes (makelib_info_bytes)
+#           32  4  size of pickled inlinables-expression in bytes (inlinables_bytes)
+#           36  4  size of GUID area in bytes (g)
+#           40  4  size of padding in bytes (pad)
+#           44  4  size of code area in bytes (code_bytes)
+#           48  4  size of pickled symbolmapstack in bytes (symbolmapstack_bytesize)
+#           52  i  import trees [This area contains pickled import trees --
+#                    see below.  The total number of leaves in these trees is
+#                    import_count and the size is equal to import_bytes.]
+#         i+52 ex  export pickle_hashes [Each export picklehash occupies
+#                    16 bytes. Thus, the size " of this area ("ex) is
+#                    16*export_count (0 or 16).]
+#      ex+i+52 cm  Makelib info [Currently a list of picklehash-pairs.] (cm = makelib_info_bytes)
+# ----END OF HEADER----
+#            0  h  HEADER (h = 52+cm+ex+i)
+#            h  l  pickle of exported inlinables-expr. (l = inlinables_bytes)
+#          l+h  g  GUID area (g = version)						# Something like:  "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
+#        r+l+h  p  padding (p = pad)
+#      p+r+l+h  c  code area (c = code_bytes) [Structured into several
+#                    segments -- see below.]
+#    c+p+r+l+h  e  pickle of symbol table (e = symbolmapstack_bytesize)			# symbolmapstack pickle is placed last because we drop it when packed in a   foo.lib.frozen   freezefile.
+#  e+c+p+r+l+h  -  END OF COMPILED_FILE
+#
+#
+#
+# IMPORT TREE FORMAT description:
+#
+#  The import tree area contains a list of (picklehash, tree) pairs.
+#  The pickle_hashes are stored directly as 16-byte strings.
+#  Trees are constructed according to the following Mythryl type:
+#    Import_Tree_Node = IMPORT_TREE_NODE List (Int, Import_Tree_Node)			# Import_Tree_Node	def in    src/lib/compiler/execution/main/import-tree.pkg
+#  Leaves in this tree have the form (NODE []).
+#  Trees are written recursively -- (NODE l) is represented by n (= the
+#  length of l) followed by n (Int, node) subcomponents.  Each component
+#  consists of the integer selector followed by the corresponding tree.
+#
+#  Integer values in the import tree area (lengths and selectors) are
+#  written in "packed" integer format. In particular, this means that
+#  Values in the range 0..127 are represented by only 1 byte.
+#  Conceptually, the following pickling routine is used:
+#
+#    void recurWriteUl (unsigned long l, FILE *file)
+#    {
+#      if (l != 0) {
+#        recurWriteUl (l >> 7, file);
+#        putc ((l & 0x7f) | 0x80, file);
+#      }
+#    }
+#
+#    void writeUl (unsigned long l, FILE *file)
+#    {
+#      recurWriteUl (l >> 7, file);
+#      putc (l & 0x7f, file);
+#    }
+#
+#  See also:  src/lib/compiler/execution/main/import-tree.pkg
+#
+#
+#
+# CODE AREA FORMAT description:
+#
+#  The code area contains multiple code segments.
+#
+#  There will be at least two.
+#
+#  The first segment is the "data" segment, responsible for
+#  creating literal constants on the heap.  Code in the
+#  data segment will be executed only once, at link-time. Thus, it can
+#  then be garbage-collected immediately. The data segment does not
+#  consist of native machine code but of bytecode for a simple bytecode
+#  interpreter -- see
+#
+#      src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
+#
+#  In the .compiled file, each code segment is represented by its size s and its
+#  entry point offset (in bytes -- written as 4-byte big-endian integers)
+#  followed by s bytes of machine- (or byte-) code. The total length of all
+#  code segments (including the bytes spent on representing individual sizes
+#  and entry points) is code_bytes.  The entrypoint field for the data segment
+#  is currently ignored (and should be 0).
+#
+#
+#
+#
+#
+#
+# LINKING MECHANICS
+# =================
+#
+#  Linking is achieved by executing all code segments in sequential order.
+#
+#  Conceptually, the first code segment (the "data" segment) receives
+#  Void as its single argument. (This code segment actually consists of
+#  bytecode which does not receive any arguments.)
+#
+#  The second code segment receives a record as its single argument.
+#  This record has (import_count+1) components.
+#  The first import_count components correspond to the leaves of the import trees.
+#  The final component is the result of executing the data segment.
+#
+#  All other code segments receive a single argument which is the result
+#  of the preceding segment.
+#
+#  The result of the last segment represents the exports of the compilation
+#  unit.  It is to be paired up with the export picklehash and stored in the
+#  linking dictionary.  If there is no export picklehash, then the final result
+#  will be thrown away.
+#
+#  The import trees are used for constructing the argument record for the
+#  second code segment.  The picklehash at the root of each tree is the key for
+#  looking up a value in the existing linking dictionary.  In general,
+#  that value will be a record.  The selector fields of the import tree
+#  associated with the picklehash are used to recursively fetch components of that
+#  record.
+
+# Compiled by:
+#     src/lib/compiler/execution/execute.sublib
+
+# See also:
+#     src/app/makelib/freezefile/freezefile-g.pkg
+
+stipulate
+    package bio =  data_file__premicrothread;			# data_file__premicrothread		is from   src/lib/std/src/posix/data-file--premicrothread.pkg
+    package byt =  byte;					# byte					is from   src/lib/std/src/byte.pkg
+    package ccw =  callcc_wrapper;				# callcc_wrapper			is from   src/lib/compiler/execution/main/callcc-wrapper.pkg
+    package lrp =  link_and_run_package;			# link_and_run_package			is from   src/lib/compiler/execution/main/link-and-run-package.pkg
+    package ph  =  picklehash;					# picklehash				is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package cs  =  code_segment;				# code_segment				is from   src/lib/compiler/execution/code-segments/code-segment.pkg
+    package sa  =  supported_architectures;			# supported_architectures		is from   src/lib/compiler/front/basics/main/supported-architectures.pkg
+herein
+
+    package   compiledfile
+    :         Compiledfile									# Compiledfile				is from   src/lib/compiler/execution/compiledfile/compiledfile.api
+    {
+	exception FORMAT_ERROR
+	    =
+	    cs::FORMAT_ERROR;
+
+	Component_Bytesizes
+	    =
+	    { symbolmapstack_bytesize:	Int,
+	      inlinables_bytesize:	Int,
+	      data_bytesize:		Int,
+	      code_bytesize:		Int
+	    };
+
+	Pickle
+	    =
+	    { picklehash:  ph::Picklehash,
+	      pickle:      vector_of_one_byte_unts::Vector
+	    };
+
+
+	Compiledfile
+	  =
+	  COMPILEDFILE  {
+	    #
+	    import_trees:		List( import_tree::Import_Tree ),			# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+	    export_picklehash:		Null_Or( ph::Picklehash ),
+	    picklehash_list:		List( ph::Picklehash ),
+	    #
+	    symbolmapstack:		Pickle,
+	    inlinables:			Pickle,
+	    #
+	    compiledfile_version:	String,							# Something like:  "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
+	    #
+	    code_and_data_segments:	cs::Code_And_Data_Segments,
+	    package_closure:		Ref(  Null_Or( cs::Package_Closure ) )
+	  };
+
+	#
+	fun unwrap_compiledfile  (COMPILEDFILE  x)
+	    =
+	    x;
+
+	bytes_per_pickle_hash
+	    =
+	    ph::pickle_hash_size;
+
+	magic_bytes  = 16;
+
+	hash_of_pickled_exports  =  .export_picklehash     o unwrap_compiledfile;
+	picklehash_list          =  .picklehash_list       o unwrap_compiledfile;
+	pickle_of_symbolmapstack =  .symbolmapstack        o unwrap_compiledfile;
+	pickle_of_inlinables     =  .inlinables            o unwrap_compiledfile;
+	get_compiledfile_version =  .compiledfile_version  o unwrap_compiledfile;
+
+	hash_of_symbolmapstack_pickle =  .picklehash o pickle_of_symbolmapstack;
+	hash_of_pickled_inlinables  =  .picklehash o pickle_of_inlinables;
+
+	#
+	fun error msg
+	    =
+	    {   control_print::say									# control_print			is from   src/lib/compiler/front/basics/print/control-print.pkg
+		    (cat ["compiledfile format error: ", msg, "\n"]);
+
+		raise exception FORMAT_ERROR;
+	    };
+
+	from_int  =  one_word_unt::from_int;								# one_word_unt			is from   src/lib/std/one-word-unt.pkg
+	from_byte =  one_word_unt::from_large_unt o one_byte_unt::to_large_unt;
+	to_byte   =  one_byte_unt::from_large_unt o one_word_unt::to_large_unt;
+
+	(>>)      =  one_word_unt::(>>);
+	#
+	infix my  >> ;
+
+	#
+	fun bytes_in (stream, 0)
+		=>
+		byt::string_to_bytes "";
+
+	    bytes_in (stream, bytes_to_read)
+		=>
+		{
+		    byte_vector
+			=
+			bio::read_n  (stream, bytes_to_read);
+
+		    if  (vector_of_one_byte_unts::length byte_vector == bytes_to_read)			# vector_of_one_byte_unts	is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+			#
+			byte_vector;
+		    else
+                        error ( cat [ "expected ",
+					int::to_string bytes_to_read,					# int				is from   src/lib/std/int.pkg
+					" bytes, but found ",
+					int::to_string  (vector_of_one_byte_unts::length  byte_vector)
+				     ]
+			      );
+		    fi;
+		};
+	end;
+	#
+	fun read_int1 stream
+	    =
+	    large_unt::to_int_x (
+		pack_big_endian_unt1::get_vec (								# pack_big_endian_unt1		is from   src/lib/std/src/pack-big-endian-unt1.pkg
+		    bytes_in (stream, 4),
+		    0
+		)
+	    );
+	#
+	fun read_packed_int1 stream
+	    =
+	    large_unt::to_int_x  (loop  0u0)
+	    where
+		fun loop n
+		    =
+		    case (bio::read_one  stream)
+			#
+			NULL =>   error "unable to read a packed one_word_int";
+			#
+			THE w8
+			    =>
+			    {   n' =  n * (one_word_unt::from_int 128)
+				   + one_byte_unt::to_large_unt (one_byte_unt::bitwise_and (w8, 0u127));
+
+				if (one_byte_unt::bitwise_and (w8, 0u128) == 0u0)       n';
+				else                                       loop n';
+                                fi;
+			    };
+		    esac;
+	    end;
+
+	#
+	fun read_pickle_hash stream
+	    =
+	    ph::from_bytes (bytes_in (stream, bytes_per_pickle_hash));
+
+	#
+	fun read_pickle_hash_list (stream, n)
+	    =
+	    list::from_fn (n, \\ _ = read_pickle_hash stream);					# list		is from   src/lib/std/src/list.pkg
+
+	#
+	fun read_import_tree stream
+	    =
+	    case (read_packed_int1 stream)
+		#
+		0   =>
+		    (import_tree::IMPORT_TREE_NODE [], 1);
+		#
+		count
+		    =>
+		    {   fun read_import_list 0
+				=>
+				([], 0);
+
+			   read_import_list count
+			       =>
+			       {   selector
+				       =
+				       read_packed_int1 stream;
+
+				   my (tree, n ) =  read_import_tree  stream;
+				   my (rest, n') =  read_import_list (count - 1);
+
+				   ((selector, tree) ! rest, n + n');
+			       };
+			end;
+
+			my (l, n) =   read_import_list  count;
+
+			(import_tree::IMPORT_TREE_NODE l, n);					# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+		    };
+	    esac;
+	#
+	fun read_imports (stream, hash_plus_tree_pairs_to_read )
+	    =
+	    if (hash_plus_tree_pairs_to_read  <=  0)
+		#
+		[];
+	    else
+		picklehash    =   read_pickle_hash stream;
+		my (tree, n') =   read_import_tree stream;
+		rest          =   read_imports   (stream, hash_plus_tree_pairs_to_read - n');
+
+		(picklehash, tree) ! rest;
+	    fi;
+	#
+	fun pickle_int1 i
+	    =
+	    {   w   =   from_int i;
+		#
+		fun out w =   to_byte w;
+
+		vector_of_one_byte_unts::from_list [ to_byte (w >> 0u24),					# vector_of_one_byte_unts	is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+					 to_byte (w >> 0u16),
+					 to_byte (w >> 0u08),
+					 to_byte  w
+				       ];
+	    };
+	#
+	fun write_int1 stream i
+	    =
+	    bio::write (stream, pickle_int1 i);
+	#
+	fun pickle_packed_int1 i
+	    =
+	    {   n =  from_int  i;
+
+		/// =  large_unt::(/);								# large_unt	is from   src/lib/std/large-unt.pkg
+		%%  =  large_unt::(%);
+		!!  =  large_unt::bitwise_or;
+
+		infix my  /// %% !! ;
+
+		to_w8 = one_byte_unt::from_large_unt;							# one_byte_unt		is from   src/lib/std/one-byte-unt.pkg
+		#
+		fun r (0u0, l)   =>   vector_of_one_byte_unts::from_list l;
+		    r (n,   l)   =>   r (n /// 0u128, to_w8 ((n %% 0u128) !! 0u128) ! l);
+		end;
+
+		r (n /// 0u128, [to_w8 (n %% 0u128)]);
+	    };
+
+	#
+	fun write_picklehash (stream, picklehash)
+	    =
+	    bio::write (stream, ph::to_bytes picklehash);
+
+	#
+	fun write_pickle_hash_list (stream, l)
+	    =
+	    apply (\\ picklehash => write_picklehash (stream, picklehash); end )
+		l;
+
+	stipulate
+	    fun pickle_import_spec ((selector, tree), (n, p))
+		=
+		{   sp  =  pickle_packed_int1  selector;
+
+		    my (n', p')
+			=
+			pickle_import_tree (tree, (n, p));
+
+		    (n', sp ! p');
+		}
+
+	    also
+	    fun pickle_import_tree (import_tree::IMPORT_TREE_NODE [], (n, p))			# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+		    =>
+		    ( n + 1,
+		      pickle_packed_int1 0 ! p
+		    );
+
+	       pickle_import_tree (import_tree::IMPORT_TREE_NODE l, (n, p))
+		   =>
+		   {   my (n', p')
+			   =
+			   fold_backward
+			       pickle_import_spec
+			       (n, p)
+			       l;
+
+		       ( n',
+			 pickle_packed_int1 (length l) ! p'
+		       );
+		   };
+	    end;
+	    #
+	    fun pickle_import ((picklehash, tree), (n, p))
+		=
+		{   my (n', p')
+			=
+			pickle_import_tree (tree, (n, p));
+
+		    ( n',
+		      ph::to_bytes picklehash ! p'
+		    );
+		};
+	herein
+	    fun pickle_imports l
+		=
+		{   my (n, p)
+			=
+			fold_backward
+			    pickle_import
+			    (0, [])
+			    l;
+
+		    ( n,
+		      vector_of_one_byte_unts::cat  p
+		    );
+		};
+	end;
+	#
+	fun make_magic (architecture: sa::Supported_Architectures, compiler_version_id)
+	    =
+	    {   vbytes =   8;									# Version part.
+		abytes =   magic_bytes - vbytes - 1;						# Architecture    part.
+
+		# Pad or truncate a string
+		#  to given length:
+		#
+		fun fit (desired_length, string)
+		    =
+		    {   new_string
+			    =
+			    number_string::pad_right						# number_string	is from   src/lib/std/src/number-string.pkg
+				' '
+				desired_length
+				string;
+
+			if (size new_string == desired_length)   new_string;
+			else                                     substring (new_string, 0, desired_length);
+                        fi;
+		    };
+
+		# Use at most the first two components of compiler_version_id: 
+		#
+		fun version []          =>  [];
+		    version [x]         =>  [int::to_string x];
+		    version (x ! y ! _) =>  [int::to_string x, ".", int::to_string y];
+		end;
+
+
+		my_version      =   fit (vbytes, cat (version compiler_version_id));
+		my_architecture =   fit (abytes, architecture_name)
+				    where
+					architecture_name =  sa::architecture_name  architecture;
+				    end;
+
+		cat [my_version, my_architecture, "\n"];
+
+		#  Assert (vector_of_one_byte_unts::length (MAGIC <architecture>) = magicBytes 
+	    };
+
+
+	# Sum size of code and data segments (including lengths and entrypoints): 
+	#
+	fun code_and_data_segments_size_in_bytes (segs:  cs::Code_And_Data_Segments)
+	    =
+	    cs::get_machinecode_bytevector_size_in_bytes  segs.code_segment
+	    +
+	    vector_of_one_byte_unts::length  segs.bytecodes_to_regenerate_literals_vector
+	    +
+	    16;															# What is the '16'? Crap constants like these shouldn't be buried like this. XXX SUCKO FIXME. 64-bit issue.
+
+
+
+
+
+	# This fun is (only) called once below in read_compiledfile() and once in:
+	#
+	#     src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	#
+	fun make_compiledfile  { import_trees, export_picklehash, picklehash_list, symbolmapstack, inlinables, compiledfile_version, code_and_data_segments }
+	    =    COMPILEDFILE  { import_trees, export_picklehash, picklehash_list, symbolmapstack, inlinables, compiledfile_version, code_and_data_segments,  package_closure => REF NULL };
+
+
+	#  Must be called with second arg >= 0 
+	#
+	fun read_code_and_data_segments (stream, nbytes)
+	    =
+	    {   fun read_code 0 =>   [];
+
+		    read_code n
+			=>
+			{   size       =  read_int1  stream;
+			    entrypoint =  read_int1  stream;
+
+			    n' =  n - size - 8;
+
+			    cchunk =  if (n' < 0)   error "code size";
+				      else          cs::read_machinecode_bytevector (stream, size);
+                                      fi;
+
+			    cs::set_entrypoint (cchunk, entrypoint);
+			    cchunk ! read_code n';
+			};
+
+		    
+		end;
+
+		data_size =   read_int1 stream;
+
+		read_int1  stream;          #  Ignore entry point field for data segment 
+
+		n'   = nbytes - data_size - 8;
+
+		bytecodes_to_regenerate_literals_vector
+		    =
+		    if (n' < 0)   error "data size";
+		    else          bytes_in (stream, data_size);
+		    fi;
+
+		case (read_code n')
+		    #
+		    []               =>  error "missing code segment";
+		    [ code_segment ] =>  { bytecodes_to_regenerate_literals_vector, code_segment };
+		    _                =>  error "extra code segment";
+		esac;
+	    };
+
+
+
+	# Read version string from compiledfile.
+	# This is called exactly once, in   src/app/makelib/compilable/thawedlib-tome.pkg
+	#
+	# The version string uniquely
+	# identifies not just a particular
+	# .compiled file, but a particular version
+	# of that file.
+	#
+	# For                               src/etc/build7-compiledfiles/ROOT/src/app/makelib/compilable/tmp7/intel32-posix/thawedlib-tome.pkg.compiled
+	# our version string will be like   "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
+	# where the suffix is the compile
+	# date+time to millisecond accuracy.
+	#
+	# 'stream' is open at the start of compiledfile,
+	# so we need to read down to the right offset
+	# and then read and return the right number of bytes:
+	#
+	fun read_version  stream
+	    =
+	    {   bytes_in  (stream, magic_bytes);                 
+		read_int1 stream;
+
+		export_count          =  read_int1  stream;
+		import_bytes          =  read_int1  stream;
+		makelib_info_bytes    =  read_int1  stream;
+
+		picklehashes          =  makelib_info_bytes  /  bytes_per_pickle_hash;
+		inlinables_bytes      =  read_int1  stream;
+
+		version_bytesize =   read_int1 stream;
+
+		bytes_in (stream, import_bytes + 3 * 4);                              
+		bytes_in (stream, export_count * bytes_per_pickle_hash);                 
+
+		read_pickle_hash_list (stream, picklehashes);                          
+
+		bytes_in (stream, inlinables_bytes);
+
+		byt::bytes_to_string (bytes_in (stream, version_bytesize));
+	    };
+
+	#
+	fun read_compiledfile
+              {
+                architecture: sa::Supported_Architectures,
+                compiler_version_id => my_version,									# Something like:   [110, 58, 3, 0, 2]
+	        stream
+              }
+	    =
+	    { compiledfile
+		  =>
+		  make_compiledfile
+		    {
+		      import_trees,
+		      export_picklehash,
+		      picklehash_list,
+		      compiledfile_version,
+		      #	
+		      symbolmapstack    =>  {   picklehash => symbolmapstack_picklehash,  pickle => pickled_symbolmapstack  },
+		      inlinables        =>  {   picklehash => inlinables_picklehash,      pickle => pickled_inlinables      },
+
+		      code_and_data_segments => segs
+		    },
+
+	      component_bytesizes
+		  =>
+		  { symbolmapstack_bytesize =>  symbolmapstack_bytes,
+		    inlinables_bytesize  =>  inlinables_bytes,
+		    code_bytesize        =>  code_and_data_bytes,
+		    data_bytesize        =>  vector_of_one_byte_unts::length  segs.bytecodes_to_regenerate_literals_vector
+		  }
+	    }
+	    where
+
+		magic'  =   make_magic  (architecture, my_version);
+
+		magic  =  bytes_in  (stream, magic_bytes);
+
+		if (byt::bytes_to_string magic != magic')     error "bad magic number";		fi;
+
+		import_count          = read_int1  stream;
+		export_count          = read_int1  stream;
+
+		import_bytes          = read_int1  stream;
+		makelib_info_bytes    = read_int1  stream;
+
+		picklehashes          = makelib_info_bytes  /  bytes_per_pickle_hash;
+
+		inlinables_bytes      =  read_int1  stream;
+		version_bytesize      =  read_int1  stream;
+		padding_bytesize      =  read_int1  stream;
+		code_and_data_bytes   =  read_int1  stream;
+		symbolmapstack_bytes  =  read_int1  stream;
+
+		import_trees
+		    =
+		    read_imports  (stream, import_count);
+
+		export_picklehash
+		    =
+		    case export_count
+			#
+			0 =>  NULL;
+			1 =>  THE (read_pickle_hash  stream);
+			_ =>  error "too many export pickle_hashes";
+		    esac;
+
+		env_pickle_hashes
+		    =
+		    read_pickle_hash_list  (stream, picklehashes);
+
+		my  (symbolmapstack_picklehash,  inlinables_picklehash,  picklehash_list)
+		    =
+		    case env_pickle_hashes
+			#
+			st ! lm ! picklehash_list =>   (st, lm, picklehash_list);
+			_                         =>   error "dictionary PICKLE_HASH list";
+		    esac;
+
+		pickled_inlinables
+		    =
+		    bytes_in  (stream, inlinables_bytes);
+
+		compiledfile_version
+		    =
+		    byt::bytes_to_string
+			#
+			(bytes_in  (stream, version_bytesize));
+
+
+		if (padding_bytesize != 0) 
+		    #
+		    ignore (bytes_in (stream, padding_bytesize));		# Skip padding.
+		fi;
+
+
+
+		segs =   read_code_and_data_segments  (stream, code_and_data_bytes);			# Get the actual compiled code plus the bytecoded literals vector.
+
+
+		pickled_symbolmapstack
+		    =
+		    bytes_in  (stream, symbolmapstack_bytes);
+
+	    end;		     #  fun read 
+
+
+	# We get called from two places:
+	#
+	#    To write a tome into a   foo.pkg.compiled   file in:   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	#    To write a tome into a   foo.lib.frozen     file in:   src/app/makelib/freezefile/freezefile-g.pkg
+	#
+	# See also the Symbol_And_Inlining_Mapstacks comments in                   src/app/makelib/depend/intra-library-dependency-graph.pkg
+	#
+	fun write_compiledfile
+              {
+                architecture: sa::Supported_Architectures,
+                compiler_version_id => my_version,						# Something like:   [110, 58, 3, 0, 2],
+                stream,
+                compiledfile,
+                drop_symbol_and_inlining_mapstacks						# We drop symbol tables (only) in frozen libraries, so freezefile-g.pkg sets this TRUE.  compile-in-dependency-order-g.pkg sets this FALSE.
+              }
+	    =
+	    { symbolmapstack_bytesize,
+	      inlinables_bytesize,
+	      data_bytesize,
+	      code_bytesize => code_and_data_bytes
+	    }
+	    where
+
+		#  Keep this in sync with "size" (see above). 
+
+		(unwrap_compiledfile  compiledfile)
+		    ->
+		    { import_trees,
+		      export_picklehash,
+		      picklehash_list,
+		      symbolmapstack,
+		      inlinables,
+		      code_and_data_segments => segs,
+		      compiledfile_version,
+			...
+		    };
+
+		symbolmapstack ->  { pickle => symbolmapstack_pickle,   picklehash => symbolmapstack_picklehash };
+		inlinables   ->  { pickle => inlinables_pickle,     picklehash => inlinables_picklehash   };
+
+		env_pickle_hashes
+		    =
+		    symbolmapstack_picklehash ! inlinables_picklehash ! picklehash_list;
+
+		(pickle_imports import_trees) ->   (import_count, imports_pickle);
+
+		import_bytes
+		    =
+		    vector_of_one_byte_unts::length  imports_pickle;
+
+		my (export_count, export_picklehash_list)
+		    =
+		    case export_picklehash
+			#
+			NULL  =>  (0, [] );
+			THE p =>  (1, [p]);
+		    esac;
+
+		picklehashes
+		    =
+		    length  env_pickle_hashes;
+
+		makelib_info_bytesize
+		    =
+		    picklehashes * bytes_per_pickle_hash;
+
+		#
+		fun pickle_size { picklehash, pickle }
+		    =
+		    drop_symbol_and_inlining_mapstacks
+			##
+			??  0
+		        ::  vector_of_one_byte_unts::length pickle;								# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+
+		inlinables_bytesize =  pickle_size  inlinables;
+		version_bytesize    =  string::length compiledfile_version;					# string		is from   src/lib/std/string.pkg
+		padding_bytesize    =  0;			    						# Currently no padding. 
+		code_and_data_bytes =  code_and_data_segments_size_in_bytes  segs;
+		#
+		fun code_out c
+		    =
+		    {   write_int1 stream (cs::get_machinecode_bytevector_size_in_bytes c);
+			write_int1 stream (cs::get_entrypoint c);
+			#
+			cs::write_machinecode_bytevector_and_flush (stream, c);
+		    };
+
+		symbolmapstack_bytesize
+		    =
+		    pickle_size  symbolmapstack;
+
+
+		data_bytesize =   vector_of_one_byte_unts::length  segs.bytecodes_to_regenerate_literals_vector;
+
+		magic' =   make_magic  (architecture, my_version);
+
+
+		bio::write  (stream,  byt::string_to_bytes magic');
+
+		apply
+		    (write_int1  stream)
+		    [   import_count,
+			export_count,
+			import_bytes,
+			makelib_info_bytesize,
+			inlinables_bytesize,
+			version_bytesize,
+			padding_bytesize,
+			code_and_data_bytes,
+			symbolmapstack_bytesize
+		    ];
+
+		bio::write (stream, imports_pickle);
+
+		write_pickle_hash_list (stream, export_picklehash_list);
+
+		write_pickle_hash_list (stream, env_pickle_hashes);			# Arena1 
+
+
+		if (inlinables_bytesize != 0
+		    and
+                    not drop_symbol_and_inlining_mapstacks
+                ) #
+		    bio::write (stream, inlinables_pickle);
+		fi;
+
+		bio::write (stream,  byt::string_to_bytes  compiledfile_version);			# GUID area 
+		    
+
+		#  Padding area is currently empty 
+
+		# Code chunks: 
+		#
+		write_int1  stream  data_bytesize;
+		write_int1  stream  0;							#  Dummy entry point for data segment 
+
+		bio::write (stream, segs.bytecodes_to_regenerate_literals_vector );
+		code_out            segs.code_segment;
+
+		if (not drop_symbol_and_inlining_mapstacks)
+		    #
+		    bio::write (stream, symbolmapstack_pickle);
+                fi;
+	    end;
+
+
+	# NB:   This function must be kept in sync with the "write_compiledfile" function above!
+	#
+	# It calculates the number of bytes written by a corresponding
+	# call to "write_compiledfile".
+	#
+	fun compiledfile_bytesize_on_disk { compiledfile, drop_symbol_and_inlining_mapstacks }
+	    =
+	    {   (unwrap_compiledfile  compiledfile)
+		    ->
+		    { import_trees,  export_picklehash,  symbolmapstack,  picklehash_list,  inlinables,  code_and_data_segments, compiledfile_version,  ... };
+		    
+
+		my (_, imports_pickle)
+		    =
+		    pickle_imports  import_trees;
+
+		has_exports
+		    =
+		    not_null  export_picklehash;
+		#
+		fun pickle_size { picklehash, pickle }					# Use pickle_size only on symbol- and inlining-mapstack pickles!
+		    =
+		    if drop_symbol_and_inlining_mapstacks   0;
+		    else                                 vector_of_one_byte_unts::length  pickle;
+                    fi;
+
+		magic_bytes
+		    + 9 * 4
+		    + vector_of_one_byte_unts::length imports_pickle				# vector_of_one_byte_unts	is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+		    + ( has_exports ??  bytes_per_pickle_hash
+				    ::  0
+		      )
+		    + bytes_per_pickle_hash * (length picklehash_list + 2)		# 2 extra: symbolmapstack+inlining 
+		    + string::length compiledfile_version				# string	is from   src/lib/std/string.pkg
+		    + code_and_data_segments_size_in_bytes      code_and_data_segments
+		    + pickle_size    inlinables
+		    + pickle_size    symbolmapstack;
+	    };
+
+
+	# This fn is invoked (only) from two places in:
+	#
+	#     src/app/makelib/compile/link-in-dependency-order-g.pkg
+	#
+	fun link_and_run_compiledfile
+	      (
+		COMPILEDFILE  { import_trees,  export_picklehash,  package_closure,  code_and_data_segments, ... },
+		linking_mapstack,
+		exception_wrapper
+	      )
+	    =
+	    {
+# printf "link_and_run_compiledfile/AAA: building package closure         -- compiledfile.pkg\n";
+		package_closure
+		    =
+		    case *package_closure
+			#
+			THE package_closure'  => package_closure';
+			#
+			NULL
+			    =>
+			    {   package_closure'
+				    =
+				    ccw::trap_callcc (
+					#
+					lrp::make_package_closure
+					    #
+					    { code_and_data_segments,  exception_wrapper }
+				    );
+
+			       package_closure :=  THE package_closure';
+
+			       package_closure';
+			   };
+		    esac;
+
+
+# printf "link_and_run_compiledfile/BBB: calling link_and_run_package_closure               -- compiledfile.pkg\n";
+result =
+		lrp::link_and_run_package_closure { package_closure,  import_trees,  export_picklehash,  linking_mapstack };
+# printf "link_and_run_compiledfile/ZZZ: back from calling link_and_run_package_closure               -- compiledfile.pkg\n";
+result;
+	    };
+    };
+end;
+
+## (C) 2001 Lucent Technologies, Bell Labs
+## author: Matthias Blume (blume@research.bell-labs.com
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,835 @@
+## draw-imp-old.pkg
+#
+# The newworld version of this package is:   src/lib/x-kit/xclient/src/window/xserver-ximp.pkg
+#
+# TODO
+#  - optimize the case where successive draw ops ("DOPs") use the same pen.
+#  - All window configuration operations (Resize, Move, Pop/Push, Create &
+#    Delete) should go through the draw imp. XXX BUGGO FIXME
+#
+# Nomenclature:  "gc" means "graphics context" throughout this file.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    package p2g =  pen_to_gcontext_imp_old;		# pen_to_gcontext_imp_old	is from   src/lib/x-kit/xclient/src/window/pen-to-gcontext-imp-old.pkg
+    package pg  =  pen_guts;				# pen_guts			is from   src/lib/x-kit/xclient/src/window/pen-guts.pkg
+    package v2w =  value_to_wire;			# value_to_wire			is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package vu8 =  vector_of_one_byte_unts;		# vector_of_one_byte_unts	is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package xok =  xsocket_old;			 	# xsocket_old			is from   src/lib/x-kit/xclient/src/wire/xsocket-old.pkg
+    package xt  =  xtypes;				# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package xtr =  xlogger;				# xlogger			is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    package   draw_imp_old
+    : (weak)  Draw_Imp_Old				# Draw_Imp_Old			is from   src/lib/x-kit/xclient/src/window/draw-imp-old.api
+    {
+	package s {
+	    #
+	    Mapped_State				# These are the messages we receive via our mappedstate_slot from xsession and topwindow-to-widget-router.
+	      = TOPWINDOW_IS_NOW_UNMAPPED
+	      | TOPWINDOW_IS_NOW_MAPPED
+	      | FIRST_EXPOSE
+	      ;
+	};
+
+	package t {
+	    #
+	    Poly_Text
+	      = TEXT  (Int, String)
+	      | FONT  xt::Font_Id
+	      ;
+	};
+
+	package o {
+	    Draw_Opcode
+	      = POLY_POINT     (Bool, List( xg::Point ))
+	      | POLY_LINE      (Bool, List( xg::Point ))
+	      | FILL_POLY      (xt::Shape, Bool, List( xg::Point ))
+	      | POLY_SEG       List( xg::Line )
+	      | POLY_BOX       List( xg::Box )
+	      | POLY_FILL_BOX  List( xg::Box )
+	      | POLY_ARC       List( xg::Arc  )
+	      | POLY_FILL_ARC  List( xg::Arc  )
+	      | COPY_AREA
+		    ( xg::Point,
+		      xt::Xid,
+		      xg::Box,
+		      Oneshot_Maildrop( Void -> List( xg::Box ) )
+		    )
+	      | COPY_PLANE
+		    ( xg::Point,
+		      xt::Xid,
+		      xg::Box,
+		      Int,
+		      Oneshot_Maildrop (Void -> List( xg::Box ) )
+		    )
+	      | COPY_PMAREA    (xg::Point, xt::Xid, xg::Box)
+	      | COPY_PMPLANE   (xg::Point, xt::Xid, xg::Box, Int)
+	      | CLEAR_AREA      xg::Box
+	      | PUT_IMAGE  {
+		    to_point: xg::Point,
+		    size:     xg::Size,
+		    depth:    Int,
+		    lpad:     Int,
+		    format:   xt::Image_Format,
+		    data:     vu8::Vector
+		  }
+	      | POLY_TEXT8   (xt::Font_Id, xg::Point, List( t::Poly_Text ))
+	      | IMAGE_TEXT8  (xt::Font_Id, xg::Point, String)
+	      ;
+	};
+
+	package i {
+	    #
+	    Destroy_Item
+	      = WINDOW  xt::Window_Id
+	      | PIXMAP  xt::Pixmap_Id
+	      ;
+	};
+
+	package d {
+	    Draw_Op
+	      = DRAW  {
+		  to:    xt::Xid,
+		  pen:   pg::Pen,
+		  op:    o::Draw_Opcode
+		}
+	      | DESTROY    i::Destroy_Item
+	      | FLUSH      Oneshot_Maildrop( Void )		# Used (only) by  drawable_of_rw_pixmap() and make_unbuffered_drawable()  in  src/lib/x-kit/xclient/src/window/draw-types-old.pkg 
+	      | THREAD_ID  Oneshot_Maildrop( Int  )
+	      ;
+	};
+
+	/* +DEBUG 
+	fun dop_to_string (o::POLY_POINT    _) = "PolyPoint";
+	    dop_to_string (o::POLY_LINE     _) = "PolyLine";
+	    dop_to_string (o::POLY_SEG      _) = "PolySeg";
+	    dop_to_string (o::FILL_POLY     _) = "PolyFillPoly";
+	    dop_to_string (o::POLY_BOX      _) = "PolyRect";
+	    dop_to_string (o::POLY_FILL_BOX _) = "PolyFillRect";
+	    dop_to_string (o::POLY_ARC      _) = "PolyArc";
+	    dop_to_string (o::POLY_FILL_ARC _) = "PolyFillArc";
+	    dop_to_string (o::COPY_AREA     _) = "CopyArea";
+	    dop_to_string (o::COPY_PLANE    _) = "CopyPlane";
+	    dop_to_string (o::COPY_PMAREA   _) = "CopyPMArea";
+	    dop_to_string (o::COPY_PMPLANE  _) = "CopyPMPlane";
+	    dop_to_string (o::CLEAR_AREA    _) = "ClearArea";
+	    dop_to_string (o::PUT_IMAGE     _) = "PutImage";
+	    dop_to_string (o::POLY_TEXT8    _) = "PolyText8";
+	    dop_to_string (o::IMAGE_TEXT8   _) = "ImageText8";
+	end;
+	 -DEBUG */
+
+
+	stipulate
+
+	    # Maximum number of drawing commands
+	    # to buffer before flushing.
+	    #
+	    full_buffer_size = 16;
+
+	    my (|)  =  unt::bitwise_or;
+	    my (<<) =  unt::(<<);
+
+	    infix my | <<;
+
+	    # Officially Mythryl does not have pointer equality,
+	    # but we do it here anyway for speed.  Naughty! :-)
+	    #
+	    fun pen_eq
+                ( a:  pg::Pen,
+                  b:  pg::Pen
+                )
+		=
+		{   ((unsafe::cast a): Int)
+		    ==
+		    ((unsafe::cast b): Int);
+		};
+
+	    # Bitmasks for the various components of a pen.
+	    # These should track the slot numbers given in PenValues.
+
+	    pen_function	= (0u1 << 0u0);
+	    pen_plane_mask	= (0u1 << 0u1);
+
+	    pen_foreground	= (0u1 << 0u2);
+	    pen_background	= (0u1 << 0u3);
+
+	    pen_line_width	= (0u1 << 0u4);
+	    pen_line_style	= (0u1 << 0u5);
+
+	    pen_cap_style	= (0u1 << 0u6);
+	    pen_join_style	= (0u1 << 0u7);
+
+	    pen_fill_style	= (0u1 << 0u8);
+	    pen_fill_rule	= (0u1 << 0u9); 
+
+	    pen_tile		= (0u1 << 0u10);
+	    pen_stipple		= (0u1 << 0u11);
+
+	    pen_tile_stip_origin= (0u1 << 0u12);
+	    pen_subwindow_mode	= (0u1 << 0u13);
+
+	    pen_clip_origin	= (0u1 << 0u14);
+	    pen_clip_mask	= (0u1 << 0u15);
+
+	    pen_dash_offset	= (0u1 << 0u16);
+	    pen_dash_list	= (0u1 << 0u17);
+
+	    pen_arc_mode	= (0u1 << 0u18);
+	    pen_exposures	= 0u0; #  (0u1 << 0u19) 
+
+	    stipulate
+		standard_pen_components				# The standard pen components used by most ops.
+		    #
+		    = pen_function
+		    | pen_plane_mask
+		    | pen_subwindow_mode
+		    | pen_clip_origin
+		    | pen_clip_mask
+		    | pen_foreground
+		    | pen_background
+		    | pen_tile
+		    | pen_stipple
+		    | pen_tile_stip_origin
+		    ;
+
+		standard_linedrawing_pen_components		# The pen components used by line-drawing operations.
+		    #
+		    =  standard_pen_components
+		    | pen_line_width
+		    | pen_line_style
+		    | pen_cap_style
+		    | pen_join_style
+		    | pen_fill_style
+		    | pen_dash_offset
+		    | pen_dash_list
+		    ;
+	    herein
+
+		fun pen_vals_used (o::POLY_POINT    _)	=>  standard_pen_components;
+		    pen_vals_used (o::COPY_PMAREA   _)	=>  standard_pen_components;
+		    pen_vals_used (o::COPY_PMPLANE  _)	=>  standard_pen_components;
+		    pen_vals_used (o::PUT_IMAGE     _)	=>  standard_pen_components;
+		    pen_vals_used (o::IMAGE_TEXT8   _)	=>  standard_pen_components;
+		    #
+		    pen_vals_used (o::POLY_TEXT8    _)	=> (standard_pen_components | pen_fill_style);
+		    pen_vals_used (o::FILL_POLY     _)	=> (standard_pen_components | pen_fill_style);
+		    pen_vals_used (o::POLY_FILL_BOX _)	=> (standard_pen_components | pen_fill_style);
+		    pen_vals_used (o::POLY_FILL_ARC _)	=> (standard_pen_components | pen_fill_style);
+		    #
+		    pen_vals_used (o::COPY_AREA     _)	=>  standard_pen_components | pen_exposures;
+		    pen_vals_used (o::COPY_PLANE    _)	=>  standard_pen_components | pen_exposures;
+		    #
+		    pen_vals_used (o::POLY_LINE     _)	=>  standard_linedrawing_pen_components;
+		    pen_vals_used (o::POLY_SEG      _)	=>  standard_linedrawing_pen_components;
+		    pen_vals_used (o::POLY_BOX      _)	=>  standard_linedrawing_pen_components;
+		    pen_vals_used (o::POLY_ARC      _)	=>  standard_linedrawing_pen_components;
+		    #
+		    pen_vals_used (o::CLEAR_AREA    _)	=> 0u0;
+		end;
+	    end;
+
+#	    stipulate
+
+#		include value_to_wire;
+
+#	    herein
+
+		fun send_draw_op (send_xrequest, send_xrequest_and_handle_exposures)
+		    =
+		    \\  (to, gc_id, _, o::POLY_POINT (rel, points))
+			    =>
+#			    send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel } );	# Replaced by below code.
+ 			    {
+				# Discovered there's a limit to the number
+				# of points that can be sent to the X server.
+				# It's less than 65535, but at least 65400.
+				# I figure this is close enough:              -- Hue White 2011-11-24
+				#
+				x_limit = 65400;
+
+				send_xrequests points
+				where
+				    fun send_xrequests points
+					=
+					if (list::length(points) <= x_limit)
+					    #
+					    send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>points, relative=>rel } );
+					else
+					    send_xrequest (v2w::encode_poly_point { drawable=>to, gc_id, items=>(list::take_n(points, x_limit)), relative=>rel } );
+					    send_xrequests (list::drop_n(points, x_limit));
+					fi;
+ 				end;
+ 			    };
+
+			(to, gc_id, _, o::POLY_LINE (rel, points))
+			    =>
+			    send_xrequest (v2w::encode_poly_line { drawable=>to, gc_id, items=>points, relative=>rel } );
+
+			(to, gc_id, _, o::POLY_SEG lines)
+			    =>
+			    send_xrequest (v2w::encode_poly_segment { drawable=>to, gc_id, items=>lines } );
+
+			(to, gc_id, _, o::FILL_POLY (shape, rel, points))
+			    =>
+#			    send_xrequest (v2w::encode_fill_poly { drawable=>to, gc_id, points, relative=>rel, shape } );
+			    {
+			        msg = v2w::encode_fill_poly { drawable=>to, gc_id, points, relative=>rel, shape };
+
+			        send_xrequest msg;
+			    };
+
+			(to, gc_id, _, o::POLY_BOX boxes)
+			    =>
+			    send_xrequest (v2w::encode_poly_box { drawable=>to, gc_id, items=>boxes } );
+
+			(to, gc_id, _, o::POLY_FILL_BOX boxes)
+			    =>
+			    send_xrequest (v2w::encode_poly_fill_box { drawable=>to, gc_id, items=>boxes } );
+
+			(to, gc_id, _, o::POLY_ARC arcs)
+			    =>
+			    send_xrequest (v2w::encode_poly_arc { drawable=>to, gc_id, items=>arcs } );
+
+			(to, gc_id, _, o::POLY_FILL_ARC arcs)
+			    =>
+			    send_xrequest (v2w::encode_poly_fill_arc { drawable=>to, gc_id, items=>arcs } );
+
+			(to, gc_id, _, o::COPY_AREA (pt, from, box, sync_v))
+			    =>
+			    {   (xg::box::upperleft_and_size  box)
+				    ->
+				    (p, size);
+
+				send_xrequest_and_handle_exposures (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt }, sync_v);
+			    };
+
+			(to, gc_id, _, o::COPY_PLANE (pt, from, box, plane, sync_v))
+			    =>
+			    {   (xg::box::upperleft_and_size  box)
+				    ->
+				    (p, size);
+
+				send_xrequest_and_handle_exposures (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane }, sync_v);
+			    };
+
+			(to, gc_id, _, o::COPY_PMAREA (pt, from, box))
+			    =>
+			    {   (xg::box::upperleft_and_size  box)
+				    ->
+				    (p, size);
+
+				send_xrequest (v2w::encode_copy_area { gc_id, from, to, from_point=>p, size, to_point=>pt });
+			    };
+
+			(to, gc_id, _, o::COPY_PMPLANE (pt, from, box, plane))
+			    =>
+			    {   (xg::box::upperleft_and_size  box)
+				    ->
+				    (p, size);
+
+				send_xrequest (v2w::encode_copy_plane { gc_id, from, to, from_point=>p, size, to_point=>pt, plane });
+			    };
+
+			(to, _, _, o::CLEAR_AREA box)
+			    =>
+			    send_xrequest (v2w::encode_clear_area { window_id=>to, box, exposures => FALSE } );
+
+			(to, gc_id, _, o::PUT_IMAGE im)
+			    =>
+			    send_xrequest
+				(v2w::encode_put_image
+				  { drawable => to,
+                                    gc_id,
+                                    depth  => im.depth,
+                                    to     => im.to_point,
+			            size   => im.size,
+                                    lpad   => im.lpad,
+                                    format => im.format,
+			            data   => im.data
+			          }
+                                );
+
+
+			(to, gc_id, _, o::IMAGE_TEXT8(_, point, string))
+			    =>
+			    send_xrequest (v2w::encode_image_text8 { drawable=>to, gc_id, point, string } );
+
+			(to, gc_id, current_font_id, o::POLY_TEXT8 (font_id, point, txt_items))
+			    =>
+			    {   last_font_id =  f (font_id, txt_items)
+					    where
+						fun f (last_font_id, [])               =>  last_font_id;
+						    f (last_font_id, (t::FONT id) ! r) =>  f (id, r);
+						    f (last_font_id, _ ! r)            =>  f (last_font_id, r);
+						end;
+					    end;
+
+				txt_items =     last_font_id == current_font_id
+						    ?? txt_items
+						    :: txt_items @ [t::FONT current_font_id];
+
+				txt_items =     font_id == current_font_id
+						    ?? txt_items
+						    :: (t::FONT font_id) ! txt_items;
+
+
+				fun split_delta (0, l)	=>  l;
+				    #
+				    split_delta (i, l)	=>  if   (i < -128)   split_delta (i + 128, -128 ! l);
+							    elif (i >  127)   split_delta (i - 127,  127 ! l);
+							    else	                               i ! l ;
+							    fi;
+				end;
+
+
+				# Split a string into legal
+				# lengths for a PolyText8 command 
+				#
+				fun split_text "" =>   [];
+				    #
+				    split_text s  =>    if (n <= 254)  [s];
+							else           split (0, []);
+							fi
+							where
+							    n = string::length s;
+
+							    fun split (i, l)
+								=
+								n - i  > 254
+								??  split (i+254,  substring (s, i, 254) ! l)
+								::  list::reverse (substring (s, i, n-i) ! l);
+							end;
+				end;
+
+
+				fun split_item (t::FONT id)
+					=>
+					[xt::FONT_ITEM id];
+
+				    split_item (t::TEXT (delta, s))
+					=>
+					case (split_delta (delta, []), split_text s)
+					    #
+					    ([], []) =>   [];
+					    ([], sl) =>   (map (\\ s = xt::TEXT_ITEM (0,  s)) sl);
+					    (dl, []) =>   (map (\\ n = xt::TEXT_ITEM (n, "")) dl);
+
+					    ([d], s ! sr)
+						=>
+						(xt::TEXT_ITEM (d, s) ! (map (\\ s = xt::TEXT_ITEM (0, s)) sr));
+
+					    (d ! dr, s ! sr)
+						=>
+						((map (\\ n = xt::TEXT_ITEM (n, "")) dr)
+						 @ (xt::TEXT_ITEM (d, s) ! (map (\\ s = xt::TEXT_ITEM (0, s)) sr)));
+					esac;
+
+				end;
+
+				do_items =  fold_backward
+						(\\ (item, l) =  (split_item item) @ l)
+						[];
+
+				send_xrequest
+				    (v2w::encode_poly_text8
+				      {
+					gc_id,
+					point,
+					drawable =>  to,
+					items    =>  do_items txt_items
+				      }
+				    );
+			    };											# o::POLY_TEXT8
+		    end;
+
+#	    end;				# stipulate
+
+
+	    # Flush a list of drawing commands out to the sequencer.
+	    # This means acquiring actual X-server graphics contexts
+	    # for the operations from graphics_context_cache:
+	    #
+	    fun flush_buf (gc_cache, connection)
+		=
+		flush_buf'
+		where 
+
+		    Gc_Info
+		      = NO_GC
+		      | NO_FONT
+		      | WITH_FONT xt::Font_Id
+		      | SET_FONT  xt::Font_Id
+		      ;
+
+		    allot_gc		    =   p2g::allocate_graphics_context			gc_cache;
+		    free_gc		    =   p2g::free_graphics_context			gc_cache;
+
+		    allot_gc_with_font	    =   p2g::allocate_graphics_context_with_font	gc_cache;
+		    allot_gc_and_set_font   =   p2g::allocate_graphics_context_and_set_font	gc_cache;
+		    free_gc_and_font	    =   p2g::free_graphics_context_and_font		gc_cache;
+
+		    send_dop =  send_draw_op
+				  ( xok::send_xrequest                       connection,
+				    xok::send_xrequest_and_handle_exposures  connection
+				  );
+
+		    # Our first argument is a list of X drawing operations
+		    # to be performed.  For efficiency, we want to avoid
+		    # switching graphics contexts needlessly, so we break our
+		    # argument draw-op list into a sequence of sublists,
+		    # each of which can be performed using a single gc.
+		    # 
+		    fun batch_drawops ([], results)
+			    =>
+			    results;									# No more input -- done. (Why don't we reverse it?)
+
+			batch_drawops
+                            ( draw_ops as (first_op ! _),						# Input drawops list.
+                              results									# Batch accumulator.
+                            )
+			    =>
+			    {   (find_max_prefix (draw_ops, NO_GC, first_op.pen, 0u0, []))
+				    ->
+				    (remaining_draw_ops, gc_usage, pen, mask, max_prefix);
+
+				batch_drawops (remaining_draw_ops, (gc_usage, pen, mask, max_prefix) ! results);
+			    }
+			    where
+				fun gc_usage_of (o::CLEAR_AREA _)                =>   NO_GC;
+				    gc_usage_of (o::POLY_TEXT8  (font_id, _, _)) =>   WITH_FONT font_id;
+				    gc_usage_of (o::IMAGE_TEXT8 (font_id, _, _)) =>   SET_FONT  font_id;
+				    gc_usage_of op                               =>   NO_FONT;
+				end;
+
+
+				fun extend_mask (m, op)
+				    =
+				    m | (pen_vals_used op);
+
+
+				# We are given a list of X drawing operations to do.
+				# Our job is to find the maximal prefix of this list
+				# which can all use the same graphics context:
+				# 
+				fun find_max_prefix (arg as ([], _, _, _, _))
+					=>
+					arg;
+
+				    find_max_prefix (arg as ( { to, pen, op } ! rest, gc_usage, first_pen, used_mask, prefix))
+					=>
+					if (not (pen_eq (pen, first_pen)))
+					    #
+					    arg;
+					else
+					    case (gc_usage, gc_usage_of op)
+						#
+						(_, NO_GC)
+						    =>
+						    find_max_prefix (rest, gc_usage, first_pen, used_mask,                                (to, op) ! prefix);
+
+						(NO_GC, new_gc_usage)
+						    =>
+						    find_max_prefix (rest, new_gc_usage, first_pen, pen_vals_used op,                     (to, op) ! prefix);
+
+						(_, NO_FONT)
+						    =>
+						    find_max_prefix (rest, gc_usage, first_pen, extend_mask (used_mask, op),              (to, op) ! prefix);
+
+						(SET_FONT font_id, WITH_FONT _)
+						    =>
+						    find_max_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      (to, op) ! prefix);
+
+						(_, WITH_FONT font_id)
+						    =>
+						    find_max_prefix (rest, WITH_FONT font_id, first_pen, extend_mask (used_mask, op),     (to, op) ! prefix);
+
+						(SET_FONT font_id1, SET_FONT font_id2)
+						    =>
+						    if (font_id1 == font_id2)
+							#
+							find_max_prefix (rest, SET_FONT font_id1, first_pen, extend_mask (used_mask, op), (to, op) ! prefix);
+						    else
+							arg;
+						    fi;
+
+						(_, SET_FONT font_id)
+						    =>
+						    find_max_prefix (rest, SET_FONT font_id, first_pen, extend_mask (used_mask, op),      (to, op) ! prefix);
+					    esac;
+					fi;
+				end;
+			    end;	
+		    end;						# fun batch_drawops
+
+
+		    fun send_draw_ops (gc, initial_font_id)
+			=
+			draw
+			where 
+			    fun draw [] =>   ();
+				#
+				draw ((to, op) ! r)
+				    =>
+				    {   send_dop (to, gc, initial_font_id, op);
+					draw r;
+				    };
+			    end;
+
+			end;
+
+
+		    xid0 =   xt::xid_from_unt  0u0;
+
+
+		    fun draw_batch (NO_GC, _, _, ops)
+			    =>
+			    send_draw_ops (xid0, xid0) ops;
+
+			draw_batch (NO_FONT, pen, mask, ops)
+			    =>
+			    {   gc =   allot_gc { pen, used => mask };
+				#
+				send_draw_ops (gc, xid0) ops;
+				#
+				free_gc gc;
+			    };
+
+			draw_batch (WITH_FONT font_id, pen, mask, ops)
+			    =>
+			    {   (allot_gc_with_font { pen, used => mask, font_id })
+				    ->
+				    (gc, init_font_id);
+
+				#
+				send_draw_ops (gc, init_font_id) ops;
+				#
+				free_gc_and_font gc;
+			    };
+
+			draw_batch (SET_FONT font_id, pen, mask, ops)
+			    =>
+			    {   gc =   allot_gc_and_set_font { pen, used => mask, font_id };
+				#
+				send_draw_ops (gc, font_id) ops;
+				#
+				free_gc_and_font gc;
+			    };
+		    end;
+
+		    draw_all_batches =  apply  draw_batch;
+
+		    fun flush_buf'  buf
+			=
+			{   draw_all_batches (batch_drawops (buf, []));
+			    #
+			    xok::flush_xsocket connection;
+			};
+
+		end;			# fun flush_buf 
+
+
+	    # Insert a drawing command into the buffer,
+	    # checking for possible batching of operations.
+	    # BATCHING NOT IMPLEMENTED YET	XXX BUGGO FIXME
+	    #
+	    fun batch_cmd (commands_in_buffer, cmd, last, rest)
+		=
+		(commands_in_buffer+1, cmd ! last ! rest);
+
+
+	    fun destroy_window_or_pixmap  xsocket  (i::WINDOW window_id)
+		    =>
+		    {   xok::send_xrequest xsocket (v2w::encode_destroy_window { window_id } );
+			xok::flush_xsocket xsocket;
+		    };
+
+		destroy_window_or_pixmap  xsocket  (i::PIXMAP pixmap)
+		    =>
+		    {   xok::send_xrequest xsocket (v2w::encode_free_pixmap { pixmap } );
+			xok::flush_xsocket xsocket;
+		    };
+	    end;
+
+
+
+	herein
+
+	    # We get called two places:
+	    #     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+	    #     src/lib/x-kit/xclient/src/window/topwindow-to-widget-router-old.pkg
+	    #
+	    fun make_draw_imp
+		  (
+		    set_mappedstate':			Mailop( s::Mapped_State ),
+		    gc_cache:				p2g::Pen_To_Gcontext_Imp,
+		    xsocket:				xok::Xsocket
+		  )
+		=
+		{   # Need to check state transitions to insure no deadlock *  XXX BUGGO FIXME
+
+		    plea_slot    =   make_mailslot ();
+		    plea'        =   take_from_mailslot'  plea_slot;
+
+		    flush        =   flush_buf (gc_cache, xsocket);
+
+		    flush_delay' =   timeout_in' 0.04;
+
+		    destroy_window_or_pixmap'
+			=
+			destroy_window_or_pixmap  xsocket;
+
+		    # The draw_imp has two operating states,
+		    # depending on whether its topwindow
+		    # is mapped or unmapped, each represented
+		    # by a loop function.
+
+		    # Unmapped state is easy -- we just
+		    # discard all DRAW commands:   :-)
+		    #	
+		    fun topwindow_is_unmapped_loop ()
+			=
+			do_one_mailop [
+			    plea'            ==>  do_plea,
+			    set_mappedstate' ==>  set_mappedstate
+			]
+			where
+			    fun set_mappedstate s::TOPWINDOW_IS_NOW_MAPPED   =>  topwindow_is_mapped_loop (0, []);
+				set_mappedstate s::TOPWINDOW_IS_NOW_UNMAPPED =>  topwindow_is_unmapped_loop ();
+				#
+				set_mappedstate _			     =>  (xgripe::impossible "[draw_mp (unmapped): bad config command]");
+			    end;
+
+			    fun do_plea (d::DESTROY id)			     =>  {   destroy_window_or_pixmap'  id;	topwindow_is_unmapped_loop ();   };
+				do_plea _				     =>				 		topwindow_is_unmapped_loop ();
+			    end;
+			end
+
+		    also
+		    fun topwindow_is_mapped_loop (_, [])
+			    =>
+			    do_one_mailop [
+				plea'            ==>  do_plea,
+				set_mappedstate' ==>  set_mappedstate
+			    ]
+			    where
+			        fun set_mappedstate s::TOPWINDOW_IS_NOW_UNMAPPED =>  topwindow_is_unmapped_loop ();
+				    set_mappedstate s::TOPWINDOW_IS_NOW_MAPPED 	 =>  topwindow_is_mapped_loop (0, []);
+				    #
+				    set_mappedstate _				 =>  xgripe::impossible "[drawimp (mapped): bad mapped-state command]";
+				end;
+
+				fun do_plea (d::DRAW m)				 =>  {										topwindow_is_mapped_loop (1, [m]);	};
+				    do_plea (d::FLUSH flush_done_oneshot)	 =>  {   put_in_oneshot (flush_done_oneshot, ());				topwindow_is_mapped_loop (0, [ ]);	};	# Buffer is empty so FLUSH is a no-op.
+				    do_plea (d::THREAD_ID thread_id_oneshot)	 =>  {   put_in_oneshot (thread_id_oneshot, get_current_microthread's_id());    topwindow_is_mapped_loop (0, [ ]);	};
+				    do_plea (d::DESTROY id)			 =>  {   destroy_window_or_pixmap'  id;						topwindow_is_mapped_loop (0, [ ]);	};
+				end;
+			    end;
+
+			topwindow_is_mapped_loop (commands_in_buffer, buf as (last_command ! rest))
+			    =>
+			    if (commands_in_buffer > full_buffer_size)
+				#
+				flush buf;
+				topwindow_is_mapped_loop (0, []);
+			    else
+				do_one_mailop [
+				    flush_delay'     ==>   (\\ _ = {  flush buf;  topwindow_is_mapped_loop (0, []);  }),
+				    plea'            ==>   do_plea,
+				    set_mappedstate' ==>   set_mappedstate
+				];
+			    fi
+			    where
+				fun set_mappedstate s::TOPWINDOW_IS_NOW_UNMAPPED =>	topwindow_is_unmapped_loop ();
+				    set_mappedstate s::TOPWINDOW_IS_NOW_MAPPED 	 =>	topwindow_is_mapped_loop (commands_in_buffer, buf);
+				    #
+				    set_mappedstate _				 =>	xgripe::impossible "[drawimp (mapped): bad mapped-state command]";
+				end;
+
+
+				fun do_plea (d::DRAW m)
+					 =>
+					 topwindow_is_mapped_loop (batch_cmd (commands_in_buffer, m, last_command, rest));
+
+				    do_plea (d::DESTROY id)
+					 =>
+					 {   flush buf;
+					     destroy_window_or_pixmap'  id;
+					     topwindow_is_mapped_loop (0, []);
+					 };
+
+				    do_plea (d::FLUSH flush_done_oneshot)
+					 =>
+					 {   flush buf;
+					     put_in_oneshot (flush_done_oneshot, ());
+					     topwindow_is_mapped_loop (0, []);
+					 };
+
+				    do_plea (d::THREAD_ID  thread_id_oneshot)
+					 =>
+					 {   put_in_oneshot (thread_id_oneshot, get_current_microthread's_id());
+					     #
+					     topwindow_is_mapped_loop (commands_in_buffer, buf);
+					 };
+				end;
+			    end;
+		    end;										# topwindow_is_mapped_loop
+
+		    fun start_draw_imp ()
+			=
+			{
+			    # Wait for FIRST_EXPOSE,
+			    # then enter main loop:
+			    #
+			    case (block_until_mailop_fires  set_mappedstate')
+				#
+				s::FIRST_EXPOSE =>   topwindow_is_mapped_loop (0, []);
+				 _              =>   start_draw_imp ();
+			    esac;
+			};
+
+		    xlogger::make_thread  "draw_imp"  start_draw_imp;
+
+		    \\ msg =   put_in_mailslot  (plea_slot, msg);
+
+		};		# fun make_draw_imp
+	end;			# stipulate
+    };				# package draw_imp 
+end;				# stipulate
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

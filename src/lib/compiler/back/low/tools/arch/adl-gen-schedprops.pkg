@@ -1,0 +1,943 @@
+## adl-gen-schedprops.pkg
+#
+# Generate the <architecture>SchedProps generic.
+# This package extracts semantics and dependence 
+# information about the instruction set needed for scheduling optimizations.
+
+# Compiled by:
+#     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages.lib
+
+# (Except currently we're commented out and don't get compiled at all.)
+
+
+###                   "Familiar things happen, and mankind
+###                    does not bother about them.
+###                    It requires a very unusual mind
+###                    to undertake the analysis of the obvious."
+###
+###                                 -- Alfred North Whitehead
+
+
+
+generic package   adl_gen_sched_props   (				# Nowhere invoked.
+    #             ===================
+    #
+    arc:  Adl_Rtl_Comp							# Adl_Rtl_Comp		is from   src/lib/compiler/back/low/tools/arch/adl-rtl-comp.api
+)
+: (weak)   Adl_Gen_Module2						# Adl_Gen_Module2	is from   src/lib/compiler/back/low/tools/arch/adl-gen-module2.api
+{
+    # Exported to client packages:
+    #
+    package arc = arc;							# "arc" == "adl_rtl_compiler".
+
+    stipulate
+	package comp       =  arc::comp;
+	package raw_syntax =  comp::raw_syntax;
+	package e          =  symboltable;
+	package symboltable =  comp::symboltable;
+	package rtl        =  arc::rtl;
+	package t          =  rtl::t;
+
+	package raw_syntax;
+	package comp::util;
+	package comp::error;
+    herein
+
+	exception UNDEFINED;
+
+	# Generate a call to the bug function 
+	#
+	fun bug fun_name
+	    =
+	    APPLY
+	      ( "bug",
+		TUPLE_IN_EXPRESSION
+		  [ STRING_CONSTANT_IN_EXPRESSION fun_name,
+		    ID "instruction"
+		  ]
+	      );
+
+	# Expression building utilities:
+	#
+	fun cons (x, LIST_IN_EXPRESSION (a, b)) =>  LIST_IN_EXPRESSION (x ! a,     b);
+	    cons (x, y             ) =>  LIST_IN_EXPRESSION ([x],   THE y);
+	end;
+
+	fun append (x, LIST_IN_EXPRESSION([], NULL)) =>  x;
+	    append (x, y                ) =>  APPLY ("@", TUPLE_IN_EXPRESSION [x, y]);
+	end;
+
+	max_bit = unt::word_size - 1;			# Implementation specific.
+
+
+	# Function to compile the reservation tables:
+	#
+	fun gen_rt md
+	    = 
+	    SEQ_DECL (result_type . cpuType . getCPU . zeroRT . mergeRT .
+		    map genCode cpuInfo @ 
+		    map genPipelineFun pipelines @
+		    map genLatencyFun latencies
+		   )
+	    where
+		resources    =  comp::resources md;
+		cpus         =  comp::cpus      md;
+		pipelines    =  comp::pipelines md;
+		latencies    =  domp::latencies md;
+		architecture =  comp::name      md;
+
+		Table(X) = (e::envir(X), String);
+
+		fun mk_table name
+		    =
+		    (e::envir name, name);
+
+		fun enter (e''', name) (x, y)
+		    = 
+		    {   e::lookup e''' x;
+			error (name$" "$x$" has been redefined\n");
+		    }
+		    except _ =  e::update e''' (x, y);
+
+		# Create tables:
+		#
+		resource_table =  mk_table "resource";
+		cpu_table      =  mk_table "cpu";
+		pipeline_table =  mk_table "pipeline";
+		latency_table  =  mk_table "latency";
+
+		# Enter info into tables:
+		#
+		apply   (\\ id =                          enter resource_table (id, id))	resources;
+		apply   (\\ x as Cpu { name, ... } =  enter cpu_table      (name, x))	cpus;
+		apply   (\\ x as Pipeline (id, _)  =  enter pipeline_table (id, x))	pipelines;
+		apply   (\\ x as Latency  (id, _)  =  enter latency_table  (id, x))	latencies;
+
+		fun check_resource  msg  r
+		    = 
+		    {   e::lookup (#1 resource_table) r;
+			();
+		    }
+		    except _ = error (msg + " has undefined resource " + r);
+
+		# Compile each CPU definition:
+		#
+		fun compile_cpu (CPUbind { name=cpuName, maxIssues, resources, ... } )
+		    = 
+		    gen_resources  resources
+		    where
+			print ("[Generating reservation table for " + architecture + "." + cpu_name + "]\n");
+
+			# Compute the number of bits necessary for a field that can count
+			# from 0 to n, and compute the extra counts to overflow the field
+			#
+			fun getfield  n
+			    =
+			    { width   =>  unt::to_int_x bits,
+			      padding =>  n'-n - 1
+			    }
+			    where
+				fun bits (0w0, n) =>  n;
+				    bits (w, n)   =>  bits (unt::(>>)(w, 0w1), n+0w1);
+				end;
+
+				bits = bits (unt::from_int n, 0w0);
+
+				n'   = unt::to_int_x (unt::(<<)(0w1, bits));
+			    end;
+
+			check_resource = check_resource ("cpu " + cpu_name);
+
+			fun gen_resources  resources
+			    =
+			    loop (resources, 0, 0, [], [], [])
+			    where
+				fun add_mask { word, bits, mask=> [] }
+					=>
+					[ { word=word, bits=bits } ];
+
+				    add_mask { word, bits, mask=> { word=>w, bits=>b } ! mask }
+					=>
+					if (word==w)     { word, bits=>bits + b } ! mask;
+					else             { word, bits } ! { word=>w, bits=>b } ! mask;
+					fi;
+				end;
+
+				fun loop ([], word, bit, result, mask, extra)
+					=>
+					{ cpu         => cpu_name,
+					  max_issues,
+					  words       => word+1,
+					  result,
+					  mask        => reverse mask,
+					  extra       => reverse extra
+					};
+
+				    loop((n, r) . rs, word, bit, result, mask, extra)
+					=>
+					loop (rs, word, newBit, { resource=r, count=n, word=word, bit=bit } . result, mask, extra)
+					where
+					    check_resource r;
+					    (getfield n) ->   { width, padding };
+
+					    my (word, bit, mask, extra)
+						=
+						if (bit + width + 1 > max_bit)
+						    #
+						    ( word+1, 0, { word=>word+1, bits=>0w0 } ! mask,
+								 { word=>word+1, bits=>0w0 } ! extra
+						    );
+						else
+						    (word, bit, mask, extra);
+						fi;
+
+					    new_bit =  bit + width + 1
+
+					    mask    =  add_mask { word, mask,          bits => unt::(<<)(0w1, unt::from_int (bit+width)) };
+
+					    extra   =  add_mask { word, mask => extra, bits => unt::(<<)(unt::from_int padding, unt::from_int bit) };
+					end;
+			    end;								# fun gen_resources 
+		    end;
+
+		cpu_info = map  compile_cpu  cpus;						# Compile all cpu information.
+
+		stipulate
+		    /* number of words needed to represent the state in one cycle */ 
+		    w''' = fold_backward (\\ ( { words, ... }, w) => int::max (words, w)) 0 cpuInfo
+		herein
+		    fun many f
+			=
+			g 0
+			where	
+			    fun g n
+				=
+				if (n >= w''')   [];
+				else             f n ! g (n+1);
+				fi; 
+			end;
+		end;
+
+		# Type of resource:
+		#
+		result_type
+		    =
+		    SUMTYPE_DECL
+		      ( [], 
+			[ TYPEBIND("resource",[], TUPLETY (many (\\ _ = WORDty))) ]
+		      );
+
+		cpu_type
+		    =
+		    SUMTYPE_DECL
+		      (
+			[ SUMTYPE
+			   { id    =>  "cpu",
+			     typevars => [],
+			     mc    =>  NULL,
+			     asm   =>  FALSE,
+			     field =>  NULL, 
+			     cbs   =>  map  (\\ CPUbind { name, ... } =  CONS (name, NULL))  cpus
+			   }
+			],
+			[]
+		      );
+
+		get_cpu
+		    =
+		    FUN_DECL
+		      [ FUN
+			  ( "cpu", 
+			    map (\\ CPUbind { name, aliases, ... }
+				    = 
+				    CLAUSE
+				      ( [ OR_PATTERN (map STRING_CONSTANT_IN_PATTERN (name ! aliases)) ],
+					NULL,
+					ID name
+				      )
+				)
+				cpus
+			    @
+			    [ CLAUSE
+				( [ IDPAT "cpuName" ], 
+				  NULL,
+				  APPLY
+				    ( "error",
+				      APPLY ("$", TUPLE_IN_EXPRESSION [ STRING_CONSTANT_IN_EXPRESSION "unknown architecture ", ID "cpuName"])
+				    )
+				)
+			    ] 
+			  )
+		      ];
+
+		i2s = int::to_string;
+
+		fun w2s w
+		    =
+		    "0wx" + unt::to_string w;
+
+
+		fun get (w, [])
+			=>
+			0w0;
+
+		    get (w, { word, bits } ! l)
+			=> 
+			if (w == word)   one_word_unt::from_int (unt::to_int_x bits);
+			else             get (w, l);
+			fi;
+		end;	
+
+
+		# Function to merge two reservation table entries:
+		#
+		merge_rt
+		    = 
+		    FUN ("mergeRT", arg, body)
+		    where 
+			arg1 = TUPLEPAT (many (\\ n =  IDPAT("x" + i2s n)));
+			arg2 = TUPLEPAT (many (\\ n =  IDPAT("y" + i2s n)));
+			arg  = TUPLEPAT [ arg1, arg2 ];
+
+			body = TUPLE_IN_EXPRESSION (many (\\ n = APPLY_EXPRESSION
+							( ID_IN_EXPRESSION (IDENT (["Unt"], "+")),
+							  TUPLE_IN_EXPRESSION [ ID ("x" + i2s n),
+								     ID ("y" + i2s n)
+								   ]
+							)
+					      )
+					);
+		    end;
+
+		zero_rt = MY( "zeroRT",
+			      TUPLE_IN_EXPRESSION (many (\\ n =  unt1expression 0w0))
+			    );
+
+		# Generate code for each cpu:
+		#
+		fun gen_code { cpu, words, result, mask, extra, max_issues }
+		    = 
+		    SEQ_DECL [ max_issues, empty_rt, mergeable_rt, resources ]
+		    where
+			fun gen_res { resource, count, word, bit }
+			    =
+			    ( resource, 
+			      TUPLE_IN_EXPRESSION (many (\\ w =  if (w == word)   unt1expression (one_word_unt::(<<)(0w1, unt::from_int bit));
+						      else 		   unt1expression 0w0;
+						      fi
+					     )
+				       )
+			    );
+
+			mergeable_rt
+			    = 
+			    FUN ("mergeableRT" + cpu, arg, fold_backward AND TRUE body);
+			    where
+				arg1 = TUPLEPAT (many (\\ n =  IDPAT("x" + i2s n)));
+				arg2 = TUPLEPAT (many (\\ n =  IDPAT("y" + i2s n)));
+				arg  = TUPLEPAT [arg1, arg2];
+
+				body = many (\\ n =
+						{   mask_bits = get (n, mask);
+						    #
+						    APPLY ( "=", 
+							    TUPLE_IN_EXPRESSION
+							      [
+								APPLY ( "unt::bitwise_and", 
+									TUPLE_IN_EXPRESSION [ PLUS ( ID ("x" + i2s n),
+											  ID ("y" + i2s n)
+											),
+										   unt1expression mask_bits
+										 ]
+								      ),
+								unt1expression 0w0
+							      ]
+							  )
+						 }
+					    );
+			    end;
+
+			empty_rt = MY ( "emptyRT" + cpu,
+					TUPLE_IN_EXPRESSION (many (\\ n = unt1expression (get (n, extra))))
+				      );
+
+			max_issues = MY ("maxIssues" + cpu, INT_CONSTANT_IN_EXPRESSION max_issues);
+
+			my_resources =  map  gen_res  result;
+
+			fun get_res result
+			    =
+			    loop my_resources
+			    where
+				fun loop ([]        ) =>  (result, ID "zeroRT");
+				    #
+				    loop((r, e) ! rs) =>  if (r == result)   (r, e);
+							  else               loop rs;
+							  fi;	
+				end;
+			    end;
+
+			resources = MY ( "resources" + cpu,
+					 RECORD_IN_EXPRESSION (map get_res resources)
+				       );
+
+		    end;
+
+		resources_pattern
+		    =
+		    RECORD_PATTERN
+		      ( map  (\\ id = (id, IDPAT id))  resources,
+			FALSE
+		      );
+
+		# Generate a pipeline function:
+		#
+		fun genPipelineFun (Pipeline (name, clauses))
+		    =
+		    FUN_DECL [ FUN ( "pipeline" + name,
+					map gen_clause clauses
+				      )
+			    ]
+		    where
+			check = check_resource ("pipeline " + name);
+
+			fun trans [] =>  [];
+			    #
+			    trans (IDcycle result     ! ps) =>  {  check result;  ID result ! trans ps);  };
+			    trans (ORcycle (a, b)     ! ps) =>  merge  (trans [a], trans [b]) @ trans ps;
+			    trans (REPEATcycle (a, n) ! ps) =>  repeat (trans [a], n)         @ trans ps;
+			end
+
+			also
+			fun merge ([a], [b]) =>  [ APPLY("mergeRT", TUPLE_IN_EXPRESSION [a, b]) ];
+			  | merge _          =>  { error("bad expression in pipeline " + name);  []; };
+			end
+
+			also
+			fun repeat (x, 0) =>  [];
+			    repeat (x, n) =>  x @ repeat (x, n - 1);
+			end;
+
+			fun gen_clause (pattern, PIPELINE pe)
+			    = 
+			    CLAUSE
+			      ( [ resources_pattern, pattern],
+				NULL,
+				LIST_IN_EXPRESSION (trans pe, NULL)
+			      );
+		    end;
+
+		# Generate a latency function:
+		#
+		fun gen_latency_fun (Latency (name, clauses))
+		    = 
+		    FUN_DECL [ FUN ( "latency" + name,
+					map gen_clause clauses
+				      )
+			    ]
+		    where
+			fun gen_clause (pattern, e)
+			    =
+			    CLAUSE ( [ resources_pattern, pattern],
+				     NULL,
+				     e
+				   );
+		    end;
+
+	    end;								# fun gen_rt
+
+	fun gen compiled_rtls
+	    =
+	    comp::coder
+		md
+		"scheduling/SchedProps"
+		[ comp::make_generic md "SchedProps" args sig_name (map comp::simp_decl str_body) ]
+	    where
+		md = arc::architecture_description_of  compiled_rtls;				# The architecture description.
+
+		# Name of the package/api:
+		#
+		str_name =  comp::strname md "SchedProps";
+		sig_name = "SCHEDULING_PROPERTIES";
+
+		cpus      =  comp::cpus       md;
+		pipelines =  comp::pipelines  md;
+		latencies =  comp::latencies  md;
+		rt_decl   =  gen_rt           md;
+
+		query_fun = arc::query_fun  compiled_rtls;		# Query function.
+
+		fun composite { instruction, id, type }			# Default way of handling composite instructions.
+		    =
+		    APPLY("query", ID id);
+
+		# Arguments to the instruction generic:
+		#
+		args =
+		    [ "package instruction:  " + comp::signame md "INSTR",
+		      "package region_props:  REGION_PROPERTIES", 
+		      "package asm_emitter:   Machcode_Codebuffer where I = Instr",
+		      "  sharing RegionProps::Region = Instr::Region"
+		    ];
+
+		# Definition of the reservation table type:
+		#
+		result_table_definition
+		    = 
+		    @@@ [ "package a = DynArray",
+			  "type pipeline = List( resource )",
+			  "type reservation_table = a::Rw_Vector( Int * resource )"
+			];
+
+		# Make the new_table (per cpu):
+		#
+		new_table
+		    = 
+		    @@@ [ "fun newTable emptyRT n = ",
+			  "  a::rw_vector (n, (0, emptyRT)) : reservation_table"
+			];
+
+		# Make the def_use query function (shared by all cpu types):
+		#
+		def_use
+		    = 
+		    {   default_lat = INT_CONSTANT_IN_EXPRESSION 0;
+
+			fun query_def_use { instruction, rtl, const }
+			    =
+			    { expression => TUPLE_IN_EXPRESSION [def, use],
+			      pattern    => []
+			    }
+			    where
+				instruction ->   CONSTRUCTOR_DEF { latency, ... };
+
+				lat = case latency    THE l =>  l;
+						      NULL  =>  default_lat;
+				      esac;
+
+				fun pair (e, l)
+				    =
+				    TUPLE_IN_EXPRESSION [e, l];
+
+				(l::def_use  rtl) ->   (defs, uses);
+
+				def = 
+				    rtl::query_expression  rtlmd 
+				      {
+					name        =>  "defUse",
+					reg         =>  \\ (r, _,  l) =  cons (pair (r, lat), l),
+					fixreg      =>  \\ (r, _,  l) =  cons (pair (r, lat), l),
+					regs        =>  \\ (rs, _, l) =  append (APPLY("mkSet", rs), l),
+					#
+					operand     =>  \\ (_, l) =  l, 
+					lab         =>  \\ (_, l) =  l, 
+					imm         =>  \\ (_, l) =  l, 
+					#
+					registerset =>  \\ (c, l) =  append (APPLY("getRegistersetDef", c), l),
+					region      =>  \\ (r, l) =  append (APPLY("getRegionDef", r), l)
+				      }
+				      ( defs,
+					LIST_IN_EXPRESSION ([], NULL)
+				      );
+
+				use =
+				    rtl::query_expression  rtlmd 
+				      {
+					name        =>  "defUse",
+					reg         =>  \\ (r,  _, l) =  cons   (r,  l),
+					fixreg      =>  \\ (r,  _, l) =  cons   (r,  l),
+					regs        =>  \\ (rs, _, l) =  append (rs, l),
+					#
+					operand     =>  \\ (x, l) =  APPLY("getOpnd", TUPLE_IN_EXPRESSION [x, l]),
+					lab         =>  \\ (_, l) =  l, 
+					imm         =>  \\ (_, l) =  l, 
+					registerset =>  \\ (c, l) =  append (APPLY("getRegistersetUse", c), l),
+					region      =>  \\ (r, l) =  append (APPLY("getRegionUse", r), l)
+				      }
+				      ( uses,
+					LIST_IN_EXPRESSION ([], NULL)
+				      );
+
+			    end;
+
+			get_opnd
+			    =
+			    rtl::query_opnd  rtlmd
+			      {
+				name	=>  "getOpnd",
+				extra_args	=>  ["rest"],
+				reg		=>  \\ r =  LIST_IN_EXPRESSION ([r], THE (ID "rest")),
+				imm		=>  \\ r =  raise exception MATCH,
+				operand	=>  \\ r =  raise exception MATCH,
+				default	=>  ID "rest"
+			       };
+
+			predefined
+			    =
+			    @@@ [ "fun mkSet set = map (\\ r => (r, 0)) set",
+				  "fun getRegionDef r = ",
+				  "stipulate my (d, u) = RegionProps::writeTo r",
+				  "herein  map (\\ r => (r,-1)) d end",
+				  "fun getRegionUse r = RegionProps::readFrom r"
+				];
+
+			registersets
+			    =
+			    comp::registersets  md;
+
+			registerset_names
+			    =
+			    map  (\\ REGISTER_SET { id, ... } => id)  registersets;
+
+			get_registerset_def
+			    =
+			    FUN
+			      ( "getRegistersetDef",
+				#
+				TUPLEPAT (map IDPAT registerset_names),
+				#
+				fold_backward
+				    \\  (x, LIST_IN_EXPRESSION ([], NULL)) =>  APPLY("mkSet", ID x);
+					(x, e                 ) =>  APPLY("@", TUPLE_IN_EXPRESSION [APPLY("mkSet", ID x), e]);
+				    end
+				    (LIST_IN_EXPRESSION([], NULL))
+				    registerset_names
+			      );
+
+			get_registerset_use
+			    =
+			    FUN
+			      ( "getRegistersetUse",
+				#
+				TUPLEPAT (map IDPAT registersetNames),
+				#
+				fold_backward
+				    \\  (x, LIST_IN_EXPRESSION ([], NULL)) =>  ID x;
+					(x, e                 ) =>  APPLY("@", TUPLE_IN_EXPRESSION [ID x, e]);
+				    end
+				    (LIST_IN_EXPRESSION([], NULL))
+				    registerset_names
+			      );
+
+			FUN
+			  ( "defUse",
+			    #
+			    TUPLEPAT [IDPAT "cpu", IDPAT "resources"],
+			    #
+			    LET_EXPRESSION
+			      (
+				[ SEQ_DECL (map (\\ Latency (id, _)
+						   =
+						   MY ( id,
+							APPLY_EXPRESSION
+							  ( APPLY
+							      ( "latency" + id,
+								ID "resources"
+							      ),
+							    ID "cpu"
+							  )
+						      )
+					       )
+					       latencies
+					  ),
+
+				  query_fun
+				    { name		=>  "defUseQuery",
+				      extra_args	=>  [],
+				      args		=>  ["instruction"],
+				      extra_exps	=>  [],
+				      local_decls   =>  [ get_opnd, predefined, get_registerset_def, get_registerset_use ],
+				      body		=>  query_def_use,
+				      composite
+				    }
+				],
+				[ID "defUseQuery"]
+			      )
+			  );
+		    end;
+
+		# Make the pipeline query function (shared by all cpu types) 
+		#
+		pipeline_of
+		    = 
+		    {   default_pipeline = LIST_IN_EXPRESSION ([], NULL);
+
+			fun query_pipeline { instruction, rtl, const }
+			    =
+			    {   instruction ->   CONSTRUCTOR_DEF { pipeline, ... };
+
+				p = case pipeline    THE p => p;
+						     NULL  => default_pipeline;
+				    esac;
+
+				{ expression=p, pattern=[] }
+			    };
+
+			FUN
+			  ( "pipelineOf",
+			    #
+			    TUPLEPAT [ IDPAT "cpu",
+				       IDPAT "resources"
+				     ],
+			    #
+			    LET_EXPRESSION
+			      (
+				[ SEQ_DECL (map (\\ Pipeline (id, _) =  MY ( id,
+										APPLY_EXPRESSION
+										  ( APPLY ( "pipeline" + id,
+											    ID "resources"
+											  ),
+										    ID "cpu"
+										  )
+									      )
+					       )
+					       pipelines
+					  ),
+
+				  query_fun
+				    {
+				      name        =>  "pipelineQuery",
+				      extra_args  =>  [],
+				      args        =>  ["instruction"],
+				      extra_exps  =>  [],
+				      local_decls =>  [],
+				      body        =>  query_pipeline, 
+				      composite
+				    }
+				],
+				[ID "pipelineQuery"]
+			      )
+			  );
+		    end;
+
+
+		find_slot_backward
+		    = 
+		    @@@ [ "fun findSlotBackward (maxIssues, mergeable)",
+			  "                 (rt:  reservation_table, time, pipeline) = ",
+			  "stipulate fun search (t) = ",
+			  "    let fun fits ([], t) = TRUE",
+			  "          | fits (r . rs, t) =", 
+			  "        mergeable(#2 (a::sub (rt,-t)), r)",
+			  "        and fits (rs, t+1)", 
+			  "    in  if #1 (a::sub (rt,-t)) < maxIssues",
+			  "        and fits (pipeline, t) then t else search (t - 1)",
+			  "    end",
+			  "herein  search (time) end"
+			];
+
+		find_slot_forward
+		    =
+		    @@@ [ "fun findSlotForward (maxIssues, mergeable)",
+			  "                 (rt:  reservation_table, time, pipeline) = ",
+			  "stipulate fun search (t) = ",
+			  "    stipulate fun fits ([], t) = TRUE",
+			  "          | fits (r . rs, t) =", 
+			  "        mergeable(#2 (a::sub (rt, t)), r)",
+			  "        and fits (rs, t+1)", 
+			  "    herein  if #1 (a::sub (rt, t)) < maxIssues",
+			  "        and fits (pipeline, t) then t else search (t+1)",
+			  "    end",
+			  "herein  search time end"
+			];
+
+		insert_backward
+		    =
+		    @@@ [ "fun insertBackward (rt, time, pipeline) =",
+			  "{   fun update ([], t) = ()",
+			  "      | update (r . rs, t) =",
+			  "        {   my (n, r') = a::sub (rt,-t);",
+			  "            a::update (rt,-t, (n, mergeRT (r, r')));",
+			  "            update (rs, t+1);",
+			  "        }",
+			  "    update (pipeline, time);",
+			  "    my (n, r) = a::sub (rt, -time);",
+			  "    a::update (rt, -time, (n+1, r)); }"
+			];
+
+		insert_Frward
+		    = 
+		    @@@ [ "fun insertForward (rt, time, pipeline) =",
+			  "stipulate fun update ([], t) = ()",
+			  "      | update (r . rs, t) =",
+			  "        let my (n, r') = a::sub (rt, t)",
+			  "        in  a::update (rt, t, (n, mergeRT (r, r')));",
+			  "            update (rs, t+1)",
+			  "        end",
+			  "    update (pipeline, time)",
+			  "    my (n, r) = a::sub (rt, time)",
+			  "herein  a::update (rt, time, (n+1, r)) end"
+			];
+
+		# Create the machine info for one architecture:
+		#
+		fun gen_machine_info  cpu
+		    =
+		    {   cpuAndResources = TUPLE_IN_EXPRESSION [ID cpu, ID("resources"$cpu)]
+			newTable = APPLY("newTable", ID("emptyRT"$cpu))
+			defUse   = APPLY("defUse", cpuAndResources)
+			insertArgs = TUPLE_IN_EXPRESSION [ID("maxIssues"$cpu),
+						  ID("mergeableRT"$cpu)]
+			maxIssues   = ID("maxIssues"$cpu)
+			pipeline    = ID "pipeline";
+
+			LOCAL_DECL
+			  (
+			    [ MY  ("findSlotForward",   APPLY ("findSlotForward",	insert_args)),
+			      MY  ("findSlotBackward",  APPLY ("findSlotBackward",	insert_args)),
+			      MY  ("pipeline",	   APPLY ("pipelineOf",		cpu_and_resources))
+			    ],
+			    [ MY  ( "forwardinfo" + cpu,
+				    APPLY
+				      ( "CPU_INFO", 
+					RECORD_IN_EXPRESSION
+					  [ ( "maxIssues", max_issues),
+					    ("newTable", newTable),
+					    ("pipeline", pipeline),
+					    ("findSlot", ID "findSlotForward"),
+					    ("insert", ID "insertForward"),
+					    ("defUse", defUse)
+					  ]
+				      )
+				  ),
+
+			      MY  ( "backwardinfo" + cpu,
+				    APPLY
+				      ( "CPU_INFO", 
+					RECORD_IN_EXPRESSION
+					  [ ("maxIssues", max_issues),
+					    ("newTable",  new_table),
+					    ("pipeline",  pipeline),
+					    ("findSlot",  ID "findSlotBackward"),
+					    ("insert",    ID "insertBackward"),
+					    ("defUse",    def_use)
+					  ]
+				      )
+				  )
+			    ]
+			  );
+		    };
+
+		all_machine_infos
+		    = 
+		    SEQ_DECL (map (\\ CPUbind { name, ... } =   gen_machine_info  name)
+				 cpus
+			    );
+
+		# The info function:
+		#
+		info_fun
+		    = 
+		    FUN
+		      ( "info",
+
+			RECORD_PATTERN
+			  (
+			    [ ("cpu",	IDPAT "cpu"),
+			      ("backward",  IDPAT "backward")
+			    ],
+			    FALSE
+			  ),
+
+			CASE_EXPRESSION
+			  (
+			    ID "cpu",
+
+			    map (\\ CPUbind { name, ... }
+				    =
+				    CLAUSE
+				      ( [ IDPAT name ],
+					NULL,
+					IF_EXPRESSION
+					  ( ID "backward",
+					    ID ("backwardinfo" + name),
+					    ID ("forwardinfo"  + name)
+					  )
+				      )
+				)
+				cpus
+			  )
+		      );
+
+		# The split copies function. 
+		# This must work before RA or after RA 
+		#
+		impl =  comp::has_copy_impl  md;
+		#	
+		impl_init = if impl     ", impl=REF NULL";
+			    else        "";
+			    fi;
+
+		split_copies
+		    =
+		    @@@ [ "package shuffle = shuffle (I)",
+			  "fun move { src=i::DIRECT rs, dst=i::DIRECT rd } =",
+			  "     [i::COPY { src=[rs], dst=[rd], tmp=NULL" + impl_init + "} ]",
+			  "fun fmove { src=i::FDIRECT rs, dst=i::FDIRECT rd } =",
+			  "     [i::FCOPY { src=[rs], dst=[rd], tmp=NULL" + impl_init + "} ]",
+			  "shuffle = shuffle::shuffle { mvInstr=move, ea=i::DIRECT }",
+			  "compile_float_register_moves = shuffle::shuffle { mvInstr=fmove, ea=i::FDIRECT }",
+			  "fun splitCopies (i::NOTE { instruction, ... } ) = splitCopies instruction",
+			  "  | splitCopies (i::COPY { src, dst, tmp, ... } ) =",
+			  "       shuffle { tmp=tmp, src=src, dst=dst }",
+			  "  | splitCopies (i::FCOPY { src, dst, tmp, ... } ) =",
+			  "       compile_float_register_moves { tmp=tmp, src=src, dst=dst }",
+			  "  | splitCopies i = [i]"
+			];
+
+		# The generic:
+		# 
+		str_body
+		    = 
+		    [ @@@ [ "package i = Instr",
+			    "package c = i::C",
+			    "",
+			    "type latency = Int",
+			    "type time = Int",
+			    "type architecture = String",
+			    ""
+			  ],
+
+		      comp::error_handler md "SchedProps",
+
+		      arc::complex_error_handler_def compiled_rtl,
+
+		      @@@ [ "",
+			    "source = i::SOURCE {}",
+			    "sink   = i::SINK {}",
+			    ""
+			  ],
+
+		      comp::decl_of  md  "Scheduling",
+
+		      rt_decl,
+
+		      result_table_definition,
+
+		      @@@ [ "enum cpu_info =",
+			    "  CPU_INFO of", 
+			    "  { maxIssues:  Int, ",
+			    "    pipeline:  i::instruction -> pipeline, ",
+			    "    defUse:  i::instruction -> List (i::C.cell * latency) * List( i::C.cell ), ",
+			    "    newTable:  Int -> reservation_table, ",
+			    "    findSlot:  reservation_table * time * pipeline -> time, ",
+			    "    insert:    reservation_table * time * pipeline -> Void",
+
+			    "  }"
+			  ],
+
+		      new_table,
+		      def_use,
+		      pipeline_of,
+		      find_slot_forward,
+		      find_slot_backward,
+		      insert_forward,
+		      insert_backward,
+		      all_machine_infos,
+		      info_fun,
+		      split_copies
+		    ];
+
+	    end;				# fun gen
+    end;					# stipulate
+};

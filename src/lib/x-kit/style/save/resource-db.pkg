@@ -1,0 +1,180 @@
+## resource-db.pkg
+
+
+package ResourceDB /* : api
+
+    exception BadSearchKey
+    type rm_db_t
+    my newRDB:  Void -> rm_db_t
+    my printRDB:  (String * rm_db_t) -> Void
+
+  end */ = pkg
+
+    exception BadSearchKey
+
+    type name = String #  eventually, we will use hashed names 
+
+    enum spec_naming = LOOSE | TIGHT
+
+    enum db_table = DB of rw_vector::Rw_Vector( List( hash_bucket ) )
+
+    and hash_bucket = HB of {
+	link:  Null_Or( name ),		#  NULL corresponds to a "?" 
+	value:  REF(  Null_Or(  String ) ),
+	tight:  REF(  Null_Or(  db_table ) ),
+	loose:  REF(  Null_Or(  db_table ) )
+      }
+
+    enum rm_db_t = RMDB of hash_bucket_t
+
+    exception FOUND of String Null_Or
+    fun return v = raise exception (FOUND v)
+
+    hashTableSz = 64 and hashTableMask = 63
+    fun hash q = Bits::bitwise_and (hashQuark q, hashTableMask)
+
+    fun newHashTable () = hashtable (rw_vector::rw_vector (hashTableSz, []))
+    fun newHB (q, v) = HB { quark=q, value=REF v, tight=REF NULL, loose=REF NULL }
+
+# * NOTE: maybe this should be included in getEntry *
+    fun tableLook (NULL, _) = NULL
+      | tableLook (THE (hashtable table), q) = let
+	  fun get [] = NULL
+	    | get ((h as HB { quark, ... } ) . r) =
+		if (sameQuark (q, quark)) then (THE h) else (get r)
+	  in
+	    get (rw_vector::get (table, hash q))
+	  end #  tableLook 
+
+    fun putEntry (RMDB db, namings, quarks, v) = let
+	  fun findBucket (REF (THE (hashtable table)), q, v) = let
+		h = hash q
+		bucket = rw_vector::get (table, h)
+		fun get [] = let hb = newHB (q, v)
+		      in
+			rw_vector::set (table, h, hb . bucket);
+			hb
+		      end
+		  | get ((hb as HB { quark, ... } ) . r) =
+		      if (sameQuark (q, quark)) then hb else (get r)
+		in
+		  get bucket
+		end
+	    | findBucket (arg as (tableRef, _, _)) = (
+		tableRef := THE (newHashTable());
+		findBucket arg)
+	  fun put (HB { loose, ... }, [LOOSE], [q]) = findBucket (loose, q, THE v)
+	    | put (HB { tight, ... }, [TIGHT], [q]) = findBucket (tight, q, THE v)
+	    | put (HB { loose, ... }, LOOSE . rb, q . rq) =
+		put (findBucket (loose, q, NULL), rb, rq)
+	    | put (HB { tight, ... }, TIGHT . rb, q . rq) =
+		put (findBucket (tight, q, NULL), rb, rq)
+	  in
+	    put (db, namings, quarks); ()
+	  end #  putEntry 
+
+    fun getEntry (RMDB (HB { loose, tight, ... } ), names, ilks) = let
+	  fun get (loose, tight, [name], [ilk]) = (
+		  lookUpLeaf (tight, name);
+		  lookUpLeaf (loose, name);
+		  lookUpLeaf (tight, ilk);
+		  lookUpLeaf (loose, ilk))
+	    | get (loose, tight, name . names, ilk . ilks) = let
+		fun lookUpLoose ([name], [ilk]) = (
+			lookUpLeaf (loose, name);
+			lookUpLeaf (loose, ilk))
+		  | lookUpLoose (name . names, ilk . ilks) = (
+			lookUpNode (loose, name, names, ilks);
+			lookUpNode (loose, ilk, names, ilks))
+		  | lookUpLoose _ = raise exception BadSearchKey
+		in
+		  lookUpNode (tight, name, names, ilks);
+		  lookUpNode (loose, name, names, ilks);
+		  lookUpNode (tight, ilk, names, ilks);
+		  lookUpNode (loose, ilk, names, ilks);
+		  lookUpLoose (names, ilks)
+		end
+	    | get _ = raise exception BadSearchKey
+	  and lookUpLeaf (table, q) = (case (tableLook(*table, q))
+		 of THE (HB { value, ... } ) => return *value
+		  | NULL => ())
+	  and lookUpNode (table, q, names, ilks) = (case (tableLook(*table, q))
+		 of THE (HB { loose, tight, ... } ) => get (loose, tight, names, ilks)
+		  | NULL => ())
+	  in
+	    (get (loose, tight, names, ilks); NULL) except (FOUND v) => v
+	  end
+
+    fun emumerateRDB (RMDB (HB { loose, tight, ... } ), f) = let
+	  fun enumTable (NULL, _, _) = ()
+	    | enumTable (THE (hashtable table), namings, quarks) = let
+		fun tableLoop i = if (i < hashTableSz)
+		      then let
+			fun buckLoop [] = ()
+			  | buckLoop (HB { quark, value, loose, tight } . r) = (
+			      enumTable (*tight, TIGHT . namings, quark . quarks);
+			      enumTable (*loose, LOOSE . namings, quark . quarks);
+			      case (*value)
+			       of (THE v) => f (reverse namings, reverse (quark . quarks), v)
+				| NULL => ()
+			      /* end case */;
+			      buckLoop r)
+			in
+			  buckLoop (rw_vector::get (table, i));
+			  tableLoop (i+1)
+			end
+		      else ()
+		in
+		  tableLoop 0
+		end #  enumTable 
+	  in
+	    enumTable(*tight, [TIGHT], []);
+	    enumTable(*loose, [LOOSE], [])
+	  end #  emumerateRDB 
+
+    fun printRDB (fname, rdb) = let
+	  stream = CIO::open_out fname
+	  pr = CIO::outputc stream
+	  fun prNamingList (namings, quarks) = let
+		fun loop ([], []) = ()
+		  | loop (LOOSE . rb, q . rq) = (pr("*" + quarkToString q); loop (rb, rq))
+		  | loop (TIGHT . rb, q . rq) = (pr("." + quarkToString q); loop (rb, rq))
+		in
+		  loop (namings, quarks)
+		end
+# * NOTE: this won't work with embedded new-lines, etc... *
+	  fun prSpec (namings, quarks, value) = (
+		prNamingList (namings, quarks);
+		pr ":\t"; pr value; pr "\n")
+	  in
+	    emumerateRDB (rdb, prSpec);
+	    CIO::close_out stream
+	  end
+
+  #  Create a new (empty) resource data-base 
+    fun newRDB () = RMDB (newHB (nullQuark, NULL))
+
+  end #  XResourceDB 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

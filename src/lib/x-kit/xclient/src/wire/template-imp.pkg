@@ -1,0 +1,216 @@
+## template-imp.pkg
+#
+# This file is intended purely for clone-and-mutate
+# construction of new X imps ("ximps").
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;													# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+herein
+
+
+    package   template_imp
+    : (weak)  Template_Imp												# Template_Imp				is from   src/lib/x-kit/xclient/src/wire/template-imp.api
+    {
+	include template;												# template				is from   src/lib/x-kit/xclient/src/wire/template.pkg
+	#
+	Imports = {													# PUBLIC.  Ports we use, provided by other imps.
+		    int_sink: Int -> Void
+		  };
+
+	Exports	= {													# PUBLIC.  Ports we provide for use by other imps.
+		    template:	Template
+		  };
+
+	Template_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);					# PUBLIC.
+
+	Option = MICROTHREAD_NAME String;										# PUBLIC.
+
+
+	Template_State = Ref( Void );											# Holds all nonephemeral mutable state maintained by ximp.
+
+	Me_Slot = Mailslot  ( { imports:	Imports,
+				me:		Template_State,
+				run_gun':	Run_Gun,
+				end_gun':	End_Gun
+			      }
+			    );
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:		Template_State,									# State which is preserved across imp shutdown/restart cycles.
+		      imports:		Imports,									# Ximps to which we send requests.
+		      to:		Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':		End_Gun										# We shut down the microthread when this fires.
+		    };
+
+	Template_Q = Mailqueue( Runstate -> Void );
+
+	fun run ( template_q:		Template_Q,									# 
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:			Template_State,									# State which is preserved across imp shutdown/restart cycles.
+		    imports:		Imports,									# Ximps to which we send requests.
+		    to:			Replyqueue,									# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':		End_Gun										# We shut down the microthread when this fires.
+		    
+		  }
+		)
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                         ==>  shut_down_template_imp'),
+			    (take_from_mailqueue' template_q  ==>  do_template_plea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun do_template_plea thunk
+			    =
+			    thunk runstate;
+
+
+			fun shut_down_template_imp' ()
+			    =
+			    {
+				thread_exit { success => TRUE };							# Will not return.	
+			    };
+		    end;
+	    end;	
+
+
+
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot  =  make_mailslot  ():  Me_Slot;
+		#
+		template = { do_something, pass_something };
+
+		to          =  make_replyqueue();
+		#
+		put_in_oneshot (reply_oneshot, (me_slot, { template }));						# Return value from template_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from template_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run (template_q, { me, imports, to, end_gun' });							# Will not return.
+	    }
+	    where
+		template_q     =  make_mailqueue (get_current_microthread()):  Template_Q;
+
+		fun do_something (i: Int)										# PUBLIC.
+		    =	
+		    put_in_mailqueue  (template_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				imports.int_sink i									# Demonstrate use of imports.
+		    );
+
+
+		fun pass_something  (replyqueue: Replyqueue)  (reply_handler: Int -> Void)				# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
+			#
+			put_in_mailqueue  (template_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, 0)
+			);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_template_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =
+	    {   (process_options (options, { name => "tmp" }))
+		    ->
+		    { name };
+	
+		me = REF ();
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+
+    };															# package template_imp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

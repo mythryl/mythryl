@@ -1,0 +1,122 @@
+Currently Mythryl uses an AMP (Assymetric Multi-Processing) model in which microthreads
+run (only) on a single primary hostthread (== posix thread), while parallel computation
+is done by submitting thunks to secondary hostthreads for evaluation.
+
+Most successful systems (e.g., Linux kernel) start single-threaded and then move to AMP
+and only later SMP.  Mythryl is currently early in the AMP phase, but eventually will
+make the jump to SMP.  At that point this file will document the SMP architecture;  at
+the moment it holds notes for future development.
+
+
+
+The biggest obstacle to Mythryl SMP is garbage collection, which currently runs single-threaded.
+To have really useful SML we'll need scalable parallel garbage collection.  Perry Cheng's 2001
+CMU thesis points the way on this.  Extensions and mythryl-specific considerations relative to
+his thesis include:
+
+ o  He seems to have based his work on SML/NJ (from which Mythryl derives) but apparently in
+    the hope of making his work more broadly applicable, covers a number of issues which do
+    not really arise in the SML/NJ (and thus Mythryl) context.  E.g., one of those is global
+    variables, which in his sense do not really exist for us.
+
+ o  He does not seem to refer to multigeneration garbage collection anywhere;  possibly he
+    ran out of time or considered it obvious.  In any event, so far as I can see there is
+    no reason his techniques cannot be applies just as well to multigeneration as monogeneration
+    garbage collection.  Which is important because multigeneration is an enormous win in time
+    and space.
+
+ o  I think we should architecturally commit to keeping end-of-generation-zero-heap-buffer pointers
+    on the C stack, or more generally somewhere in RAM rather than registers, because scalable
+    realtime gc requires rapid, reliable coordination between multiple cores, which we achieve
+    primarily by zeroing the buffer-end pointers to trigger invocation of the garbage collector,
+    which then processes various other requests instead of or in addition to it normal job.
+
+    Keeping the buffer-end pointer in a register means that other cores can only update it by
+    doing some sort of kernel-mediated signal, which is very inefficient and also not very
+    portable (since it requires fishing on the stack of the C alarm handler to find and modify
+    the saved register set).
+
+
+ o  He requires the mutator (compiled application code) to be replication-aware and to update
+    both copies of replicated datastructures.  This is ugly and inefficient.
+
+    I think we should instead adopt the design principle that
+
+        Mutable Values Never Move
+
+    which will eliminate this problem at the price of introducing external fragmentation.
+
+    We will achieve this by indirecting all references to mutable values via read-only
+    headers which can advance normally through the multigeneration buffer system, thus
+    fitting these values into the existing garbage collection paradigm despite the fact
+    that the mutable values proper don't get copied.
+
+    Rationale:
+
+    Mutable values in practice consist (in my mental model of Mythryl application programming)
+    of mainly refcells and matrixes of pixels and floating point values.
+
+    Refcells:
+     o	The entire design of SML/NJ / Mythryl is based on the assumption that refcells and refcell
+	updates are fairly rare;  we are entitled to continue that assumption here.   So for example
+        we can assume that the overwhelming majority of values still get copied, and that the
+        refcell bodies (which we propose not to copy) will not significantly impact overall
+        garbage collection efficiency.
+
+     o  If we go the replicating-garbage collector route sketched by Cheng, we in essence have to
+        do an indirect reference every time we update a refcell anyhow -- to update the replicate
+        of the refcell.  So our header-plus-mutable approach essentially does the same thing
+        except it only writes once to the refcell on each update, instead of twice.  If anything
+        we are more efficient.
+
+     o  Since refcells are small and fixed-size, we can special-case allocation for them and
+        largely avoid external fragmentation in memory.
+
+    Matrices of pixels and floating point values:
+
+     o  These are usually large and pointer-free, hence under standard garbage collection policy
+        should be allocated statically anyhow ("big object" allocation) to avoid CPU cycles wasted
+        copying nonpointer data;  consequently proposing to pin them in place in memory is zero
+        cost over what we would normally do anyhow.
+
+     o  Matrices are typically going to be passed to C library functions for processing;  if they
+        are pinned in memory this will work smoothly, otherwise the combination of parallel garbage
+        collection and C matrix processing is going to be a nightmare (or nightmarishly inefficient,
+        if we do copy-in/copy-out on every call).
+
+     o  Pinning all matrices in this fashion, rather than just big ones, will typically only affect
+        a small proportion (who uses tiny matrices for much?) and these cases are better served by
+        using a separate mechanism (e.g., records of floats for XYZ points and 4x4 transforms on them);
+        uniformly pinning all matrices will ensure simple, consistent semantics (vs code which works
+        on big matrices but exhibits garbage-collection related bugs on small matrices, say -- ick).
+
+     o  We may very likely want to allot matrices in shared memory segments in order to allow
+        efficient sharing between the Mythryl process and AVS-style subprocesses implementing C
+        matrix manipulation facilities.  This way we can limit the problems due to C code running
+        in the Mythryl image (e.g., not catching signals correctly eith EINTR retry, or competing
+        for control of the SIGALRM or ...) without sacraficing much efficiency.  This again militates
+        for treating matrices specially.
+
+    So it appears that pinning mutable values in place is mostly something we would have done anyway,
+    and poses little if any additional cost, while considerably simplifying design of the garbage
+    collector and compiler by eliminating double updates.
+
+
+Other reminders and considerations:
+
+Microthread lock:
+
+    Experience shows that the microthread pre-emption mechanism must not pre-empt a microthread
+    while it holds a hosthread-level mutex, because some other microthread may try to acquire
+    the same mutex again, deadlocking the system.  (It is also a bad idea generally to put a
+    microthread to sleep while holding such a mutex, since it can then block other hostthreads
+    for an indefinite period.)
+
+    The most reliable way to assure this is to have the C primitive for acquiring a mutex at the
+    Mythryl level increment a mutexes-held-by-this-hostthread counter, and of course the C unlock
+    primitive decrement it;  the microthread preemption logic can then check this flag and do no
+    pre-emption so long as it is nonzero.
+
+    If we go to running microthreads on multiple hostthreads (== cores, in practice), we will need
+    to have one such mutexes-held-by-this-hostthread counter per core, instead of a single global
+    one as in the current AMP implementation.

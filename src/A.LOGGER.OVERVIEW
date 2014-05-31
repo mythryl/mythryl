@@ -1,0 +1,354 @@
+
+Back in the 1970s I used to spend hours a day for weeks on end in the DDT
+debugger tracking down register allocation bugs by single-stepping through
+the code.  That worked pretty well in an era when programs were typically
+a few thousand lines long and ran at thousands of instructions per second
+on a monoprocessor CPU.
+
+Nowdays software systems often run to millions of lines and run on machines
+executing billions of instructions per second on multiple cores.  Concurrent
+programs in Mythryl may easily have thousands of threads, and a complete
+application may have several different processes running.  Multicore programs
+are in general nondeterministic -- the different cores will run at slightly
+different rates on different runs due to (for example) unrepeatable background
+kernel processing and asynchronous processing of disk and network I/O.
+
+Consequently single-stepping through the code is no longer a realistic
+debugging strategy for production Mythryl applications.
+
+A more practical approach is to log selected aspects of the nonrepeatable behavior
+of the threads and processes of interest and then analyse the resulting logs.
+(Ideally via an OpenGL browser capable of realtime graph query response and
+layout, but that remains to be written.)
+
+The SML/NJ + eXene codebase contains a facility along these lines which has
+gone through several revisions under Fellowship maintenance, which I've
+overhauled a couple of times in the past;  I just completed another overhaul,
+so this seems like a good time to summarize the motivation, theory and practice
+of the facility.
+
+The Unix/Linux/Posix kernel guarantees that disk writes are "atomic" -- a
+quietly brilliant little idea which means that if we have multiple processes
+write lines to a logfile, we are guaranteed that the lines may be interleaved
+in the resulting disk file, but each individual line will remain intact.
+
+We can take advantage of this property to have multiple processes, kernel threads,
+and application threads all log to the same file, which may then be analysed
+post-mortem.
+
+Each line consists of a prefix containing in essence the space-time address of
+the event, followed by arbitrary descriptive text.
+
+In more detail, the prefix format is
+
+    datetime pid thread_id thread_name
+
+In concrete terms this looks like
+
+    time=1262722876.273621  pid=21092  tid=151  tnm=color-imp
+
+A complete line may look like
+    
+    time=1262722876.273621  pid=21092  tid=151  tnm=color-imp  msg=Received FOO request.  (color_imp::logging)
+
+This comprises six logical fields:
+
+   1)    Data/time:  Time since the Epoch (Jan 1 1970? -- I forget) nominally to microsecond precision.
+         The useful precision will depend on your kernel; a few milliseconds is I think typical these days.
+
+   2)    Process id, just as you see in a "ps" listing.
+
+   3)    Thread ID.    This field will be blank if you're running monothread or at the C level.
+   4)    Thread name.  This field will be blank if you're running monothread or at the C level.
+
+   5)    Message.  Arbitrary text.
+
+   6)    The logtree node which may be used to dis/able logging of this message.
+         More on this in a moment.
+
+The design intent of this line format is
+
+   1) That doing unix 'sort' on a logfile will do the right thing:
+      sort first by time, then by process id, then by thread id.
+      This means you can do things like
+
+          cat a.log b.log | sort > c.log
+
+      to sanely combine extracts a.log b.log from a larger original logfile.
+
+   2) To facilitate egrep/perl processing, e.g. doing stuff like
+            egrep 'pid=021456' logfile | egrep 'tnm=color-imp'
+
+
+
+The core files implementing this facility are:
+    src/c/main/error-reporting.c					# Support for logging in C code -- log_if() implementation.
+    src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg                       # Support for logging in  monothread Mythryl code.
+    src/lib/src/lib/thread-kit/src/lib/logger.pkg       # Support for logging in multithread Mythryl code.
+
+What I've done this time around is bang code heads together to make
+the above three levels play nice with each other;  before they used
+utterly unrelated conventions and mechanisms;  this was a disaster
+when attempting to debug issues involving interactions between the
+various levels.
+
+The essential pragmatics are:
+
+ o By default logging goes to file "mythryl.log".
+
+ o Logging can be redirected to (say) "foo.log" by
+
+    * In monothreaded Mythryl code doing
+          
+        {   include file;
+            #
+            set_logger_to (LOG_TO_FILE "foo.log");
+        };
+
+    * In multihreaded Mythryl code doing
+
+        {   include file;
+            include logger;
+            #
+            set_logger_to (LOG_TO_FILE "foo.log");
+        };
+
+    * No provision is made for setting the logfile
+      at the C level.
+
+ o Messages are logged by
+
+    * In monothreaded Mythryl code doing
+
+       .  Near the top of the file:
+
+           foo_logging  =  file::make_logtree_leaf { parent => file::all_logging, name => "foo::logging", default => FALSE };
+           to_log       =  log::log_if  foo_logging  0;
+              
+       .  At arbitrary spots in the file:
+
+           to_log {.  sprintf "The %s had %d fronkles" spad_name fronkle_count; };
+
+
+       NB: In *really* low-level code where log::log_if
+       is not available, one can instead do
+
+       .  Near the top of the file:
+
+	   fun socket_fn  fun_name
+	       =
+	       ci::find_c_function { lib_name => "socket", fun_name };				# socket				is in     src/c/lib/socket/cfun-list.h
+
+	   my  to_log:  String -> Void
+	       =										# "c_socket" is probably "create_socket"
+	       socket_fn "to_log";								# socket				def in    src/c/lib/socket/socket.c
+	
+       .  At arbitrary spots in the file:
+
+           to_log "whatever";
+
+    * In multithreaded Mythryl code doing
+
+       .  Near the top of the file:
+
+           foo_logging  =  logger::make_logtree_leaf { parent => file::all_logging, name => "foo::logging", default => FALSE };
+           to_log       =  logger::log_if  foo_logging  0;
+              
+       .  At arbitrary spots in the file:
+
+           to_log {.  sprintf "The %s had %d fronkles" spad_name fronkle_count; };
+
+    * In C code doing
+
+       .  Near the top of the file:
+
+            #include "runtime-base.h"
+
+       .  At arbitrary spots in the file:
+
+            log_if( "foo.c: The %s had %d fronkles", spad_name, fronkle_count );
+
+
+(By the way, the reason for turning sprintfs into thunks by wrapping them
+in  {. ... } is because in general evaluating them may consume significant
+CPU time;  This way that computation is done only if the generated string is
+actually going to be written to the logfile.) 
+
+This is (obviously) glorified debugging-via-printf().  One major problem
+with debugging via printf is striking a balance between insufficient information
+and drowning in too much information (or slowing the program so much as to make
+debugging take forever).
+
+Our approach here to some extent avoids the speed and drowning-at-the-console
+problems by logging to a file rather than the console, which is both faster and
+avoids drowning the operator watching the console.  The logfile can then often
+be grepped for just the information of interest.
+
+Still, inserting and removing (or commenting and uncommenting) printf() calls
+and recompiling can quickly become tedious.
+
+The logger facility ameriolates this problem by establishing a tree of boolean
+flags which may be used to dis/able particular sets of log_if statement at
+runtime.  This logtree datastructure is defined in   src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
+
+        Logtree_Node
+            =
+            LOGTREE_NODE
+              {
+                parent:     Null_Or (Logtree_Node),             # NULL only on root node of tree.
+                name:       String,
+                #
+                logging:    Ref( Bool ),
+                children:   Ref(  List(  Logtree_Node ) )
+              };
+
+The essential idea here is to organize all the boolean spew-control flags into
+a tree structure, and then support interactively dis/abling all flags in any
+arbitrary sub-tree of the full logtree.  In particular, all log_if statements
+may be enabled by
+
+    * In monothreaded Mythryl code doing
+
+        {   include file;
+            #   
+            enable  all_logging;
+        };
+
+    * In multihreaded Mythryl code doing
+
+        {   include file;
+            include logger;
+            #   
+            enable  all_logging;
+        };
+
+    * No provision is made for doing this at the C level.
+
+or conversely all log_if statements may be disabled by doing
+
+    * In monothreaded Mythryl code doing
+
+        {   include file;
+            #   
+            disable  all_logging;
+        };
+
+    * In multihreaded Mythryl code doing
+
+        {   include file;
+            include logger;
+            #   
+            disable  all_logging;
+        };
+
+    * No provision is made for doing this at the C level.
+
+The complete logtree may be displayed interactively by doing
+
+    file::print_logtree ();
+
+For exploring the logtree at the software level we provide
+
+    subtree_nodes_and_log_flags:  Logtree_Node ->  List( (Logtree_Node, Bool) );
+	#
+	# Return a list of the registered logtree nodes
+        # in subtree rooted at given node, along with logging
+	# status (TRUE/FALSE) of each node.
+
+    ancestors_of_logtree_node: Logtree_Node -> List(String);
+	#
+	# Return names of all ancestors of node.
+	#
+	# First element of list (if nonempty)
+	# will always be the root node, all_logging.
+	#
+	# This is the list of logtree nodes which
+	# may be used to 'disable' a given log
+	# message:
+
+Any given node may be searched for by name by doing
+
+    find_logtree_node_by_name: String -> Logtree_Node;
+
+    * In monothreaded Mythryl code doing
+
+        {   include file;
+            #   
+            foo_logging = find_logtree_node_by_name "foo::logging";     # Raises exception NO_SUCH_LOGTREE_NODE if not found.
+
+            disable     foo_logging;    # Disable logging in this entire subtree.
+            enable      foo_logging;    # Enable  logging in this entire subtree.
+            enable_node foo_logging;    # Enable  logging for this node but not its children (if any).
+        };
+
+    * In multithreaded Mythryl code doing
+
+        {   include file;
+            include logger;
+            #   
+            foo_logging = find_logtree_node_by_name "foo::logging";     # Raises exception NO_SUCH_LOGTREE_NODE if not found.
+
+            disable     foo_logging;    # Disable logging in this entire subtree.
+            enable      foo_logging;    # Enable  logging in this entire subtree.
+            enable_node foo_logging;    # Enable  logging for this node but not its children (if any).
+        };
+
+    * No provision is made for doing this at the C level.
+
+
+And that is pretty much the whole story.
+  
+If you happen to be working with x-kit, there is dedicated support
+for logging in that package -- mostly a big tree of logtree nodes -- in
+
+    src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+
+Absent a graphical front-end, the facility is not particularly flashy,
+but it is eminently practical and will hold up reliably in the sorts of
+difficult debugging situations where flashier tools tend to break down.
+
+
+
+src/lib/src/lib/thread-kit/src/lib/logger.pkg
+
+    --> See copious comments at bottom of   src/lib/src/lib/thread-kit/src/lib/logger.api
+
+    This is the main multi-threaded tracing/logging package.
+    It is activated by calling (eg)
+
+        set_logger_to  (TO_FILE tracefile);
+
+    -- for an example see   src/lib/x-kit/xclient/src/stuff/xclient-unit-test-old.pkg
+
+
+
+src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    Special tracing support for x-kit built on top of   src/lib/src/lib/thread-kit/src/lib/logger.pkg
+
+
+
+
+
+
+
+load-compiledfiles.c.log
+
+   This file is created by    open_logfile   in   src/c/main/load-compiledfiles.c
+   It is written only within that file.
+
+
+mythryl.c.log~
+
+    This file is created by    open_logfile   in   src/c/o/mythryl.c
+    It is written only within that file.
+
+
+mythryl-gtk-library-in-c-subprocess-%d.log~
+
+    This file is created by open_logfile   in   src/opt/gtk/c/in-sub/mythryl-gtk-library-in-c-subprocess.c
+    It is written in that file and         in   src/c/lib/gtk/mythryl-gtk-library-in-main-process.c
+
+
+
+
+

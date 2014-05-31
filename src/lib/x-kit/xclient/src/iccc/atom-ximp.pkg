@@ -1,0 +1,272 @@
+## atom-ximp.pkg
+#
+# A Client-side server for atoms.
+#
+# See also:
+#
+#     src/lib/x-kit/xclient/src/iccc/atom-old.pkg
+#
+# Q: Should we have an in-process cache so we
+#    don't have to hit the X server every time?
+#    Reppy apparently set one up but then didn't
+#    use it...
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+stipulate
+    include threadkit;									# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xt  =  xtypes;								# xtypes		is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package w2v =  wire_to_value;							# wire_to_value		is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package v2w =  value_to_wire;							# value_to_wire		is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package x2s =  xclient_to_sequencer;						# xclient_to_sequencer	is from   src/lib/x-kit/xclient/src/wire/xclient-to-sequencer.pkg
+    package ap  =  atom_port;								# atom_port		is from   src/lib/x-kit/xclient/src/iccc/atom-port.pkg
+herein
+
+    # This imp is typically instantiated by:
+    #
+    #     src/lib/x-kit/xclient/src/window/xsession-junk.pkg
+
+    package   atom_ximp
+    : (weak)  Atom_Ximp									# Atom_Ximp		is from   src/lib/x-kit/xclient/src/iccc/atom-ximp.api
+    {
+	Atom_Ximp_State = Void;								# Holds all mutable state maintained by ximp.
+
+	Exports	  = {									# Ports we export for use by other imps.
+		      atom_port:		ap::Atom_Port
+		    };
+
+	Imports   = {									# Ports we use which are exported by other imps.
+		      widget_to_sequencer:	x2s::Xclient_To_Sequencer
+		    };
+
+	Option = MICROTHREAD_NAME String;						# 
+
+	Atom_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+	Me_Slot = Mailslot( { imports:	Imports,
+				  me:		Atom_Ximp_State,
+				  run_gun':	Run_Gun,
+				  end_gun':	End_Gun
+				}
+			      );
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Atom_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun								# We shut down the microthread when this fires.
+		    };
+
+	Client_Q    = Mailqueue( Runstate -> Void );
+
+
+	fun intern  (widget_to_sequencer:	x2s::Xclient_To_Sequencer)
+		    #
+		    (arg:		{ name:			String,
+					  only_if_exists:	Bool
+                            		}
+		    )
+	    =
+	    w2v::decode_intern_atom_reply
+		(block_until_mailop_fires
+#		 ========================				# XXX SUCKO FIXME
+		    (widget_to_sequencer.send_xrequest_and_read_reply
+			(v2w::encode_intern_atom  arg)
+		)   );
+
+
+
+
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Atom_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun								# We shut down the microthread when this fires.
+		  }
+		)	
+	    =
+	    loop ()
+	    where
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                        ==>  shut_down_atom_ximp'),
+			    (take_from_mailqueue' client_q   ==>  do_client_plea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
+
+			fun shut_down_atom_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+			#
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
+		#
+		atom_port  =  { make_atom,
+				find_atom,
+				atom_to_string
+			      };
+
+		to             =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { atom_port }));						# Return value from atom_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from atom_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run (client_q, { me, imports, to, end_gun' });								# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun make_atom  atom_name
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				put_in_oneshot (reply_1shot, intern imports.widget_to_sequencer { name => atom_name, only_if_exists => FALSE } )
+			);
+
+			get_from_oneshot  reply_1shot;
+		    };
+
+		fun find_atom  atom_name
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				case (intern imports.widget_to_sequencer { name => atom_name, only_if_exists => TRUE } )
+				    #
+				    (xt::XATOM 0u0) =>   put_in_oneshot (reply_1shot, NULL    );
+				    atom            =>   put_in_oneshot (reply_1shot, THE atom);
+				esac
+			);
+
+			get_from_oneshot  reply_1shot;
+		    };
+
+		fun atom_to_string  atom
+		    =
+		    {   reply_1shot =   make_oneshot_maildrop ();
+			#
+			put_in_mailqueue  (client_q,
+			    #
+			    \\ ({ me, imports, ... }: Runstate)
+				=
+				put_in_oneshot (reply_1shot, name)
+				where 
+				    name =  w2v::decode_get_atom_name_reply (
+						block_until_mailop_fires (
+#                                               ========================                                XXX SUCKO FIXME
+						    imports.widget_to_sequencer.send_xrequest_and_read_reply  (
+							v2w::encode_get_atom_name { atom }
+						    )
+						)
+					    );
+			       end
+			);
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_atom_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =
+	    {   (process_options (options, { name => "atom" }))
+		    ->
+		    { name };
+	
+		me = ();
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };					#  atom_imp 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

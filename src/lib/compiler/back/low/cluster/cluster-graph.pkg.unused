@@ -1,0 +1,194 @@
+#
+# This gives a cluster a graph view so that all graph based algorithms
+# can be applied on the cluster.  The view is readonly though.
+#
+# -- Allen Leung
+
+
+###               "Starting this Thanksgiving I am going
+###                to write a complete Unix-compatible
+###                software system called GNU (for Gnu's
+###                Not Unix), and give it away free to
+###                everyone who can use it."
+###
+###                          -- Richard Stallman, 1983
+
+
+generic package cluster_graph_g (F:  FLOWGRAPH) : Cluster_Graph  {
+
+   package f = F
+   package i = f::I
+   package w = f::W
+   package g = graph
+   package a = rw_vector
+
+   enum info = INFO of f::cluster * f::block a::Rw_Vector
+
+   type block = f::block
+   type edge_info = Ref( w::freq )
+
+   type mcg =  graph::graph( block, edge_info, info)
+
+   fun error msg = lowhalf_error_message::error("cluster_graph", msg)
+
+   fun table (g::GRAPH { graph_info=INFO(_, table), ... } ) = table
+   fun cluster (g::GRAPH { graph_info=INFO (cluster, _), ... } ) = cluster
+
+   /* In a cluster the basic blocks are numbered consecutively.
+    */
+   fun isTakenBranch (i, j, _) = i+1 != j 
+
+   fun annotations (g::GRAPH { graph_info=INFO (f::CLUSTER { annotations=a, ... }, _),
+                      ... } ) = a
+   /*
+    * Extract the node frequency of a block
+    */
+   fun freq (f::BBLOCK { freq, ... } ) = freq
+     | freq (f::ENTRY { freq, ... } )  = freq
+     | freq (f::EXIT { freq, ... } )   = freq
+     | freq _ = error "freq"
+
+   /*
+    * Extract the instructions 
+    */
+   fun instructions (f::BBLOCK { instructions, ... } ) = instructions
+     | instructions _ = error "instructions"
+
+   /*
+    * Extract the liveOut set
+    */
+   fun liveOut (f::BBLOCK { liveOut, ... } ) = *liveOut
+     | liveOut _ = i::C.empty
+
+   fun clusterGraph (cluster as f::CLUSTER { blocks, blkCounter, exit, entry, ... } ) =
+   let fun readonly _ = raise exception g::READ_ONLY
+       fun do_nothing _ = ()
+       table = a::rw_vector (*blkCounter, f::LABEL (label::newLabel "dummy"))
+       fun number (f::BBLOCK { blknum, ... } ) = blknum
+         | number (f::ENTRY { blknum, ... } ) = blknum
+         | number (f::EXIT { blknum, ... } ) = blknum
+         | number _ = raise exception g::Graph "clusterGraph"
+       fun fill ([], size, order, entry, exit) = (size, order, entry, exit)
+         | fill((b as f::ENTRY { blknum, next, ... } ) . rest, size, order, entry, exit) =
+             (a::update (table, blknum, b); 
+              fill (rest, size+length *next, order+1, blknum, exit)
+             )
+         | fill((b as f::EXIT { blknum, ... } ) . rest, size, order, entry, exit) =
+             (a::update (table, blknum, b); 
+              fill (rest, size, order+1, entry, blknum)
+             )
+         | fill((b as f::BBLOCK { blknum, next, ... } ) . rest, size, order, entry, exit) =
+             (a::update (table, blknum, b); 
+              fill (rest, size+length *next, order+1, entry, exit)
+             )
+         | fill(_ . rest, size, order, entry, exit) =
+             fill (rest, size, order, entry, exit)
+       my (size, order, entryId, exitId) = fill (entry . exit . blocks, 0, 0,-1,-1)
+       fun nodes () = a::keyed_fold_backward (\\ (_, f::LABEL _, rest) => rest
+                               | (b, b', rest) => (b, b') . rest) [] (table, 0, NULL)
+       fun edges () = 
+       let fun f (i, next, es) = 
+              fold_backward (\\ ((j, e), es) => (i, number j, e) . es) es *next
+       in  a::keyed_fold_backward
+           (\\ (i, f::BBLOCK { next, ... }, es) => f (i, next, es)
+             | (i, f::ENTRY { next, ... }, es) => f (i, next, es)
+             | (_, _, es) => es) [] (table, 0, NULL)
+       end    
+
+       fun out_edges i = 
+       let fun f next = map (\\ (j, e) => (i, number j, e)) *next
+       in  case a::sub (table, i) of
+               f::BBLOCK { next, ... } => f next
+            |  f::ENTRY { next, ... } => f next
+            |  _ => []
+       end
+
+       fun in_edges j = 
+       let fun f prior = map (\\ (i, e) => (number i, j, e)) *prior
+       in  case a::sub (table, j) of
+               f::BBLOCK { prior, ... } => f prior
+            |  f::EXIT { prior, ... } => f prior
+            |  _ => []
+       end
+
+       fun next i =
+       let fun f next = map (\\ (j, e) => number j) *next
+       in  case a::sub (table, i) of
+               f::BBLOCK { next, ... } => f next
+            |  f::ENTRY { next, ... } => f next
+            |  _ => []
+       end
+          
+       fun prior j = 
+       let fun f prior = map (\\ (i, e) => number i) *prior
+       in  case a::sub (table, j) of
+               f::BBLOCK { prior, ... } => f prior
+            |  f::EXIT { prior, ... } => f prior
+            |  _ => []
+       end
+
+       fun has_edge (i, j) =
+       let fun find [] = FALSE
+             | find((k, _) . es) = j = number k or find es
+       in  case a::sub (table, i) of
+               f::BBLOCK { next, ... } =>  find *next
+            |  f::ENTRY  { next, ... } =>  find *next
+            |  _ => FALSE
+       end except _ => FALSE
+
+       fun has_node i =
+           (case a::sub (table, i) of
+              f::BBLOCK _ => TRUE
+            | f::ENTRY _ => TRUE
+            | f::EXIT _ => TRUE
+            | _ => FALSE
+           ) except _ => FALSE
+
+       fun node_info i = a::sub (table, i) except _ => raise exception g::NOT_FOUND
+
+       fun empty _ = []
+       fun forall_nodes f =
+           a::keyed_apply (\\ (i, i' as f::LABEL _) => ()
+                    | (i, i') => f (i, i')) (table, 0, NULL)
+       fun forall_edges f =
+       let fun g (_,[]) = ()
+             | g (i, (j, e) . es) = (f (i, number j, e); g (i, es))
+       in  a::keyed_apply (\\ (i, f::BBLOCK { next, ... } ) => g (i,*next) 
+                    | (i, f::ENTRY { next, ... } ) => g (i,*next)
+                    | _ => ()) (table, 0, NULL)
+       end
+
+   in  g::GRAPH
+       {  name            = "cluster",
+          graph_info      = INFO (cluster, table),
+          new_id          = readonly,
+          add_node        = readonly,
+          add_edge        = readonly,
+          remove_node     = readonly,
+          set_out_edges   = readonly,
+          set_in_edges    = readonly,
+          set_entries     = readonly,
+          set_exits       = readonly,
+          garbage_collect = do_nothing,
+          nodes           = nodes,
+          edges           = edges,
+          order           = \\ _ => order,
+          size            = \\ _ => size,
+          capacity        = \\ _ => *blkCounter,
+          next            = next,
+          prior            = prior,
+          out_edges       = out_edges,
+          in_edges        = in_edges,
+          has_edge        = has_edge,
+          has_node        = has_node,
+          node_info       = node_info,
+          entries         = \\ _ => [entryId],
+          exits           = \\ _ => [exitId],
+          entry_edges     = empty,
+          exit_edges      = empty,
+          forall_nodes    = forall_nodes,
+          forall_edges    = forall_edges
+       }
+   end
+
+}

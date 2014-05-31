@@ -1,0 +1,1095 @@
+#!/usr/bin/perl -w
+use strict;
+
+# 2007-07-23 CrT: One major readability problem with Mythryl is figuring out
+#                 where to find the code defining a referenced api or pkg.
+#
+#                 This script is designed to analyse a .lib/.sublib file hierarchy,
+#                 harvest information from compiler-generated .index files,
+#                 and then use it to correctly update comments of the form
+#                      # foo is from $ROOT/src/lib/bar/foo.pkg
+#                 or
+#                      # Foo is from $ROOT/src/lib/bar/foo.api
+#
+# 2007-07-23 CrT: We now also add compiled-by comments to .lib/.sublib and .pkg files.
+#
+# Typically invoked by doing 'make comments' at the top level.
+
+
+
+# These replicate the info in
+#    sh/build.d/build.pkg
+# because I'm too lazy to work
+# out a non-redundant solution
+# just now:      XXX BUGGO FIXME
+
+my %anchors
+    =
+    ( 'ROOT'             =>  'ROOT',
+      'x-kit.lib'        =>  'ROOT/src/lib/x-kit',
+      'multiprog'        =>  'ROOT/src/lib/multiprog/src',
+      #
+      'multiprog-lib'    =>  'ROOT/src/lib/multiprog/multiprog-lib/cm-descr',
+      'posix.lib'        =>  'ROOT/src/lib/posix',
+      'internet.lib'     =>  'ROOT/src/lib/internet',
+      #
+      'reactive.lib'     =>  'ROOT/src/lib/reactive',
+      'c-kit.lib'        =>  'ROOT/src/lib/c-kit/src',
+      'c'                =>  'ROOT/src/lib/c-glue-lib',
+      #
+      'peephole.lib'     =>  'ROOT/src/lib/compiler/back/low/lib',
+      'portable-graph-stuff.lib'  =>  'ROOT/src/app/makelib/pgraph',
+      #
+      'OTHER-LOWHALF'    =>  'ROOT/src/lib/compiler/back/low/lib',
+      'lowhalf-tools'    =>  'ROOT/src/lib/compiler/back/low/tools',
+    );
+
+#      'hash-cons.lib' =>  'ROOT/src/lib/hash-consing',
+
+
+my %makefiles = ();	# All .lib/.sublib files discovered by recursive traversal from commandline-specified rootfiles.
+my %pkgfiles  = ();	# All .pkg files mentioned by the .lib/.sublib files in %makefiles.
+my %apifiles  = ();	# All .api files mentioned by the .lib/.sublib files in %makefiles.
+
+sub remember_pkg_file_compiled_by {
+
+    my ($pkgfile, $makefile) =  @_;
+
+    #########################################
+    # Note that $makefile compiles $pkgfile #
+    #########################################
+
+    # First, establish a record for $pkgfile
+    # if we don't already have one:
+    unless (defined $pkgfiles{ $pkgfile }) {
+
+        my %record = ();	$pkgfiles{ $pkgfile } = \%record;
+
+	my %compiled_by = ();
+	$record{compiled_by}       = \%compiled_by;
+    }
+    
+    # Now, fetch the $pkgfile record...
+    my $r  =  $pkgfiles{$pkgfile};
+
+    # ... and add the new compiled-by entry:
+    my $cb =  $r->{compiled_by};
+    ++$$cb{$makefile};
+}
+
+my $cwd = `pwd`;
+chomp $cwd;
+
+sub remember_api_file_compiled_by {
+
+    my ($apifile, $makefile) =  @_;
+
+    #########################################
+    # Note that $makefile compiles $apifile #
+    #########################################
+
+    # First, establish a record for $apifile
+    # if we don't already have one:
+    unless (defined $apifiles{ $apifile }) {
+
+        my %record = ();	$apifiles{ $apifile } = \%record;
+
+	my %compiled_by = ();
+	$record{compiled_by}       = \%compiled_by;
+    }
+    
+    # Now, fetch the $apifile record...
+    my $r  =  $apifiles{$apifile};
+
+    # ... and add the new compiled-by entry:
+    my $cb =  $r->{compiled_by};
+    ++$$cb{$makefile};
+}
+
+sub normalize_path {
+
+    my ($makefile, $indexfile, $path) = @_;
+
+    # Convert '$/(foo):bar/...' to $foo/bar/...
+    if ($path =~ m|^\$/\(([A-Za-z][A-Za-z0-9_\'\.+-]*)\)\:(.*)$|) {
+        my $anchor = $1;
+        my $rest   = $2;
+        $path = "\$$anchor/$rest";
+    } 
+    
+    # Convert '$/widgets/...' to $widgets/widgets/...
+    #
+    if ($path =~ m|^\$/([A-Za-z][A-Za-z0-9_\'\.+-]*)(.*)$|) {
+        my $anchor = $1;
+        my $rest   = $2;
+        $path = "\$$anchor/$anchor$rest";
+    } 
+    
+    # Convert '$foo/...' to $ROOT/whatever/...
+    #
+    if ($path =~ m|^\$([A-Za-z0-9_\'\.+-]+)/(.*)$|) {
+        my $anchor = $1;
+        my $rest   = $2;
+        if (defined $anchors{$anchor}) {
+            $anchor = $anchors{$anchor};
+            $path = "\$$anchor/$rest";
+        } else {
+            die "Undefined anchor path: '$anchor' ($makefile, $indexfile, $path)\n";
+        }
+    } 
+    
+
+    # Remove any embedded '(basis.lib):' type sequences:
+    #
+    while ($path =~ /^(.*)\([^(]*\)\:(.*)$/) {
+        $path = "$1$2";
+    }
+
+
+    # Remove "$ROOT/" prefix from path:
+    #
+    if ($path =~ m|^\$([^/]+)/(.*)$|) {
+
+        my $anchor = $1;
+        $path   = $2;
+
+        die "Unknown anchor: '$anchor'\n" if $anchor ne "ROOT";
+    }
+
+    # If the current working directory is a prefix of the path, strip it:
+    # (Why did we suddenly start getting these?)
+    #
+    if ($path =~ m|^$cwd/(.*)$|) {
+
+        $path   = $1;
+    }
+
+    # Remove any embedded '/./' type sequences:
+    #
+    while ($path =~ m|^(.*)/\.(/.*)$|) {
+	$path = "$1$2";
+    }
+
+    # Remove any embedded 'foo/../' type sequences:
+    #
+    while ($path =~ m|^[A-Za-z][A-Za-z0-9_\'\.+-]*/\.\./(.*)$|) {
+	$path = "$1";
+    }
+    while ($path =~ m|^(.*/)[A-Za-z][A-Za-z0-9_\'\.+-]*/\.\./(.*)$|) {
+	$path = "$1$2";
+    }
+
+    return $path;
+}
+
+
+# Synthesize name of .index file
+# corresponding to a given .lib/.sublib file:
+#
+sub find_indexfile {
+
+    my ($makefile) = @_;
+
+    my $indexfile = "$makefile.index";
+
+    if (! -f $indexfile) {
+	die "find_indexfile($makefile): $indexfile does not exist for $makefile?!\n";
+    }
+
+    return $indexfile;
+}
+
+
+# Old version of above, from when .index files lived in special tmp7 subdirectories.
+# Should probably delete this...
+#
+# sub find_indexfile {
+#     my ($makefile) = @_;
+#     if ($makefile =~ m|^(.*)/([^/]*)$|) {
+#         my $dir = $1;
+#         my $fil = $2;
+# 
+#         if (! -d "$dir/tmp7") {
+#             die "find_indexfile($makefile): dir=$dir fil=$fil $dir/tmp7 does not exist for $makefile?!\n";
+#         }
+#         my $indexfile = "$dir/tmp7/$fil.index";
+#         if (! -f $indexfile) {
+#             die "find_indexfile($makefile): dir=$dir fil=$fil $indexfile does not exist for $makefile?!\n";
+#         }
+#         return $indexfile;
+#     } else {
+#         die "Couldn't break '$makefile' into directory and filename parts?!\n";
+#     }
+# }
+
+
+
+# There is exactly one .cmi file:
+#     src/lib/core/init/init.cmi
+# It is logically a makefile, but has
+# a very special structure, documented
+# in comments at the top.  Here we try
+# to make it look like a regular .lib
+# file to the rest of this script:
+#
+sub slurp_cmifile {
+
+    my ($cmifile) = @_;
+
+    return if defined $makefiles{ $cmifile };
+
+    my $cmifile_dir;
+    if ($cmifile =~ m|^(.*)/[^/]*$|) {
+        $cmifile_dir = $1;
+    } else {
+        die "Couldn't break '$cmifile' into directory and filename parts?!\n";
+    }
+
+    open IN, $cmifile || die "Couldn't open $cmifile?!\n";
+
+    my %record = ();	    $makefiles{$cmifile} = \%record;
+
+    my %apis_exported = ();
+    my %pkgs_exported = ();
+    my %compiled_by   = ();
+
+    my %api_defined_in = ();
+    my %pkg_defined_in = ();
+    my %pfn_defined_in = ();
+
+    my %api_imported_from = ();
+    my %pkg_imported_from = ();
+
+    $record{file} = $cmifile;
+
+    $record{apis_exported}  = \%apis_exported;
+    $record{pkgs_exported}  = \%pkgs_exported;
+    $record{compiled_by}    = \%compiled_by;
+
+    $record{api_defined_in} = \%api_defined_in;
+    $record{pkg_defined_in} = \%pkg_defined_in;
+    $record{pfn_defined_in} = \%pfn_defined_in;
+
+    $record{api_imported_from} = \%api_imported_from;
+    $record{pkg_imported_from} = \%pkg_imported_from;
+
+
+    # 'bind lines are all that matter -- and
+    # one 'runtime-system-placeholder' that counts
+    # as just another 'bind' line for our purposes:
+    while (my $line = <IN>) {
+
+        if ($line =~ /^\s*(bind|runtime-system-placeholder)\s+(\S+)\s*=\s*(\S+)/) {
+            my $pkg  = $2;
+            my $file = $3;
+            my $path = normalize_path($cmifile, "(...)", "$cmifile_dir/$file" );
+            $pkg_defined_in{$pkg} = $path;
+            ++$pkgs_exported{$pkg};
+            remember_pkg_file_compiled_by( $path, $cmifile ) if $path =~ /.pkg$/;
+        }
+    }
+    close IN;
+}
+
+# Read a .index file:
+#
+sub slurp_indexfile {
+    my ($makefile, $indexfile) = @_;
+
+    my $r = $makefiles{$makefile};
+
+    my %api_defined_in = ();
+    my %pkg_defined_in = ();
+    my %pfn_defined_in = ();
+
+    my %api_imported_from = ();
+    my %pkg_imported_from = ();
+
+    $r->{api_defined_in} = \%api_defined_in;
+    $r->{pkg_defined_in} = \%pkg_defined_in;
+    $r->{pfn_defined_in} = \%pfn_defined_in;
+
+    $r->{api_imported_from} = \%api_imported_from;
+    $r->{pkg_imported_from} = \%pkg_imported_from;
+
+    my $makefile_dir;
+    if ($makefile =~ m|^(.*)/[^/]*$|) {
+        $makefile_dir = $1;
+    } else {
+        die "Couldn't break '$makefile' into directory and filename parts?!\n";
+    }
+
+
+    open INDEX, $indexfile || die "Couldn't open $indexfile?!\n";
+
+    # Process lines up to "--LOCAL DEFINITIONS--":
+    while (my $line = <INDEX>) {
+        last if $line =~ /--LOCAL DEFINITIONS--/;
+    }
+
+    # Process lines between "--LOCAL DEFINITIONS--" and "--IMPORTS--":
+    while (my $line = <INDEX>) {
+        last if $line =~ /--IMPORTS--/;
+
+        if ($line =~ /^pkg\s+(\S+):\s+(\S+)\s*/) {
+            my $pkg  = $1;
+            my $file = $2;
+            $file = "$makefile_dir/$file" unless $file =~ m|^/|;
+            my $path = normalize_path($makefile, $indexfile, $file );
+            $pkg_defined_in{$pkg} = $path;
+            remember_pkg_file_compiled_by( $path, $makefile ) if $path =~ /.pkg$/;
+            remember_api_file_compiled_by( $path, $makefile ) if $path =~ /.api$/;
+        } elsif ($line =~ /^api\s+(\S+):\s+(\S+)\s*/) {
+            my $api  = $1;
+            my $file = $2;
+            $file = "$makefile_dir/$file" unless $file =~ m|^/|;
+            my $path = normalize_path($makefile, $indexfile, $file );
+            $api_defined_in{$api} = $path;
+            remember_pkg_file_compiled_by( $path, $makefile ) if $path =~ /.pkg$/;
+            remember_api_file_compiled_by( $path, $makefile ) if $path =~ /.api$/;
+        } elsif ($line =~ /^generic\s+(\S+):\s+(\S+)\s*/) {
+            my $pkg  = $1;
+            my $file = $2;
+            $file = "$makefile_dir/$file" unless $file =~ m|^/|;
+            my $path = normalize_path($makefile, $indexfile, $file );
+            $pfn_defined_in{$pkg} = $path;
+            remember_pkg_file_compiled_by( $path, $makefile ) if $path =~ /.pkg$/;
+            remember_api_file_compiled_by( $path, $makefile ) if $path =~ /.api$/;
+        } else {
+	    print "slurp_indexfile($makefile, $indexfile): Unrecognized local definition line: $line";
+        }
+    }
+
+    # Process lines after "--IMPORTS--":
+    while (my $line = <INDEX>) {
+
+        if ($line =~ /^pkg\s+(\S+):\s+(\S+)\s*/) {
+            my $pkg  = $1;
+            my $file = normalize_path( $makefile, $indexfile, $2 );
+            $pkg_imported_from{$pkg} = $file;
+        }
+        if ($line =~ /^api\s+(\S+):\s+(\S+)\s*/) {
+            my $api  = $1;
+            my $file = normalize_path( $makefile, $indexfile, $2 );
+            $api_imported_from{$api} = $file;
+        }
+    }
+    close INDEX;
+}
+
+# Read a .lib/.sublib file:
+#
+sub slurp_makefile {
+    my ($makefile) = @_;
+
+    return slurp_cmifile($makefile) if $makefile =~ /init\.cmi$/;
+    return if defined $makefiles{ $makefile };
+
+    open IN, $makefile || die "Couldn't open $makefile?!\n";
+
+    my %record = ();	    $makefiles{$makefile} = \%record;
+    my %apis_exported = ();
+    my %pkgs_exported = ();
+    my %compiled_by = ();
+    $record{file} = $makefile;
+    $record{apis_exported} = \%apis_exported;
+    $record{pkgs_exported} = \%pkgs_exported;
+    $record{compiled_by}       = \%compiled_by;
+
+    # Process lines up to "LIBRARY_EXPORTS":
+    while (my $line = <IN>) {
+        next if $line =~ /^\s*#\s/;		# Ignore comment lines
+        next if $line =~ /^\s*$/;		# Ignore blank lines
+        last if $line =~ /LIBRARY_EXPORTS/;
+        last if $line =~ /SUBLIBRARY_EXPORTS/;
+    }
+
+    # Process lines between "LIBRARY_EXPORTS" and "LIBRARY_COMPONENTS":
+    while (my $line = <IN>) {
+        next if $line =~ /^\s*#\s/;		# Ignore comment lines
+        next if $line =~ /^\s*$/;		# Ignore blank lines
+        last if $line =~ /LIBRARY_COMPONENTS/;
+        last if $line =~ /SUBLIBRARY_COMPONENTS/;
+
+        # We sometimes put both an "api" and "package"
+        # declaration on the same line.  The logic here
+        # will handle this:
+        if ($line =~ /\s+api\s+(\S+)/) {
+            my $api = $1;
+            ++$apis_exported{$api};
+        }
+        if ($line =~ /\s+package\s+(\S+)/) {
+            my $pkg = $1;
+            ++$pkgs_exported{$pkg};
+        }
+    }
+
+    # Process lines after "LIBRARY_COMPONENTS":
+    while (my $line = <IN>) {
+        next if $line =~ /^\s*#\s/;		# Ignore comment lines
+        next if $line =~ /^\s*$/;		# Ignore blank lines
+
+        # Actually, we ignore all this stuff --
+        # we get this info from the .index file. 
+    }
+    close IN;
+
+    my $indexfile = find_indexfile( $makefile );
+    slurp_indexfile( $makefile, $indexfile );
+
+    # Recursively read our sub-makefiles:
+    my $r  = $makefiles{$makefile};
+    my $ai = $r->{api_imported_from};
+    my $pi = $r->{pkg_imported_from};
+    for my $api (sort keys %$ai) {
+        my $lib = $$ai{$api};
+	slurp_makefile( $lib );
+	my $l  = $makefiles{$lib};
+	my $cb = $l->{compiled_by};
+	++$$cb{$makefile};
+    }
+    for my $pkg (sort keys %$pi) {
+        my $lib = $$pi{$pkg};
+	slurp_makefile( $lib );
+	my $l  = $makefiles{$lib};
+	my $cb = $l->{compiled_by};
+	++$$cb{$makefile};
+    }
+}
+
+# For debugging, dump what we've gleaned
+# from the .lib/.sublib and .index files:
+#
+sub dump_complete_db {
+    my ($file) = @_;
+    open OUT, "> $file" || die "Couldn't create $file?!\n";
+    print OUT "\nTHINGS I'VE LEARNED:\n";
+    for my $file (sort keys %makefiles) {
+	print OUT "Makefile: $file\n";
+	my $r = $makefiles{$file};
+	my $f = $r->{file};
+	print OUT "\$f: $f\n";
+
+	my $cb = $r->{compiled_by};
+	for my $compiled_by (sort keys %$cb) {
+	    print OUT "    $file is compiled by $compiled_by\n";
+	}
+
+	my $ae = $r->{apis_exported};
+	my $pe = $r->{pkgs_exported};
+	for my $api (sort keys %$ae) {
+	    print OUT "    $f exports api $api\n";
+	}
+	for my $pkg (sort keys %$pe) {
+	    print OUT "    $f exports pkg $pkg\n";
+	}
+
+	my $ad = $r->{api_defined_in};
+	my $pd = $r->{pkg_defined_in};
+	for my $api (sort keys %$ad) {
+	    my $path = $$ad{$api};
+	    print OUT "    $f defines api $api \tin $path\n";
+	}
+	for my $pkg (sort keys %$pd) {
+	    my $path = $$pd{$pkg};
+	    print OUT "    $f defines pkg $pkg \tin $path\n";
+	}
+
+	my $ai = $r->{api_imported_from};
+	my $pi = $r->{pkg_imported_from};
+	for my $api (sort keys %$ai) {
+	    my $lib = $$ai{$api};
+	    print OUT "    $f imports api $api \tfrom $lib\n";
+	}
+	for my $pkg (sort keys %$pi) {
+	    my $lib = $$pi{$pkg};
+	    print OUT "    $f imports pkg $pkg \tfrom $lib\n";
+	}
+    }
+
+    my $count = 0;
+    print OUT "\nKnown .pkg files\n";
+    for my $file (sort keys %pkgfiles) {
+        ++$count;
+	print OUT "    #$count: $file\n";
+
+	my $r = $pkgfiles{$file};
+	my $cb = $r->{compiled_by};
+	for my $compiled_by (sort keys %$cb) {
+	    print OUT "        compiled by: $compiled_by\n";
+	}
+    }
+
+    $count = 0;
+    print OUT "\nKnown .api files\n";
+    for my $file (sort keys %apifiles) {
+        ++$count;
+	print OUT "    #$count: $file\n";
+
+	my $r = $apifiles{$file};
+	my $cb = $r->{compiled_by};
+	for my $compiled_by (sort keys %$cb) {
+	    print OUT "        compiled by: $compiled_by\n";
+	}
+    }
+
+    close OUT;
+}
+
+
+sub find_file_defining_api {
+
+    my ($makefile, $codefile, $line_number, $api_name) = @_;
+
+    # First, see if the api_name is directly
+    # defined within the makefile:
+    my $r = $makefiles{$makefile};
+    my $ad = $r->{api_defined_in};
+    for my $api (sort keys %$ad) {
+        if ($api eq $api_name) {
+	    my $path = $$ad{$api};
+            return $path; 
+        }
+    }
+
+    # Now, see if the api_name is advertised
+    # as being exported from any of the makefiles
+    # imported by this makefile:
+    my $ai = $r->{api_imported_from};
+    for my $api (sort keys %$ai) {
+        if ($api eq $api_name) {
+	    my $path = $$ai{$api};
+            return find_file_defining_api ($path, $codefile, $line_number, $api_name);
+        }
+    }
+
+    # Some of the deep internals are funky
+    # and have to be special-cased:
+    return 'src/lib/core/init/substring.api'      if $api_name eq 'Substring';
+    return 'src/lib/core/init/runtime.api' if $api_name eq 'Assembly';
+    return 'src/lib/core/init/runtime.api' if $api_name eq 'Assembly_Boxed';
+    return 'src/lib/core/init/init-utils.pkg'     if $api_name eq 'Init_Substring';
+
+    print "find_file_defining_api: $makefile: $codefile:$line_number: $api_name could not be found.\n";
+
+    return "";
+}
+
+sub find_file_defining_pkg {
+
+    my ($makefile, $codefile, $line_number, $pkg_name) = @_;
+
+    # First, see if the pkg_name is directly
+    # defined within the makefile:
+    my $r = $makefiles{$makefile};
+    my $pd = $r->{pkg_defined_in};
+    for my $pkg (sort keys %$pd) {
+        if ($pkg eq $pkg_name) {
+	    my $path = $$pd{$pkg};
+            return $path; 
+        }
+    }
+
+    # Now, see if the pkg_name is advertised
+    # as being exported from any of the makefiles
+    # imported by this makefile:
+    my $pi = $r->{pkg_imported_from};
+    for my $pkg (sort keys %$pi) {
+        if ($pkg eq $pkg_name) {
+	    my $path = $$pi{$pkg};
+            return find_file_defining_pkg ($path, $codefile, $line_number, $pkg_name);
+        }
+    }
+
+    # Some of the deep internals are funky
+    # and have to be special-cased:
+    return 'src/lib/core/init/built-in.pkg'   if $pkg_name eq 'inline_t';
+    return 'src/lib/core/init/init-utils.pkg' if $pkg_name eq 'init_protostring';
+    return 'src/lib/core/init/init-utils.pkg' if $pkg_name eq 'init_substring';
+
+    # At last check, this statement is only being triggered by
+    # generic package arguments and locally defined packages, so
+    # I've turned it off as an unhelpful distraction:
+    # print "find_file_defining_pkg: $makefile: $codefile:$line_number: $pkg_name could not be found.\n";
+
+    return "";
+}
+
+my %files_changed = ();
+
+sub touch {
+    my ($file) = @_;
+    open OUT, "> $file" || die "Couldn't create $file?!\n";
+    close OUT;
+}
+
+sub update_codefile_comments {
+
+    my ($makefile, $codefile) = @_;
+    my  $outfile  = $codefile . ".EDITED";
+
+    my  $xfile  = $codefile . ".SEEN";		# lost-sheep hack.
+    touch( $xfile );				# lost-sheep hack.
+
+    my $line_number = 0;
+
+    open IN,     $codefile  || die "Couldn't open $codefile?!\n";
+    open OUT, "> $outfile" || die "Couldn't create $outfile?!\n";
+
+    my $last_package = "";
+
+    my $changes_made = 0;
+
+    my %packages_defined_in_this_file = ();
+
+    while (my $line = <IN>) {
+        ++$line_number;
+        chomp( $line );
+
+# This part is useful when setting up a virgin
+# package, but a nuisance otherwise:
+#
+#        # Handle "package foo = bar;"
+#        # and    "package foo = bar::zot;"
+#        if ($line =~ /^\s*package\s+([a-z0-9_]+)\s*=\s*([a-z0-9_]+)(::\S+)?\s*;$/) {
+#            my $def     = $1;    ++$packages_defined_in_this_file{$def};
+#            my $package = $2;
+#            my $tabs    = "\t";
+#            if (not defined $packages_defined_in_this_file { $package }) {
+#		my $path    = find_file_defining_pkg ($makefile, $codefile, $line_number, $package);
+#		if ($path and ($package ne $last_package)) {
+#		    $last_package = $package;
+#		    my $new_line = "$line\t# $package${tabs}is from   $path";
+#		    print OUT $new_line;     print OUT "\n";
+#		    ++$changes_made;
+#		} else {
+#		    print OUT $line;     print OUT "\n";
+#		}
+#	    } else {
+#		print OUT $line;     print OUT "\n";
+#	    }
+#
+#        # Handle "package foo = bar;  		# bar is from src/etc/etc"
+#        # and    "package foo = bar::zot;	# bar is from src/etc/etc"
+#        } elsif
+        if ($line =~ /^(\s*package\s+)([a-z0-9_]+)(\s*)=(\s*)([a-z0-9_]+)((::\S+)?\s*;\s*)# [a-z0-9_]+(\t+)is from   .*$/) {
+            my $start    = $1;
+            my $def      = $2;    ++$packages_defined_in_this_file{$def};
+            my $padding1 = $3;
+            my $padding2 = $4;
+            my $package  = $5;
+            my $rest     = $6;
+            my $tabs     = $8;
+            my $path     = find_file_defining_pkg ($makefile, $codefile, $line_number, $package);
+            if (not defined $packages_defined_in_this_file { $package }) {
+		if ($path and ($package ne $last_package)) {
+		    $last_package = $package;
+		    my $new_line = "$start$def$padding1=$padding2$package$rest# $package${tabs}is from   $path";
+		    print OUT $new_line;     print OUT "\n";
+		    ++$changes_made if $new_line ne $line;
+		} else {
+		    print OUT $line;     print OUT "\n";
+		}
+            } else {
+		print OUT $line;     print OUT "\n";
+	    }
+
+        # Handle "... Foo;	# Foo is from src/etc/etc"
+        } elsif ($line =~ /^(.*[^A-Za-z0-9_'])([A-Z][A-Za-z0-9_]+)([^A-Za-z0-9_']*# )[A-Z][A-Za-z0-9_]+(\t+)is from /) {
+            my $start    = $1;
+            my $api      = $2;
+            my $rest     = $3;
+            my $padding  = $4;
+            my $path     = find_file_defining_api ($makefile, $codefile, $line_number, $api);
+            if ($path ne '') {
+		my $new_line = "$start$api$rest$api${padding}is from   $path";
+		if ($new_line ne $line) {
+                    ++$changes_made;
+                    print "$codefile: Found:          $line\n";
+                    print "$codefile: Changing it to: $new_line\n";
+		}
+		print OUT $new_line;     print OUT "\n";
+	    } else {
+		print OUT $line;     print OUT "\n";
+	    }
+
+        # Handle "Foo;	# Foo is from src/etc/etc"
+        } elsif ($line =~ /^([A-Z][A-Za-z0-9_]+)([^A-Za-z0-9_']*# )[A-Z][A-Za-z0-9_]+(\t+)is from /) {
+            my $api      = $1;
+            my $rest     = $2;
+            my $padding  = $3;
+            my $path     = find_file_defining_api ($makefile, $codefile, $line_number, $api);
+            if ($path ne '') {
+		my $new_line = "$api$rest$api${padding}is from   $path";
+		if ($new_line ne $line) {
+                    ++$changes_made;
+		    print "$codefile: Found:          $line\n";
+		    print "$codefile: Changing it to: $new_line\n";
+		}
+		print OUT $new_line;     print OUT "\n";
+	    } else {
+		print OUT $line;     print OUT "\n";
+	    }
+
+        # Handle "...	# bar is from src/etc/etc"
+        } elsif ($line =~ /^(.*\s+)# ([a-z0-9_]+)(\t+)is from   .*$/) {
+            my $start   = $1;
+            my $package = $2;
+            my $tabs    = $3;
+            my $path    = find_file_defining_pkg ($makefile, $codefile, $line_number, $package);
+            if (not defined $packages_defined_in_this_file { $package }) {
+		if ($path and ($package ne $last_package)) {
+		    $last_package = $package;
+		    my $new_line = "$start# $package${tabs}is from   $path";
+		    print OUT $new_line;     print OUT "\n";
+		    ++$changes_made if $new_line ne $line;
+		} else {
+		    print OUT $line;     print OUT "\n";
+		}
+            } else {
+		print OUT $line;     print OUT "\n";
+	    }
+
+        # Handle "...	# Foo is from src/etc/etc"
+        } elsif ($line =~ /^(.*\s+)# ([A-Z][A-Za-z0-9_]+)(\t+)is from /) {
+            my $start    = $1;
+            my $api      = $2;
+            my $tabs     = $3;
+            my $path     = find_file_defining_api ($makefile, $codefile, $line_number, $api);
+            if ($path ne '') {
+		my $new_line = "$start# $api${tabs}is from   $path";
+		if ($new_line ne $line) {
+                    ++$changes_made;
+		    print "$codefile: Found:          $line\n";
+		    print "$codefile: Changing it to: $new_line\n";
+		}
+		print OUT $new_line;     print OUT "\n";
+	    } else {
+		print OUT $line;     print OUT "\n";
+	    }
+        } else {
+            print OUT $line;     print OUT "\n";
+        }
+    }
+
+    close IN;
+    close OUT;
+
+    if (!$changes_made) {
+        unlink $outfile;
+    } else {
+        my $newname = $codefile . ".UNEDITED";
+        rename ($codefile, $newname);
+        rename ($outfile, $codefile);
+        ++$files_changed{  $codefile };
+    }
+}
+
+
+
+# Annotate all the .pkg and .api files
+# belonging to a given makefile: 
+my %makefiles_done = ();
+
+sub update_comments_in_makefiles_codefiles {
+
+    my ($makefile, $indent) = @_;
+
+    return if defined $makefiles_done{$makefile};
+    ++                $makefiles_done{$makefile};
+
+    print " " x $indent;
+    print "$makefile ...\n";
+
+
+    # For all .pkg and .api files belonging
+    # directly to this makefile:
+
+    my $r = $makefiles{$makefile};
+    my $pd = $r->{pkg_defined_in};
+    for my $pkg (sort keys %$pd) {
+	my $path = $$pd{$pkg};
+        update_codefile_comments( $makefile, $path );
+    }
+    my $pf = $r->{pfn_defined_in};
+    for my $pfn (sort keys %$pf) {
+	my $path = $$pf{$pfn};
+        update_codefile_comments( $makefile, $path );
+    }
+    my $pa = $r->{api_defined_in};
+    for my $api (sort keys %$pa) {
+	my $path = $$pa{$api};
+        update_codefile_comments( $makefile, $path );
+    }
+
+
+    # Now do our sub-makefiles recursively:
+
+    my $ai = $r->{api_imported_from};
+    my $pi = $r->{pkg_imported_from};
+    for my $api (sort keys %$ai) {
+	my $lib = $$ai{$api};
+        update_comments_in_makefiles_codefiles( $lib, $indent + 4 );
+    }
+    for my $p (sort keys %$pi) {
+	my $l = $$pi{$p};
+        update_comments_in_makefiles_codefiles( $l, $indent + 4 );
+    }
+}
+
+
+
+# The 'compiled-by' section of a .lib/.sublib file
+# follows the first blank line and looks like
+#
+#    # Compiled by:
+#    #    src/lib/foo/foo.lib
+#    #    src/app/bar/bar.lib
+#    #    ...
+#
+# It ends at the next blank line.
+#
+sub get_compiled_by_section {
+
+    my ($somefile) = @_;
+
+    open IN, $somefile || die "Couldn't open $somefile?!\n";
+
+    # Read to first blank line:
+    my $line;
+    while (my $line = <IN>) {
+        last if $line =~ /^\s*$/;
+    }
+    return '' if eof;	# File contains no blank lines! :-)
+
+    my $result = <IN>;
+    return '' if not ($result =~ /^\s*# Compiled by:/);
+
+    # Read to end of comment lines:
+    while (my $line = <IN>) {
+        if ($line =~ /^\s*#\s/) {
+            $result = $result . $line;
+        } else {
+            return $result . "\n";
+        }
+    }
+    return $result . "\n";
+}
+
+sub set_compiled_by_section {
+    #
+    my ($somefile, $compiled_by_section) = @_;
+    my $newfile = $somefile . ".EDITED";
+    my $oldfile = $somefile . ".UNEDITED";
+    my $line;
+
+    open IN,   $somefile  || die "Couldn't open $somefile?!\n";
+    open OUT, ">$newfile" || die "Couldn't create $newfile?!\n";
+
+    # Read to first blank line:
+    while ($line = <IN>) {
+        print OUT $line;
+        last if $line =~ /^\s*$/;
+    }
+
+    if (eof(IN)) {
+	#
+	print OUT "\n";			# Supply a blank line before new compiled-by section.
+
+    } else {
+
+	# Eat compiled-by section, if any:
+	$line = <IN>;
+	if ($line =~ /^\s*# Compiled by:/) {
+	    # Eat all following comments:
+	    while ($line = <IN>) {
+		last if not $line =~ /^\s*#\s/;
+	    }
+	    if (not eof) {
+		# Eat all following blank lines:
+		while ($line = <IN>) {
+		    last if not ($line =~ /^\s*$/);
+		}
+	    }
+	} 
+    }
+
+    print OUT $compiled_by_section;    # Add new compiled-by section.
+
+    if (not eof(IN)) {
+	#
+	# Copy rest of file to OUT:
+        print OUT $line;
+	while ($line = <IN>) {
+	    print OUT $line;
+	}
+    }
+    close IN;
+    close OUT;
+
+    rename( $somefile, $oldfile);
+    rename( $newfile, $somefile);
+}
+
+# Generate "compiled by" comment for a .lib/.sublib file:
+#
+sub make_makefile_compiled_by_section {
+
+    my ($makefile) = @_;
+    my $compiled_by_section = "# Compiled by:\n";
+
+    my $r = $makefiles{$makefile};
+    my $cb = $r->{compiled_by};
+    for my $compiled_by (sort keys %$cb) {
+	$compiled_by_section = $compiled_by_section
+                             . "#     $compiled_by\n";
+    }
+
+    return $compiled_by_section . "\n";
+}
+
+# Generate "compiled by" comment for a .pkg file:
+#
+sub make_pkgfile_compiled_by_section {
+
+    my ($pkgfile) = @_;
+    my $compiled_by_section = "# Compiled by:\n";
+
+    my $r = $pkgfiles{$pkgfile};			# Only difference from above fn.
+    my $cb = $r->{compiled_by};
+    for my $compiled_by (sort keys %$cb) {
+	$compiled_by_section = $compiled_by_section
+                             . "#     $compiled_by\n";
+    }
+
+    return $compiled_by_section . "\n";
+}
+
+# Generate "compiled by" comment for a .api file:
+#
+sub make_apifile_compiled_by_section {
+
+    my ($apifile) = @_;
+    my $compiled_by_section = "# Compiled by:\n";
+
+    my $r = $apifiles{$apifile};			# Only difference from above fn.
+    my $cb = $r->{compiled_by};
+    for my $compiled_by (sort keys %$cb) {
+	$compiled_by_section = $compiled_by_section
+                             . "#     $compiled_by\n";
+    }
+
+    return $compiled_by_section . "\n";
+}
+
+# If needed, update "compiled by" comment in a .lib/.sublib file:
+#
+sub maybe_update_makefile_compiled_by_section {
+
+    my ($makefile) = @_;
+
+    my $current_compiled_by_section =           get_compiled_by_section( $makefile );
+    my  $proper_compiled_by_section = make_makefile_compiled_by_section( $makefile );
+
+    if ($current_compiled_by_section ne $proper_compiled_by_section) {
+        set_compiled_by_section( $makefile, $proper_compiled_by_section );
+        print "\nUpdated $makefile compiled-by section:\n";
+        print "    Old section:\n";
+        print $current_compiled_by_section;
+        print "    New section:\n";
+        print $proper_compiled_by_section;
+    } else {
+#        print "$makefile is up to date.\n";
+    }
+}
+
+# If needed, update "compiled by" comment in a .pkg file:
+#
+sub maybe_update_pkgfile_compiled_by_section {
+
+    my ($pkgfile) = @_;
+
+    my $current_compiled_by_section =          get_compiled_by_section( $pkgfile );
+    my  $proper_compiled_by_section = make_pkgfile_compiled_by_section( $pkgfile );	# Only difference from above fn.
+
+    if ($current_compiled_by_section ne $proper_compiled_by_section) {
+        set_compiled_by_section( $pkgfile, $proper_compiled_by_section );
+        print "\nUpdated $pkgfile compiled-by section:\n";
+        print "    Old section:\n";
+        print $current_compiled_by_section;
+        print "    New section:\n";
+        print $proper_compiled_by_section;
+    } else {
+#        print "$pkgfile is up to date.\n";
+    }
+}
+
+# If needed, update "compiled by" comment in a .api file:
+#
+sub maybe_update_apifile_compiled_by_section {
+
+    my ($apifile) = @_;
+
+    my $current_compiled_by_section =          get_compiled_by_section( $apifile );
+    my  $proper_compiled_by_section = make_apifile_compiled_by_section( $apifile );	# Only difference from above fn.
+
+    if ($current_compiled_by_section ne $proper_compiled_by_section) {
+        set_compiled_by_section( $apifile, $proper_compiled_by_section );
+        print "\nUpdated $apifile compiled-by section:\n";
+        print "    Old section:\n";
+        print $current_compiled_by_section;
+        print "    New section:\n";
+        print $proper_compiled_by_section;
+    } else {
+#        print "$apifile is up to date.\n";
+    }
+}
+
+# Do all needed updates of  .lib/.sublib file "compiled by" comments:
+#
+sub update_makefile_compiled_by_sections {
+    for my $makefile (sort keys %makefiles) {
+        maybe_update_makefile_compiled_by_section( $makefile );
+    }
+}
+
+# Do all needed updates of  .pkg file "compiled by" comments:
+#
+sub update_pkgfile_compiled_by_sections {
+    for my $pkgfile (sort keys %pkgfiles) {
+        maybe_update_pkgfile_compiled_by_section( $pkgfile );
+    }
+}
+
+# Do all needed updates of  .api file "compiled by" comments:
+#
+sub update_apifile_compiled_by_sections {
+    for my $apifile (sort keys %apifiles) {
+        maybe_update_apifile_compiled_by_section( $apifile );
+    }
+}
+
+for (my $i = 0;  $i <= $#ARGV; ++$i) {
+    slurp_makefile( $ARGV[$i] );
+} 
+
+dump_complete_db( "MAKELIB_FILE_HIERARCHY.INFO~" );
+
+for (my $i = 0;  $i <= $#ARGV;  ++$i) {
+    update_comments_in_makefiles_codefiles( $ARGV[$i], 0 );
+} 
+
+my $done_header = 0;
+for my $f (sort keys %files_changed) {
+    if (!$done_header) {
+	print "Files patched:\n";
+        ++ $done_header;
+    }
+    print "    $f\n";
+}
+
+update_makefile_compiled_by_sections();
+update_pkgfile_compiled_by_sections ();
+update_apifile_compiled_by_sections ();
+
+exit 0;

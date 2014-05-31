@@ -1,0 +1,665 @@
+## weighted-block-placement-g.pkg
+#
+# See background comments in
+#
+#     src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list.api
+#
+# See also:
+#
+#     src/lib/compiler/back/low/block-placement/default-block-placement-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+#   "This generic implements the bottom-up block-placement
+#    algorithm of Pettis and Hansen (PLDI 1990)."  -- Allen Leung
+#
+# This appears to be the paper
+#     Profile Guided Code Positioning
+#     http://www.lvl1blogs.com/drupal/download/Profile%20Guided%20Code%20Positioning.pdf
+#
+# TODO
+#	remove low-weight nodes to break cycles in chain graph XXX BUGGO FIXME
+
+
+
+stipulate
+    package djs =  disjoint_sets_with_constant_time_union;			# disjoint_sets_with_constant_time_union	is from   src/lib/src/disjoint-sets-with-constant-time-union.pkg
+    package f8b =  eight_byte_float;						# eight_byte_float				is from   src/lib/std/eight-byte-float.pkg
+    package fil =  file__premicrothread;					# file__premicrothread				is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package iht =  int_hashtable;						# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package odg =  oop_digraph;							# oop_digraph					is from   src/lib/graph/oop-digraph.pkg
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list-g.pkg
+    #
+    generic package   weighted_block_placement_g   (
+	#             ==========================
+	#
+	package mcg: Machcode_Controlflow_Graph;				# Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+
+	package mu:  Machcode_Universals					# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+		     where
+			 mcf == mcg::mcf;					# "mcf" == "machcode_form" (abstract machine code).
+    )
+    : (weak) Make_Final_Basic_Block_Order_List					# Make_Final_Basic_Block_Order_List		is from   src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list.api
+    {
+	# Export to client packages:
+	#
+	package mcg = mcg;
+
+	stipulate
+	    package pq
+		=
+		leftist_heap_priority_queue_g (					# leftist_heap_priority_queue_g			is from   src/lib/src/leftist-heap-priority-queue-g.pkg
+		    package {
+			Priority =  mcg::Execution_Frequency;
+			Item     =  mcg::Edge;
+
+			compare  =  f8b::compare;
+
+			fun priority (_, _, mcg::EDGE_INFO { execution_frequency, ... } )
+			    =
+			    *execution_frequency;
+		    }
+		);
+	herein
+
+	    # Flags:
+
+	    dump_machcode_controlflow_graph_block_list
+		=
+		lowhalf_control::make_bool (
+		  "dump_machcode_controlflow_graph_block_list",
+		  "whether block list is shown"
+		);
+
+	    dump_machcode_controlflow_graph_after_block_placement
+		=
+		lowhalf_control::make_bool (
+		  "dump_machcode_controlflow_graph_after_block_placement",
+		  "whether machcode_controlflow_graph is shown after block placement");
+
+	    dump_strm
+		=
+		lowhalf_control::debug_stream;
+
+	    # Sequences with constant-time
+	    # concatenation:
+	    #
+	    Seq X
+	      = ONE  X
+	      | SEQ  ((Seq(X), Seq(X)) );
+
+	    # A chain of blocks that
+	    # should be placed in order 
+	    #
+	    Chain = CHAIN  {
+		blocks:  Seq( mcg::Node ),
+		hd:  mcg::Node,
+		tl:  mcg::Node
+	      };
+
+	    fun head (CHAIN { hd, ... } ) =  #1 hd;
+	    fun tail (CHAIN { tl, ... } ) =  #1 tl;
+	    fun id   (CHAIN { hd, ... } ) =  #1 hd;		# Use node ID of head to identify chains 
+
+
+	    fun same_chain (CHAIN { hd=>h1, ... }, CHAIN { hd=>h2, ... } )
+		=
+		#1 h1  ==  #1 h2;
+
+
+	    fun block_to_string (id', mcg::BBLOCK { id, ... } )
+		=
+		cat ["<", int::to_string id', ":", int::to_string id, ">"];
+
+
+	    fun chain_to_string (CHAIN { hd, blocks, ... } )
+		=
+		cat ("CHAIN { " ! block_to_string hd ! ",[" ! seq (blocks, ["] }"]))
+		where
+		    fun seq (ONE blk,      l) =>  block_to_string blk ! l;
+			seq (SEQ (s1, s2), l) =>  seq (s1, ", " ! seq (s2, l));
+		    end;
+		end;
+
+
+	    # Join two chains 
+	    #
+	    fun join_chains
+		(
+		  CHAIN { blocks=>b1, hd, ... },
+		  CHAIN { blocks=>b2, tl, ... }
+		)
+		=
+		CHAIN { blocks=>SEQ (b1, b2), hd, tl };
+
+
+	    unify_chain_ptrs = djs::unify join_chains;
+
+
+	    # Chain pointers provide a
+	    # union-find structure for chains:
+	    #
+	    Chain_Ptr =  djs::Disjoint_Set( Chain );
+	    #
+	    Block_Chain_Table = iht::Hashtable( Chain_Ptr );
+
+	    # A directed graph representing the placement ordering on chains.
+	    # An edge from chain c1 to c2 means that we should place c1 before c2.
+	    # The graph may be cyclic, so we weight the edges
+	    # and remove the low-cost edge on any cycle.
+	    #
+	    Node = NODE {
+		    chain:  Chain,
+		    mark:  Ref( Bool ),
+		    kids:  Ref(  List(  Edge ) )
+		  }
+	    also
+	    Edge = EDGE  {
+		     w:  mcg::Execution_Frequency,
+		     dst:  Node,
+		     ign:  Ref( Bool )		# Ignore this edge if TRUE -- used to break cycles. 
+		   };
+
+	    fun make_node c
+		=
+		NODE { chain => c, mark => REF FALSE, kids => REF [] };
+
+	    fun make_edge (w, dst)
+		=
+		EDGE { w, dst, ign => REF FALSE };
+
+	    # Given a table that maps block IDs to chain pointers,
+	    # construct a table that maps block IDs to their
+	    # chain-placement graph nodes.
+	    #
+	    fun make_chain_placement_graph (table:  Block_Chain_Table)
+		=
+		( iht::foldi block_to_nd [] table,
+		  g_table
+		)
+		where
+		    g_table =  iht::make_hashtable  { size_hint => iht::vals_count table,  not_found_exception => FAIL "graph table" };
+
+		    find   =  iht::find g_table;
+		    insert =  iht::set g_table;
+
+		    # Given a block ID and the chain pointer
+		    # corresponding to the block, add the
+		    # chain node to the graph table.
+		    #
+		    # This may involve creating the node
+		    # if it doesn't already exist:
+		    #
+		    fun block_to_nd (blk_id, cptr, nodes)
+			=
+			{   chain    =  djs::get  cptr;
+			    chain_id =  id chain;
+
+			    case (find chain_id)
+				#
+				NULL
+				    =>
+				    {   nd = make_node chain;
+
+					insert (chain_id, nd);
+
+					if (blk_id != chain_id)
+					    #
+					    insert (blk_id, nd);
+					fi;
+
+					nd ! nodes;
+				    };
+
+				THE nd
+				    =>
+				    {   insert (blk_id, nd);
+					nodes;
+				    };
+			    esac;
+			};
+		end;
+
+
+	    fun make_final_basic_block_order_list							# This is our external entrypoint.
+		    #	
+		    (mcg as odg::DIGRAPH graph)
+		=
+		{   # A map from block IDs to their chain 
+		    #
+		    my block_table:  iht::Hashtable( Chain_Ptr )
+			=
+			table
+			where
+			    table  =  iht::make_hashtable  { size_hint => graph.size (),  not_found_exception => FAIL "blkTable" };
+			    insert =  iht::set table;
+
+			    fun ins (b:  mcg::Node)
+				=
+				insert (
+				    #1 b,
+				    djs::make_singleton_disjoint_set (CHAIN { blocks => ONE b, hd => b, tl => b } )
+				);
+
+			    graph.forall_nodes ins;
+			end;
+
+		    lookup_chain =  iht::get  block_table;
+
+
+
+		    exit_id	    # The unique exit node.
+			=
+			mcg::exit_node_id_of_graph mcg;
+
+
+		    # Given an edge that connects two blocks,
+		    # attempt to merge their chains.
+		    # 
+		    # Return TRUE if a merge occurred.
+		    # 
+		    # We do not join exit edges so that the exit
+		    # and entry nodes end up in distinct chains.
+		    #
+		    fun join (src, dst, _)
+			=
+			if (dst == exit_id)
+			    #
+			    FALSE;
+			else
+			    cptr1 =  lookup_chain src;     chain1 =  djs::get cptr1;
+			    cptr2 =  lookup_chain dst;	   chain2 =  djs::get cptr2;
+
+			    if   ( (src == tail chain1)   and 
+				   (dst == head chain2)   and not
+				   (same_chain (chain1, chain2))
+				 )
+				 # The source block is the tail of its chain and the
+				 # destination block is the head of its chain, 
+				 # so we can join the chains.
+				 #
+				 ignore (unify_chain_ptrs (cptr1, cptr2));
+				 TRUE;
+			    else
+				 FALSE;	# We cannot join these chains.
+			    fi;
+			fi;
+
+
+		    # Merge chains until all of the edges have been examined;
+		    # the remaining edges cannot be fall-through.
+		    #
+		    fun loop (pq, edges)
+			=
+			case (pq::next pq)
+			    #
+			    THE (edge, pq)
+				=>
+			       if   (join edge)
+				    loop (pq, edges);
+			       else loop (pq, edge ! edges);
+			       fi;
+
+			    NULL => edges;
+			esac;
+
+		    edges =  loop (pq::from_list (graph.edges ()), []);
+
+		    # Construct a chain placement graph:
+		    #
+		    my (chain_nodes, gr_table)
+			=
+			make_chain_placement_graph block_table;
+
+		    lookup_nd =  iht::get  gr_table;
+
+		    fun add_cfgedge (src, dst, mcg::EDGE_INFO { kind, execution_frequency, ... } )
+			=
+			case kind						#  NOTE: there may be icache benefits to including SWITCH edges. 
+			    #
+			    mcg::SWITCH _ =>  ();
+			    mcg::FLOWSTO  =>  ();
+
+			    _   =>
+				{   my NODE           { chain=>c1, kids, ... } =   lookup_nd  src;
+				    my dst_nd as NODE { chain=>c2, ...      } =   lookup_nd  dst;
+
+				    if   (not (same_chain (c1, c2)))
+
+					 kids :=  make_edge (*execution_frequency, dst_nd) ! *kids;
+				    fi;
+				};
+			esac;
+
+		    list::apply  add_cfgedge  edges;
+
+
+		    #  XXX BUGGO FIXME: we should remove low-weight nodes to break cycles 
+
+		    # Construct an ordering on the chains by
+		    # doing a depth-first search on the chain graph.
+		    #	
+		    fun dfs (NODE { mark => REF TRUE, ... }, l)			# "dfs" == "depth-first search"
+			    =>
+			    l;
+
+			dfs (NODE { mark, chain, kids, ... }, l)
+			    =>
+			    {   fun add_kid (EDGE { ign => REF TRUE, ... }, l)
+					=>
+					l;
+
+				    add_kid (EDGE { dst, ... }, l)
+					=>
+					dfs (dst, l);
+				end;
+
+				mark :=  TRUE;
+
+				list::fold_forward  add_kid  (chain ! l)  *kids;
+			    };
+		    end;
+
+		    # Mark the exit node, since it should be last.
+		    #
+		    # Note that we ensured above that the exit
+		    # and entry nodes are in distinct chains:
+		    #
+		    exit_chain
+			=
+			chain
+			where
+			    (lookup_nd  (mcg::exit_node_id_of_graph  mcg))
+				->
+				NODE { chain, mark, ... };
+
+			    mark := TRUE;
+
+			end;
+
+
+		    # Start with the entry node:
+		    # 
+		    chains =   dfs  (lookup_nd  (mcg::entry_node_id_of_graph  mcg),  []);
+
+
+		    # Place the rest of the nodes and add the exit node: 
+		    #
+		    chains =  list::fold_forward  dfs  chains  chain_nodes;
+		    chains =  exit_chain ! chains;
+
+
+		    # Extract the list of blocks from the chains list;
+		    # the chains list is in reverse order.
+		    # The resulting list of blocks is in order.
+		    #
+		    fun add_chain (CHAIN { blocks, ... }, blks)
+			=
+			add_seq (blocks, blks)
+			where
+			    fun add_seq (ONE b, blks)
+				    =>
+				    b ! blks;
+
+				add_seq (SEQ (s1, s2), blks)
+				    =>
+				    add_seq (s1, add_seq (s2, blks));
+			    end;
+			end;
+
+		    blocks
+			=
+			list::fold_forward add_chain [] chains;
+
+
+		    fun upd_edge (mcg::EDGE_INFO { execution_frequency, notes, ... }, kind)
+			=
+			mcg::EDGE_INFO { execution_frequency, notes, kind };
+
+
+		    fun upd_jmp f (ops as REF (i ! r))
+			    =>
+			    ops := f i ! r;
+
+			upd_jmp _ (REF [])
+			    =>
+			    raise exception FAIL "weighted_block_placement_g: upd_jmp: empty ops";
+		    end;
+
+
+		    fun flip_jmp (ops, lab)
+			=
+			upd_jmp
+			    (\\ i =  mu::negate_conditional (i, lab))
+			    ops;
+
+
+		    # Set to TRUE if we change anything:
+		    #
+		    changed = REF FALSE;
+
+		    set_edges
+			=
+			\\ arg =  { changed := TRUE; set arg;}
+			where
+			    set = graph.set_out_edges;
+			end;
+
+
+		    # Map a block ID to a label:
+		    # 
+		    label_of =  mcg::get_or_make_bblock_codelabel  mcg;
+
+
+
+		    # Patch the blocks so that unconditional jumps
+		    # to the immediate successor are replaced by
+		    # fall-through edges and conditional jumps
+		    # to the immediate successor are negated.
+		    #
+		    # Remember that we cannot fall through
+		    # to the exit block!
+		    #
+		    fun patch ( nd as (blk_id, mcg::BBLOCK { kind=>mcg::NORMAL, ops, ... } ),
+				(next as (next_id, _)) ! rest,
+				l
+			      )
+			    =>
+			    {   fun continue ()
+				    =
+				    patch (next, rest, nd ! l);
+
+				case (graph.out_edges blk_id)
+				    #
+				    [(_, dst, e as mcg::EDGE_INFO { kind, execution_frequency, notes } )]
+					=>
+					{   case (dst == next_id, kind)
+						#
+						(FALSE, mcg::FALLSTHRU)
+						    =>
+						    {   # Rewrite edge as JUMP and add jump instruction 
+							#
+							set_edges (blk_id, [(blk_id, dst, upd_edge (e, mcg::JUMP))]);
+							ops := mu::jump (label_of dst) ! *ops;
+						    };
+
+						(TRUE, mcg::JUMP)
+						    =>
+						    if (next_id != exit_id)
+							#
+							# Rewrite edge as FALLSTHRU and remove jump instruction 
+							#
+							set_edges (
+							    blk_id,
+							    [(blk_id, dst, upd_edge (e, mcg::FALLSTHRU))]
+							);
+							ops :=  list::tail *ops;
+						    fi;					# Do not rewrite jumps to STOP block 
+
+						_   => ();
+					    esac;
+
+					    continue();
+					};
+
+				    [ (_, dst1, e1 as mcg::EDGE_INFO { kind =>mcg::BRANCH b, ... } ),
+				      (_, dst2, e2)
+				    ]
+					=>
+					case ( dst1 == next_id,
+					       dst2 == next_id,
+					       b
+					     )
+
+					    (FALSE, FALSE, _)
+						=>
+						{   # Here we have to introduce a new block that
+						    # jumps to the FALSE target.
+
+						    fun rewrite (true_id, true_e, false_id, false_e)
+							=
+							{   false_e ->   mcg::EDGE_INFO { execution_frequency, notes, ... };
+								
+
+							    (mcg::make_node { digraph => mcg, execution_frequency => *execution_frequency })
+								->
+								nd' as (id, mcg::BBLOCK { ops=>i, ... } );
+
+
+							    # Initialize the new block:
+							    #	
+							    i :=  [mu::jump  (label_of  false_id)];
+							    #	
+							    set_edges
+							      ( id,
+								[ ( id,
+								    false_id,
+								    mcg::EDGE_INFO
+								      {
+									execution_frequency =>  REF *execution_frequency,
+									notes		    =>  REF [],
+									kind		    =>  mcg::JUMP
+								      }
+								  )
+								]
+							      );
+
+
+
+							    # Rewrite the out edges of the old block:
+							    #
+							    set_edges
+							      ( blk_id,
+								[
+								  ( blk_id,
+								    true_id,
+								    true_e
+								  ),
+								  ( blk_id,
+								    id,
+								    mcg::EDGE_INFO
+								      {
+									kind => mcg::BRANCH FALSE,
+									execution_frequency,
+									notes
+								     } )
+								]
+							      );
+
+
+							    # Rewrite the old jump instruction:
+							    #
+							    upd_jmp
+								(\\ op
+								    =
+								    mu::set_branch_targets
+								      { op,
+									true  => label_of true_id,
+									false => label_of id
+								      }
+								)
+								ops;
+
+							    patch (next, rest, nd' ! nd ! l);
+							};
+
+						    b  ??  rewrite (dst1, e1, dst2, e2)
+						       ::  rewrite (dst2, e2, dst1, e1);
+						};
+
+					    (TRUE, _, TRUE)
+						=>
+						{   set_edges (blk_id, [
+							(blk_id, dst1, upd_edge (e1, mcg::BRANCH FALSE)),
+							(blk_id, dst2, upd_edge (e2, mcg::BRANCH TRUE))
+						    ]);
+
+						    flip_jmp (ops, label_of dst2);
+
+						    continue();
+						};
+
+					    (FALSE, _, FALSE)
+						=>
+						{   set_edges (blk_id, [
+							(blk_id, dst1, upd_edge (e1, mcg::BRANCH TRUE)),
+							(blk_id, dst2, upd_edge (e2, mcg::BRANCH FALSE))
+						      ]);
+
+						    flip_jmp (ops, label_of dst1);
+
+						    continue ();
+						};
+
+					    _ => continue ();
+					esac;
+
+				    _ => continue ();
+				esac;
+			   };
+
+		       patch (nd, next ! rest, l) =>   patch (next, rest, nd ! l);
+		       patch (nd,          [], l) =>   list::reverse (nd ! l);
+		   end;
+
+		   nodes =   patch (list::head blocks, list::tail blocks, []);
+
+		   if *changed   mcg::note_topology_changes mcg;   fi;
+
+										   if *dump_machcode_controlflow_graph_block_list
+											#
+											fun say s
+											    =
+											    fil::write (*dump_strm, s);
+
+											say "Block placement order:\n";
+
+											list::apply
+											    (\\ b =  say (cat ["  ", block_to_string b, "\n"]))
+											    nodes;
+										   fi;
+
+										   if *dump_machcode_controlflow_graph_after_block_placement
+											#
+											pr_node =  mcg::dump_node (*dump_strm, mcg);
+
+											fil::write (*dump_strm, "[ after block placement ]\n");
+											list::apply  pr_node  nodes;
+										   fi;
+
+		   (mcg, nodes);
+	      };			# fun block_placement
+	end;
+    };
+end;
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

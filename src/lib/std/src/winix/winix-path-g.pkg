@@ -1,0 +1,485 @@
+## winix-path-g.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+
+
+# A generic for the the winix__premicrothread::path package.
+#
+# NOTE: these operations are currently not very efficient, since they
+# explode the path into its disk_volume and arcs.  A better implementation
+# would work "in situ."
+#
+# XXX BUGGO FIXME Having the arcs in a list is so inconvenient
+#                 (due to needing to add/remove from the end)
+#                 that
+#                    src/app/makelib/paths/anchor-dictionary.pkg
+#                 winds up re-implementing them with reversed
+#                 path ordering.
+#
+#                 It would probably be better to store the arcs
+#                 in Chris Osaki's pure-functional double-ended
+#                 queues.
+
+stipulate
+    package string= string_guts;	# string_guts	is from   src/lib/std/src/string-guts.pkg
+herein
+generic package winix_path_g (
+
+    ospath_base:
+        api {
+	    exception PATH;
+
+	    Arc_Kind = NULL | PARENT | CURRENT | ARC  String;
+
+	    ilkify:  String -> Arc_Kind;
+
+	    parent_arc:   String;
+	    current_arc:  String;
+
+	    volume_is_valid:  ((Bool, substring::Substring)) -> Bool;
+
+	    split_vol_path:  String -> ((Bool, substring::Substring, substring::Substring));
+
+		# Split a string into the disk_volume part and arcs part and note whether it
+		# is absolute.
+		# Note: it is guaranteed that this is never called with "".
+
+	    join_vol_path: ((Bool, String, String)) -> String;		#  join a disk_volume and path; raise Path on invalid volumes 
+	    arc_sep_char:  Char;					#  the character used to separate arcs (e.g., '/' on UNIX) 
+	    same_vol:      (String, String) -> Bool;
+
+	}
+)
+: (weak)
+Winix_Path						# Winix_Path	is from   src/lib/std/src/winix/winix-path.api
+{
+
+    package p  =  ospath_base;
+    package ss =  substring;				# substring	is from   src/lib/std/src/substring.pkg
+
+    exception PATH = p::PATH;
+
+    arc_sep_string
+        =
+        string::from_char  p::arc_sep_char;
+
+    parent_arc  =  p::parent_arc;
+    current_arc =  p::current_arc;
+
+    # meld_arcs is like list::@,
+    # except that a trailing empty arc in the
+    # first argument is dropped:
+    #
+    fun meld_arcs ([],      al2) =>  al2;
+	meld_arcs ([""],    al2) =>  al2;
+	meld_arcs (a ! al1, al2) =>  a ! meld_arcs (al1, al2);
+    end;
+
+    fun volume_is_valid { is_absolute, disk_volume }
+        =
+        p::volume_is_valid (is_absolute, ss::from_string disk_volume);
+
+    fun from_string ""
+            =>
+            { is_absolute => FALSE,
+              disk_volume => "",
+              arcs        => []
+            };
+
+        from_string p
+            =>
+	    {   fields
+                    =
+                    ss::fields
+                        (\\ c =  (c == p::arc_sep_char));
+
+	        my (is_absolute, disk_volume, rest)
+                    =
+                    p::split_vol_path p;
+
+	        { is_absolute,
+	          disk_volume =>  ss::to_string  disk_volume,
+	          arcs        =>  list::map  ss::to_string  (fields rest)
+	        };
+	    };
+    end;
+
+    fun to_string { is_absolute=>FALSE, disk_volume, arcs=>"" ! _}
+            =>
+            raise exception PATH;
+
+	to_string { is_absolute, disk_volume, arcs }
+	     =>
+	     {   fun f [] => [""];
+		     f [a] => [a];
+		     f (a ! al) => a ! arc_sep_string ! (f al);
+                 end;
+
+		 string::cat (p::join_vol_path (is_absolute, disk_volume, "") ! f arcs);
+	     };
+    end;
+
+    fun get_volume p
+        =
+        .disk_volume (from_string p);
+
+    fun get_parent p
+        =
+	{   fun get_parent' []
+                    =>
+                    [parent_arc];
+
+		get_parent' [a]
+		     =>
+		     case (p::ilkify a)
+		       
+                          p::CURRENT =>  [parent_arc];
+			  p::PARENT  =>  [parent_arc, parent_arc];
+			  p::NULL    =>  [parent_arc];
+			  _          =>  [];
+                     esac;
+
+		get_parent' (a ! al)
+                    =>
+                    a ! get_parent' al;
+            end;
+
+	    case (from_string p)
+	      
+                 { is_absolute=>TRUE, disk_volume, arcs => [""] }
+                     =>
+                     p;
+
+	         { is_absolute=>TRUE, disk_volume, arcs }
+                     =>
+		     to_string { is_absolute => TRUE, disk_volume, arcs => get_parent' arcs };
+
+	         { is_absolute=>FALSE, disk_volume, arcs }
+                     =>
+                     case (get_parent' arcs)
+                       
+		          []  =>  to_string { is_absolute => FALSE, disk_volume, arcs => [current_arc] };
+		          al' =>  to_string { is_absolute => FALSE, disk_volume, arcs => al' };
+                     esac;
+            esac;
+	};
+
+    fun split_path_into_dir_and_file p
+        =
+	{   my { is_absolute, disk_volume, arcs }
+               =
+               from_string p;
+
+	    fun split []  =>  ([], "");
+		split [f] =>  ([], f);
+
+		split (a ! al)
+		     =>
+		     {   my (d, f) = split al;
+
+			 (a ! d,  f);
+		     };
+            end;
+
+	    fun split' p
+		=
+		{   my (d, f) = split p;
+
+		    { dir  => to_string { is_absolute, disk_volume, arcs=>d },
+		      file => f
+		    };
+		};
+
+	    split' arcs;
+	};
+
+    fun make_path_from_dir_and_file { dir=>"", file }
+            =>
+            file;
+
+        make_path_from_dir_and_file { dir, file }
+            =>
+	    {   my { is_absolute, disk_volume, arcs } = from_string dir;
+
+	        to_string { is_absolute, disk_volume, arcs => meld_arcs (arcs, [file]) };
+	    };
+    end;
+
+    fun dir  p =  .dir  (split_path_into_dir_and_file  p);
+    fun file p =  .file (split_path_into_dir_and_file  p);
+    
+    fun split_base_ext p
+        =
+        {   my { dir, file }
+                =
+                split_path_into_dir_and_file  p;
+
+	    my (file', ext')
+                =
+                ss::split_off_suffix
+                    {. #c != '.'; }
+                    (ss::from_string file);
+
+	    file_len
+                =
+                ss::size  file';
+
+	    my (file, ext)
+                =
+		if   (file_len <= 1  or  ss::is_empty ext')
+                    
+                     (file, NULL);
+		else
+                     ( ss::to_string (ss::drop_last 1 file'),
+                       THE (ss::to_string ext')
+                     );
+                fi;
+
+	    {   base => make_path_from_dir_and_file { dir, file },
+		ext
+	    };
+	};
+
+    fun join_base_ext { base,  ext => NULL    } =>  base;
+	join_base_ext { base,  ext => THE ""  } =>  base;
+
+	join_base_ext { base,  ext => THE ext }
+	     =>
+	     {   my { dir, file }
+                     =
+                     split_path_into_dir_and_file  base;
+
+		 make_path_from_dir_and_file {
+                   dir,
+                   file => string::cat [file, ".", ext]
+                 };
+	     };
+    end;
+
+    fun base p =  .base (split_base_ext p);
+    fun ext  p =  .ext  (split_base_ext p);
+
+    fun make_canonical ""
+            =>
+            current_arc;
+
+	make_canonical p
+	    =>
+	    {   fun scan_arcs ([],   []) =>  [p::CURRENT];
+		    scan_arcs (l,    []) =>  list::reverse l;
+		    scan_arcs ([], [""]) =>  [p::NULL];
+
+		    scan_arcs (l,  a ! al)
+			=>
+			case (p::ilkify a)
+			  
+			     p::NULL    =>  scan_arcs (l, al);
+			     p::CURRENT =>  scan_arcs (l, al);
+
+			     p::PARENT
+				 =>
+				 case l
+				   
+				      (p::ARC _ ! r) =>   scan_arcs (r, al);
+				      _              =>   scan_arcs (p::PARENT ! l, al);
+				  esac;
+
+			     a'  =>
+				 scan_arcs (a' ! l,  al);
+			esac;
+		end;
+
+		fun scan_path rel_path
+		    =
+		    scan_arcs([], rel_path);
+
+		fun mk_arc (p::ARC a)  =>  a;
+		    mk_arc (p::PARENT) =>  parent_arc;
+		    mk_arc _           =>  raise exception FAIL "make_canonical: impossible";
+		end;
+
+		fun filter_arcs (TRUE, p::PARENT ! r) =>  filter_arcs (TRUE, r);
+		    filter_arcs (TRUE, [])            =>  [""];
+		    filter_arcs (TRUE, [p::NULL])     =>  [""];
+		    filter_arcs (TRUE, [p::CURRENT])  =>  [""];
+		    filter_arcs (FALSE, [p::CURRENT]) =>  [current_arc];
+		    filter_arcs (_, al)               =>  list::map mk_arc al;
+		end;
+
+		my { is_absolute, disk_volume, arcs }
+		    =
+		    from_string p;
+
+		to_string { is_absolute,
+			    disk_volume,
+			    arcs =>  filter_arcs  (is_absolute,  scan_path arcs)
+			  };
+	    };
+    end;
+
+    fun is_canonical p   =   (p == make_canonical p);
+    fun is_absolute  p   =   .is_absolute (from_string p);
+    fun is_relative  p   =   bool::not(.is_absolute (from_string p));
+
+    fun make_absolute { path, relative_to }
+        =
+	case (from_string path, from_string relative_to)
+	  
+             (_, { is_absolute=>FALSE, ... } ) =>  raise exception PATH;
+	     ( { is_absolute=>TRUE, ... }, _)  =>  path;
+
+	     ( { disk_volume=>v1, arcs=>al1, ... },
+               { disk_volume=>v2, arcs=>al2, ... }
+             )   =>
+                 {   fun mk_canon  disk_volume
+                         =
+                         make_canonical (
+                             to_string {
+			       is_absolute =>  TRUE,
+                               disk_volume,
+                               arcs        =>  list::(@) (al2, al1)
+		             }
+                         );
+		
+		     if     (p::same_vol (v1, v2)   ) mk_canon v1;
+		     elif   (v1 == ""               ) mk_canon v2;
+		     elif   (v2 == ""               ) mk_canon v1;
+		     else                             raise exception PATH;
+                     fi;
+		};
+          esac;
+
+
+    fun make_relative { path, relative_to }
+        =
+	if   (is_absolute  relative_to)
+	    
+             if   (is_relative path)
+	         
+                  path;
+	     else
+		  my { disk_volume=>v1, arcs=>al1, ... } =  from_string  path;
+		  my { disk_volume=>v2, arcs=>al2, ... } =  from_string  (make_canonical relative_to);
+
+		  fun strip (l, []) => mk_arcs l;
+		      strip ([], l) => dot_dot([], l);
+
+		      strip (l1 as (x1 ! r1), l2 as (x2 ! r2))
+                          =>
+                          if   (x1 == x2)
+			       strip (r1, r2);
+			  else dot_dot (l1, l2); fi;
+		  end 
+
+		  also
+		  fun dot_dot (al,     []) =>  al;
+		      dot_dot (al,  _ ! r) =>  dot_dot (parent_arc ! al, r);
+		  end 
+
+		  also
+		  fun mk_arcs [] => [current_arc];
+		      mk_arcs al => al;
+                  end;
+
+		  if   (not (p::same_vol (v1, v2)))
+	              
+                       raise exception PATH;
+		  else
+                       case (al1, al2)
+		         
+		            ([""], [""])
+                                =>
+                                current_arc;
+
+			    ([""], _)
+				=>
+				to_string { is_absolute=>FALSE, disk_volume=>"", arcs=>dot_dot([], al2) };
+
+			    _   =>
+			        to_string { is_absolute=>FALSE, disk_volume=>"", arcs=>strip (al1, al2) };
+                       esac;
+                  fi;
+	     fi;
+	else
+            raise exception PATH;
+        fi;
+
+    fun is_root path
+        =
+        case (from_string path)
+          
+	     { is_absolute => TRUE, arcs => [""], ... }
+		=>
+		TRUE;
+
+	     _   =>
+                 FALSE;
+        esac;
+
+    fun cat (p1, p2)
+        =
+        case (from_string p1, from_string p2)
+          
+	     (_, { is_absolute=>TRUE, ... } )
+                 =>
+                 raise exception PATH;
+
+	     ( { is_absolute, disk_volume=>v1, arcs=>al1 }, { disk_volume=>v2, arcs=>al2, ... } )
+                 =>
+		 if (p::same_vol (v2, "") or p::same_vol (v1, v2) )
+		     to_string { is_absolute, disk_volume=>v1, arcs=>meld_arcs (al1, al2) };
+		 else
+                     raise exception PATH;
+                 fi;
+        esac;
+
+
+    stipulate
+	fun from_unix_path' up
+            =
+	    {   fun tr "."  =>  p::current_arc;
+		    tr ".." =>  p::parent_arc;
+		    tr arc  =>  arc;
+                end;
+
+		case (string::fields (\\ c =  c == '/') up)
+		  
+		    "" ! arcs =>  { is_absolute => TRUE,  disk_volume => "", arcs => map tr arcs };
+			 arcs =>  { is_absolute => FALSE, disk_volume => "", arcs => map tr arcs };
+		esac;
+	    };
+
+	fun to_unix_path' { is_absolute, disk_volume => "", arcs }
+		=>
+		{   fun tr arc
+			=
+			if   (arc == p::current_arc ) ".";
+			elif (arc == p::parent_arc  ) "..";
+			elif (char::contains arc '/') raise exception PATH;
+			else                          arc;
+                        fi;
+
+		    string::join
+                        "/"
+                        (is_absolute   ??   "" ! arcs		# Add a leading / to the result.
+                                       ::        arcs);
+		};
+
+	    to_unix_path' _
+                =>
+                raise exception PATH;
+        end;
+    herein
+        from_unix_path =  to_string      o  from_unix_path';
+	to_unix_path   =  to_unix_path'  o  from_string;
+    end;
+  };
+end;
+
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

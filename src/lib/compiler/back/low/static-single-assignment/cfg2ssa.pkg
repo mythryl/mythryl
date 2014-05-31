@@ -1,0 +1,693 @@
+# ----------------------------------------------------------------------
+# This module constructs an SSA graph from an control flow graph.
+# The control flow graph is kept abstract so that we can specialize
+# this module to various representations.
+#
+# Some improvements:
+# 1.  This implementation uses a variant Sreedhar et al.'s DJ-graph to compute
+#     the iterated dominance frontier.  This variant computes liveness
+#     by demand at the same time DF^+ is computed.  So there is no need 
+#     to computing liveness using iterative dataflow analysis.  The advantage
+#     is that |DF^+(S) \intersect liveness| can be substantially smaller
+#     than |DF^+(S)| + |liveness|, so in some situations much less work 
+#     is performed.
+# 2.  We identify those registers that are only defined once in the 
+#     compilation unit.   These registers will not be given new names.
+#     This way we eliminate a lot of unncessary renaming!  
+#     This is particular important since each renaming has to propagate 
+#     along all the information associated with registerkinds (and/or gc types).
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+# ----------------------------------------------------------------------
+
+###           "It is easier to write an incorrect program
+###            than to understand a correct one."
+###
+###                                   -- Alan Perlis
+
+
+generic package CFG2SSA
+   (package ssa:  SSA
+    package machcode_universals:  Machcode_Universals
+      sharing SSA::I = machcode_universals::I 
+   ) : CFG2SSA =  
+pkg
+   package ssa  = SSA
+   package machcode_controlflow_graph  = SSA::machcode_controlflow_graph
+   package dom  = SSA::Dom
+   package sp   = SSA::SP  
+   package rtl  = SSA::RTL
+   package t    = RTL::T
+   package p    = sp::RTLProps
+   package c    = SSA::C
+   package sl   = sorted_list
+   package dj   = SSA::DJ
+   package g    = graph
+   package a    = rw_vector
+   package w8a  = rw_vector_of_one_byte_unts
+   package CDJ = CompressedDJGraph (Dom)
+
+   fun error msg = lowhalf_error_message::error("CFG2SSA", msg)
+
+   /*----------------------------------------------------------------------
+    * Common flags
+    *----------------------------------------------------------------------*/
+   copyProp          = LowhalfControl::getFlag "ssa-copy-prop"
+   keepName          = LowhalfControl::getFlag "ssa-keep-name"
+   removeUselessPhis = LowhalfControl::getFlag "ssa-remove-useless-phis"
+   consistencyCheck  = LowhalfControl::getFlag "ssa-consistency-check"
+   debugSSA          = LowhalfControl::getFlag "ssa-debug"
+   ssaStats          = LowhalfControl::getFlag "ssa-stats"
+   copyProp   := TRUE #  By default, perform copy propagation 
+   removeUselessPhis := TRUE #  By default, remove useless phi-nodes 
+   debug = FALSE
+
+   enum ssa_variant = 
+              MINIMAL | SEMI_PRUNED | PRUNED 
+            | C_MINIMAL | C_PRUNED 
+   ssa_variant = C_PRUNED
+   add_entry = TRUE
+   sanity_check = TRUE
+
+   /*
+    * Counters 
+    */
+   phi_nodes = LowhalfControl::getCounter "phi-nodes"
+   ssa_nodes = LowhalfControl::getCounter "ssa-nodes"
+
+   exception NO_NAME
+   exception NoLiveIn
+
+   /*------------------------------------------------------------------
+    * Hacks to deal with zero registers in the architecture
+    *------------------------------------------------------------------*/
+   zeroRegs = SSA::zeroRegs
+   fun isZero r = w8a::sub (zeroRegs, r) != 0w0 except _ => FALSE
+
+   /*------------------------------------------------------------------
+    * Deal with pinned resources
+    *------------------------------------------------------------------*/
+   pinnedUseTable = SSA::pinnedUseTable
+   pinnedDefTable = SSA::pinnedDefTable
+   fun isPinnedUse r = w8a::sub (pinnedUseTable, r) != 0w0 except _ => FALSE
+   fun isPinnedDef r = w8a::sub (pinnedDefTable, r) != 0w0 except _ => FALSE
+   fun hasPinnedUse [] = FALSE
+     | hasPinnedUse (r . rs) = isPinnedUse r or hasPinnedUse rs 
+   fun hasPinnedDef [] = FALSE
+     | hasPinnedDef (r . rs) = isPinnedDef r or hasPinnedDef rs 
+
+   /*------------------------------------------------------------------
+    * Check if a variable is live in Entry
+    *------------------------------------------------------------------*/
+   fun addEntry (g::GRAPH mcg) =
+   if add_entry then 
+   let N        = mcg.capacity ()
+       liveIn   = a::rw_vector (N, -1)
+       in_alpha = a::rw_vector (N, -1)
+       my [ENTRY]  = mcg.entries ()
+       counter  = REF 0
+       fun addEntry f { defs, localLiveIn } = 
+       let v = *counter
+           counter := *counter + 1
+           fun markLiveIn (b) =
+           let fun markPred [] = ()
+                 | markPred((j, _, _) . es) =
+                    (if a::sub (liveIn, j) != v and
+                        a::sub (in_alpha, j) != v then
+                       markLiveIn j
+                     
+                     markPred es
+                    )
+           in  a::update (liveIn, b, v);
+               markPred (mcg.in_edges b)
+           end
+           fun markDef b = a::update (in_alpha, b, v)
+           fun addEntries([], defs) = defs
+             | addEntries((_, b, _) . es, defs) = 
+               if a::sub (liveIn, b) == v then addEntries (es, b . defs)  
+               else addEntries (es, defs)
+       in  apply markDef defs;
+           apply markLiveIn localLiveIn;
+           f (addEntries (mcg.out_edges ENTRY, defs))
+       end
+   in  addEntry
+   end 
+   else (\\ f => \\ { defs, localLiveIn } => f defs)
+
+
+   /*----------------------------------------------------------------------
+    * Main function
+    *----------------------------------------------------------------------*/
+   fun buildSSA { mcg, dom } = 
+   let /*------------------------------------------------------------------
+        * Flags 
+        *------------------------------------------------------------------*/
+       copyProp    = *copyProp
+       keepName    = *keepName
+
+       #  extracts the gc map 
+       gcmap = SSA::GCMap::GCMAP.get (*(machcode_controlflow_graph::annotations mcg))
+
+       #  Create a name table if we want to keep around the original name 
+       nameTable     = if keepName then 
+                            THE (int_hashtable::make_hashtable (37, NO_NAME)) else NULL
+       SSA         = SSA::newSSA { mcg=cfg, dom=dom, 
+                                    nameTable=nameTable, gcmap=gcmap }
+       registerKindTable = SSA::registerKindTable SSA
+       addRegisterKind = int_hashtable::set registerKindTable
+       regmap      = c::lookup (machcode_controlflow_graph::regmap mcg)
+       maxPos      = SSA::maxPos SSA
+
+       /*------------------------------------------------------------------
+        * Graph structures and tables
+        *------------------------------------------------------------------*/
+       my Dom as g::GRAPH dom = dom mcg
+       N                  = dom.capacity () #  number of blocks 
+       V                  = c::maxRegister()      #  max variable id 
+       my CFG as g::GRAPH mcg = Dom::mcg Dom
+       DU                 = a::rw_vector (N, [])
+       localLiveIn        = a::rw_vector (V, [])
+       my g::GRAPH ssa        = SSA
+       startId            = ssa.order ()
+       ssaOpsCount        = REF startId
+       showOp             = SSA::showOp SSA
+       showVal            = SSA::showVal SSA
+       my [ENTRY]            = mcg.entries ()
+       my [EXIT]             = mcg.exits ()
+
+       /*------------------------------------------------------------------
+        * Special instructions
+        *------------------------------------------------------------------*/
+       phiOp    = sp::phi
+       sinkOp   = sp::sink
+       sourceOp = sp::source
+
+       /*------------------------------------------------------------------
+        * Propagate gc info
+        *------------------------------------------------------------------*/
+       propagateGCInfo =
+           case gcmap of
+              NULL => (\\ _ => ())
+           |  THE map => 
+                let lookup = int_hashtable::lookup map
+                    add    = int_hashtable::set map
+                in  \\ { from, to } => 
+                       (lookup to; ()) except _ => 
+                        (add (to, lookup from) except _ => ())
+                end
+            
+       /*------------------------------------------------------------------
+        * Check for initial and terminal blocks
+        *------------------------------------------------------------------*/
+       fun isInitial b = b = ENTRY or b != EXIT and 
+                         list::exists (\\ (i, _, _) => i=ENTRY) (mcg.in_edges b)
+       fun isTerminal b = b != ENTRY and
+                          list::exists (\\ (_, i, _) => i=EXIT) (mcg.out_edges b)
+       fun hasSource b = list::exists (\\ (i, _, _) => i=ENTRY) (mcg.in_edges b)
+
+       /*------------------------------------------------------------------
+        * Initialize registerkinds of physical registers 
+        *------------------------------------------------------------------*/
+       fun initRegisterKinds() = 
+           apply (\\ k => 
+                let my { low, high } = c::registerRange k 
+                    fun loop r =
+                        if r <= high then (addRegisterKind (r, k); loop (r+1))
+                        else ()
+                in  loop low end
+                except _ => ()
+               ) c::registerkinds
+
+       /*------------------------------------------------------------------
+        * How to get the live out of an exit block.
+        * Remove all zero registers from the liveOut!
+        *------------------------------------------------------------------*/
+       fun getLiveOut (b, block) = 
+           sl::uniq(
+              list::fold_backward 
+                (\\ (r, S) =>
+                  let r = regmap r
+                  in  if isZero r then S else r . S end)  
+                [] (c::Registerset::to_register_list (machcode_controlflow_graph::liveOut block))
+           )
+
+       /*------------------------------------------------------------------
+        * Initialize all the special tables 
+        *------------------------------------------------------------------*/
+       fun initTables() =
+       let getOperands = 
+               p::defUse (sp::ot::makeNewValueNumbers (SSA::operandTable SSA))
+           fun getRegs([], rs) = rs
+             | getRegs (v . vs, rs) = getRegs (vs, if v >= 0 then v . rs else rs)
+           updateRegisterKind = p::updateRegisterKind { update=addRegisterKind }
+
+           #  A source node for each entry, and a sink node for each exit 
+           ssaOpsCount := *ssaOpsCount + 
+                                   length (mcg.entries ()) + 
+                                   length (mcg.exits ()) +
+                                   1   #  ENTRY node 
+
+           /* Compute def/use 
+            * Also, create the instructions.
+            */ 
+           fun defUse (b, b') = 
+           let fun scan ([], du, def, uses) = (du, def, uses)
+                 | scan (instruction . instructions, du, def, uses) = 
+                    (updateRegisterKind instruction;
+                     let my (d, u) = getOperands instruction
+                         d'    = sl::uniq d
+                         u'    = sl::uniq (getRegs (u,[]))
+                         uses   = sl::merge (sl::difference (uses, d'), u')
+                         def   = sl::difference (sl::merge (def, d'), u')
+                     in  scan (instructions, (d, u) . du, def, uses) end
+                    )
+               liveOut = getLiveOut (b, b')      
+               my (du, def, uses) = scan(*(machcode_controlflow_graph::instructions b'),[],[], liveOut)
+           in  a::update (DU, b, du);
+               ssaOpsCount := *ssaOpsCount + length du; #  Count the instrs 
+               (def, uses)
+           end
+
+           fun enterLocalLiveInInfo (b, b') = 
+           let fun mark [] = ()
+                 | mark (r . rs) = 
+                   (a::update (localLiveIn, r, b . a::sub (localLiveIn, r)); mark rs)
+               my (_, uses) = defUse (b, b')
+           in  mark uses
+           end
+ 
+       in  mcg.forall_nodes enterLocalLiveInInfo
+       end 
+      
+       /*------------------------------------------------------------------
+        * Definitions inside a block.
+        *------------------------------------------------------------------*/
+       fun defsOf (b) =
+       let defs = 
+               fold_backward (\\ ((d, _), l) => list::revAppend (d, l)) [] (a::sub (DU, b))
+       in  sl::uniq defs 
+       end
+
+       /*------------------------------------------------------------------
+        * How to rename a variable
+        *------------------------------------------------------------------*/
+       renameVariable = SSA::newRenamedVariable SSA
+
+       /*------------------------------------------------------------------
+        * Compute the locations of all phi-functions based on the
+        * definition site information.  We also prune out non-live phi
+        * functions at the same time.  Note that even after pruning the
+        * set of phi-functions may still be an overestimate, because of
+        * copy propagation.
+        *------------------------------------------------------------------*/
+       fun placePhiFunctions() =
+       let defSites = a::rw_vector (V, []) #  variable -> blocks 
+           phis     = a::rw_vector (N, []) #  Block -> phi functions 
+           prList = list::fold_backward (\\ (r, "") => int::to_string r
+                                     | (r, s) => int::to_string r$", "$s) ""
+           mcg.forall_nodes
+                     (\\ (b, _) =>
+                        apply (\\ v => a::update (defSites, v, b . a::sub (defSites, v)))
+                           (defsOf b))
+           LiveIDFs = 
+               case ssa_variant of
+                 MINIMAL     => let IDFs = dj::IDFs (dj::DJ Dom)
+                                    addEntry = addEntry CFG
+                                in  addEntry IDFs end
+               | SEMI_PRUNED => let IDFs = dj::IDFs (dj::DJ Dom) 
+                                in  \\ { defs, localLiveIn=[] } => []
+                                     | { defs, localLiveIn } => IDFs defs 
+                                end
+               | PRUNED => dj::LiveIDFs (dj::DJ Dom) 
+               | C_MINIMAL   => let IDFs = CDJ::IDFs (CDJ::DJ Dom)
+                                    addEntry = addEntry CFG
+                                in  addEntry IDFs end
+               | C_PRUNED => if sanity_check then
+                             let dj1 = CDJ::LiveIDFs (CDJ::DJ Dom) 
+                                 dj2 = dj::LiveIDFs (dj::DJ Dom) 
+                             in  \\ x =>
+                                 let idf1 = dj1 x
+                                     idf2 = dj2 x
+                                     fun pr s = fold_backward (\\ (x, l) =>
+                                           int::to_string x$" "$l) "" s
+                                 in  if sl::uniq idf1 == sl::uniq idf2 then idf1
+                                     else (print("IDF1="$pr idf1$"\n");
+                                           print("IDF2="$pr idf2$"\n");
+                                           idf1)
+                                 end
+                             end
+                             else CDJ::LiveIDFs (CDJ::DJ Dom) 
+           fun insertPhi (v, [], n) = n
+             | insertPhi (v, defSites, n) = 
+               let fun insert ([], n) = n
+                     | insert (b . bs, n) =
+                       (a::update (phis, b, (v, v,[]) . a::sub (phis, b));
+                        insert (bs, n+1)
+                       )
+                   blocks = LiveIDFs { defs=defSites, 
+                                         localLiveIn=a::sub (localLiveIn, v) }
+                   /* print("r"$int::to_string v$" defs="$prList defSites
+                                + " IDF=" + prList blocks + "\n")*/
+               in  insert (blocks, n)
+               end
+       in  ssaOpsCount := 
+              a::keyed_fold_backward insertPhi *ssaOpsCount (defSites, 0, NULL);
+           phis
+       end
+
+       /*------------------------------------------------------------------
+        * Compute the SSA form by walking the dominator tree and renaming 
+        * all definitions in the program.  We also do a few things in the
+        * process:
+        *
+        *  (1) Keep track of live in variables in each entry point.
+        *      These are found by looking at the renaming stack.  If
+        *      the renaming stack is empty at the time of lookup, the
+        *      value being looked up is a live in value.
+        *  
+        *------------------------------------------------------------------*/
+       fun walkTree() = 
+       let phis    = placePhiFunctions() #  Compute the phi functions 
+           stacks  = a::rw_vector (V, [])      #  renaming stack 
+           preds   = a::rw_vector (N, [])      /* predecessors of block N;
+                                                must be in the same order as the
+                                                arguments of phi-functions */
+           liveInSets = int_hashtable::make_hashtable (3, NoLiveIn)
+           lookupLiveInSet = int_hashtable::lookup liveInSets
+
+           dominatingEntries = Dom::entryPos Dom
+
+           #  Create the liveIn sets 
+           apply (\\ Z => 
+                         int_hashtable::set liveInSets 
+                            (Z, int_hashtable::make_hashtable (32, NoLiveIn))
+                       ) (dom.next ENTRY)
+
+           defCounts = w8a::rw_vector (V, 0w1) #  Count # of definitions 
+
+           #  Various tables 
+           SSA::reserve SSA *ssaOpsCount; #  reserve space 
+           newOp = SSA::newOp SSA
+
+           #  Get a new name 
+           fun newName v = 
+               if w8a::sub (defCounts, v) == 0w0 
+               then (w8a::update (defCounts, v, 0w1); v)
+               else renameVariable v 
+
+           #  Reset the renaming stack 
+           fun reset [] = ()
+             | reset (v . vs) =
+               let my _ . tl = a::sub (stacks, v)
+               in  a::update (stacks, v, tl);
+                   reset vs
+               end 
+
+           my THE infPos = int::max_int
+           my THE neginfPos = int::min_int
+
+           /* Add a new live in register r with new name v in block Y.
+            * We either have to add a new entry in the liveInSet or insert
+            * a new phi-node. 
+            */
+           fun addLiveIn (r, Y) =
+               let L = lookupLiveInSet Y
+               in  int_hashtable::lookup L r except _ =>
+                   let v = newName r
+                       int_hashtable::set L (r, v)
+                   in  if isInitial Y then ()
+                       else #  Y is not an ENTRY; add phi node 
+                       let fun addPreds([], vs') = reverse vs'
+                             | addPreds (Z . Zs, vs') = 
+                               let W  = a::sub (dominatingEntries, Z)
+                                   v' = addLiveIn (r, W)
+                               in  addPreds (Zs, v' . vs')
+                               end
+                           preds = a::sub (preds, Y)
+                           vs'  = addPreds (preds, []) 
+                       in  /* print("[" + int::to_string Y + "] live in phi "  + 
+                                  showVal r + "\n"); */
+                           a::update (phis, Y, (r, v, vs') . a::sub (phis, Y));
+                           ssaOpsCount := *ssaOpsCount + 1
+                       end;
+                       v
+                   end 
+               end
+
+           #  Add live in at entry 
+           #  addLiveIn = \\ (r, Y) => addLiveIn (r, ENTRY) 
+
+           /* Rename block X.
+            * Y is the block that is immediately dominated by ENTRY and 
+            * dominates X.
+            */ 
+           fun walk (X, Y, ssa_id) =
+           let oldDefs = REF []
+
+               #  Look up the current name for v 
+               fun lookup v =
+                   case a::sub (stacks, v) of
+                     [] => addLiveIn (v, Y) #  v is live in 
+                   | v' . _ => v'
+
+               #  Rename uses by looking up from the renaming stack 
+               and renameUse v = if v < 0 then v else lookup v 
+               and renameUses [] = []
+                 | renameUses (v . vs) = renameUse v . renameUses vs
+
+               /* Rename a definition of v.
+                * We'll try to keep the original name whenever possible.
+                * For example, if the original name has only one definition;
+                * then we don't have to rename it at all.
+                *
+                * For zero registers, make sure we don't create a new definition
+                */
+               and renameDef v =
+               let v' = newName v
+               in  if isZero v then v' 
+                   else
+                      let vs = a::sub (stacks, v)
+                      in  a::update (stacks, v, v' . vs);
+                          oldDefs := v . *oldDefs;
+                          v'
+                      end
+               end
+
+               and renameDefs [] = []
+                 | renameDefs (v . vs) = renameDef v . renameDefs vs
+ 
+               fun copyDef (dst, src) =
+                   (propagateGCInfo { from=dst, to=src }; 
+                    a::update (stacks, dst, src . a::sub (stacks, dst));
+                    oldDefs := dst . *oldDefs
+                   )
+
+                   #  parallel copies 
+               fun copy { dst, src } = 
+                  (/* print("Copying ");
+                   apply (\\ r => print (int::to_string r + " ")) dst;
+                   print "<- ";
+                   apply (\\ r => print (int::to_string r + " ")) src;
+                   print "\n"; */
+                   paired_lists::apply copyDef (dst, map lookup src)
+                  )
+
+                   /* rename the definition of a phi function */ 
+               fun renamePhiDef X =
+               let fun rn [] = []
+                     | rn((v', v, uses) . rest) = (v', renameDef v, uses) . rn rest
+               in  a::update (phis, X, rn (a::sub (phis, X))) end
+
+                   #  simplify parallel copies 
+               fun simplifyCopies (dst, src) = 
+               let fun loop (d . ds, s . ss, dst, src) = 
+                       if d == s then loop (ds, ss, dst, src)
+                       else loop (ds, ss, d . dst, s . src)
+                     | loop(_, _, dst, src) = (dst, src)
+               in  loop (dst, src, [], []) end
+
+                   /*
+                    * Insert a sink node into the ssa graph
+                    */
+               fun addSink (id, block) =
+               let liveOut = getLiveOut (X, block)
+                   uses = renameUses liveOut
+               in  newOp { id=id, instruction=sinkOp, pos=infPos,
+                         block=X, defs=[], uses=uses,
+                         rtl=t::SINK { block=X, liveOut=liveOut }
+                        };
+                   if debug then print("new " + showOp id + "\n") 
+                   ssa.set_exits (id . ssa.exits ());
+                   id + 1
+               end
+
+                   #  rename the instructions in block X 
+               fun renameBlock (X, ssa_id) =
+               let #  scan blocks, rename instructions and add new ssa ops 
+                   fun scan (id, i . instructions, pos, (defs, uses) . DU) = 
+                       let fun addOp (instruction, defs, uses, p) = 
+                           let rtl = p::rtl instruction
+                               rtl = if hasPinnedUse uses or
+                                            hasPinnedDef defs then
+                                            RTL::pin rtl else rtl
+                               uses = renameUses uses
+                               defs = renameDefs defs
+                           in  newOp { id=id, instruction=instr, defs=defs, uses=uses,
+                                     rtl=rtl, block=X, pos=p };
+                               if debug then print("new " + showOp id + "\n") 
+                               
+                               scan (id+1, instructions, pos+128, DU)
+                           end 
+                       in  case machcode_universals::instrKind i of
+                             machcode_universals::IK_COPY =>
+                                #  Copy propagation 
+                                 (copy { dst=defs, src=uses };
+                                  scan (id, instructions, pos, DU)
+                                 )
+                           | machcode_universals::IK_JUMP => addOp (i, defs, uses, infPos)
+                           | _ => addOp (i, defs, uses, pos)
+                       end
+                     | scan (id, _, pos, _) = (id, pos)
+
+                   block  = mcg.node_info X
+                   instructions  = *(machcode_controlflow_graph::instructions block)
+                   DU     = a::sub (DU, X)
+
+                   my (ssa_id, pos) = scan (ssa_id, reverse instructions, 0, DU)
+                   ssa_id = if isTerminal X then addSink (ssa_id, block) 
+                                else ssa_id
+               in  maxPos := int::max(*maxPos, pos);
+                   ssa_id
+               end
+
+                   /* rename the uses of a phi function */ 
+               fun renamePhiUse X =
+               let fun rename_phi_of_Y (e as (X, Y, _)) =
+                   let Y_phis = a::sub (phis, Y)
+                       fun insertUses [] = []
+                         | insertUses((v', v, uses) . rest) = 
+                            (/*print("[" + int::to_string X + "->" + int::to_string Y  + 
+                                   "] Renaming phi " + int::to_string v' + "\n");*/
+                             (v', v, renameUse v' . uses) . insertUses rest)
+                   in  a::update (preds, Y, X . a::sub (preds, Y)); 
+                       a::update (phis, Y, insertUses Y_phis)
+                   end
+               in  apply rename_phi_of_Y (mcg.out_edges X) end
+
+               renamePhiDef X
+               ssa_id = renameBlock (X, ssa_id)
+               renamePhiUse X
+
+               fun walkSucc([], _, ssa_id) = ssa_id
+                 | walkSucc (X . Xs, Y, ssa_id) = 
+                    walkSucc (Xs, Y, walk (X, Y, ssa_id))
+
+               ssa_id = walkSucc (dom.next X, Y, ssa_id)
+           in  reset (*oldDefs);
+               ssa_id
+           end
+
+           fun walkAll([], ssa_id) = ssa_id
+             | walkAll (X . Xs, ssa_id) = walkAll (Xs, walk (X, X, ssa_id))  
+
+           /*
+            * Insert a source definitions for all zero registers
+            */
+           fun addZeroRegs (ENTRY) = 
+           let L   = int_hashtable::make_hashtable (16, NoLiveIn)
+               add = int_hashtable::set L
+               fun defineZero (k) = 
+                   case c::zeroReg k of
+                     THE r => let v = newName r
+                               in  add (r, v);
+                                   a::update (stacks, r,[v])
+                               end
+                   | NULL => ()
+           in  int_hashtable::set liveInSets (ENTRY, L);
+               apply defineZero c::registerkinds
+           end
+
+           addZeroRegs ENTRY
+
+              #  Insert all normal nodes first 
+           ssa_id = REF (walkAll (dom.next ENTRY, startId))
+
+              /* 
+               * Insert a source node into the ssa graph.
+               */
+           fun addSource (X, liveInSet) = 
+           if isInitial X then 
+           let LiveIn = int_hashtable::keyvals_list liveInSet
+               liveInSet = 
+                  list_mergesort::sort (\\ ((i, _), (j, _)) => i < j) LiveIn
+
+               fun mark ([], regs, defs) = (regs, defs)
+                 | mark((r, d) . l, regs, defs) =
+                   mark (l, r . regs, d . defs)
+
+               my (regs, defs) = mark (liveInSet, [], [])
+               id = *ssa_id 
+
+           in  /* print("LiveIn[" + int::to_string X + "] = ");
+               apply (\\ (r, v) => 
+                    print (int::to_string r + " " + showVal r + " " + int::to_string v + ", ")) 
+                    liveInSet;
+               print "\n"; */
+               newOp { id=id, instruction=sourceOp, pos=neginfPos,
+                     block=X, defs=defs, uses=[], 
+                     rtl=t::SOURCE { block=X, liveIn=regs }
+                    };
+               if debug then print("new " + showOp id + "\n") 
+               ssa.set_entries (id . ssa.entries ());
+               ssa_id := *ssa_id + 1
+           end
+           else ()
+
+           int_hashtable::keyed_apply addSource liveInSets
+
+               #  Now reserve space for extra phi nodes for live-in values 
+           SSA::reserve SSA (*ssaOpsCount); #  reserve space 
+           newOp = SSA::newOp SSA 
+               
+               #  Place phi functions 
+           fun placePhi (B as (b, block)) = 
+           let preds  = a::sub (preds, b)  
+               phis   = a::sub (phis, b)
+               phiRTL = t::PHI { preds=preds, block=b }
+               fun newPhi (id, []) = id
+                 | newPhi (id, (t', t, s) . phis) = 
+                   (newOp { id=id, defs=[t], uses=s, rtl=phiRTL, 
+                          instruction=phiOp, block=b, pos=t'};
+                    if debug then print("new phi " + showOp id + "\n") 
+                    newPhi (id+1, phis)
+                   )
+             
+           in  ssa_id := newPhi(*ssa_id, phis)
+           end
+ 
+       in  mcg.forall_nodes placePhi
+       end
+
+       fun computeStatistics (g::GRAPH ssa) = 
+           (ssa.forall_nodes (\\ (i, i') =>
+                case machcode_universals::instrKind i' of
+                  machcode_universals::IK_PHI => phi_nodes := *phi_nodes + 1
+                | _ => ());
+            ssa_nodes := *ssa_nodes + ssa.order ()
+           )
+
+   in  initRegisterKinds();
+       initTables();
+       walkTree();
+       SSA::computeDefUseChains SSA;
+       if *ssaStats then computeStatistics SSA 
+       if *removeUselessPhis then SSA::removeUselessPhiFunctions SSA     
+       if *consistencyCheck then SSA::consistencyCheck SSA 
+       if *debugSSA then 
+          print("[SSA: " + int::to_string(*ssaOpsCount) + " nodes "  + 
+                int::to_string (N) + " blocks]\n")
+       
+       SSA
+   end
+
+end

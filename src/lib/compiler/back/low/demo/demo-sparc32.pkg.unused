@@ -1,0 +1,244 @@
+/*---------------------------------------------------------------------------
+ * Backend specific stuff.  You'll need one instance of these things 
+ * for each architecture.  
+ *---------------------------------------------------------------------------*/
+
+
+# The Sparc instruction set, specialized with respect to the
+# user constant and region types.  
+
+package machcode_sparc32_g
+    =
+    machcode_sparc32_g (
+
+        package label_expression = label_expression
+        package region = user_region
+   )
+
+
+# How to serialize parallel copies
+
+package compile_register_moves_sparc32
+    =
+    compile_register_moves_sparc32_g (sparc_instructionset)
+
+
+# The assembler 
+#
+package sparc_asm
+    =
+    translate_machcode_to_asmcode_sparc32_g (
+	#
+        package instruction = sparc_instructionset;
+        package stream = stream;
+        package compile_register_moves = compile_register_moves_sparc32;
+        V9 = FALSE;
+   );
+
+
+# The flowgraph (cluster) representation specialized to the sparc instruction 
+# set.
+
+package sparc_flow_graph = 
+   FlowGraph (package i = sparc_instructionset 
+             package p = user_pseudo_ops
+            )
+
+# Because of various Sparc related ugliness.  Pseudo instructions 
+# related to integer multiplication/division are handled via callbacks.  
+# Here we can decide what actual code to generate.  Here we only
+# handle a subset of of the pseudo instructions.
+
+package pseudo_instructions_sparc32_g {
+
+  package i = sparc_instructionset
+  package c = sparc_instructionset::C
+
+  type format1
+      =
+       { r: c::cell, i: i::operand, d: c::cell } *
+       (i::operand -> i::C.cell) -> List( i::instruction )
+
+  type format2 =
+       { i: i::operand, d: c::cell } *
+       (i::operand -> i::C.cell) -> List( i::instruction )
+
+  fun error msg
+      =
+      lowhalf_error_message::impossible ("pseudo_instructions_sparc32_g." + msg)
+
+  fun umul32 ( { r, i, d }, reduceOpnd) = [i::MATH { a=i::UMUL, r=r, i=i, d=d } ]
+  fun smul32 ( { r, i, d }, reduceOpnd) = [i::MATH { a=i::SMUL, r=r, i=i, d=d } ]
+  fun udiv32 ( { r, i, d }, reduceOpnd) = 
+      [i::WRY { r=c::r0, i=i::REG (c::r0) }, i::MATH { a=i::UDIV, r=r, i=i, d=d } ]
+
+  fun sdiv32 ( { r, i, d }, reduceOpnd) =
+  let t1 = c::make_reg()
+  in  [i::SHIFT { s=i::RIGHT_SHIFT, r=r, i=i::IMMED 31, d=t1 },
+       i::WRY { r=t1, i=i::REG (c::r0) },
+       i::MATH { a=i::SDIV, r=r, i=i, d=d }
+      ]
+  end
+
+  fun cvti2d ( { i, d }, reduceOpnd) = error "cvti2d"
+    /* There is no data path between integer and floating point registers.
+       So we actually have to use some memory location for temporary
+       This is commented out for now.
+     */
+    /* 
+      [i::STORE { s=i::ST, r=c::stackptrR, i=floatTmpOffset, d=reduceOpnd i, mem=stack },
+       i::FLOAD { l=i::LDF, r=c::stackptrR, i=floatTmpOffset, d=d, mem=stack },
+       i::FPop1 { a=i::FiTOd, r=d, d=d }
+      ]
+    */
+  fun cvti2s _ = error "cvti2s"
+  fun cvti2q _ = error "cvti2q"
+
+  fun smul32trap _ = error "smul32trap"
+  fun sdiv32trap _ = error "sdiv32trap"
+
+  overflowtrap32 = [] #  not needed 
+  overflowtrap64 = [] #  not needed 
+};
+
+
+# Instruction selection module for Sparc.  
+#
+package sparc32_treecode_comp
+    = 
+    translate_treecode_to_machcode_sparc32_g (
+         package sparc_instructionset = sparc_instructionset
+         package treecode_sparc32 = Treecode
+         package pseudo_instrs = pseudo_instructions_sparc32_g
+         package extension_comp = UserTreecodeExtComp
+           (package i = sparc_instructionset
+            package t = treecode_sparc32
+           )
+         #  Some sparc specific parameters 
+         V9 = FALSE
+         muluCost = REF 5
+         multCost = REF 3
+         divuCost = REF 5
+         divtCost = REF 5
+         registerwindow = REF FALSE
+         useBR = REF FALSE
+        )
+
+
+/*---------------------------------------------------------------------------
+ * Okay.  Finally, we can tie the frontend and backend together.
+ *---------------------------------------------------------------------------*/
+package backend_sparc32 = 
+   backend
+   (package flowgraph  = sparc_flow_graph
+    package translate_treecode_to_machcode = sparc32_treecode_comp
+    package machcode_universals  = machcode_universals_sparc32_g (sparc_instructionset)
+    package asm_emitter        = sparc_asm
+
+    package ra =
+      risc_regor 
+      (package i         = sparc_instructionset
+       package flowgraph = flowgraph
+       package asm_emitter = asm_emitter
+       package machcode_universals = machcode_universals
+       package spill     = register_spilling_g (			# register_spilling_g	is from   src/lib/compiler/back/low/regor/register-spilling-g.pkg
+                               package asm_emitter = asm_emitter
+                                     package machcode_universals = machcode_universals)
+       package rewrite   = instructions_rewrite_sparc32_g (sparc_instructionset)
+       package c         = i::C
+
+       package register_spilling_per_xxx_heuristic
+             = register_spilling_per_chaitin_heuristic
+ 
+       sp = c::stackptrR
+       spill = user_region::spill 
+
+       package spill_table = spill_table_g (				# spill_table_g				is from   src/lib/compiler/back/low/main/main/spill-table-g.pkg
+            initialSpillOffset = 0 #  This is probably wrong!!!!! 
+            spillAreaSz = 4000
+            architecture = "Sparc" 
+           )
+       use spill_table
+   
+       fun pure (i::NOTE { instruction, ... } ) = pure instruction
+         | pure (i::LOAD _) = TRUE
+         | pure (i::FLOAD _) = TRUE
+         | pure (i::SETHI _) = TRUE
+         | pure (i::SHIFT _) = TRUE
+         | pure (i::FPop1 _) = TRUE
+         | pure (i::FPop2 _) = TRUE
+         | pure _ = FALSE
+   
+       #  I'm assuming only r0 and the stack pointer is dedicated 
+       package int {
+
+           dedicated  = [i::c::stackptrR, i::c::GPReg 0]
+           avail = 
+             c::SortedCells::return
+              (c::SortedCells::difference(
+                c::SortedCells::uniq(
+                  c::Regs c::GP { from=0, to=31, step=1 } ),
+                c::SortedCells::uniq dedicated)
+              )
+
+          fun copy ((rds as [_], rss as [_]), _) =
+              i::COPY { dst=rds, src=rss, impl=REF NULL, tmp=NULL }
+            | copy((rds, rss), i::COPY { tmp, ... } ) =
+              i::COPY { dst=rds, src=rss, impl=REF NULL, tmp=tmp }
+
+          #  spill copy temp 
+          fun spillCopyTmp(_, i::COPY { dst, src, tmp, impl }, loc) =
+              i::COPY { dst=dst, src=src, impl=impl,
+                     tmp=THE (i::DISPLACE { base=sp, disp=get loc } ) }
+       
+          #  spill register 
+           fun spillInstr { an, src, spilledCell, spill_loc } =
+               [i::STORE { s=i::ST, r=sp, i=i::IMMED (get spill_loc), d=src, 
+                      mem=spill } ]
+           
+          #  reload register 
+           fun reloadInstr { an, dst, spilledCell, spill_loc } =
+                [i::LOAD { l=i::LD, r=sp, i=i::IMMED (get spill_loc), d=dst, 
+                      mem=spill } ]
+       }
+
+       package float {
+
+          dedicated = []
+          avail     = c::Regs c::FP { from=0, to=31, step=2 }
+   
+          fun copy ((fds as [_], fss as [_]), _) =
+              i::FCOPY { dst=fds, src=fss, impl=REF NULL, tmp=NULL }
+            | copy((fds, fss), i::FCOPY { tmp, ... } ) =
+              i::FCOPY { dst=fds, src=fss, impl=REF NULL, tmp=tmp }
+   
+          fun spillCopyTmp(_, i::FCOPY { dst, src, tmp, impl }, loc) =
+              i::FCOPY { dst=dst, src=src, impl=impl,
+                      tmp=THE (i::DISPLACE { base=sp, disp=getF loc } ) }
+   
+          fun spillInstr(_, d, loc) =
+              [i::FSTORE { s=i::STDF, r=sp, i=i::IMMED (getF loc), d=d, mem=spill } ]
+   
+          fun reloadInstr(_, d, loc) =
+              [i::FLOAD { l=i::LDDF, r=sp, i=i::IMMED (getF loc), d=d, mem=spill } ]
+       }
+      )
+   )
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

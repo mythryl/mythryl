@@ -1,0 +1,387 @@
+## manager.pkg
+
+
+
+
+# tactic tree manager. 
+
+
+
+generic package TTreeManager (package s:  TTREE_SUPPORT) : TTREE_MANAGER = 
+pkg 
+
+    package s = S 
+    package tt = TTree (S)
+
+    use threadkit Geometry Widget Box Scrollbar Button text_widget 
+
+    exception TacticParseError 
+    exception TacticApplicationError of exn 
+    exception FailedValidation of exn 
+    exception ExtractDoesNotAchieve
+    exception TacticTreeIncomplete
+
+    enum ttree_widget = TTreeWidget of widget::widget * threadkit::event( exn )
+
+    type ttree_state = tt::ttree_state
+
+    pause = TIME { sec=0, usec=500000 }
+    display_border_thickness = 3
+
+    h_glue = Glue { nat=5, min=5, max= NULL }
+    v_glue = Glue { nat=5, min=1, max=NULL }
+    stretch_glue = Glue { nat=5, min=1, max=NULL }
+    h_space = Glue { nat=5, min=5, max=THE 40 }
+
+    button_ht = 25
+    char_width = 10
+    min_button_chars = 3
+    max_button_chars = 20
+    tactic_bar_ht = 26
+    text_high = 500
+    text_wide = 500
+    view_label_wid = 190
+
+    fun mkTTreeWidget (ttree, menu_extension, root) = 
+     let 
+	msg_ch = channel ()
+        blackc = XC::blackOfScr (widget::screenOf root) 
+
+        fun mkDisplayBox w  = 
+	      frame::widgetOf (frame::mkFrame {
+		  widget = shape::mkRigid w,
+		  color = THE blackc,
+		  width = display_border_thickness
+		} )
+
+	fun make_button (l, a)   = let 
+	    wid  = (min (max (min_button_chars, (string::length l)), max_button_chars)) 
+		        * char_width
+	    in 
+		WBox (mkDisplayBox (shape::fixSize (
+		  button::widgetOf(
+                   mkTextCmd root 
+		    { action = a,
+		     rounded = FALSE, 
+		     background = NULL, 
+		     foreground = NULL, 
+		     label = l } ), 
+                  Geometry::SIZE { wid=wid, ht=button_ht } )))
+	    end 
+
+/* text */ 
+	text = mkTextWidget root { rows = text_high, cols = text_wide }
+
+
+	fun clear_screen start = text_widget::clearToEOS text (ChrCrd { col=1, row=start } )
+
+	fun clear_line line_num = text_widget::clearToEOL text (ChrCrd { col=1, row=line_num } )
+	fun put_strings format_func (text_bloc, (start_line, last_line))   = 
+	    let fun write_strings ([], i) = ()
+	          | write_strings (text . text_list, i) = 
+		       if i > last_line
+			  then () 
+			  else (clear_line i; 
+				format_func { at = ChrCrd { col = 1, row = i }, text = text }; 
+   			        write_strings (text_list, i+1))
+             in write_strings (text_bloc, start_line) end 
+
+        fun myHighLight tw { at= a, text=t } = 
+             if t == "" 
+             then text_widget::writeText tw { at= a, text=t }
+             else text_widget::highlightText tw { at= a, text=t }
+
+	fun display []  =  ()
+	  | display (tt::DoNothing . disp_instruct) = display disp_instruct
+	  | display ((tt::DisplayText (text_bloc, form, (start, stop))) . disp_instruct) = 
+	    let
+		write_text = 
+	           case form 
+		       of tt::Plain => put_strings (text_widget::writeText text)
+		        | tt::Highlight => put_strings (myHighLight text)
+	    in 
+		write_text (text_bloc, (start, stop));
+		display disp_instruct
+	    end
+
+	  | display ((tt::ClearFrom start) . disp_instruct) = 
+	              (clear_screen start; display disp_instruct)
+	  | display ((tt::setText (text_bloc, form, (start, stop))) . disp_instruct) = 
+	    let
+		write_text = 
+	           case form 
+		       of tt::Plain => put_strings (text_widget::setText text)
+		        | tt::Highlight => put_strings (myHighLight text)
+	    in 
+		write_text (text_bloc, (start, stop));
+		display disp_instruct
+	    end
+
+          | display ((tt::Scroll (start, num_lines)) . disp_instruct) =
+	        (if num_lines > 0 
+		 then text_widget::scrollDown text { from=start, nlines = num_lines }
+		 else if num_lines < 0 
+			 then (text_widget::deleteLns 
+                                      text 
+                                     { lnum = start + num_lines, nlines = (abs num_lines) };
+			       text_widget::scrollUp 
+                                      text 
+                                      { from = start, nlines =num_lines } )
+		           
+/* debugging stuff
+	        (CIO::print ("Scroll: starting line of text to be scrolled -> " 
+                            + (multiword_int::makestring start) + 
+			    "\n number of lines to be scrolled " + 
+			    (multiword_int::makestring num_lines) + 
+                            "* <0 means scroll up >0 means scroll down\n"));
+*/
+		display disp_instruct)
+
+
+/* Views */ 
+
+	fun view_mode_widget () = let 
+
+	    fun current_view (_, REF (tt::Subtree)) = "Subtree Highlighted"
+	      | current_view (_, REF (tt::Node)) = "Node Highlighted"
+	      | current_view (_, REF (tt::Local)) = "Local"
+	
+	    view_mode_label = label::mkLabel root { label = (current_view ttree),
+						      font = NULL, 
+						      foreground = NULL,
+						      background = NULL,
+						      align = w::HCenter }
+
+	    set_label = label::setLabel view_mode_label
+	    my (view_label_widget, view_mode_event) = 
+		widget::filterMouse (label::widgetOf view_mode_label)
+
+	    fun view_label_server (view_mode_event) = let
+		my (view_event, _) = sync view_mode_event
+
+		fun check_button_pressed ( { but, pt, screen_pt, ... } ) = let 
+		    but1_pressed = widget::interact::mbut1IsSet (w::interact::mkButState [but])
+
+		in
+		    if but1_pressed 
+			then (display (tt::do_action (ttree, tt::ChangeMode));
+			      (set_label (current_view ttree)))
+		    else ()
+
+		end
+
+		and loop () = let 
+		    use Widget interact
+		in
+			case (msgBodyOf (sync view_event))
+			  of (MOUSE_FirstDown button) => ((check_button_pressed button); loop ())
+			   | _ =>  loop ()
+		end
+	    in
+		loop ()
+	    end
+	in
+	    make_thread  "manager view_mode" (\\ () => view_label_server (view_mode_event));
+	    view_label_widget
+	end
+/*** * ***/ 
+
+        fun apply_tactic s tac = 
+	     (tt::do_action (ttree, tt::ApplyTactic (tac, s))
+             ) except e => (threadkit::put_mail (msg_ch, TacticApplicationError e);[])
+
+/* Tactic Entry Line */ 
+	/* apply_string is a real hack */ 
+        fun apply_string s = 
+	    (let f = ((System::Compile::use_stream 
+			       (open_string ("tactic_ref := " + s + ";"));
+			 *(s::tactic_ref)) except _ => raise exception TacticParseError)
+            in 
+		tt::do_action (ttree, tt::ApplyTactic (f, s))
+	    end ) except TacticParseError => (threadkit::put_mail (msg_ch, TacticParseError);[])
+                       | e  => (threadkit::put_mail (msg_ch, TacticApplicationError e);[])
+
+
+
+	string_editor = scrollable_string_editor::mkFieldEdit root { foreground = NULL, background = NULL, 
+						      initval = "", minlen =50 }
+	get_string = \\ () => scrollable_string_editor::get_string string_editor
+	set_string = scrollable_string_editor::setString string_editor 
+
+        string_widget = 
+	     #  mkLayout root 
+	       HzCenter [
+		   make_button("clear", \\ () => set_string ""), 
+		   WBox (mkDisplayBox (scrollable_string_editor::widgetOf string_editor)),
+		   make_button("apply", \\ () => display (apply_string (get_string ()))),
+		   h_glue]
+
+/* top line of buttons */ 
+	button_bar = 
+	      HzTop [
+		 WBox (mkDisplayBox (shape::fixSize 
+		      ((view_mode_widget(), Geometry::SIZE { wid=view_label_wid, ht=button_ht } )))), 
+		 make_button("elision", \\ () => display (tt::do_action (ttree, tt::Elide))),
+		 h_space,
+		 make_button("delete", \\ () => display (tt::do_action (ttree, tt::Delete))),
+		 h_space,
+		 make_button("root", \\ () => display (tt::do_action (ttree, tt::MoveToTop))), 
+		 make_button("parent", (\\ () =>  
+				       display (tt::do_action (ttree, tt::MoveToParent)))),
+		 make_button("first child", (\\ () =>  
+					    display (tt::do_action (ttree, tt::MoveToChild)))), 
+		 make_button("prev", \\ () =>  display (tt::do_action (ttree, tt::MoveLeft))), 
+		 make_button("next", \\ () =>  display (tt::do_action (ttree, tt::MoveRight))),
+		 h_glue,
+		 make_button("quit", \\ () => (sync (timeout pause);
+					      delRoot root; 
+					      RunTHREADKIT::shutdown()))
+		]
+
+/* tactic button bar */ 
+	fun make_tactic_bar [] = []
+          | make_tactic_bar tactic_menu = 
+	   let 
+               wid = 
+	       (min (max_button_chars,
+                     (fold max 
+                           (map (\\ (n, _) => string::length n) tactic_menu) 
+			   min_button_chars))) * char_width
+	       fun make_tact_button tactic_label  tac = 
+		   WBox (mkDisplayBox (shape::fixSize (button::widgetOf(
+                   mkTextCmd root 
+		    { action = \\ () => display (apply_tactic tactic_label tac),
+		     rounded = FALSE, 
+		     background = NULL, 
+		     foreground = NULL, 
+		     label = tactic_label } ), Geometry::SIZE { wid=wid, ht=button_ht } )))
+	       fun make_bar [] = [v_glue]
+		|  make_bar ((n, t) . l) =
+		      [make_tact_button n t] @ (make_bar l)
+	       fun split_list (l, n) = 
+		   (reverse (nthtail (reverse l, (length l) - n)), nthtail (l, n)) 
+                    except NthTail => (l,[])
+		my (tm_hd, tm_tl) = split_list (tactic_menu, tactic_bar_ht) 
+	    in (VtLeft (make_bar tm_hd)) . (make_tactic_bar tm_tl) end
+	    
+	tactic_bar = HzTop (make_tactic_bar (s::tactic_menu @ menu_extension))
+	
+	fun mouse_loop event = let
+	    my (m_event, m_chan) = sync event
+	    fun tw_mouse_server ( { but, pt, screen_pt, ... } ) = let
+
+	   	but1_pressed = widget::interact::mbut1IsSet 
+		                       (w::interact::mkButState [but])
+
+		but2_pressed = widget::interact::mbut2IsSet 
+                                       (widget::interact::mkButState [but])
+
+	   	my text_widget::ChrCrd { row = line_num, ... } = 
+		                                     text_widget::ptToCoord text pt
+
+	    in
+	        if but1_pressed 
+		   then display (tt::do_action (ttree, tt::MoveToNode line_num)) 
+		   else if but2_pressed 
+			    
+  /* NOTE: tt::ApplyTacticToNode unhighlights the current node and moves to the node 
+           whose display occupies the line line_num. 
+           If line_num is occupied by the current node,
+	   then tt::ApplyTacticToNode returns [], so the current node will not be redrawn.
+	   If a tactic is applied incorrectly, an exception is raised. 
+           apply_string handles the exception by returning [].  
+           The exception is raised prior to manipulating any display
+	   data.  Therefore, the node (subtree) which we moved to in the call to 
+           tt::ApplyTacticToNode	is unhighlighted.  
+           Hence we highlight that node (subtree) by calling tt::HighlightSubtree.
+   */
+			    then 
+				case (tt::do_action (ttree, tt::ApplyTacticToNode line_num),
+                                                    apply_string (get_string()))
+				     of ([],[]) => ()
+			              | (moved_to_subgoal,[]) => 
+					    (display moved_to_subgoal;
+					     display (tt::do_action (ttree, tt::HighlightSubtree)))
+				      | ([], tactic_applied) => 
+					    display tactic_applied
+				      | (moved_to_subgoal, tactic_applied) => 
+					    (display moved_to_subgoal; display tactic_applied)
+/* 
+#  If we apply an incorrect tactic, then the current node will never be highlighted. 
+# Therefore, we have to make sure it is redrawn. 
+				 (let current_node_disp = apply_string (get_string())
+				 in
+				     if current_node_disp != []
+					 then (display (current_node_disp);
+					      display (tt::do_action (ttree, tt::MoveToNode line_num)))
+				     else ()
+				 end))
+*/
+
+			else ()
+	    end
+
+	    and loop () = 
+		let use Widget interact 
+		in 
+		   case (msgBodyOf (sync m_event)) 
+		    of  (MOUSE_FirstDown b) => ((tw_mouse_server b); loop ())
+		     | _ =>  loop () 
+		end
+	in
+	    loop ()
+	end
+
+	fun mktext_widget tw = let
+		my (fw, event) = widget::filterMouse tw
+
+		scroll_widget = scrolled_widget::widgetOf (scrolled_widget::mkScrollPort 
+					{ widget = fw,
+				 continuous = TRUE,
+				 color = NULL,
+				 hsb = THE { top = TRUE },
+				 vsb = THE { left = TRUE }} )
+		frame_widget = frame::widgetOf (frame::mkFrame { 
+				widget = scroll_widget,
+				color = THE blackc,
+				width = display_border_thickness } )
+		in
+		     make_thread "manager text_widget" (\\ () => (mouse_loop event));
+		     shape::freeSize (frame_widget, Geometry::SIZE { wid=500, ht=500 } )
+				
+		end
+
+	text_widget =  mktext_widget (text_widget::widgetOf text)
+
+	main_widget = 
+	      box::widgetOf (box::mkLayout root 
+	        (VtCenter [button_bar, 
+			   HzTop [WBox text_widget, tactic_bar ] ,
+			   string_widget]))
+  
+	 in 
+	    make_thread "manager" (\\ () => display (tt::do_action (ttree, tt::Display))); 
+	    TTreeWidget (main_widget, threadkit::receive msg_ch)
+	end #  end of mkTreeWidget 
+
+    fun widgetOf (TTreeWidget (widget, _)) = widget
+	
+    fun evtOf (TTreeWidget(_, event)) = event 
+
+    mkTTreeState = tt::mkTTree 
+
+    extract_event = 
+         \\ s => ((tt::synthesize_event s) 
+                  except tt::EventDoesNotAchieve => raise exception ExtractDoesNotAchieve
+                       | e => raise exception e)
+ 
+    extract_tactic_text = tt::synthesize_tactic_text
+
+    extract_text = tt::synthesize_text
+
+end 
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

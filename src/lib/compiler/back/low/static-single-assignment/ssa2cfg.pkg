@@ -1,0 +1,877 @@
+# ----------------------------------------------------------------------------
+# This module rebuilds a CFG from an SSA.
+# The version is another rewrite of the algorithm in PLDI '99.  
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+# ----------------------------------------------------------------------------
+
+
+
+###          "In the long run, every program becomes rococco, and then rubble."
+###
+###                                               -- Alan Perlis
+
+
+
+generic package SSA2CFG 
+  (package ssa:        SSA
+   package machcode_universals:  Machcode_Universals
+      sharing SSA::I = machcode_universals::I
+  ) : SSA2CFG =
+pkg
+
+   package ssa = SSA
+   package machcode_controlflow_graph = SSA::machcode_controlflow_graph
+   package dj  = SSA::DJ
+   package sp  = SSA::SP
+   package rp  = sp::RTLProps
+   package i   = SSA::I
+   package c   = i::C
+   package rtl = SSA::RTL
+   package t   = RTL::T
+   package g   = graph
+   package a   = rw_vector
+   package w8a = rw_vector_of_one_byte_unts
+   package sl  = sorted_list
+
+   fun error msg = lowhalf_error_message::error("SSA2CFG", msg)
+
+   i2s = int::to_string
+
+   exception Nothing
+
+   /*------------------------------------------------------------------------
+    * Flags
+    *------------------------------------------------------------------------*/
+   consistencyCheck  = LowhalfControl::getFlag "ssa-consistency-check"
+   debug             = LowhalfControl::getFlag "ssa-debug-ssa->mcg"
+
+   propagateSource = FALSE
+   coalesceEntry   = TRUE
+   propagateSink   = FALSE
+
+   /*------------------------------------------------------------------------
+    * Counters
+    *------------------------------------------------------------------------*/
+   repairCopies = LowhalfControl::getCounter "ssa-repair-copies"
+   phiCopies    = LowhalfControl::getCounter "ssa-phi-copies"
+
+   /*------------------------------------------------------------------------
+    * Fixed physical registers
+    *------------------------------------------------------------------------*/
+   R                = c::firstPseudo
+   zeroRegs = SSA::zeroRegs
+   fun isZero r = w8a::sub (zeroRegs, r) != 0w0 except _ => FALSE
+   fixedDefTable      = w8a::rw_vector (R, 0w0)
+   fixedUseTable      = w8a::rw_vector (R, 0w0)
+   fun initTable table      = apply (\\ r => w8a::update (table, r, 0w1)) 
+   my _                = initTable fixedDefTable sp::fixedDef
+   my _                = initTable fixedUseTable sp::fixedUse
+ 
+   my _                = w8a::keyed_apply #  never rename the zero registers! 
+                           (\\ (i, 0w0) => ()
+                             | (i, _) => (w8a::update (fixedDefTable, i, 0w1);
+                                         w8a::update (fixedUseTable, i, 0w1)))
+                             (zeroRegs, 0, NULL) 
+   fun isGlobalDef r = w8a::sub (fixedDefTable, r) != 0w0 except _ => FALSE
+   fun isGlobalUse r = w8a::sub (fixedUseTable, r) != 0w0 except _ => FALSE
+   /*------------------------------------------------------------------------
+    * Main entry point
+    *------------------------------------------------------------------------*/
+   fun buildCFG (SSA as g::GRAPH ssa) = 
+   let if *consistencyCheck then SSA::consistencyCheck SSA else ()
+       my CFG as g::GRAPH mcg = SSA::mcg SSA
+       my Dom as g::GRAPH dom = SSA::dom SSA
+       N = mcg.capacity () #  number of blocks 
+       M = ssa.capacity () /* number of ssa ops */ 
+       V = SSA::maxVariable SSA   #  number of variables 
+       showVal = SSA::showVal SSA
+       showOp  = SSA::showOp SSA
+       my [ENTRY] = mcg.entries ()
+
+       /* (print "Global: ";
+                apply (\\ r => print (showVal r$" ")) sp::fixedPhysical; 
+                print "\n") 
+        */
+
+       /*---------------------------------------------------------------------
+        * Extract Various tables 
+        *---------------------------------------------------------------------*/
+       defsTable     = SSA::defsTable SSA  #  Definitions 
+       usesTable     = SSA::usesTable SSA  #  uses 
+       rtlTable      = SSA::rtlTable SSA   #  rtl 
+       posTable      = SSA::posTable SSA   #  position/resource for phi
+       succTable     = SSA::succTable SSA  #  Def/use chains 
+       ssaOpTable    = SSA::ssaOpTable SSA #  instruction 
+       defSiteTable  = SSA::defSiteTable SSA #  Definition sites 
+       blockTable    = SSA::blockTable SSA   #  Block table 
+       registerKindTable = SSA::registerKindTable SSA #  Registerkinds 
+       registerKindOf  = int_hashtable::find registerKindTable
+       registerKindOf  = 
+            \\ r => case registerKindOf r of THE k => k | NULL => c::GP
+       my { sources, phis, ops, sinks } = SSA::nodes SSA #  linearized ssa 
+
+       /*---------------------------------------------------------------------
+        * Architecture description information
+        *---------------------------------------------------------------------*/
+       constOf           = SSA::const SSA 
+       rewriteOperands   = sp::rewriteOperands { const=constOf }
+       mkCopies          = sp::copies
+       namingConstraints = sp::namingConstraints
+       opnKind           = rp::opnKind 
+       defUse            = rp::defUse (sp::ot::lookupValueNumbers
+                                         (SSA::operandTable SSA))
+       /* Should value d be in the resource r? */ 
+       fun dstInReg (r) = isGlobalDef r
+       fun opDstInReg (k, r) = k = rp::FIX or isGlobalDef r
+
+       /* Should value s be in the resource r? */ 
+       fun srcInReg (r) = isGlobalUse r
+       fun opSrcInReg (k, r) = k = rp::FIX or isGlobalUse r
+
+       /*---------------------------------------------------------------------
+        * Temporary data structures 
+        *---------------------------------------------------------------------*/
+       Value = a::rw_vector (V, -1) #  Current value of resources 
+               #  names of all resources 
+       Resources = int_hashtable::make_hashtable (32, Nothing) 
+       AvailIn  = a::rw_vector (N, [])
+
+       #  Mark the value of a resource 
+       fun setValue (r, v) = a::update (Value, r, v)
+
+       #  Look up the value of a resource 
+       fun valueOf (r) = a::sub (Value, r)
+
+       /*---------------------------------------------------------------------
+        * Initialization
+        * 1. Find out the names of all global resources
+        * 2. Find out all places where these are defined
+        * 3. Compute the values of all these resources at the entry point
+        *    of each block
+        *---------------------------------------------------------------------*/
+       fun initialization () =
+       let 
+
+           /* Definitions of all resources */ 
+           addResource   = int_hashtable::set Resources
+           LocalAvailOut = a::rw_vector (N, [])
+
+           #  Process a block 
+           fun processBlock (X, _) =
+           let
+               #  New resources 
+               fun markResource (i, r, v, R) = (setValue (r, v); r . R)
+    
+               #  Process the source nodes 
+               fun doSource([i], R) =   
+                   let fun scan ([], [], R) = R
+                         | scan (d . ds, r . rs, R) = 
+                           let k = registerKindOf r
+                           in  if k == c::MEM or k == c::CTRL then
+                                  scan (ds, rs, R)
+                               else
+                                  scan (ds, rs, markResource (i, r, d, R))
+                           end
+                         | scan _ = error "doSource::scan"
+                       dst = a::sub (defsTable, i)
+                       my t::SOURCE { liveIn, ... } = a::sub (rtlTable, i)
+                   in  scan (dst, liveIn, R)
+                   end
+                 | doSource(_, R) = R
+    
+               #  Process the phi nodes 
+               fun doPhis([], R) = R
+                 | doPhis (phi . phis, R) = 
+                   let my [d] = a::sub (defsTable, phi)
+                       r   = a::sub (posTable, phi) 
+                   in  doPhis (phis, 
+                              if dstInReg r then markResource (phi, r, d, R) else R)
+                   end
+    
+               #  Process the instructions 
+               fun doOps([], R) = R
+                 | doOps (i . rest, R) = 
+                   let fun scanUse([], [], [], R) = R
+                         | scanUse (s . ss, r . rs, k . ks, R) = 
+                           scanUse (ss, rs, ks,  
+                                   if opSrcInReg (k, r) 
+                                   then markResource (i, r, s, R)
+                                   else R)
+                         | scanUse _ = error "scanUse"
+    
+                       fun scanDef([], [], [], ds') = reverse ds'
+                         | scanDef (d . ds, r . rs, k . ks, ds') =
+                           scanDef (ds, rs, ks, 
+                                   if opDstInReg (k, r) 
+                                   then markResource (i, r, d, R)
+                                   else R)
+                         | scanDef _ = error "scanDef"
+                       dst = a::sub (defsTable, i)
+                       src = a::sub (usesTable, i)
+                       instruction        = a::sub (ssaOpTable, i)
+                       my (rdst, rsrc) = defUse instruction
+                       my (kdst, ksrc) = opnKind instruction
+                       R = scanUse (src, rsrc, ksrc, R)
+                       R = scanDef (dst, rdst, kdst, R)
+                   in  doOps (rest, R) end
+    
+               #  Process the sink nodes 
+               fun doSink([i], R) = 
+                   let fun scan ([], [], R) = R
+                         | scan (s . ss, r . rs, R) = 
+                           let k = registerKindOf r
+                           in  if k == c::MEM or k == c::CTRL then
+                                 scan (ss, rs, R)
+                               else
+                                 scan (ss, rs, markResource (i, r, s, R)) 
+                           end
+                         | scan _ = error "doSink::scan"
+                       src                  = a::sub (usesTable, i)
+                       my t::SINK { liveOut, ... } = a::sub (rtlTable, i)
+                   in  scan (src, liveOut, R) end
+                 | doSink(_, R) = R
+    
+               R = doSource (a::sub (sources, X), [])
+               R = doPhis (a::sub (phis, X), R)
+               R = doOps (a::sub (ops, X), R)
+               R = doSink (a::sub (sinks, X), R)
+
+               fun collect ([], localAvailOut) = localAvailOut
+                 | collect (r . rs, localAvailOut) = 
+                   let v = valueOf r
+                   in  if v < 0 or isZero r 
+                       then collect (rs, localAvailOut)
+                       else (setValue (r, -1);
+                             addResource (r, TRUE);
+                             collect (rs, (r, v) . localAvailOut)
+                            )
+                   end
+               localAvailOut = collect (R, [])
+
+               /*if debug then
+                       case localAvailOut of
+                         [] => ()
+                       | _ => (print("Block ["$i2s X$"]: ");
+                               apply (\\ (r, v) => 
+                                    print (showVal r$"->"$showVal v$" "))
+                                  localAvailOut;
+                               print "\n"
+                              )
+                       else ()
+                */
+           in  a::update (LocalAvailOut, X, localAvailOut)
+           end
+
+           dom.forall_nodes processBlock 
+
+           #  Definitions indexed by resource 
+           LocalDefs = int_hashtable::make_hashtable (32, Nothing)
+           lookupLocalDef = int_hashtable::find LocalDefs
+           lookupLocalDef = 
+               \\ r => case lookupLocalDef r of THE d => d | NULL => []
+           addLocalDef = int_hashtable::set LocalDefs
+
+           a::keyed_apply (\\ (X, localAvailOut) =>  
+                             apply (\\ (r, v) => 
+                                   addLocalDef (r, (X, v) . lookupLocalDef r))
+                                  localAvailOut) (LocalAvailOut, 0, NULL)
+
+           /* if debug then
+                   (print "Resources=";
+                    int_hashtable::keyed_apply 
+                       (\\ (r, _) => print (showVal r$" ")) Resources;
+                    print "\n"
+                   ) else ()
+            */
+
+           #  Perform data flow analysis for each resource r 
+           bot = -1
+           top = -2
+           LocalAvailOut = a::rw_vector (N, bot)
+           onWorkList    = a::rw_vector (N, -1)
+           dj            = dj::DJ Dom
+           IDFs          = dj::IDFs dj
+
+           fun availAnalysis (r, _) =  
+           let GlobalAvailIn = a::rw_vector (N, bot)
+
+               fun init ([], defs) = defs
+                 | init((X, v) . A, defs) = 
+                    (a::update (LocalAvailOut, X, v); 
+                     a::update (onWorkList, X, r);
+                     init (A, X . defs)
+                    )
+
+               fun cleanup [] = ()
+                 | cleanup((X, v) . A) = 
+                   (a::update (LocalAvailOut, X, bot); cleanup A)
+
+               localAvailOut = lookupLocalDef r
+
+               defSites = init (localAvailOut, [])
+
+               fun meet ([], v) = v
+                 | meet((X, _, _) . es, v) = 
+                   let v' = a::sub (LocalAvailOut, X)
+                       v' = if v' >= 0 then v' else a::sub (GlobalAvailIn, X)
+                   in  if v' == bot then v 
+                       else if v == bot then v'
+                       else if v' == top or v == top then top
+                       else if v == v' then meet (es, v)
+                       else top 
+                   end
+
+               fun insert ([], WL) = WL
+                 | insert((_, X, _) . es, WL) = 
+                   if a::sub (onWorkList, X) == r then insert (es, WL)
+                   else (a::update (onWorkList, X, r); insert (es, X . WL))
+
+               fun update (X, WL) = 
+                   let oldV = a::sub (GlobalAvailIn, X)
+                       newV = meet (mcg.in_edges X, bot)
+                   in  if oldV == newV then WL
+                       else (a::update (GlobalAvailIn, X, newV);
+                             if a::sub (LocalAvailOut, X) < 0 then WL
+                             else insert (mcg.out_edges X, WL)
+                            )
+                   end
+ 
+               fun iterate [] = ()
+                 | iterate (X . WL) = 
+                   let a::update (onWorkList, X, -1)
+                   in  iterate (update (X, WL))
+                   end
+
+               fun updateInfo [] = ()
+                 | updateInfo (X . Xs) = 
+                   let v = a::sub (GlobalAvailIn, X) 
+                   in  a::update (AvailIn, X, (r, v) . a::sub (AvailIn, X));
+                       updateInfo Xs
+                   end
+
+               my ()   = iterate (defSites)
+               IDFs = IDFs defSites
+
+           in  updateInfo IDFs;
+               cleanup localAvailOut
+           end
+
+       in  int_hashtable::keyed_apply availAnalysis Resources
+       end
+
+       initialization()
+
+           #  location of each SSA definition. -1 means maps to itself 
+       defLocation     = a::rw_vector (V, -1)
+       fun locationOf v = 
+           if v < 0 then v 
+           else
+           let r = a::sub (defLocation, v)
+           in  if r < 0 then v else r end
+       fun setLocation (v, r) = a::update (defLocation, v, r)
+
+           #  repair map indexed by variable 
+       defCompensation = w8a::rw_vector (V, 0w0)
+
+           #  repair map indexed by ss_op 
+       useCompensation = a::rw_vector (M, [])
+
+       /*---------------------------------------------------------------------
+        * Find conflicts 
+        *---------------------------------------------------------------------*/
+       fun conflicts X =
+       let valueTrail = REF []
+
+           #  Set the current value 
+           fun setValue (r, v) =
+           let v' = a::sub (Value, r) 
+           in  a::update (Value, r, v); 
+               valueTrail := (r, v') . *valueTrail 
+           end
+
+           fun valueOf r = a::sub (Value, r)
+
+           /* Look up current location for a name v;
+            * Check whether compensation code is needed.
+            */
+           fun checkUse (i, r, v)
+		=
+               if valueOf (r) == v then ()
+               else
+                  (if *debug then
+                      let j = a::sub (defSiteTable, v) #  v is defined in j 
+                          Y = a::sub (blockTable, j)
+                      in  print("WARNING["$i2s X$"] " $
+                                showVal v$"="$showVal (valueOf (r))$" " $
+                                showOp i$"\n" $
+                                "Defined in ["$i2s Y$"] " $
+                                showOp j$"\n"
+                               )
+                      end
+                    
+                    # Mark variable v as needing repair:
+		    #	 
+                    w8a::update (defCompensation, v, 0w1);
+
+                    # Insert compensation code v->r at use site:
+		    #	 
+                    let fun addCopy([], fps') =  
+                              a::update (useCompensation, i,
+                                 { kind=registerKindOf r, src=v, dst=r } . fps')
+                          | addCopy( { src, dst, kind } . fps, fps') =
+                              if dst==r then
+                                 if src==v then print "duplicate\n"
+                                 else error "different sources in compensation!"
+                              else addCopy (fps, fps')
+                        fps = a::sub (useCompensation, i)
+                    in  addCopy (fps, fps) 
+                    end;
+                    /* Now the value of r is v */ 
+                    setValue (r, v)
+                  )
+
+           /* Look up current location for v 
+            * Make sure that 
+            */
+           fun checkDefIsAvail (i, v) = 
+               let r = a::sub (defLocation, v)
+               in  if r < 0 or valueOf (r) == v then () 
+                        #  okay 
+                   else /* v has been mapped into r.
+                         * we need to preserve the value of v somehow 
+                         */
+                   (if *debug then
+                      let j = a::sub (defSiteTable, v) #  v is defined in j 
+                          Y = a::sub (blockTable, j)
+                      in  print("WARNING["$i2s X$"] " $
+                                showVal v$" mapped to "$showVal r $
+                                " but valueOf("$showVal r$")=" $
+                                showVal (valueOf (r))$" in " $
+                                showOp i$"\n" $
+                                "Defined in ["$i2s Y$"] " $
+                                showOp j$"\n"
+                               )
+                      end
+                    
+                    #  mark variable v as needing repair 
+                    repairCopies := *repairCopies + 1;
+                    w8a::update (defCompensation, v, 0w1)
+                   )
+               end
+
+           #  Pop the value stack 
+           fun undoValue [] = ()
+             | undoValue((r, v) . rs) = 
+               (a::update (Value, r, v); undoValue rs)
+
+           #  Process the source node 
+           fun doSource [i] =
+               let fun scan ([], []) = ()
+                     | scan (d . ds, r . rs) = 
+                       if coalesceEntry and X == ENTRY or 
+                          propagateSource or dstInReg r then 
+                          (setValue (r, d); setLocation (d, r); scan (ds, rs))
+                       else 
+                          (setValue (r, -1); scan (ds, rs))
+                     | scan _ = error "doSource::scan"
+                   dst = a::sub (defsTable, i)
+                   my t::SOURCE { liveIn, ... } = a::sub (rtlTable, i)
+               in  scan (dst, liveIn)
+               end
+             | doSource _ = ()
+
+           #  Process the nodes 
+           fun doPhysicalAvailIn X =
+           let fun init [] = ()
+                 | init((r, v) . namings) = 
+                   (setValue (r, v); 
+                    /* if debug then
+                       print("["$i2s X$"] "$showVal r $
+                             "="$i2s v$"\n")
+                     */
+                    init namings)
+               availIn = a::sub (AvailIn, X)
+           in  init availIn
+           end
+
+           #  Process the phi nodes 
+           fun doPhis [] = ()
+             | doPhis (phi . phis) = 
+               let my [d] = a::sub (defsTable, phi)
+                   r   = a::sub (posTable, phi) 
+               in  if dstInReg r then 
+                      (setValue (r, d); setLocation (d, r)) 
+                   doPhis (phis)
+               end
+
+           #  Process the instructions 
+           fun doOps [] = ()
+             | doOps (i . rest) = 
+               let fun scanUse([], [], []) = ()
+                     | scanUse (s . ss, r . rs, k . ks) = 
+                        (if s >= 0 then
+                           (if opSrcInReg (k, r) then 
+                                /* If s is actually a zero register; its 
+                                 * value is always available */ 
+                               if isZero r then ()
+                               else 
+                                 (checkUse (i, r, s); 
+                                  checkDefIsAvail (i, s)
+                                 )
+                            else 
+                               checkDefIsAvail (i, s)
+                           ) 
+                         
+                         scanUse (ss, rs, ks)
+                        )
+                        
+                   fun scanDef([], [], []) = ()
+                     | scanDef (d . ds, r . rs, k . ks) =
+                       (if opDstInReg (k, r) 
+                        then (setValue (r, d); setLocation (d, r)) 
+                        
+                        scanDef (ds, rs, ks)
+                       )
+                     | scanDef _ = error "scanDef"
+
+                   dst          = a::sub (defsTable, i)
+                   src          = a::sub (usesTable, i)
+                   instruction        = a::sub (ssaOpTable, i)
+                   my (rdst, rsrc) = defUse instruction
+                   my (kdst, ksrc) = opnKind instruction
+              in   scanUse (src, rsrc, ksrc);
+                   scanDef (dst, rdst, kdst);
+                   doOps (rest)
+              end
+
+           #  Process the sink node 
+           fun doSink [i] = 
+               let fun scan ([], []) = ()
+                     | scan (s . ss, r . rs) = 
+                       (if s >= 0 then 
+                          (if propagateSink or srcInReg (r) 
+                           then checkUse (i, r, s)  
+                           checkDefIsAvail (i, s)
+                           )
+                        
+                        scan (ss, rs)
+                       )
+                     | scan _ = error "doSink::scan"
+ 
+                   src                  = a::sub (usesTable, i)
+                   my t::SINK { liveOut, ... } = a::sub (rtlTable, i)
+               in  scan (src, liveOut)
+               end
+             | doSink(_) = ()
+
+       in  doPhysicalAvailIn X;
+           doSource (a::sub (sources, X));
+           doPhis (a::sub (phis, X));
+           doOps (a::sub (ops, X));
+           doSink (a::sub (sinks, X));
+           apply conflicts (dom.next X);    #  walk the tree! 
+           undoValue(*valueTrail)
+       end
+
+       conflicts ENTRY
+
+       /*
+        * How to make a set of parallel copies.
+        * The source can contain constants! 
+        */
+       fun makeCopies (fps) = 
+       let fun split ([], fps', loadConsts) = mkCopies fps' @ loadConsts
+             | split((cp as { src, dst, kind } ) . fps, fps', loadConsts) = 
+               if src >= 0 then split (fps, cp . fps', loadConsts) 
+               else 
+               let loadConsts = 
+                   case constOf src of
+                     sp::ot::INT i => 
+                       machcode_universals::loadImmed { t=dst, immed=i } . loadConsts
+                   | sp::ot::OPERAND opn => 
+                       machcode_universals::loadOperand { t=dst, opn=opn } . loadConsts
+               in  split (fps, fps', loadConsts)
+               end
+       in  split (fps, [], []) end
+
+           #  renaming stack indexed by SSA variable name 
+       stacks          = a::rw_vector (V, []) 
+
+       /*---------------------------------------------------------------------
+        * Rename and insert phi-functions.
+        * Also insert repair code for resources.
+        *---------------------------------------------------------------------*/
+       fun rename X =
+       let renamingTrail = REF [] 
+
+           /* Look up current location for a name v;
+            * Check whether compensation code is needed.
+            */
+           fun locationOf (i, v) =
+               if v < 0 then v #  immediate operand 
+               else if w8a::sub (defCompensation, v) != 0w0 then v
+               else 
+                (case a::sub (stacks, v) of 
+                   [] => v 
+                | v' . _ => v'
+                ) 
+
+           #  Create a new renaming entry in the renaming stack 
+           fun renameDef (v, r) = 
+               (a::update (stacks, v, r . a::sub (stacks, v));
+                renamingTrail := v . *renamingTrail
+               )
+
+           #  Pop the renaming stack 
+           fun undoRenaming [] = ()
+             | undoRenaming (r . rs) = 
+               let my _ . vs = a::sub (stacks, r)
+               in  a::update (stacks, r, vs); undoRenaming rs end
+
+           #  Copy a value v to a register r 
+           fun copyToReg (v, r, fps) = 
+               if v == r then fps else { kind=registerKindOf r, dst=r, src=v } . fps
+
+           #  Copy a register r to a value v 
+           fun copyFromReg (r, v, fps) = 
+               if v == r then fps else { kind=registerKindOf r, dst=v, src=r } . fps
+
+           fun duplicate (s, d,[]) = FALSE
+             | duplicate (s, d,{ src, dst, kind } . fps) = 
+               if dst == d then 
+                  if src == s then TRUE 
+                  else error "duplicate: different source"
+               else duplicate (s, d, fps)
+ 
+           #  Insert repair code from r -> v at definition of v 
+           fun compensation (r, v, fps) = 
+               if w8a::sub (defCompensation, v) != 0w0 
+               then if duplicate (r, v, fps) then fps
+                    else copyFromReg (r, v, fps)
+               else fps
+
+           #  Get repair code at uses of instruction j 
+           fun repair (j) = a::sub (useCompensation, j) 
+
+           #  Process the source node 
+           fun doSource [i] =
+               let fun scan ([], [], fps) = fps
+                     | scan (d . ds, r . rs, fps) = 
+                       if coalesceEntry and X == ENTRY or 
+                          propagateSource or dstInReg r then 
+                          (renameDef (d, r); 
+                           scan (ds, rs, compensation (r, d, fps))
+                          )
+                       else scan (ds, rs, copyFromReg (r, d, fps))
+                     | scan _ = error "doSource::scan"
+                   dst = a::sub (defsTable, i)
+                   my t::SOURCE { liveIn, ... } = a::sub (rtlTable, i)
+                   fps = scan (dst, liveIn, [])
+               in  fps
+               end
+             | doSource _ = []
+
+           #  Process the phi nodes 
+           fun doPhis [] = ()
+             | doPhis (phi . phis) = 
+               let my [d] = a::sub (defsTable, phi)
+                   r   = a::sub (posTable, phi) 
+               in  if dstInReg r then renameDef (d, r) 
+                   doPhis (phis)
+               end
+
+           fun notMoved (dst',[]) = TRUE
+             | notMoved (dst',{ dst, src, kind } . fps) = 
+                 dst!=dst' and notMoved (dst', fps)
+ 
+           #  Process the instructions 
+           fun doOps([], instrs) = instrs
+             | doOps (i . rest, instrs) = 
+               let fun scanUse([], [], [], ss', fps) = (reverse ss', fps)
+                     | scanUse (s . ss, r . rs, k . ks, ss', fps) = 
+                       /* actual value of s is in resource s' */ 
+                       let s' = locationOf (i, s)
+                       in  if opSrcInReg (k, r) then 
+                              (#  subsequent use of s now point to r 
+                               scanUse (ss, rs, ks, r . ss', 
+                                       /* Make sure it is not copied multiple
+                                        * times */
+                                       if notMoved (r, fps) then 
+                                       copyToReg (s', r, fps) else fps)
+                              )
+                           else 
+                              scanUse (ss, rs, ks, s' . ss', fps)
+                       end    
+                     | scanUse _ = error "scanUse"
+
+                   fun scanDef([], [], [], ds', fps) = (reverse ds', fps)
+                     | scanDef (d . ds, r . rs, k . ks, ds', fps) =
+                       if opDstInReg (k, r) then
+                         (renameDef (d, r);
+                          /* subsequent use of d now point to r;
+                           * may need repair code here.
+                           */
+                          scanDef (ds, rs, ks, r . ds', compensation (r, d, fps)) 
+                         )
+                       else
+                          scanDef (ds, rs, ks, d . ds', fps)
+                     | scanDef _ = error "scanDef"
+
+                   dst          = a::sub (defsTable, i)
+                   src          = a::sub (usesTable, i)
+                   instruction        = a::sub (ssaOpTable, i)
+                   my (rdst, rsrc) = defUse instruction
+                   my (kdst, ksrc) = opnKind instruction
+                   my (instrSrc, srcCopies) = 
+                        scanUse (src, rsrc, ksrc, [], repair (i))
+                   my (instrDst, dstCopies) = scanDef (dst, rdst, kdst, [], [])
+                   instruction'   = rewriteOperands
+                                   { instruction=instr, dst=instrDst, src=instrSrc }
+                   #  Create instructions in in reverse order 
+                   copiesIn  = makeCopies srcCopies
+                   copiesOut = makeCopies dstCopies
+                   instrs = 
+                        list::revAppend (copiesOut, instruction' .
+                           list::revAppend (copiesIn, instrs))
+              in   doOps (rest, instrs)
+              end
+
+           /* Check if the block Y is an exit with a 
+            * simple jump instruction.
+            */
+           fun isSimpleExit Y = FALSE
+               and
+               (case (a::sub (sinks, Y), a::sub (ops, Y)) of
+                  ([_], [j]) => 
+                    (case a::sub (usesTable, j) of
+                      [] => TRUE
+                    | _  => FALSE
+                    ) 
+                  | _ => FALSE
+               )
+
+           #  Process the sink node 
+           fun doSink([i], fps) = 
+               if isSimpleExit X then fps 
+               else 
+               let fun scan ([], [], fps) = fps
+                     | scan (s . ss, r . rs, fps) = 
+                       let s' = locationOf (i, s)
+                       in  if propagateSink or dstInReg r then 
+                             #  Dealt with in repair later 
+                              scan (ss, rs, fps)
+                           else 
+                             scan (ss, rs, copyToReg (s', r, fps)) 
+                       end
+                     | scan _ = error "doSink::scan"
+ 
+                   src                  = a::sub (usesTable, i)
+                   my t::SINK { liveOut, ... } = a::sub (rtlTable, i)
+                   fps = scan (src, liveOut, repair (i) @ fps)
+               in  fps
+               end
+             | doSink(_, fps) = fps
+
+           #  Process phi copies from all successors of X 
+           fun doPhiCopies X = 
+           let fun scan ([], fps) = fps
+                 | scan((X, Y, _) . es, fps) =
+                   if isSimpleExit Y then scan (es, fps) #  HACK!!! 
+                   else
+                   let phis = a::sub (phis, Y)
+                   in  case phis of 
+                         [] => fps #  nothing to do 
+                       | i . _ =>
+                         let my t::PHI { preds, ... } = a::sub (rtlTable, i)
+                             fun ith ([], n) = error "doPhiCopies"
+                               | ith (p . ps, n) = if p == X then n 
+                                                 else ith (ps, n+1)
+                             n = ith (preds, 0)
+                             fun collect ([], fps) = fps
+                               | collect (phi . phis, fps) =
+                                 let my [d] = a::sub (defsTable, phi)
+                                     s   = list::nth (a::sub (usesTable, phi), n)
+                                     r   = a::sub (posTable, phi)
+                                     s'  = locationOf (phi, s)
+                                     d'  = if dstInReg r then r else d   
+                                     fps = copyToReg (s', d', fps)
+                                     fps = compensation (s', d, fps)
+                                 in  #  renameDef (s, d'); XXX 
+                                     collect (phis, fps)
+                                 end
+                         in  scan (es, collect (phis, fps))
+                         end
+                   end
+               fps = scan (mcg.out_edges X, [])
+           in  fps
+           end
+
+           /*
+            * Stupid lowhalf hack:
+            *  If entry copies or exit copies contain floating point,
+            *  generate a new floating point name just to make sure 
+            *  register allocation is run.
+            */
+           fun floatingPointHack copies = 
+           let fun containsFP [] = FALSE 
+                 | containsFP( { kind, src, dst } . copies) =
+                   kind = c::FP or containsFP copies
+           in  if containsFP copies then (c::new_freg(); ()) else () end
+
+           entryCopies  = doSource (a::sub (sources, X))
+           floatingPointHack entryCopies 
+           entryCopies  = makeCopies entryCopies
+           doPhis (a::sub (phis, X))
+           instrs       = doOps (a::sub (ops, X), entryCopies)
+           phiCopies    = doPhiCopies (X)
+           exitCopies   = doSink (a::sub (sinks, X), phiCopies)
+           floatingPointHack exitCopies 
+           /* case exitCopies of 
+                      [] => ()
+                    | _ => (print("EXIT["$i2s X$"]=");
+                            apply (\\ { src, dst, ... } => 
+                                print (i2s src$"->"$i2s dst$" ")) exitCopies; 
+                            print "\n") */
+           exitCopies   = makeCopies exitCopies
+
+
+           /* Insert the copies before the jump instruction at the  
+            * end of the block.  Copies are in normal order. 
+            * Instructions are in reversed order
+            */
+           fun spliceCopies (instrs, copies) =
+               case instrs of
+                 [] => reverse copies
+               | jmp . rest =>
+                 if machcode_universals::instrKind jmp == machcode_universals::IK_JUMP then
+                    jmp . list::revAppend (copies, rest)
+                 else
+                    list::revAppend (copies, instrs)
+
+           instrs = spliceCopies (instrs, exitCopies)
+       in  
+           machcode_controlflow_graph::instructions (mcg.node_info X) := instrs; #  update block! 
+           apply rename (dom.next X);    #  walk the tree! 
+           undoRenaming(*renamingTrail)
+       end
+
+   in  rename ENTRY;
+       #  Move the instructions from the entry block to all its successors 
+       let entryInstructions = machcode_controlflow_graph::instructions (mcg.node_info ENTRY)
+       in  case *entryInstructions of
+             [] => () #  okay 
+           | instrs  => 
+             (print "WARNING: Instructions in ENTRY\n";
+              entryInstructions := []; #  remove it 
+              apply (\\ (_, Y, _) => 
+                   let instructions = machcode_controlflow_graph::instructions (mcg.node_info Y)
+                   in  instructions := *instructions @ map machcode_universals::replicate instrs
+                   end
+                  ) (mcg.out_edges ENTRY)
+             )
+       end;
+       CFG
+   end
+
+end

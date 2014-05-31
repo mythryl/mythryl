@@ -1,0 +1,625 @@
+## treecode-rtl-g.pkg -- derived from  ~/src/sml/nj/smlnj-110.58/new/new/src/MLRISC/mltree/mltree-rtl.sml
+#
+# Basic RTLs and query functions on these RTLs
+#
+# -- Allen Leung
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/rtl.lib
+
+
+
+stipulate
+    package lem =  lowhalf_error_message;					# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package w   =  unt;
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/tools/arch/adl-rtl.pkg
+    #
+    generic package   treecode_rtl_g   (					# RTL is "Register Transfer Language" -- see src/lib/compiler/back/low/doc/latex/lowhalf-md.tex
+	#             ==============
+	#
+	package tcj:  Treecode_Hashing_Equality_And_Display; 			# Treecode_Hashing_Equality_And_Display	is from   src/lib/compiler/back/low/treecode/treecode-hashing-equality-and-display.api
+	package tcr:  Treecode_Rewrite;						# Treecode_Rewrite		is from   src/lib/compiler/back/low/treecode/treecode-rewrite.api
+	package fld:  Treecode_Fold;						# Treecode_Fold			is from   src/lib/compiler/back/low/treecode/treecode-fold.api
+
+	sharing tcj::tcf
+	     == tcr::tcf
+	     == fld::tcf							# "tcf" == "treecode_form".
+	     ;
+    )
+    : (weak)  Treecode_Rtl							# Treecode_Rtl			is from   src/lib/compiler/back/low/treecode/treecode-rtl.api
+    {
+	# Export to client packages:
+	#
+	package tcf = tcj::tcf;							# "tcf" == "treecode_form".
+	package tcj = tcj;
+	package tcr = tcr;
+	package fld = fld;
+
+
+	fun error msg
+	    =
+	    lem::error("treecode_rtl", msg);
+
+	Pos = IN  Int
+            | OUT Int
+            | IO (Int, Int)
+	    ;
+
+	Arity = ZERO | ONE | MANY;
+
+	itow =   unt::from_int;
+
+	infix my | ;								# Shouldn't be necessary XXX SUCKO FIXME
+
+	| = w::bitwise_or;							# Probably not necessary either XXX SUCKO FIXME
+
+	Type            =  tcf::Int_Bitsize;
+	Rtl  	             =  tcf::Void_Expression;
+	Expression           =  tcf::Int_Expression;
+	Flag_Expression =  tcf::Flag_Expression;				# Flag expressions handle zero/parity/overflow/... flag stuff.
+	Hasher               =  tcf::Hash_Fns;
+	Equality             =  tcf::Eq_Fns;
+	Printer              =  tcf::Prettyprint_Fns;
+
+	Div_Rounding_Mode    =  tcf::d::Div_Rounding_Mode;			# d:: is a special rounding mode just for divide instructions.
+
+	hash_rtl      = tcj::hash_void_expression;
+	eq_rtl        = tcj::same_void_expression;
+	show_rtl      = tcj::show;
+	rtl_to_string = tcj::void_expression_to_string;
+	exp_to_string = tcj::int_expression_to_string;
+
+
+	#########################################################################
+	# Attributes
+
+	a_trapping   = w::(<<)(0u1, 0u1);		# May cause traps.
+	a_pinned     = w::(<<)(0u1, 0u2);		# Cannot be moved.
+	a_side_effect = w::(<<)(0u1, 0u3);		# Has side effect.
+	a_mutator    = w::(<<)(0u1, 0u4);
+	a_looker     = w::(<<)(0u1, 0u5);
+	a_branch     = w::(<<)(0u1, 0u6);		# Conditional branch.
+	a_jump       = w::(<<)(0u1, 0u7);		# Has control flow.
+	a_pure       = 0ux0;
+
+	fun is_on (a, flag)
+	    =
+	    unt::bitwise_and (a, flag) != 0u0;
+
+
+	#########################################################################
+	# Create new RTL operators 
+
+	hash_cnt   = REF 0u0;
+
+	fun new_hash ()
+	    =
+	    {   h =   *hash_cnt;
+		#
+                hash_cnt := h + 0u124127;
+		#
+		h;
+	    };
+
+	fun new_op { name, attributes }
+	    =
+	    { name,
+	      attributes =>  REF attributes,
+	      hash       =>  new_hash ()
+	    };
+
+
+	#########################################################################
+	#  Reduce a RTL to compiled internal form
+
+	fun reduce rtl
+	    =
+	    rtl;
+
+
+	#########################################################################
+	# Collect attributes
+
+	fun attribs_of rtl
+	    = 
+	    {   fun void_expression (tcf::STORE_INT _, a) =>  a | (a_side_effect | a_mutator);
+		    void_expression (tcf::GOTO _,  a) =>  a | (a_jump | a_side_effect);
+		    void_expression (tcf::IF _,    a) =>  a | (a_branch | a_jump | a_side_effect);
+		    void_expression (tcf::RET _,   a) =>  a | (a_jump | a_side_effect);
+		    void_expression (tcf::CALL _,  a) =>  a | a_side_effect;
+		    #
+		    void_expression (tcf::ASSIGN(_, tcf::ATATAT(_, rkj::RAM_BYTE, address), value), a)
+			=>
+			a | (a_side_effect | a_mutator);
+
+		    void_expression(_, a)
+			=>
+			a;
+		end;
+
+		fun int_expression (tcf::ADD_OR_TRAP _, a) =>  a | a_trapping;
+		    int_expression (tcf::SUB_OR_TRAP _, a) =>  a | a_trapping;
+		    int_expression (tcf::MULS_OR_TRAP _, a) =>  a | a_trapping;
+		    int_expression (tcf::DIVS_OR_TRAP _, a) =>  a | a_trapping;
+		    int_expression (tcf::LOAD _, a) =>  a | a_looker;
+		    #
+		    int_expression (tcf::ATATAT(_, rkj::RAM_BYTE, _), a)
+			=>
+			a | a_looker;
+
+		    int_expression(_, a)
+			=>
+			a;
+		end;
+
+		fun float_expression (_, a)
+		    =
+		    a;
+
+		fun flag_expression (_, a)
+		    =
+		    a;
+
+		 (fld::fold { void_expression, int_expression, float_expression, flag_expression } ).void_expression   rtl;
+	    };
+
+
+	#########################################################################
+	# Create a uniq RTL 
+
+	fun new  rtl
+	    = 
+	    {   rtl =   reduce rtl;
+
+		attributes =   attribs_of (rtl, a_pure);
+
+		rtl =   case rtl
+			    #
+			    tcf::MOVE_INT_REGISTERS _ =>  rtl;
+			    _                =>  tcf::RTL { e=>rtl, hash=>new_hash(), attributes=>REF attributes };
+			esac;
+		rtl;
+	    };
+
+	copy =   tcf::MOVE_INT_REGISTERS (0,[],[]);		# Not used in this file.
+	jmp  =   new (tcf::GOTO (tcf::PARAM 0,[]));		# Not used in this file.
+
+
+	fun pin (x as tcf::RTL { attributes, ... } )
+		 =>
+		 {   attributes := (*attributes | a_pinned);
+		     x;
+		 };
+
+	    pin _ =>   error "pin";
+	end;
+
+
+
+	#########################################################################
+	# Type queries
+
+	fun has_side_effect (tcf::RTL { attributes, ... } )
+		=>
+		is_on (*attributes, a_side_effect);
+
+	    has_side_effect _
+		=>
+		FALSE;
+	end;
+
+	fun is_conditional_branch (tcf::RTL { attributes, ... } )
+		=>
+		is_on (*attributes, a_branch);
+
+	    is_conditional_branch _
+		=>
+		FALSE;
+	end;
+
+	fun is_jump (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_jump);
+	    is_jump (tcf::GOTO _                  ) =>   TRUE;
+	    #
+	    is_jump _ =>   FALSE;
+	end;
+
+	fun is_looker (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_looker);
+	    is_looker _ =>   FALSE;
+	end;
+
+
+
+	#########################################################################
+	# Def/use queries
+
+	fun def_use  rtl
+	    = 
+	    {   fun contains x
+		    =
+		    list::exists (\\ y =  tcj::same_int_expression (x, y));
+
+
+		fun diff (a, b)
+		    =
+		    list::filter   (\\ z = not (contains z b))   a;
+
+
+		fun uniq ([], l)     =>  reverse l;
+		    #
+		    uniq (x ! xs, l) =>  if (contains x l)  uniq (xs, l);
+					 else               uniq (xs, x ! l);
+					 fi;
+		end;
+
+
+		fun void_expression (tcf::ASSIGN (_, x, y), d, u)
+			=>
+			{   (lhs (x, d, u)) ->   (d, u);
+			    #
+			    rhs (y, d, u);
+			};
+		    void_expression (tcf::MOVE_INT_REGISTERS _,    d, u) =>  (d, u);			#  XXX 
+		    void_expression (tcf::RET _,          d, u) =>  (d, u);
+		    void_expression (tcf::RTL { e, ... }, d, u) =>  void_expression (e, d, u) ;
+		    void_expression (tcf::GOTO (e, _),    d, u) =>  rhs (e, d, u);
+			#
+		    void_expression (tcf::IF (x, y, z), d, u)
+			=> 
+			{   (cond (x, d, u))       ->   (d,  u);
+
+			    (void_expression (y, [], u)) ->   (d1, u);
+			    (void_expression (z, [], u)) ->   (d2, u);
+
+			    u1 =  diff (d1, d2);
+			    u2 =  diff (d2, d1);
+
+			    ( d @ d1 @ d2,
+			      u @ u1 @ u2
+			    );
+			};
+
+		    void_expression (tcf::SEQ rtls,            d, u) =>   void_expressions (rtls, d, u);
+		    void_expression (tcf::CALL { funct, ... }, d, u) =>   rhs (funct, d, u);
+		    #
+		    void_expression (rtl,                    d, u) =>   error ("def_use::void_expression: " + rtl_to_string rtl);
+		end
+
+		also
+		fun void_expressions([], d, u)
+			=>
+			(d, u);
+
+		    void_expressions (s ! ss, d, u)
+			=>
+			{   my (d, u) =  void_expression (s, d, u);
+			    #
+			    void_expressions (ss, d, u);
+			};
+		end
+
+		also
+		fun rhs (tcf::LITERAL _,        d, u) =>  (d,     u);
+		    rhs (x as tcf::ARG _,       d, u) =>  (d, x ! u);
+		    rhs (x as tcf::PARAM _,     d, u) =>  (d, x ! u);
+		    #
+		    rhs (tcf::ADD (_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::SUB (_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::MULS(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::MULU(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::DIVS(_, _, x, y), d, u) =>  bin_op (x, y, d, u);
+		    #
+		    rhs (tcf::DIVU(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::REMS(_, _, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::REMU(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::ADD_OR_TRAP(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::SUB_OR_TRAP(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::MULS_OR_TRAP(_, x, y),    d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::DIVS_OR_TRAP(_, _, x, y), d, u) =>  bin_op (x, y, d, u);
+		    #
+		    rhs (tcf::LEFT_SHIFT  (_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::RIGHT_SHIFT_U(_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::RIGHT_SHIFT (_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::BITWISE_AND(_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::BITWISE_OR (_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::BITWISE_XOR(_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    rhs (tcf::BITWISE_EQV(_, x, y), d, u) =>  bin_op (x, y, d, u);
+		    #
+		    rhs (tcf::NEG        (_, x), d, u) =>  rhs (x, d, u);
+		    rhs (tcf::NEG_OR_TRAP       (_, x), d, u) =>  rhs (x, d, u);
+		    rhs (tcf::BITWISE_NOT(_, x), d, u) =>  rhs (x, d, u);
+		    #
+		    rhs (tcf::SIGN_EXTEND(_, _, x), d, u) =>  rhs (x, d, u);
+		    rhs (tcf::ZERO_EXTEND(_, _, x), d, u) =>  rhs (x, d, u);
+		    #
+		    rhs (x as tcf::ATATAT(_, _, tcf::ARG   _), d, u) =>  (d, x ! u);
+		    rhs (x as tcf::ATATAT(_, _, tcf::PARAM _), d, u) =>  (d, x ! u);
+		    #
+		    rhs (x as tcf::ATATAT(_, _, e ), d, u) =>  rhs  (e,  d, x ! u);
+		    rhs (tcf::OP         (_, _, es), d, u) => rexps (es, d,     u);
+		    #
+		    rhs (tcf::FLOAT_TO_INT(_, _, _, x), d, u)
+			=>
+			float_expression (x, d, u);
+
+		    rhs (tcf::CONDITIONAL_LOAD (_, x, y, z), d, u)
+			=>
+			{   (cond (x, d, u)) ->   (d, u);
+			    #
+			    bin_op (y, z, d, u);
+			};
+
+		    rhs (tcf::BITSLICE(_, _, e), d, u)
+			=>
+			rhs (e, d, u);
+
+		    rhs (tcf::QQQ, d, u)
+			=>
+			(d, u);
+
+		    rhs (e, d, u)
+			=>
+			error ("def_use::rhs: " + tcj::int_expression_to_string e);
+		end	
+
+		also
+		fun bin_op (x, y, d, u)
+		    =
+		    {   my (d, u) =  rhs (x, d, u);
+			#
+			rhs (y, d, u);
+		    }
+
+		also
+		fun rexps ([], d, u)
+			=>
+			(d, u);
+
+		    rexps (e ! es, d, u)
+			=>
+			{   my (d, u) =  rhs (e, d, u);
+			    #
+			    rexps (es, d, u);
+			};
+		end
+
+		also
+		fun lhs (x as tcf::ATATAT(_, _, tcf::ARG   _), d, u) =>  (x ! d, u);
+		    lhs (x as tcf::ATATAT(_, _, tcf::PARAM _), d, u) =>  (x ! d, u);
+		    lhs (x as tcf::ATATAT(_, _, address   ), d, u) =>  rhs (address, x ! d, u);
+		    #
+		    lhs (x as tcf::ARG   _, d, u) =>  (x ! d, u);
+		    lhs (x as tcf::PARAM _, d, u) =>  (x ! d, u);
+		    #
+		    lhs (tcf::QQQ, d, u) =>  (d, u);
+		    #
+		    lhs (e, d, u) =>   error("def_hse::lhs: "  +  tcj::int_expression_to_string  e);
+		end
+
+		also
+		fun float_expression (tcf::FADD(_, x, y), d, u) =>  fbin_op (x, y, d, u);
+		    float_expression (tcf::FSUB(_, x, y), d, u) =>  fbin_op (x, y, d, u);
+		    float_expression (tcf::FMUL(_, x, y), d, u) =>  fbin_op (x, y, d, u);
+		    float_expression (tcf::FDIV(_, x, y), d, u) =>  fbin_op (x, y, d, u);
+		    #
+		    float_expression (tcf::COPY_FLOAT_SIGN (_, x, y), d, u)
+			=>
+			fbin_op (x, y, d, u);
+		    #
+		    float_expression (tcf::FCONDITIONAL_LOAD (_, x, y, z), d, u)
+			=> 
+			{   (cond (x, d, u)) ->   (d, u);
+			    #
+			    fbin_op (y, z, d, u);
+			};
+
+		    float_expression (tcf::FSQRT(_, x), d, u) =>  float_expression (x, d, u);
+		    float_expression (tcf::FABS (_, x), d, u) =>  float_expression (x, d, u);
+		    float_expression (tcf::FNEG (_, x), d, u) =>  float_expression (x, d, u);
+		    #
+		    float_expression (tcf::INT_TO_FLOAT(_, _, x), d, u)
+			=>
+			rhs (x, d, u);
+		    #
+		    float_expression (e, d, u)
+			=>
+			error ("def_ese::float_expression: "  +  tcj::float_expression_to_string  e);
+		end
+
+		also
+		fun fbin_op (x, y, d, u)
+		    =
+		    {   (float_expression (x, d, u)) ->   (d, u);
+			#
+			float_expression (y, d, u);
+		    }
+
+		also
+		fun cond (tcf::CMP (_, _, x, y), d, u) =>   bin_op (x, y, d, u);
+		    cond (tcf::FCMP(_, _, x, y), d, u) =>  fbin_op (x, y, d, u);
+		    #
+		    cond (tcf::TRUE,  d, u) =>  (d, u);
+		    cond (tcf::FALSE, d, u) =>  (d, u);
+		    #
+		    cond (tcf::NOT x,      d, u) =>  cond  (x,    d, u);
+		    cond (tcf::AND (x, y), d, u) =>  cond2 (x, y, d, u);
+		    cond (tcf::OR  (x, y), d, u) =>  cond2 (x, y, d, u);
+		    cond (tcf::XOR (x, y), d, u) =>  cond2 (x, y, d, u);
+		    cond (tcf::EQV (x, y), d, u) =>  cond2 (x, y, d, u);
+		    #
+		    cond (e, d, u) =>  error("def_use::cond: " + tcj::flag_expression_to_string e);
+		end
+
+		also
+		fun cond2 (x, y, d, u)
+		    =
+		    {   my (d, u) =  cond (x, d, u);
+			#
+			cond (y, d, u);
+		    };
+
+		my (d, u)
+		    =
+		    void_expression (rtl, [], []);
+
+		( uniq (d, []),
+		  uniq (u, [])
+		);
+	    };
+
+
+
+	#########################################################################
+	# Giving definitions and uses.  Find out the naming constraints. 
+
+	fun naming_constraints (defs, uses)
+	    =
+	    {   fun collect_fixed((x as tcf::ATATAT(_, _, tcf::LITERAL r)) ! xs, fixed, rest)
+			=>
+		        collect_fixed (xs, (x, multiword_int::to_int r) ! fixed, rest);
+
+		    collect_fixed (x ! xs, fixed, rest)
+			=>
+		        collect_fixed (xs, fixed, x ! rest);
+
+		    collect_fixed ([], fixed, rest)
+			=>
+			(fixed, rest);
+		end;
+
+		(collect_fixed (uses, [], [])) ->   (fixed_uses, other_uses);
+		(collect_fixed (defs, [], [])) ->   (fixed_defs, other_defs);
+
+		fixed = list::filter 
+			   (\\ x =  list::exists (\\ y =  tcj::same_int_expression (x, y)) other_uses)
+			   other_defs;
+
+	       { fixed_uses  => fixed_uses,
+		 fixed_defs  => fixed_defs,
+		 two_address => fixed
+		};
+	    };
+
+
+	#########################################################################
+	# Assign positions to each argument
+
+	fun arg_pos  rtl
+	    =
+	    (ds, us)
+	    where
+	        (def_use  rtl) ->   (defs, uses);
+		#
+		fun pos ([],       i, ds) =>  ds;
+		    pos (d ! defs, i, ds) =>  pos (defs, i+1, (d, i) ! ds);
+		end;
+		#
+		ds =  pos (defs, 0, []);
+		us =  pos (uses, 0, []);
+	    end;
+
+	exception NOT_AN_ARGUMENT;
+
+	fun arg_of  rtl
+	    =
+	    lookup
+	    where 
+	        (arg_pos  rtl) ->   (defs, uses);
+		#
+		fun find (this, (x as (tcf::ATATAT(_, _, tcf::ARG(_, _, name)), _)) ! xs)
+			=>
+		        if (this == name)    THE x;
+			else                 find (this, xs);
+			fi;
+
+		    find (this, (x as (tcf::ARG(_, _, name), _)) ! xs)
+			=>
+		        if (this == name)    THE x;
+                        else                 find (this, xs);
+			fi;
+
+		    find (this, _ ! xs)
+			=>
+			find (this, xs);
+
+		    find (this, [])
+			=>
+			NULL;
+		end;
+
+		fun lookup name
+		    = 
+		    case ( find (name, defs),
+                           find (name, uses)
+                         )
+			#
+			(THE (x, i), THE (_, j)) =>  (x, IO (i, j));
+			(THE (x, i), NULL      ) =>  (x, OUT i);
+			(NULL,       THE (x, i)) =>  (x, IN i);
+			(NULL,       NULL      ) =>  raise exception NOT_AN_ARGUMENT;
+		    esac;
+	    end;
+
+
+	#########################################################################
+	# Return the arity of an argument
+
+	fun arity (tcf::ARG _                          ) =>  MANY;
+	    arity (tcf::ATATAT(_, rkj::RAM_BYTE, _)) =>  MANY;
+	    arity (tcf::ATATAT(_, _, _)                ) =>  ONE;
+	    #	
+	    arity _ =>   raise exception NOT_AN_ARGUMENT;
+	end;
+
+	fun non_const_arity (tcf::ARG _                          ) =>  MANY;
+	    non_const_arity (tcf::ATATAT(_, rkj::RAM_BYTE, _)) =>  MANY;
+	    non_const_arity (tcf::ATATAT(_, _, _)                ) =>  ONE;
+	    #
+	    non_const_arity _ =>   raise exception NOT_AN_ARGUMENT;
+	end;
+
+
+
+	#########################################################################
+	# Code motion queries
+
+	fun can't_move_up (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_side_effect | a_trapping | a_pinned);
+	    #	
+	    can't_move_up (tcf::PHI  _) =>  TRUE;
+	    can't_move_up (tcf::SOURCE) =>  TRUE;
+	    can't_move_up (tcf::SINK  ) =>  TRUE;
+	    #
+	    can't_move_up _           =>  FALSE;
+	end;
+
+	fun can't_move_down (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_side_effect | a_branch | a_jump | a_trapping | a_pinned | a_looker /* can be avoided with pure loads! XXX */);
+	    #
+	    can't_move_down (tcf::PHI  _) =>  TRUE;
+	    can't_move_down (tcf::SOURCE) =>  TRUE;
+	    can't_move_down (tcf::SINK  ) =>  TRUE;
+	    #
+	    can't_move_down rtl =>   error("can't_move_down: " + rtl_to_string rtl);
+	end;
+
+	fun pinned (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_side_effect | a_trapping | a_pinned);
+	    #
+	    pinned (tcf::PHI  _) =>  TRUE;
+	    pinned (tcf::SOURCE) =>  TRUE;
+	    pinned (tcf::SINK  ) =>  TRUE;
+	    #
+	    pinned _           =>  FALSE;
+	end;
+
+	fun can't_be_removed (tcf::RTL { attributes, ... } ) =>   is_on (*attributes, a_side_effect | a_branch | a_jump);
+	    #
+	    can't_be_removed (tcf::SOURCE) =>  TRUE;
+	    can't_be_removed (tcf::SINK  ) =>  TRUE;
+	    #
+	    can't_be_removed _           =>  FALSE;
+	end;
+    };
+end;

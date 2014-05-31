@@ -1,0 +1,1336 @@
+## translate-treecode-to-machcode-pwrpc32-g.pkg
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# This module implements translation from Treecode to
+# abstract PWRPC32 machine instructions.  This is essentially
+# an instruction selection task.
+#
+# Our runtime invocation is from
+#
+#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/pwrpc32/backend-pwrpc32.lib
+
+# I've substantially modified this code generator to support the new Treecode.
+#
+# -- Allen Leung
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+
+
+#DO set_control "compiler::trap_int_overflow" "TRUE";
+
+stipulate
+    package lbl =  codelabel;								# codelabel					is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package tcp =  treecode_pith;							# treecode_pith					is from   src/lib/compiler/back/low/treecode/treecode-pith.pkg
+    package w32 =  one_word_unt;							# one_word_unt					is from   src/lib/std/one-word-unt.pkg
+herein
+
+    generic package translate_treecode_to_machcode_pwrpc32_g (
+	#
+	package mcf: Machcode_Pwrpc32;							# Machcode_Pwrpc32				is from   src/lib/compiler/back/low/pwrpc32/code/machcode-pwrpc32.codemade.api
+
+	package pop: Pseudo_Instructions_Pwrpc32					# Pseudo_Instructions_Pwrpc32			is from   src/lib/compiler/back/low/pwrpc32/treecode/pseudo-instructions-pwrpc32.api
+		     where								# "pop" == "pseudo_instructions".
+			 mcf == mcf;							# "mcf" == "machcode_form" (abstract machine code).
+
+	package txc
+	      : Treecode_Extension_Compiler						# Treecode_Extension_Compiler			is from   src/lib/compiler/back/low/treecode/treecode-extension-compiler.api
+	        where									# "txc" == "treecode_extension_compiler".
+		     mcf == mcf								# "mcf" == "machcode_form" (abstract machine code).
+	        also tcf == mcf::tcf;							# "tcf" == "treecode_form".
+
+	# Support 64 bit mode? 
+	# This should be set to FALSE for Mythryl					# 
+	# 
+	bit64mode:  Bool; 								# 64-bit issue
+
+	#
+	# Cost of multiplication in cycles
+
+	 mult_cost:  Ref( Int );
+    )
+    : (weak)  Translate_Treecode_To_Machcode						# Translate_Treecode_To_Machcode			is from   src/lib/compiler/back/low/treecode/translate-treecode-to-machcode.api
+    {
+	# Export to client packages:
+	#
+	package tcs =  txc::tcs;							# "tcs" == "treecode_stream".
+	package mcf =  mcf;								# "mcf" == "machcode_form" (abstract machine code).
+	package mcg =  txc::mcg;							# "mcg" == "machcode_controlflow_graph".
+
+
+	stipulate
+	    package tcf =  mcf::tcf;							# "tcf" == "treecode_form".
+	    package rgk =  mcf::rgk;							# "rgk" == "registerkinds".
+	    package lcn =  lowhalf_notes;						# lowhalf_notes					is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+	herein
+
+	    fun error msg
+		=
+		lem::error("translate_treecode_to_machcode_pwrpc32_g", msg);
+
+	    Codebuffer     = tcs::Treecode_Codebuffer (mcf::Machine_Op, rkj::cls::Codetemplists, mcg::Machcode_Controlflow_Graph);
+	    Treecode_Codebuffer = tcs::Treecode_Codebuffer (tcf::Void_Expression,    List(tcf::Expression), mcg::Machcode_Controlflow_Graph); 
+
+
+	    my (int_width, natural_widths)
+	       =
+	       if bit64mode  (64,[32, 64]);
+	       else          (32,[32    ]);
+	       fi;
+
+	    package tct									# Exported to client packages.
+		=
+		treecode_transforms_g (							# treecode_transforms_g		is from   src/lib/compiler/back/low/treecode/treecode-transforms-g.pkg
+		    #
+		    package tcf = tcf;
+		    package rgk = rgk;
+		    #
+		    int_bitsize = int_width;
+		    natural_widths = natural_widths;
+		    #
+		    Rep = SE | ZE | NEITHER;
+		    rep = NEITHER;
+		);
+
+	    #########################
+	    # Special instructions
+
+	    fun mtlr r = mcf::MTSPR { rs=>r, spr=>rgk::lr };
+	    fun mflr r = mcf::MFSPR { rt=>r, spr=>rgk::lr };
+
+	    cr0 = rgk::get_ith_hardware_register_of_kind  rkj::FLAGS_REGISTER  0;
+
+	    ret = mcf::BCLR { bo=>mcf::ALWAYS, bf=>cr0, bit=>mcf::LT, lk=>FALSE, labels => [] };
+
+	    fun slli32 { r, i, d }
+		= 
+		mcf::ROTATEI { oper=>mcf::RLWINM, ra=>d, rs=>r, sh=>mcf::IMMED_OP i, mb=>0, me=>THE (31-i) };
+
+	    fun srli32 { r, i, d }
+		=
+		mcf::ROTATEI { oper=>mcf::RLWINM, ra=>d, rs=>r, sh=>mcf::IMMED_OP (int::(%) (32-i, 32)), mb=>i, me=>THE (31) };
+
+	    fun copy' { dst, src, tmp }
+		=
+		mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits => 32, dst, src, tmp };
+
+	    fun fcopy' { dst, src, tmp }
+		=
+		mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits => 64, dst, src, tmp };
+
+
+	    #########################
+	    # Integer multiplication 
+	    #
+	    generic package multiply32_g
+		=
+		stipulate
+		    package rkj =  registerkinds_junk;					# registerkinds_junk	is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+		herein
+		    treecode_mult_g (							# treecode_mult_g	is from   src/lib/compiler/back/low/treecode/treecode-mult-g.pkg
+			#
+			package mcf =  mcf;
+			package tcf =  tcf;
+			#
+			int_width = 32;
+			#
+			Arg  = { r1: rkj::Codetemp_Info, r2: rkj::Codetemp_Info, d: rkj::Codetemp_Info };
+			Argi = { r: rkj::Codetemp_Info, i: Int, d: rkj::Codetemp_Info };
+			#
+			fun mov { r, d } = copy' { dst => [d], src => [r], tmp=>NULL };
+			fun add { r1, r2, d } = mcf::arith { oper=>mcf::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE };
+			#
+			fun slli { r, i, d } = [mcf::BASE_OP (slli32 { r, i, d } )];
+			fun srli { r, i, d } = [mcf::BASE_OP (srli32 { r, i, d } )];
+			#
+			fun srai { r, i, d } = [mcf::arithi { oper=>mcf::SRAWI, rt=>d, ra=>r, im=>mcf::IMMED_OP i } ];
+		    )
+		end;
+
+	    package mulu32 = multiply32_g
+	      (trapping = FALSE;
+	       mult_cost = mult_cost;
+	       fun addv { r1, r2, d } =[mcf::arith { oper=>mcf::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE } ];
+	       fun subv { r1, r2, d } =[mcf::arith { oper=>mcf::SUBF, ra=>r2, rb=>r1, rt=>d, rc=>FALSE, oe=>FALSE } ];
+	       sh1addv = NULL;
+	       sh2addv = NULL;
+	       sh3addv = NULL;
+	      )
+	      (signed = FALSE;);
+
+	    package muls32 = multiply32_g
+	      (trapping = FALSE;
+	       mult_cost = mult_cost;
+	       fun addv { r1, r2, d } =[mcf::arith { oper=>mcf::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE } ];
+	       fun subv { r1, r2, d } =[mcf::arith { oper=>mcf::SUBF, ra=>r2, rb=>r1, rt=>d, rc=>FALSE, oe=>FALSE } ];
+	       sh1addv = NULL;
+	       sh2addv = NULL;
+	       sh3addv = NULL;
+	      )
+	      (signed = TRUE;);
+
+	    package mult32 = multiply32_g
+	      (trapping = TRUE;
+	       mult_cost = mult_cost;
+	       fun addv { r1, r2, d } = error "Mult32::addv";
+	       fun subv { r1, r2, d } = error "Mult32::subv";
+	       sh1addv = NULL;
+	       sh2addv = NULL;
+	       sh3addv = NULL;
+	      )
+	      (signed = TRUE;);
+
+	    fun make_treecode_to_machcode_codebuffer
+		    #
+		    buf
+		    #
+		    # 'buf' is our interface to
+		    #
+		    #     src/lib/compiler/back/low/mcg/make-machcode-codebuffer-g.pkg
+		    #
+		    # which constructs a machine-code graph driven by our 'put commands:
+		    # basically we do a lot of
+		    #
+		    #     buf.put_op 
+		    #
+		    # calls to construct the graph and then one
+		    # 
+		    #     resultgraph = buf.get_completed_cccomponent
+		    #
+		    # call to get the resulting machcode controlflow graph.
+		= 
+		{   put_base_op =   buf.put_op  o  mcf::BASE_OP;
+
+		    # Annotate an instruction:
+		    #
+		    fun annotate (op,           []) =>  op;
+			annotate (op, note ! notes) =>  annotate (mcf::NOTE { op, note }, notes);
+		    end;
+
+		    fun mark'(instruction, notes) =  buf.put_op (annotate (instruction, notes));
+		    fun mark (instruction, notes) =  buf.put_op (annotate (mcf::BASE_OP instruction, notes));
+
+		    # Label where trap is generated.   
+		    # For overflow trapping instructions, we generate a branch 
+		    # to this label.
+
+		    my trap_label:  Ref( Null_Or( lbl::Codelabel ) ) = REF NULL; 
+		    zero_r = rgk::r0; 
+
+		    issue_int_codetemp   = rgk::make_int_codetemp_info;
+		    issue_float_codetemp = rgk::make_float_codetemp_info;
+		    make_flag_codetemp  = rgk::make_codetemp_info_of_kind  rkj::FLAGS_REGISTER;
+
+
+		    fun lt (x, y) =    tcf::mi::lt (32, x, y);
+		    fun le (x, y) =    tcf::mi::le (32, x, y);
+
+		    fun to_int mi =   tcf::mi::to_int (32, mi);
+
+		    fun li i =   tcf::mi::from_int (32, i);
+
+		    fun signed16 mi   = le(-0x8000, mi) and lt (mi, 0x8000);
+		    fun signed12 mi   = le(-0x800,  mi) and lt (mi, 0x800);
+		    fun unsigned16 mi = le (0,      mi) and lt (mi, 0x10000);
+		    fun unsigned5 mi  = le (0,      mi) and lt (mi, 32);
+		    fun unsigned6 mi  = le (0,      mi) and lt (mi, 64);
+
+		    fun move (rs, rd, notes)
+			=
+			if (not (rkj::codetemps_are_same_color (rs, rd)))
+			    #
+			    mark'(copy' { dst => [rd], src => [rs], tmp=>NULL }, notes);
+			fi;
+
+		    fun fmove (fs, fd, notes)
+			=
+			if (not (rkj::codetemps_are_same_color (fs, fd)))
+			    #
+			    mark' (fcopy' { dst => [fd], src => [fs], tmp => NULL }, notes);
+			fi;
+
+		    fun ccmove (ccs, ccd, notes)
+			=
+			if (not (rkj::codetemps_are_same_color (ccd, ccs)))
+			    #
+			    mark (mcf::MCRF { bf=>ccd, bfa=>ccs }, notes);
+			fi;
+
+		    fun copy (dst, src, notes)
+			=
+			mark'( copy' { dst, src,
+				       tmp => case dst    [_] => NULL; 
+							   _  => THE (mcf::DIRECT (issue_int_codetemp ()));
+					      esac 
+				    },
+			       notes
+			     );
+
+		    fun fcopy (dst, src, notes)
+			=
+			mark' ( fcopy' { dst, src, 
+					 tmp=>case dst    [_] => NULL; 
+							   _  => THE (mcf::FDIRECT (issue_float_codetemp()));
+					      esac
+				       },
+				notes
+			     );
+
+		    fun put_branch { bo, bf, bit, address, lk }
+			= 
+			{   fall_thr_lab = lbl::make_anonymous_codelabel();
+			    fall_thr_operand = mcf::LABEL_OP (tcf::LABEL fall_thr_lab);
+
+			    put_base_op (mcf::BC { bo, bf, bit, address, lk, fall=>fall_thr_operand } );
+
+			    buf.put_private_label fall_thr_lab;
+			};
+
+		    fun split n
+			=
+			{   wtoi =  one_word_unt::to_int_x;
+			    w    =  tcf::mi::to_unt1 (32, n);
+			    hi   =  w32::(>>>) (w, 0u16);
+			    lo   =  w32::bitwise_and (w, 0u65535);
+
+			    my (high, low)
+				= 
+				if (w32::(<) (lo, 0u32768))  (hi, lo);
+				else                         (hi+0u1, lo - 0u65536);
+				fi;
+
+			    (wtoi high, wtoi low); 
+		      };
+
+		    fun load_immed_hi_lo (0, lo, rt, notes)
+			    =>
+			    mark (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>mcf::IMMED_OP lo }, notes);
+
+			load_immed_hi_lo (hi, lo, rt, notes)
+			    => 
+			    {   mark (mcf::ARITHI { oper=>mcf::ADDIS, rt, ra=>zero_r, im=>mcf::IMMED_OP hi }, notes);
+
+				if (lo != 0)
+				    #
+				    put_base_op (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>rt, im=>mcf::IMMED_OP lo } );
+				fi;
+			    };
+		    end;
+
+		    fun load_immed (n, rt, notes)
+			= 
+			if   (signed16 n)
+
+			     mark (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>mcf::IMMED_OP (to_int (n)) }, notes);
+			else
+			     my (hi, lo) = split n;
+			     load_immed_hi_lo (hi, lo, rt, notes); 
+			fi;
+
+		    fun load_label_expression (lambda_expression, rt, notes)
+			= 
+			mark (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>mcf::LABEL_OP lambda_expression }, notes);
+
+		    fun immed_operand range (e1, e2 as tcf::LITERAL i)
+			    =>
+			    (expr e1, if (range i ) mcf::IMMED_OP (to_int i); else mcf::REG_OP (expr e2);fi);
+
+			immed_operand _ (e1, x as tcf::LATE_CONSTANT _) => (expr e1, mcf::LABEL_OP x);
+			immed_operand _ (e1, x as tcf::LABEL _) => (expr e1, mcf::LABEL_OP x);
+
+			immed_operand _ (e1, tcf::LABEL_EXPRESSION lambda_expression)
+			    =>
+			    (expr e1, mcf::LABEL_OP lambda_expression);
+
+			immed_operand _ (e1, e2)
+			    =>
+			    (expr e1, mcf::REG_OP (expr e2));
+		    end 
+
+		    also
+		    fun comm_immed_operand range (e1 as tcf::LITERAL _, e2)
+			    => 
+			    immed_operand range (e2, e1);
+
+			comm_immed_operand range (e1 as tcf::LATE_CONSTANT _, e2)
+			    => 
+			    immed_operand range (e2, e1);
+
+			comm_immed_operand range (e1 as tcf::LABEL _, e2)
+			    =>
+			    immed_operand range (e2, e1);
+
+			comm_immed_operand range (e1 as tcf::LABEL_EXPRESSION _, e2)
+			    =>
+			    immed_operand range (e2, e1);
+
+			comm_immed_operand range arg
+			    =>
+			    immed_operand range arg;
+		    end 
+
+		    also
+		    fun e_comm_imm range (oper, operi, e1, e2, rt, notes)
+			= 
+			case (comm_immed_operand range (e1, e2))
+
+			    (ra, mcf::REG_OP rb)
+				=>
+				mark (mcf::ARITH { oper, ra, rb, rt, rc=>FALSE, oe=>FALSE }, notes);
+
+			    (ra, operand)
+				=> 
+				mark (mcf::ARITHI { oper=>operi, ra, im=>operand, rt }, notes);
+			esac
+
+
+		    # Compute a base/displacement effective address
+		    #
+		    also
+		    fun address (size, tcf::ADD(_, e, tcf::LITERAL i))
+			    =>
+			    {   ra = expr e;
+
+				if (size i)
+
+				    (ra, mcf::IMMED_OP (to_int i));
+				else 
+				    my (hi, lo) = split i; 
+
+				    tmp_r = issue_int_codetemp ();
+
+				    put_base_op (mcf::ARITHI { oper=>mcf::ADDIS, rt=>tmp_r, ra, im=>mcf::IMMED_OP hi } );
+
+				    (tmp_r, mcf::IMMED_OP lo);
+				fi;
+			    };
+
+		       address (size, tcf::ADD (type, tcf::LITERAL i, e))
+			   =>
+			   address (size, tcf::ADD (type, e, tcf::LITERAL i));
+
+		       address (size, expression as tcf::SUB (type, e, tcf::LITERAL i))
+			   => 
+			   (address (size, tcf::ADD (type, e, tcf::LITERAL (tcf::mi::negt (32, i)))) 
+			   except
+			       OVERFLOW =  (expr expression, mcf::IMMED_OP 0));
+
+		       address (size, tcf::ADD(_, e1, e2))
+			   =>
+			   (expr e1, mcf::REG_OP (expr e2));
+
+		       address (size, e)
+			   =>
+			   (expr e, mcf::IMMED_OP 0);
+		    end 
+
+		    # Convert lowhalf to registerset: 
+		    also
+		    fun registerset lowhalf
+			=
+			g (lowhalf, rgk::empty_codetemplists)
+			where
+			    add_ccreg = rkj::cls::add_codetemp_to_appropriate_kindlist; 
+
+			    fun g ([], acc) => acc;
+				#
+				g (tcf::INT_EXPRESSION   (tcf::CODETEMP_INFO (_, r)) ! regs, acc) =>  g (regs, rgk::add_codetemp_info_to_appropriate_kindlist (r, acc));
+				g (tcf::FLOAT_EXPRESSION (tcf::CODETEMP_INFO_FLOAT(_, f)) ! regs, acc) =>  g (regs, rgk::add_codetemp_info_to_appropriate_kindlist (f, acc));
+				#
+				g (tcf::FLAG_EXPRESSION (tcf::CC (_, cc)) ! regs, acc) => g (regs, add_ccreg (cc, acc));			# "cc" is "condition code" -- zero/parity/overflow/... flag stuff.
+				g (tcf::FLAG_EXPRESSION (tcf::FCC(_, cc)) ! regs, acc) => g (regs, add_ccreg (cc, acc));
+				#
+				g(_ ! regs, acc) => g (regs, acc);
+			    end;
+			end
+
+
+		    # Translate a void_expression, and annotate it   
+		    #
+		    also
+		    fun void_expression (tcf::LOAD_INT_REGISTER(_, rd, e), notes) => do_expr (e, rd, notes);
+			void_expression (tcf::LOAD_FLOAT_REGISTER(_, fd, e), notes) => do_float_expression (e, fd, notes);
+			void_expression (tcf::LOAD_INT_REGISTER_FROM_FLAGS_REGISTER (ccd, flag_expression), notes) => do_flag_expression (flag_expression, ccd, notes);
+			void_expression (tcf::MOVE_INT_REGISTERS(_, dst, src), notes) => copy (dst, src, notes);
+			void_expression (tcf::MOVE_FLOAT_REGISTERS(_, dst, src), notes) => fcopy (dst, src, notes);
+
+			void_expression (tcf::GOTO (tcf::LABEL_EXPRESSION lambda_expression, labs), notes)
+			    =>
+			    mark (mcf::BB { address=>mcf::LABEL_OP lambda_expression, lk=>FALSE }, notes);
+
+			void_expression (tcf::GOTO (x as (tcf::LABEL _ | tcf::LATE_CONSTANT _), labs), notes)
+			    =>
+			    mark (mcf::BB { address=>mcf::LABEL_OP x, lk=>FALSE }, notes);
+
+			void_expression (tcf::GOTO (int_expression, labs), notes)
+			    =>
+			    {   rs = expr (int_expression);
+				put_base_op (mtlr (rs));
+				mark (mcf::BCLR { bo=>mcf::ALWAYS, bf=>cr0, bit=>mcf::LT, lk=>FALSE, labels=>labs }, notes);
+			    };
+
+			void_expression (tcf::CALL { funct, targets, defs, uses, region, pops, ... }, notes)
+			    => 
+			    call (funct, targets, defs, uses, region, [], notes, pops); 
+
+			void_expression (tcf::FLOW_TO (tcf::CALL { funct, targets, defs, uses, region, pops, ... }, 
+					cut_to), notes) => 
+			   call (funct, targets, defs, uses, region, cut_to, notes, pops); 
+
+			void_expression (tcf::RET flow, notes) =>  mark (ret, notes);
+
+			void_expression (tcf::STORE_INT   (type, ea, data, mem), notes) =>   store (type, ea, data, mem, notes);
+			void_expression (tcf::STORE_FLOAT (type, ea, data, mem), notes) =>  fstore (type, ea, data, mem, notes);
+
+			void_expression (tcf::IF_GOTO (cc, lab), notes) =>  branch (cc, lab, notes);
+			void_expression (tcf::DEFINE l, _)              =>  buf.put_private_label l;
+			
+			void_expression (tcf::LIVE s, notes) =>  mark'(mcf::LIVE { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
+			void_expression (tcf::DEAD s, notes) =>  mark'(mcf::DEAD { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
+
+			void_expression (tcf::NOTE (s, a), notes) =>  void_expression (s, a ! notes);
+			void_expression (tcf::EXT s, notes)       =>  txc::compile_sext (reducer()) { void_expression=>s, notes };
+
+			void_expression (s, _) =>   do_stmts (tct::compile_void_expression s);
+		    end 
+
+		    also
+		    fun call (funct, targets, defs, uses, ramregion, cuts_to, notes, 0)
+			    => 
+			    {   defs =  registerset (defs);
+				uses =  registerset (uses);
+
+				put_base_op (mtlr (expr funct));
+
+				mark (mcf::CALL { def=>defs, uses, cuts_to, ramregion }, notes);
+			    };
+
+			call _
+			    =>
+			    error "pops!=0 not implemented";
+		    end 
+
+		    also
+		    fun branch (tcf::CMP(_, _, tcf::LITERAL _, tcf::LITERAL _), _, _) => error "branch (LITERAL, LITERAL)";
+
+			branch (tcf::CMP (type, cc, e1 as tcf::LITERAL _, e2), lab, notes)
+			    => 
+			    {   cc' = tcp::swap_cond cc;
+				branch (tcf::CMP (type, cc', e2, e1), lab, notes);
+			    };
+
+			branch (cmp as tcf::CMP (type, cond, e1, e2), lab, notes)
+			    =>
+			    {   my (bo, cf)
+				    = 
+				    case cond
+					#
+					tcf::LT  => (mcf::TRUE,  mcf::LT);
+					tcf::LE  => (mcf::FALSE, mcf::GT);
+					tcf::EQ  => (mcf::TRUE,  mcf::EQ);
+					tcf::NE  => (mcf::FALSE, mcf::EQ);
+					tcf::GT  => (mcf::TRUE,  mcf::GT);
+					tcf::GE  => (mcf::FALSE, mcf::LT);
+					tcf::LTU => (mcf::TRUE,  mcf::LT);
+					tcf::LEU => (mcf::FALSE, mcf::GT);
+					tcf::GTU => (mcf::TRUE,  mcf::GT);
+					tcf::GEU => (mcf::FALSE, mcf::LT);
+					 #
+					(tcf::SETCC | tcf::MISC_COND _) => error "branch (CMP)";
+				   esac;
+
+				ccreg = if TRUE  cr0;
+                                        else     make_flag_codetemp();
+                                        fi;                          #  XXX 
+
+				address = mcf::LABEL_OP (tcf::LABEL lab);
+
+				fun default ()
+				    = 
+				    {   do_flag_expression (cmp, ccreg, []);
+					put_branch { bo, bf=>ccreg, bit=>cf, address, lk=>FALSE };
+				    };
+
+				case (e1, e2)
+
+				    (tcf::BITWISE_AND(_, a1, a2), tcf::LITERAL z)
+					=>
+					if (z == 0 ) 
+
+					    case (comm_immed_operand unsigned16 (a1, a2))
+
+						(ra, mcf::REG_OP rb)
+						    =>
+						    put_base_op (mcf::ARITH { oper=>mcf::AND, ra, rb, rt=>issue_int_codetemp (), rc=>TRUE, oe=>FALSE } );
+
+						(ra, operand)
+						    =>
+						    put_base_op (mcf::ARITHI { oper=>mcf::ANDI_RC, ra, im=>operand, rt=>issue_int_codetemp () } );
+					    esac;
+
+					    branch (tcf::CC (cond, cr0), lab, notes);
+					else 
+					    default();
+					fi;
+
+				    _ => default();
+				esac;
+			    };
+
+			branch (tcf::CC (cc, cr), lab, notes)
+			    => 
+			    {   address=mcf::LABEL_OP (tcf::LABEL lab);
+
+				fun branch (bo, bit)
+				    = 
+				    put_branch { bo, bf=>cr, bit, address, lk=>FALSE };
+
+				case cc    
+				    tcf::EQ => branch (mcf::TRUE, mcf::EQ);
+				    tcf::NE => branch (mcf::FALSE, mcf::EQ);
+
+				   (tcf::LT | tcf::LTU) => branch (mcf::TRUE, mcf::LT);
+				   (tcf::LE | tcf::LEU) => branch (mcf::FALSE, mcf::GT);
+				   (tcf::GE | tcf::GEU) => branch (mcf::FALSE, mcf::LT);
+				   (tcf::GT | tcf::GTU) => branch (mcf::TRUE, mcf::GT);
+
+				   (tcf::SETCC | tcf::MISC_COND _) => error "branch (CC)";
+				esac;
+			    };  
+
+			branch (cmp as tcf::FCMP (fty, cond, _, _), lab, notes)
+			    => 
+			    {   ccreg = if TRUE  cr0;
+                                        else     make_flag_codetemp();
+                                        fi;                         #  XXX 
+
+				lab_op = mcf::LABEL_OP (tcf::LABEL lab);
+
+				fun branch (bo, bf, bit)
+				    = 
+				    put_branch { bo, bf, bit, address=>lab_op, lk=>FALSE };
+
+				fun test2bits (bit1, bit2)
+				    = 
+				    {   ba=(ccreg, bit1);
+					bb=(ccreg, bit2);
+					bt=(ccreg, mcf::FL);
+					put_base_op (mcf::CCARITH { oper=>mcf::CROR, bt, ba, bb } );
+					branch (mcf::TRUE, ccreg, mcf::FL);
+				    };
+
+				do_flag_expression (cmp, ccreg, []);
+
+				case cond
+				    #
+				    tcf::FEQ  => branch (mcf::TRUE,  ccreg, mcf::FE);
+				    tcf::FNEU => branch (mcf::FALSE,  ccreg, mcf::FE);
+				    tcf::FUO  => branch (mcf::TRUE,  ccreg, mcf::FU);
+				    tcf::FGLE => branch (mcf::FALSE,  ccreg, mcf::FU);
+				    tcf::FGT  => branch (mcf::TRUE,  ccreg, mcf::FG);
+				    tcf::FGE  => test2bits (mcf::FG, mcf::FE);
+				    tcf::FGTU => test2bits (mcf::FU, mcf::FG);
+				    tcf::FGEU => branch (mcf::FALSE,  ccreg, mcf::FL);
+				    tcf::FLT  => branch (mcf::TRUE,  ccreg, mcf::FL);
+				    tcf::FLE  => test2bits (mcf::FL, mcf::FE);
+				    tcf::FLTU => test2bits (mcf::FU, mcf::FL);
+				    tcf::FLEU => branch (mcf::FALSE,  ccreg, mcf::FG);
+				    tcf::FNE  => test2bits (mcf::FL, mcf::FG);
+				    tcf::FEQU => test2bits (mcf::FU, mcf::FE);
+				    (tcf::SETFCC | tcf::MISC_FCOND _) => error "branch (FCMP)";
+				esac;
+			    };
+
+			branch _ => error "branch";
+		    end 
+
+		    also
+		    fun do_void_expression s
+			    =
+			    void_expression (s,[]) 
+
+		    also
+		    fun do_stmts ss
+			=
+			apply do_void_expression ss
+
+		    # Emit an integer store:
+		    #
+		    also
+		    fun store (type, ea, data, ramregion, notes)
+			= 
+			{   my (st, size)
+				=
+				case (type,  tct::tsz::size  ea)
+				    #
+				    (8, 32)  => (mcf::STB, signed16);
+				    (8, 64)  => (mcf::STBE, signed12);
+				    (16, 32) => (mcf::STH, signed16);
+				    (16, 64) => (mcf::STHE, signed12);
+				    (32, 32) => (mcf::STW, signed16);
+				    (32, 64) => (mcf::STWE, signed12);
+				    (64, 64) => (mcf::STDE, signed12);
+				    _  => error "store";
+				esac;
+
+			    my (r, disp) = address (size, ea);
+
+			    mark (mcf::ST { st, rs=>expr data, ra=>r, d=>disp, ramregion }, notes); }
+
+		    # Emit a floating point store:
+		    #
+		    also
+		    fun fstore (type, ea, data, ramregion, notes)
+			=
+			{   my (st, size)
+				=
+				case (type,  tct::tsz::size  ea)
+				    #
+				    (32, 32) => (mcf::STFS, signed16);
+				    (32, 64) => (mcf::STFSE, signed12);
+				    (64, 32) => (mcf::STFD, signed16);
+				    (64, 64) => (mcf::STFDE, signed12);
+				    _  => error "fstore";
+				esac;
+
+			    my (r, disp) = address (size, ea);
+
+			    mark (mcf::STF { st, fs=>float_expression data, ra=>r, d=>disp, ramregion }, notes); }
+
+		    also
+		    fun subf_immed (i, ra, rt, notes)
+			= 
+			if (signed16 i )
+			   mark (mcf::ARITHI { oper=>mcf::SUBFIC, rt, ra, im=>mcf::IMMED_OP (to_int i) }, notes);
+			else
+			   mark (mcf::ARITH { oper=>mcf::SUBF, rt, ra, rb=>expr (tcf::LITERAL i), 
+					rc=>FALSE, oe=>FALSE }, notes);
+			fi
+
+		    # Generate an arithmetic instruction 
+		    #
+		    also
+		    fun arith (oper, e1, e2, rt, notes)
+			= 
+			mark (mcf::ARITH { oper, ra=>expr e1, rb=>expr e2, rt, oe=>FALSE, rc=>FALSE },
+			     notes)
+
+		    # Generate a trapping instruction 
+		    also
+		    fun arith_trapping (oper, e1, e2, rt, notes)
+			= 
+			{   ra = expr e1; rb = expr e2;
+			    mark (mcf::ARITH { oper, ra, rb, rt, oe=>TRUE, rc=>TRUE }, notes);
+			    overflow_trap();
+			}
+
+		    # Generate an overflow trap:
+		    #
+		    also
+		    fun overflow_trap ()
+			=
+			{   label = case *trap_label   
+
+					NULL => {   l = lbl::make_anonymous_codelabel();
+						    trap_label := THE l;
+						    l;
+						};
+					THE l => l;
+				    esac;
+
+			    put_branch { bo=>mcf::TRUE, bf=>cr0, bit=>mcf::SO, lk=>FALSE,
+				       address=>mcf::LABEL_OP (tcf::LABEL label) };
+			}
+
+		    # Generate a load and annotate the instruction 
+		    #
+		    also
+		    fun load (ld32, ld64, ea, ramregion, rt, notes)
+			= 
+			{   my (ld, size)
+				= 
+				if (bit64mode  and  tct::tsz::size ea == 64 )
+				     (ld64, signed12); 
+				else (ld32, signed16);
+				fi;
+
+			    my (r, disp) = address (size, ea);
+
+			    mark (mcf::LL { ld, rt, ra=>r, d=>disp, ramregion }, notes);
+			}
+
+		    # Generate a RIGHT_SHIFT shift operation
+		    # and annotate the instruction:
+		    #
+		    also
+		    fun sra (oper, operi, e1, e2, rt, notes)
+			= 
+			case (immed_operand unsigned5 (e1, e2))
+
+			    (ra, mcf::REG_OP rb)
+				=> 
+				mark (mcf::ARITH { oper, rt, ra, rb, rc=>FALSE, oe=>FALSE }, notes);
+
+			    (ra, rb)
+				=> 
+				mark (mcf::ARITHI { oper=>operi, rt, ra, im=>rb }, notes);
+			esac
+
+		    # Generate a RIGHT_SHIFT_U shift operation
+		    # and annotate the instruction:
+		    #
+		    also
+		    fun srl32 (e1, e2, rt, notes)
+			= 
+			case (immed_operand unsigned5 (e1, e2))
+
+			    (ra, mcf::IMMED_OP n)
+				=>
+				mark (srli32 { r=>ra, i=>n, d=>rt }, notes);
+
+			    (ra, rb)
+				=>
+				mark (mcf::ARITH { oper=>mcf::SRW, rt, ra, rb=>reduce_opn rb,
+					     rc=>FALSE, oe=>FALSE }, notes);
+			esac
+
+		    also
+		    fun sll32 (e1, e2, rt, notes)
+			= 
+			case (immed_operand unsigned5 (e1, e2))   
+
+			    (ra, rb as mcf::IMMED_OP n)
+				=>
+				mark (slli32 { r=>ra, i=>n, d=>rt }, notes);
+
+			    (ra, rb)
+				=>
+				mark (mcf::ARITH { oper=>mcf::SLW, rt, ra, rb=>reduce_opn rb,
+					 rc=>FALSE, oe=>FALSE }, notes);
+			esac
+
+		    # Generate a subtract operation:
+		    #
+		    also
+		    fun subtract (type, e1, e2 as tcf::LITERAL i, rt, notes)
+			    =>
+			    do_expr (tcf::ADD (type, e1, tcf::LITERAL (tcf::mi::negt (32, i))), rt, notes)
+			    except
+				OVERFLOW
+				    =
+				    mark (mcf::ARITH { oper=>mcf::SUBF, rt, ra=>expr e2, 
+					     rb=>expr e1, oe=>FALSE, rc=>FALSE }, notes);
+
+			subtract (type, tcf::LITERAL i, e2, rt, notes)
+			    =>
+			    subf_immed (i, expr e2, rt, notes);
+
+			subtract (type, x as (tcf::LATE_CONSTANT _ | tcf::LABEL _), e2, rt, notes)
+			    =>
+			    mark (mcf::ARITHI { oper=>mcf::SUBFIC, rt, ra=>expr e2,
+					  im=>mcf::LABEL_OP x }, notes);
+
+			subtract (type, e1, e2, rt, notes)
+			    =>
+			    {   rb = expr e1; ra = expr e2;
+				mark (mcf::ARITH { oper=>mcf::SUBF, rt, ra, rb, rc=>FALSE, oe=>FALSE }, notes);
+			    };
+		    end 
+
+		    # Generate optimized multiplication code:
+		    #
+		    also
+		    fun multiply (type, oper, operi, gen_mult, e1, e2, rt, notes)
+			=
+			{   fun nonconst (e1, e2)
+				= 
+				[annotate( 
+				   case (comm_immed_operand signed16 (e1, e2))   
+				     (ra, mcf::REG_OP rb) => 
+				       mcf::arith { oper, ra, rb, rt, oe=>FALSE, rc=>FALSE };
+				    (ra, im) => mcf::arithi { oper=>operi, ra, im, rt }; esac,
+				   notes)];
+
+			    fun const (e, i)
+				=
+				{   r = expr e;
+				    gen_mult { r, i=>to_int (i), d=>rt }
+				    except
+					_ = nonconst (tcf::CODETEMP_INFO (type, r), tcf::LITERAL i);
+				};
+
+			    ops =   case (e1, e2)   
+					(_, tcf::LITERAL i) => const (e1, i);
+					(tcf::LITERAL i, _) => const (e2, i);
+					_            => nonconst (e1, e2);
+				    esac;
+
+			    apply  buf.put_op  ops;
+			}
+
+		    also
+		    fun divu32 x = mulu32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x 
+
+		    also
+		    fun divs32 x = muls32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+
+		    also
+		    fun divt32 x = mult32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x 
+
+		    # Generate optimized division code:
+		    #
+		    also
+		    fun divide (type, oper, gen_div, e1, e2, rt, overflow, notes)
+			=
+			{   fun nonconst (e1, e2)
+				= 
+				{   mark (mcf::ARITH { oper, ra=>expr e1, rb=>expr e2, rt,
+					     oe=>overflow, rc=>overflow }, notes);
+				    if overflow  overflow_trap(); fi;
+				};
+
+			    fun const (e, i)
+				=
+				{   r = expr e;
+				    #
+				    apply  buf.put_op  (gen_div { r, i=>to_int (i), d=>rt } )
+				    except
+					_ =  nonconst (tcf::CODETEMP_INFO (type, r), tcf::LITERAL i);
+				};
+
+			    case (e1, e2)
+				#
+				(_, tcf::LITERAL i) =>    const (e1,  i);
+				_                   => nonconst (e1, e2);
+			    esac;
+			}
+
+		    # Reduce an operand into a register:
+		    #
+		    also
+		    fun reduce_opn (mcf::REG_OP r)
+			    =>
+			    r;
+
+			reduce_opn opn
+			    =>
+			    {   rt = issue_int_codetemp ();
+				put_base_op (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>opn } );
+				rt;
+			    };
+		    end 
+
+		    # Reduce an expression, and return
+		    # the register holding the value.
+		    #
+		    also
+		    fun expr (int_expression as tcf::CODETEMP_INFO(_, r))
+			    =>
+			    if (rkj::codetemps_are_same_color (rgk::lr, r) )
+				rt = issue_int_codetemp ();
+				do_expr (int_expression, rt, []);
+				rt;
+			    else
+				r;
+			    fi;
+
+			expr (int_expression)
+			    => 
+			    {   rt = issue_int_codetemp ();
+				do_expr (int_expression, rt, []);
+				rt;
+			    };
+		    end  
+
+		    # do_expr (e, rt, notes) -- 
+		    #    Reduce the expression e, assign it to rd,
+		    #    and annotate the expression with notes
+		    #
+		    also
+		    fun do_expr (e, rt, notes)
+			=
+			if (rkj::codetemps_are_same_color (rt, rgk::lr))
+			    #
+			    rt = issue_int_codetemp ();
+			    do_expr (e, rt,[]);
+			    mark (mtlr rt, notes);
+			else
+			    case e   
+				tcf::CODETEMP_INFO(_, rs)  => if (rkj::codetemps_are_same_color (rs, rgk::lr))  mark (mflr rt, notes);
+						    else                                              move (rs,  rt, notes);
+						    fi;
+
+				tcf::LITERAL i        => load_immed (i, rt, notes);
+				tcf::LABEL_EXPRESSION lambda_expression => load_label_expression (lambda_expression, rt, notes);
+				tcf::LATE_CONSTANT _     => load_label_expression (e, rt, notes);
+				tcf::LABEL _     => load_label_expression (e, rt, notes);
+
+				# All data widths:
+				#
+				tcf::ADD(_, e1, e2) => e_comm_imm signed16 (mcf::ADD, mcf::ADDI, e1, e2, rt, notes);
+				tcf::SUB (type, e1, e2) => subtract (type, e1, e2, rt, notes);
+
+				# Special PWRPC32 bit operations:
+				#
+				tcf::BITWISE_AND(_, e1, tcf::BITWISE_NOT(_, e2)) => arith (mcf::ANDC, e1, e2, rt, notes);
+				tcf::BITWISE_OR(_, e1, tcf::BITWISE_NOT(_, e2))  => arith (mcf::ORC, e1, e2, rt, notes);
+				tcf::BITWISE_XOR(_, e1, tcf::BITWISE_NOT(_, e2)) => arith (mcf::EQV, e1, e2, rt, notes);
+				tcf::BITWISE_EQV(_, e1, e2)           => arith (mcf::EQV, e1, e2, rt, notes);
+				tcf::BITWISE_AND(_, tcf::BITWISE_NOT(_, e1), e2) => arith (mcf::ANDC, e2, e1, rt, notes);
+				tcf::BITWISE_OR(_, tcf::BITWISE_NOT(_, e1), e2)  => arith (mcf::ORC, e2, e1, rt, notes);
+				tcf::BITWISE_XOR(_, tcf::BITWISE_NOT(_, e1), e2) => arith (mcf::EQV, e2, e1, rt, notes);
+				tcf::BITWISE_NOT(_, tcf::BITWISE_AND(_, e1, e2)) => arith (mcf::NAND, e1, e2, rt, notes);
+				tcf::BITWISE_NOT(_, tcf::BITWISE_OR(_, e1, e2))  => arith (mcf::NOR, e1, e2, rt, notes);
+				tcf::BITWISE_NOT(_, tcf::BITWISE_XOR(_, e1, e2)) => arith (mcf::EQV, e1, e2, rt, notes);
+
+				tcf::BITWISE_AND(_, e1, e2)
+				    => 
+				    e_comm_imm unsigned16 (mcf::AND, mcf::ANDI_RC, e1, e2, rt, notes);
+
+				tcf::BITWISE_OR (_, e1, e2) => e_comm_imm unsigned16 (mcf::OR,  mcf::ORI,  e1, e2, rt, notes);
+				tcf::BITWISE_XOR(_, e1, e2) => e_comm_imm unsigned16 (mcf::XOR, mcf::XORI, e1, e2, rt, notes);
+
+				# 32 bit support:
+				#
+				tcf::MULU (32, e1, e2) => multiply (32, mcf::MULLW, mcf::MULLI,
+								mulu32::multiply, e1, e2, rt, notes);
+				tcf::DIVU (32, e1, e2) => divide (32, mcf::DIVWU, divu32, e1, e2, rt, FALSE, notes);
+
+				tcf::MULS (32, e1, e2) => multiply (32, mcf::MULLW, mcf::MULLI,
+								muls32::multiply, e1, e2, rt, notes);
+
+				tcf::DIVS (tcf::d::ROUND_TO_ZERO, 32, e1, e2)					# d:: is a special rounding mode just for divide instructions.
+				    =>
+				    # On the PWRPC32 we turn overflow checking on despite this
+				    # being DIVS.  That's because divide-by-zero is also
+				    # indicated through "overflow" instead of causing a trap.
+				    #
+				    divide (32, mcf::DIVW, divs32, e1, e2, rt,
+					   TRUE /* !! */,
+					   notes);
+
+				tcf::ADD_OR_TRAP (32, e1, e2) => arith_trapping (mcf::ADD, e1, e2, rt, notes);
+				tcf::SUB_OR_TRAP (32, e1, e2) => arith_trapping (mcf::SUBF, e2, e1, rt, notes);
+				tcf::MULS_OR_TRAP (32, e1, e2) => arith_trapping (mcf::MULLW, e1, e2, rt, notes);
+
+				tcf::DIVS_OR_TRAP (tcf::d::ROUND_TO_ZERO, 32, e1, e2)
+				    =>
+				    divide (32, mcf::DIVW, divt32, e1, e2, rt, TRUE, notes);
+
+				tcf::RIGHT_SHIFT  (32, e1, e2)  => sra (mcf::SRAW, mcf::SRAWI, e1, e2, rt, notes);
+				tcf::RIGHT_SHIFT_U (32, e1, e2)  => srl32 (e1, e2, rt, notes);
+				tcf::LEFT_SHIFT   (32, e1, e2)  => sll32 (e1, e2, rt, notes);
+
+				# 64 bit support
+
+				tcf::RIGHT_SHIFT (64, e1, e2) => sra (mcf::SRAD, mcf::SRADI, e1, e2, rt, notes);
+       #			 tcf::RIGHT_SHIFT_U (64, e1, e2) => srl (32, mcf::SRD, mcf::RLDINM, e1, e2, rt, notes)
+       #			 tcf::LEFT_SHIFT (64, e1, e2) => sll (32, mcf::SLD, mcf::RLDINM, e1, e2, rt, notes)
+
+				# loads
+				tcf::LOAD (8, ea, ramregion)   => load (mcf::LBZ, mcf::LBZE, ea, ramregion, rt, notes);
+				tcf::LOAD (16, ea, ramregion) => load (mcf::LHZ, mcf::LHZE, ea, ramregion, rt, notes);
+				tcf::LOAD (32, ea, ramregion) => load (mcf::LWZ, mcf::LWZE, ea, ramregion, rt, notes);
+				tcf::LOAD (64, ea, ramregion) => load (mcf::LDE, mcf::LDE, ea, ramregion, rt, notes);
+
+				# Conditional expression 
+				tcf::CONDITIONAL_LOAD expression
+				    =>
+				    do_stmts (tct::compile_cond { expression, notes, rd=>rt } );
+
+				#  Misc 
+				tcf::LET (s, e) => { do_void_expression s; do_expr (e, rt, notes);};
+				tcf::RNOTE (e, lcn::MARKREG f) => { f rt; do_expr (e, rt, notes);};
+				tcf::RNOTE (e, a) => do_expr (e, rt, a ! notes);
+				tcf::REXT e => txc::compile_rext (reducer()) { e, rd=>rt, notes };
+				e => do_expr (tct::compile_int_expression e, rt, notes);
+			    esac;
+			fi
+
+		    # Generate a floating point load:
+		    #
+		    also
+		    fun fload (ld32, ld64, ea, ramregion, ft, notes)
+			=
+			{   my (ld, size)
+				= 
+				if (bit64mode and tct::tsz::size ea == 64)  (ld64, signed12); 
+				else                                        (ld32, signed16);
+				fi;
+
+			    my (r, disp) = address (size, ea);
+
+			    mark (mcf::LF { ld, ft, ra=>r, d=>disp, ramregion }, notes);
+			}
+
+		    # Generate a floating-point binary operation:
+		    #
+		    also
+		    fun fbinary (oper, e1, e2, ft, notes)
+			= 
+			mark (mcf::FARITH { oper, fa=>float_expression e1, fb=>float_expression e2, ft, rc=>FALSE }, notes)
+
+		    # Generate a floating-point 3-operand operation
+		    # These are of the form
+		    #     +/- e1 * e3 +/- e2
+		    #
+		    also
+		    fun f3 (oper, e1, e2, e3, ft, notes)
+			=
+			mark (mcf::FARITH3 { oper, fa=>float_expression e1, fb=>float_expression e2, fc=>float_expression e3,
+				       ft, rc=>FALSE }, notes)
+
+		    # Generate a floating-point unary operation 
+		    also
+		    fun funary (oper, e, ft, notes)
+			= 
+			mark (mcf::FUNARY { oper, ft, fb=>float_expression e, rc=>FALSE }, notes)
+
+		    # Reduce the expression float_expression,
+		    # return the register that holds
+		    # the value. 
+		    #
+		    also
+		    fun float_expression (tcf::CODETEMP_INFO_FLOAT(_, f))
+			    =>
+			    f;
+
+			float_expression e
+			    => 
+			    {   ft = issue_float_codetemp();
+				#
+				do_float_expression (e, ft, []);
+				#
+				ft;
+			    };
+		    end 
+
+		    # do_expr (float_expression, ft, notes) -- 
+		    #   Reduce the expression float_expression,
+		    #  and assign it to ft. Also annotate float_expression. 
+		    #
+		    also
+		    fun do_float_expression (e, ft, notes)
+			=
+			case e   
+			    tcf::CODETEMP_INFO_FLOAT(_, fs) => fmove (fs, ft, notes);
+
+			    #  Single precision support 
+			    tcf::FLOAD (32, ea, ramregion) => fload (mcf::LFS, mcf::LFSE, ea, ramregion, ft, notes);
+
+			    #  special 3 operand floating point arithmetic 
+			    tcf::FADD (32, tcf::FMUL (32, a, c), b) => f3 (mcf::FMADDS, a, b, c, ft, notes);
+			    tcf::FADD (32, b, tcf::FMUL (32, a, c)) => f3 (mcf::FMADDS, a, b, c, ft, notes);
+			    tcf::FSUB (32, tcf::FMUL (32, a, c), b) => f3 (mcf::FMSUBS, a, b, c, ft, notes);
+			    tcf::FSUB (32, b, tcf::FMUL (32, a, c)) => f3 (mcf::FNMSUBS, a, b, c, ft, notes);
+			    tcf::FNEG (32, tcf::FADD (32, tcf::FMUL (32, a, c), b)) => f3 (mcf::FNMADDS, a, b, c, ft, notes);
+			    tcf::FNEG (32, tcf::FADD (32, b, tcf::FMUL (32, a, c))) => f3 (mcf::FNMADDS, a, b, c, ft, notes);
+			    tcf::FSUB (32, tcf::FNEG (32, tcf::FMUL (32, a, c)), b) => f3 (mcf::FNMADDS, a, b, c, ft, notes);
+
+			    tcf::FADD (32, e1, e2) => fbinary (mcf::FADDS, e1, e2, ft, notes);
+			    tcf::FSUB (32, e1, e2) => fbinary (mcf::FSUBS, e1, e2, ft, notes);
+			    tcf::FMUL (32, e1, e2) => fbinary (mcf::FMULS, e1, e2, ft, notes);
+			    tcf::FDIV (32, e1, e2) => fbinary (mcf::FDIVS, e1, e2, ft, notes);
+
+			    # Double precision support 
+			    tcf::FLOAD (64, ea, ramregion) => fload (mcf::LFD, mcf::LFDE, ea, ramregion, ft, notes);
+
+			    # special 3 operand floating point arithmetic 
+			    tcf::FADD (64, tcf::FMUL (64, a, c), b) => f3 (mcf::FMADD, a, b, c, ft, notes);
+			    tcf::FADD (64, b, tcf::FMUL (64, a, c)) => f3 (mcf::FMADD, a, b, c, ft, notes);
+			    tcf::FSUB (64, tcf::FMUL (64, a, c), b) => f3 (mcf::FMSUB, a, b, c, ft, notes);
+			    tcf::FSUB (64, b, tcf::FMUL (64, a, c)) => f3 (mcf::FNMSUB, a, b, c, ft, notes);
+			    tcf::FNEG (64, tcf::FADD (64, tcf::FMUL (64, a, c), b)) => f3 (mcf::FNMADD, a, b, c, ft, notes);
+			    tcf::FNEG (64, tcf::FADD (64, b, tcf::FMUL (64, a, c))) => f3 (mcf::FNMADD, a, b, c, ft, notes);
+			    tcf::FSUB (64, tcf::FNEG (64, tcf::FMUL (64, a, c)), b) => f3 (mcf::FNMADD, a, b, c, ft, notes);
+
+			    tcf::FADD (64, e1, e2) =>  fbinary (mcf::FADD, e1, e2, ft, notes);
+			    tcf::FSUB (64, e1, e2) =>  fbinary (mcf::FSUB, e1, e2, ft, notes);
+			    tcf::FMUL (64, e1, e2) =>  fbinary (mcf::FMUL, e1, e2, ft, notes);
+			    tcf::FDIV (64, e1, e2) =>  fbinary (mcf::FDIV, e1, e2, ft, notes);
+
+			    tcf::INT_TO_FLOAT (64, _, e) =>  apply  buf.put_op  (pop::cvti2d { reg=>expr e, fd=>ft } );
+
+			    # Single/double precision support:
+			    #
+			    tcf::FABS((32|64), e) =>  funary (mcf::FABS, e, ft, notes);
+			    tcf::FNEG((32|64), e) =>  funary (mcf::FNEG, e, ft, notes);
+			    tcf::FSQRT (32, e)    =>  funary (mcf::FSQRTS, e, ft, notes);
+			    tcf::FSQRT (64, e)    =>  funary (mcf::FSQRT, e, ft, notes);
+
+			    tcf::FLOAT_TO_FLOAT (64, 32, e) =>  do_float_expression (e, ft, notes); #  32->64 is a nop 
+			    tcf::FLOAT_TO_FLOAT (32, 32, e) =>  do_float_expression (e, ft, notes);
+			    tcf::FLOAT_TO_FLOAT (64, 64, e) =>  do_float_expression (e, ft, notes);
+			    #	
+			    tcf::FLOAT_TO_FLOAT (32, 64, e) =>  funary (mcf::FRSP, e, ft, notes);
+
+			    #  Misc 
+			    tcf::FNOTE (e, lcn::MARKREG f) => { f ft; do_float_expression (e, ft, notes);};
+			    tcf::FNOTE (e, a) => do_float_expression (e, ft, a ! notes);
+			    tcf::FEXT e => txc::compile_fext (reducer()) { e, fd=>ft, notes };
+			    _ => error "doFexpr";
+			esac
+
+		    also
+		    fun cc_expr (tcf::CC  (_, cc)) =>  cc;		# "cc" == "condition code", i.e. a bit in the flags register, like Z(ero)/P(arity)/O(verflow)/...
+			cc_expr (tcf::FCC (_, cc)) =>  cc;
+			#
+			cc_expr  flag_expression
+			    =>
+			    {   cc = make_flag_codetemp ();
+				#
+				do_flag_expression (flag_expression, cc,[]);
+				#
+				cc;
+			    };
+		    end 
+
+		    # Reduce a flag expression
+		    # and assign the result to ccd
+		    # 
+		    also
+		    fun do_flag_expression (flag_expression, ccd, notes)
+			= 
+			case flag_expression    
+			    #
+			    tcf::CMP (type, cc, e1, e2)
+				=> 
+				{   my (opnds, cmp)
+					=
+					case cc
+					    #    
+					    (tcf::LT | tcf::LE | tcf::EQ | tcf::NE | tcf::GT | tcf::GE)
+						=>
+						(immed_operand signed16, mcf::CMP);
+
+					    _   =>
+						(immed_operand unsigned16, mcf::CMPL);
+					esac;
+
+				    my (operand_a, operand_b)
+					=
+					opnds (e1, e2);
+
+				    l   = case type   
+					      32 => FALSE; 
+					      64 => TRUE; 
+					      _  => error "do_flag_expression";
+					  esac; 
+
+				    mark (mcf::COMPARE { cmp, l, bf=>ccd, ra=>operand_a, rb=>operand_b }, notes); 
+				};
+
+			    tcf::FCMP (fty, fcc, e1, e2)
+				=> 
+				mark (mcf::FCOMPARE { cmp=>mcf::FCMPU, bf=>ccd, fa=>float_expression e1, fb=>float_expression e2 }, notes); 
+
+			    tcf::CC(_, cc)                   => ccmove (cc, ccd, notes);
+			    tcf::CCNOTE (cc, lcn::MARKREG f) => {  f ccd;  do_flag_expression (cc, ccd, notes); };
+			    tcf::CCNOTE (cc, a)              => do_flag_expression (cc, ccd, a ! notes);
+
+			    tcf::CCEXT e
+				=>
+				txc::compile_ccext (reducer()) { e, ccd, notes };
+
+			    _   => error "do_flag_expression: Not implemented";
+			esac
+
+		    also
+		    fun put_trap ()
+			=
+			put_base_op (mcf::TW { to=>31, ra=>zero_r, si=>mcf::IMMED_OP 0 } ) 
+
+		    also
+		    fun start_new_cccomponent' _
+			=
+			{   trap_label := NULL;
+			    #
+			    buf.start_new_cccomponent 0;				# The '0' is a dummy value here;  in other contexts it is used to pre-size the codesegment buffer.
+			}
+
+		    also
+		    fun get_completed_cccomponent' a
+			=
+			{   case *trap_label
+				#
+				NULL      =>    ();
+				#
+				THE label =>    {   buf.put_private_label  label;
+						    #
+						    put_trap ();
+						    #
+						    trap_label := NULL;
+						}; 
+			    esac;
+
+			    buf.get_completed_cccomponent  a;
+			}
+
+		    also
+		    fun reducer ()
+			=
+			tcs::REDUCER
+			  { reduce_int_expression       =>  expr,
+			    reduce_float_expression     =>  float_expression,
+			    reduce_flag_expression      =>  cc_expr,
+			    reduce_void_expression      =>  void_expression,
+			    operand                     =>  (\\ _ = error "operand"),
+			    #
+			    reduce_operand		=>  reduce_opn,
+			    address_of			=>  (\\ _ = error "address_of"),
+			    put_op			=>  buf.put_op  o  annotate,
+			    treecode_stream		=>  self (),
+			    #
+			    codestream			=>  buf
+			  }
+
+		    also
+		    fun self ()
+			= 
+			{
+			  start_new_cccomponent =>  start_new_cccomponent',
+			  get_completed_cccomponent   =>  get_completed_cccomponent',
+			  put_op                =>  do_void_expression,
+			  #
+			  put_pseudo_op		=>  buf.put_pseudo_op,
+			  put_private_label	=>  buf.put_private_label,
+			  put_public_label	=>  buf.put_public_label,
+			  put_comment		=>  buf.put_comment,
+			  put_bblock_note	=>  buf.put_bblock_note,
+			  get_notes		=>  buf.get_notes,
+			  #
+			  put_fn_liveout_info	=>  \\ lowhalf =  buf.put_fn_liveout_info (registerset lowhalf)
+			};
+
+		    self ();
+		 };
+	end;
+    };
+end;
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

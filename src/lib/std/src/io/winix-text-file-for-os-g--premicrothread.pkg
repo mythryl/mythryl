@@ -1,0 +1,2377 @@
+## winix-text-file-for-os-g--premicrothread.pkg
+#
+#     Here we combine the platform-specific code passed in as wxd
+#     with our platform-independent body code to produce a full
+#     platform-specific text-file I/O implementation.
+#    
+#     In other words, the function of this package is to factor
+#     out the code in common between posix and winix textfiles,
+#     to avoid code duplication.
+#    
+#     At the moment it looks like some posix-specific code has
+#     crept into the body of this generic. (My fault, I expect.)
+#     This needs to be fixed if we start actually supporting
+#     win32 again. 
+#                                 -- CrT 2012-03-06
+#
+# This version targets monothreaded code, so threadkit provides an alternate:
+#
+#     src/lib/std/src/io/winix-text-file-for-os-g.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+#
+# QUESTION: what operations should raise exceptions when the stream is
+# closed?		XXX BUGGO FIXME
+
+stipulate
+    package at  =  run_at__premicrothread;							# run_at__premicrothread				is from   src/lib/std/src/nj/run-at--premicrothread.pkg
+    package ci  =  mythryl_callable_c_library_interface;					# mythryl_callable_c_library_interface			is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    package eow =  io_startup_and_shutdown__premicrothread;	# "eow" == "end of world"	# io_startup_and_shutdown__premicrothread		is from   src/lib/std/src/io/io-startup-and-shutdown--premicrothread.pkg
+    package hth =  hostthread;									# hostthread						is from   src/lib/std/src/hostthread.pkg
+    package int =  int_guts;									# int_guts						is from   src/lib/std/src/int-guts.pkg
+    package iox =  io_exceptions;								# io_exceptions						is from   src/lib/std/src/io/io-exceptions.pkg
+    package ns  =  number_string;								# number_string						is from   src/lib/std/src/number-string.pkg
+    package psx =  posixlib;									# posixlib						is from   src/lib/std/src/psx/posixlib.pkg
+    package rt  =  runtime;									# runtime						is from   src/lib/core/init/runtime.pkg
+    package stc =  string_chartype;								# string_chartype					is from   src/lib/std/src/string-chartype.pkg
+    package str =  string_guts;									# string_guts						is from   src/lib/std/src/string-guts.pkg
+    package u1w =  one_word_unt_guts;								# one_word_unt_guts					is from   src/lib/std/src/one-word-unt-guts.pkg
+    #
+    package rvc =     vector_of_chars;								#    vector_of_chars					is from   src/lib/std/src/vector-of-chars.pkg
+    package vsc =     vector_slice_of_chars;							#    vector_slice_of_chars				is from   src/lib/std/src/vector-slice-of-chars.pkg
+    package wsc =  rw_vector_slice_of_chars;							# rw_vector_slice_of_chars				is from   src/lib/std/src/rw-vector-slice-of-chars.pkg
+    package wvc =  rw_vector_of_chars;								# rw_vector_of_chars					is from   src/lib/std/src/rw-vector-of-chars.pkg
+    #
+    package wnx =  winix_guts;									# winix_guts						is from   src/lib/std/src/posix/winix-guts.pkg
+    package wty =  winix_types;									# winix_types						is from   src/lib/std/src/posix/winix-types.pkg
+herein
+
+												# Winix_Text_File_For_Os__Premicrothread		is from   src/lib/std/src/io/winix-text-file-for-os--premicrothread.api
+    # This generic is invoked by:
+    #
+    #     src/lib/std/src/posix/winix-text-file-for-posix--premicrothread.pkg
+    #     src/lib/std/src/win32/winix-text-file-for-win32--premicrothread.pkg
+    #
+    generic package   winix_text_file_for_os_g__premicrothread   (
+	#             ========================================
+	#
+	# On unix  below argument will be							# winix_text_file_io_driver_for_posix__premicrothread	is from   src/lib/std/src/posix/winix-text-file-io-driver-for-posix--premicrothread.pkg
+	# On win32 below argument will be							# win32_text_file_io_driver_for_win32__premicrothread	is from   src/lib/std/src/win32/winix-text-file-io-driver-for-win32--premicrothread.pkg
+
+	package wxd										# "wxd" == "WiniX file io Driver".
+	    :
+	    api {
+		include   Winix_Extended_File_Io_Driver_For_Os__Premicrothread;			# Winix_Extended_File_Io_Driver_For_Os__Premicrothread	is from   src/lib/std/src/io/winix-extended-file-io-driver-for-os--premicrothread.api
+
+		stdin:		Void   ->  drv::Filereader;
+		stdout:		Void   ->  drv::Filewriter;
+		stderr:		Void   ->  drv::Filewriter;
+		#
+		string_reader:  String ->  drv::Filereader;
+	    }
+	    where
+		drv == winix_base_text_file_io_driver_for_posix__premicrothread;
+
+    )
+    : (weak)  Winix_Text_File_For_Os__Premicrothread						# Winix_Text_File_For_Os__Premicrothread		is from   src/lib/std/src/io/winix-text-file-for-os--premicrothread.api
+    {
+	package drv = wxd::drv;									# Exported to clients.
+	    
+	    
+
+	some_element = '\000';
+	    #
+	    # An element for initializing buffers.
+
+	#    # Fast, but unsafe version (from vector_of_chars):
+	#    vecSub = inline_t::vector_of_chars::get
+	#    arrUpdate = inline_t::rw_vector_of_chars::update
+	#
+	#    # Fast vector extract operation.
+	#    # This should never be called with a length of 0.
+	#
+	#    fun vecExtract (v, base, optLen)
+	#        =
+	#        ( len = rvc::length v;
+	#
+	#	  fun newVec n = let
+	#		newV = Assembly::a::make_string n
+	#		fun fill i = if (i < n)
+	#		      then (
+	#			inline_t::vector_of_chars::update (newV, i, vecSub (v, base+i));
+	#			fill (i+1))
+	#		      else ()
+	#		in
+	#		  fill 0; newV
+	#		end;
+	#
+	#	    case (base, optLen)
+	#	        (0, NULL) => v;
+	#	        (_, NULL) => newVec (len - base);
+	#	        (_, THE n) => newVec n;
+	#	    esac
+	#       )
+
+	vec_extract =  vsc::to_vector  o  vsc::make_slice;
+	vec_get     =  rvc::get;
+	rw_vec_set  =  wvc::set;
+
+	burst_substring =  substring::burst_substring;
+
+	empty = "";
+
+	# Return TRUE iff we can stat the given filename:
+	#
+	fun exists (filename: String)			# Or directory name or whatever.
+	    =
+	    {   psx::stat  filename;
+		TRUE;					# If we can 'stat' it, it exists.  So far as we're concerned. :-)
+	    }
+	    except
+		rt::RUNTIME_EXCEPTION _
+		    =
+		    FALSE;				# If we cannot 'stat' it, it doesn't exist.
+
+
+	package pur {					# "pur" == "pure" (I/O).	Exported to clients.
+	    #
+	    Vector        =  rvc::Vector;
+	    Element       =  rvc::Element;
+	    #
+	    Filereader    =  drv::Filereader;
+	    Filewriter    =  drv::Filewriter;
+	    File_Position =  drv::File_Position;
+
+	    # *** Functional input streams ***
+	    #
+	    # We represent an Input_Stream by a pointer to a buffer and an offset
+	    # into the buffer.  The buffers are chained by the "next" field from
+	    # the beginning of the stream towards the end.  If the "next" field
+	    # is LAST, then it refers to an empty buffer (consuming the EOF marker
+	    # involves moving the stream from immediately in front of the LAST
+	    # to the empty buffer).  A "next" field of TERMINATED marks a
+	    # terminated stream.  We also have the invariant that the "last_nextref"
+	    # field of the "global_file_stuff" record points to a 'next' REF that is either
+	    # NO_NEXT or TERMINATED.
+
+	    Input_Stream =  INPUT_STREAM  (Input_Buffer, Int)
+
+	    also
+	    Input_Buffer
+		=
+		INPUT_BUFFER
+		  {
+		    data:		Vector,					# The actual input text for this buffer.
+		    file_position:	Null_Or( File_Position ),		# Offset of 'data' contents within file as a whole.
+		    #
+		    next:		Ref( Next ),				# Next input buffer in the stream, if any.
+		    global_file_stuff:	Global_File_Stuff			# Everything purtaining to the input stream as a whole goes in this record.
+		  }								# All input buffers in a given stream share a single global_file_stuff record.
+
+	    also
+	    Next
+	      = NEXT   Input_Buffer	# Forward link to additional data.
+	      | LAST   Input_Buffer	# End-of-stream marker.
+	      | NO_NEXT			# Placeholder for forward link.
+	      | TERMINATED		# Termination of the stream.
+
+	    also
+	    Global_File_Stuff
+		=
+		GLOBAL_FILE_STUFF
+		  {
+		    filereader:			Filereader,			# This provides our low-level platform-dependent file I/O functionality.
+		    #
+		    read_vector:		Int -> Vector,
+		    #
+		    get_file_position:		Void -> Null_Or( File_Position ),
+		    #
+		    clean_tag:			eow::Tag,
+		    #
+		    is_closed:			Ref( Bool      ),
+		    last_nextref:		Ref( Ref(Next) )		# Points to the NEXT cell of the last buffer.
+		  };
+
+	    #
+	    fun global_file_stuff_of_ibuf (INPUT_BUFFER i)
+		=
+		i.global_file_stuff;
+
+	    #
+	    fun best_io_quantum_of_ibuf  buf
+		=
+		{   (global_file_stuff_of_ibuf  buf)
+			->
+			GLOBAL_FILE_STUFF { filereader => drv::FILEREADER rd, ... };
+
+		    rd.best_io_quantum;
+		};
+
+	    #
+	    fun read_vector (INPUT_BUFFER { global_file_stuff => GLOBAL_FILE_STUFF i, ... } )
+		=
+		i.read_vector;
+
+	    #
+	    fun raise_io_exception (GLOBAL_FILE_STUFF { filereader => drv::FILEREADER { filename, ... }, ... }, op, cause)
+		=
+		raise exception  iox::IO { op, name => filename, cause };
+
+	    #
+	    fun extend_stream (read_fn, ml_op, buf as INPUT_BUFFER { next, global_file_stuff, ... } )		# Read 4K or so from the file and append it to the buffer list as a new INPUT_BUFFER.
+		=
+		{   global_file_stuff ->  GLOBAL_FILE_STUFF { get_file_position, last_nextref, ... };
+		    #
+		    file_position =  get_file_position ();
+
+		    data          =  read_fn (best_io_quantum_of_ibuf buf);
+
+		    new_next      =  REF NO_NEXT;
+
+		    buf' = INPUT_BUFFER { file_position, data, global_file_stuff,  next => new_next  };
+
+		    result =    if (rvc::length data == 0)   LAST buf';
+				else                         NEXT buf';
+				fi;
+
+		    next := result;
+		    last_nextref := new_next;
+
+		    result;
+		}
+		except
+		    ex =  raise_io_exception (global_file_stuff, ml_op, ex);
+
+	    #
+	    fun get_next_buffer  (read_fn, ml_op)  (buf as INPUT_BUFFER { next, global_file_stuff, ... } )
+		=
+		case *next
+		    #
+		    TERMINATED =>  LAST buf;
+		    NO_NEXT    =>  extend_stream (read_fn, ml_op, buf);
+		    next       =>  next;
+		esac;
+
+
+	    # Read a chunk that is at least
+	    # the specified size:
+	    #
+	    fun read_chunk buf
+		=
+		{   (global_file_stuff_of_ibuf  buf)
+			->
+			GLOBAL_FILE_STUFF { read_vector, filereader => drv::FILEREADER { best_io_quantum, ... }, ... };
+
+		    case (best_io_quantum - 1)
+			#
+			0 => (\\ n =  read_vector n);
+			#
+			k => (\\ n                     # Round up to next multiple of best_io_quantum.
+				 =
+				 read_vector (int::quot((n+k), best_io_quantum) * best_io_quantum));
+		    esac;
+		};
+	    #
+	    fun generalized_input  get_buf
+		=
+		get
+		where
+		    fun get (INPUT_STREAM (buf as INPUT_BUFFER { data, ... }, pos))
+			=
+			{   len =  rvc::length  data;
+			    #
+			    if (pos < len)
+				#
+				( vec_extract (data, pos, NULL),
+				  INPUT_STREAM (buf, len)
+				);
+			    else
+				case (get_buf buf)
+				    #
+				    LAST buf  =>  (empty, INPUT_STREAM (buf, 0));
+				    NEXT rest =>  get (INPUT_STREAM (rest, 0));
+				    _         =>  raise exception FAIL "bogus get_buf";
+				esac;
+			    fi;
+			};
+		end;
+
+
+	    # Terminate an input stream: 
+	    #
+	    fun terminate (GLOBAL_FILE_STUFF { last_nextref, clean_tag, ... } )
+		=
+		case *last_nextref
+		    #
+		    m as REF NO_NEXT
+			=>
+			{   eow::drop_stream_startup_and_shutdown_actions  clean_tag;
+			    #
+			    m := TERMINATED;
+			};
+
+		    m as REF TERMINATED
+			=>
+		       ();
+
+		    _   => raise exception MATCH;		# Quiet compiler.
+		esac;
+
+	    #
+	    fun read (stream as INPUT_STREAM (buf, _))
+		=
+		generalized_input
+		    (get_next_buffer (read_vector buf, "read"))
+		    stream;
+
+	    #
+	    fun read_one (INPUT_STREAM (buf, pos))
+		=
+		{   buf ->  INPUT_BUFFER { data, next, ... };
+
+		    if (pos < rvc::length data)
+			#
+			THE (vec_get (data, pos), INPUT_STREAM (buf, pos+1));
+		    else
+			case *next
+			    #
+			    NEXT buf =>  read_one (INPUT_STREAM (buf, 0));
+			    LAST _   =>  NULL;
+			    #
+			    NO_NEXT
+				=>
+				case (extend_stream (read_vector buf, "read_one", buf))
+				    #
+				    NEXT rest =>  read_one (INPUT_STREAM (rest, 0));
+				    _         =>  NULL;
+				esac;
+
+			    TERMINATED
+				=>
+				NULL;
+		       esac;
+		    fi;
+		};
+	    #
+	    fun read_n (INPUT_STREAM (buf, pos), n)
+		=
+		{   fun join (item, (list, stream))
+			=
+			(item ! list, stream);
+		    #
+		    fun input_list (buf as INPUT_BUFFER { data, ... }, i, n)
+			=
+			{   len    =  rvc::length data;
+			    remain =  len-i;
+
+			    if (remain >= n)
+				#
+				([vec_extract (data, i, THE n)], INPUT_STREAM (buf, i+n));
+			    else
+				join (
+				    vec_extract (data, i, NULL),
+				    next_buf (buf, n-remain)
+				);
+			    fi;
+			}
+
+		    also
+		    fun next_buf (buf as INPUT_BUFFER { next, data, ... }, n)
+			=
+			case *next
+			    #
+			    NEXT buf =>  input_list (buf, 0, n);
+			    LAST  buf =>  ([], INPUT_STREAM (buf, 0));
+			    #
+			    NO_NEXT
+				=>
+				case (extend_stream (read_vector buf, "read_n", buf))
+				    #
+				    NEXT rest =>   input_list (rest, 0, n);
+				    #
+				    _         =>   ([], INPUT_STREAM (buf, rvc::length data));
+				esac;
+
+			    TERMINATED
+				=>
+				([], INPUT_STREAM (buf, rvc::length data));
+			esac;
+
+		    my (data, stream)
+			=
+			input_list (buf, pos, n);
+
+		    (rvc::cat data, stream);
+		};
+	    #
+	    fun read_all (stream as INPUT_STREAM (buf, _))
+		=
+		{
+		    (global_file_stuff_of_ibuf  buf)
+			->
+			GLOBAL_FILE_STUFF { filereader => drv::FILEREADER { avail, ... }, ... };
+
+		    # Read a chunk that is as large as the available input.
+		    # Note that for systems that use CR-LF for '\n', the
+		    # size will be too large, but this should be okay.
+		    #
+		    fun big_chunk _
+			=
+			read_chunk buf delta
+			where
+			    delta = case (avail ())
+					#	
+					NULL  =>  best_io_quantum_of_ibuf buf;
+					THE n =>  n;
+				    esac;
+			end;
+
+		    big_input
+			=
+			generalized_input (get_next_buffer (big_chunk, "read_all"));
+		    #
+		    fun loop (v, stream)
+			=
+			if (rvc::length v == 0)
+			    #	
+			    ([], stream);
+			else
+			    (loop (big_input stream))
+				->
+				(l, stream');
+
+			    (v ! l, stream');
+			fi;
+
+		    (loop (big_input stream))
+			->
+			(data, stream');
+
+		    (rvc::cat data, stream');
+		};
+
+	    #
+	    fun close_input  (INPUT_STREAM (buf, _))
+		=
+		case (global_file_stuff_of_ibuf  buf)
+		    #	
+		    GLOBAL_FILE_STUFF  { is_closed => REF TRUE,  ...  }
+			=>
+			();
+
+		    global_file_stuff as GLOBAL_FILE_STUFF  {  is_closed,  filereader => drv::FILEREADER { close, ... },  ... }
+			=>
+			{   terminate global_file_stuff;
+			    #
+			    is_closed := TRUE;
+			    #
+			    close ()
+			    except
+				ex =  raise_io_exception (global_file_stuff, "close_input", ex);
+			};
+		esac;
+
+	    #
+	    fun end_of_stream (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { next=>REF (NEXT _), ... }  =>  FALSE;
+		    INPUT_BUFFER { next=>REF (LAST _), ... }  =>  TRUE;
+		    #
+		    INPUT_BUFFER { next, data, global_file_stuff=>GLOBAL_FILE_STUFF { is_closed, ... }, ... }
+			=>
+			if (pos != rvc::length data)
+			    #
+			    FALSE;
+			else
+			    case (*next, *is_closed)
+				#
+				(NO_NEXT, FALSE)
+				    =>
+				    case (extend_stream (read_vector buf, "end_of_stream", buf))
+					#
+					LAST _ =>  TRUE;
+					_      =>  FALSE;
+				    esac;
+
+				_ => TRUE;
+			    esac;
+			fi;
+		esac;
+
+	    #
+	    fun make_instream (filereader, data)
+		=
+		{   filereader ->  drv::FILEREADER { read_vector, get_file_position, set_file_position, ... };
+		    #
+		    read_vector' =  read_vector;
+
+		    get_file_position
+			=
+			case (get_file_position, set_file_position)
+			    #
+			    (THE f, THE _) =>   \\ () =  THE (f());
+			    _              =>   \\ () =  NULL;
+			esac;
+
+		    next      =  REF NO_NEXT;
+		    is_closed =  REF FALSE;
+
+		    clean_tag = eow::note_stream_startup_and_shutdown_actions
+				  {
+				    init  =>  \\ () =  is_closed := TRUE,		# Executed at STARTUP_PHASE_11_OF_HEAP_MADE_BY_*_TO_DISK	by   run() in   src/lib/std/src/io/io-startup-and-shutdown--premicrothread.pkg
+				    flush =>  \\ () =  (),
+				    close =>  \\ () =  is_closed := TRUE		# Executed at SHUTDOWN_PHASE_6_CLOSE_OPEN_FILES			by   run() in   src/lib/std/src/io/io-startup-and-shutdown--premicrothread.pkg
+				  };
+
+		    global_file_stuff
+			=
+			GLOBAL_FILE_STUFF
+			  {
+			    filereader,
+			    get_file_position,
+			    read_vector             =>  read_vector',
+			    #	
+			    is_closed,
+			    last_nextref	    =>  REF next,
+			    clean_tag
+			  };
+
+		    # What should we do about the position when there is initial data?
+		    # Suggestion: When building a stream with supplied initial data,
+		    # nothing can be said about the positions inside that initial
+		    # data (who knows where that data even came from!).
+
+		    file_position
+			=
+			if (rvc::length data == 0)   get_file_position ();
+			else                         NULL;
+			fi;
+
+		    INPUT_STREAM(
+		      INPUT_BUFFER { file_position, data, global_file_stuff, next },
+		      0
+		    );
+		};
+
+	    #
+	    fun get_reader (INPUT_STREAM (buf, pos))
+		=
+		{   buf ->  INPUT_BUFFER
+				{ data,
+				  global_file_stuff as GLOBAL_FILE_STUFF { filereader, ... },
+				  next,
+				  ...
+				};
+		    #
+		    fun get_data (NEXT (INPUT_BUFFER { data, next, ... } ))
+			    =>
+			    data ! get_data *next;
+
+			get_data _
+			    =>
+			    [];
+		    end;
+
+		    terminate global_file_stuff;
+
+		    if (pos < rvc::length data)
+			#
+			( filereader,
+			  rvc::cat (vec_extract (data, pos, NULL) ! get_data *next)
+			);
+		    else
+			( filereader,
+			  rvc::cat (get_data *next)
+			);
+		    fi;
+		};
+
+	    # Get the underlying file position of a stream:
+	    #
+	    fun file_position_in (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { file_position=>NULL, global_file_stuff, ... }
+			=>
+			raise_io_exception (global_file_stuff, "filePosIn", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+
+		    INPUT_BUFFER { file_position => THE base, global_file_stuff, ... }
+			=>
+			{   global_file_stuff ->  GLOBAL_FILE_STUFF { filereader => drv::FILEREADER rd,  read_vector,  ... };
+			    #
+			    case (rd.get_file_position, rd.set_file_position)
+				#
+				( THE get_file_position,
+				  THE set_file_position
+				)
+				    =>
+				    {   tmp_pos =  get_file_position ();
+					#
+					fun read_n 0
+						=>
+						();
+
+					    read_n n
+						=>
+						case (rvc::length (read_vector n))
+						    #
+						    0 =>  raise_io_exception (global_file_stuff, "filePosIn", FAIL "bogus position");
+						    k =>  read_n (n-k);
+						esac;
+					end;
+
+					set_file_position base;
+					read_n pos;
+
+					get_file_position ()
+					then
+					    set_file_position tmp_pos;
+				    };
+
+				_   => raise exception FAIL "filePosIn: impossible";
+			    esac;
+			};
+		esac;
+
+
+	    # Operations only for text streams:
+	    #
+	    fun read_line (INPUT_STREAM (buf as INPUT_BUFFER { data, next, ... }, pos))
+		=
+		{   fun join (item, (list, stream))
+			=
+			(item ! list, stream);
+		    #
+		    fun next_buf (buf as INPUT_BUFFER { next, data, ... } )
+			=
+			{   fun last ()
+				=
+				(["\n"], INPUT_STREAM (buf, rvc::length data));
+
+			    case *next
+				#
+				NEXT buf =>  scan_data (buf, 0);
+				LAST buf =>  last ();
+				#
+				NO_NEXT
+				    =>
+				    case (extend_stream (read_vector buf, "read_line", buf))
+					#
+					LAST _    =>  last ();
+					NEXT rest =>  scan_data (rest, 0);
+					_         =>  raise exception MATCH;
+				    esac;
+
+				TERMINATED
+				    =>
+				    last ();
+			    esac;
+			}
+
+		    also
+		    fun scan_data (buf as INPUT_BUFFER { data, next, ... }, i)
+			=
+			{   len = rvc::length data;
+			    #
+			    fun scan j
+				=
+				if (j == len)
+				    #
+				    join (vec_extract (data, i, NULL), next_buf buf);
+				else
+				    if (vec_get (data, j) == '\n')
+					#
+					([vec_extract (data, i, THE (j+1-i))], INPUT_STREAM (buf, j+1));
+				    else
+					scan (j+1);
+				    fi;
+				fi;
+
+			    scan i;
+			  };
+
+		    my (data, stream)
+			=
+			if (rvc::length data == pos)
+			    #
+			    case (get_next_buffer (read_vector buf, "read_line") buf)
+				#
+				LAST buf =>  ([""], INPUT_STREAM (buf, 0));
+				_       =>  next_buf buf;
+			    esac;
+			else
+			    scan_data (buf, pos);
+			fi;
+
+		    result_vec = rvc::cat data;
+
+		    if (rvc::length result_vec == 0)   NULL;
+		    else                               THE (result_vec, stream);
+		    fi;
+		};
+
+
+
+	    ##########################################
+	    #  Output streams
+
+	    Output_Stream
+		=
+		OUTPUT_STREAM
+		  {
+		    buffer:			wvc::Rw_Vector,
+		    first_free_byte_in_buffer:	Ref( Int ),
+		    #
+		    is_closed:			Ref( Bool ),
+		    buffering_mode:		Ref( iox::Buffering_Mode ),				# NO_BUFFERING | LINE_BUFFERING | BLOCK_BUFFERING;
+		    #
+		    filewriter:			Filewriter,
+		    #
+		    write_rw_vector:		wsc::Slice -> Void,
+		    write_vector:		vsc::Slice -> Void,
+		    clean_tag:			eow::Tag
+		  };
+	    #
+	    fun raise_io_exception  (OUTPUT_STREAM { filewriter => drv::FILEWRITER { filename, ... }, ... },  op,  cause)
+		=
+		raise exception  iox::IO { op, name => filename, cause };
+
+	    #
+	    fun is_nl '\n' =>  TRUE;
+		is_nl _    =>  FALSE;
+	    end;
+
+	    #
+	    fun raise_exception_if_output_stream_is_closed (stream as OUTPUT_STREAM { is_closed => REF TRUE, ... }, ml_op)
+		    =>
+		    raise_io_exception (stream, ml_op, iox::CLOSED_IO_STREAM);
+
+		raise_exception_if_output_stream_is_closed _
+		    =>
+		    ();
+	    end;
+
+	    #
+	    fun flush_buffer (stream as OUTPUT_STREAM { buffer, first_free_byte_in_buffer, write_rw_vector, ... }, ml_op)
+		=
+		case *first_free_byte_in_buffer
+		    #
+		    0 => ();
+		    #
+		    n =>    {   write_rw_vector (wsc::make_slice (buffer, 0, THE n));
+				#				
+				first_free_byte_in_buffer :=  0;
+			    }
+			    except x =  raise_io_exception  (stream, ml_op, x);
+		esac;
+
+
+	    # A copy_vec that checks for newlines while it is copying.
+	    # This is used for LINE_BUFFERING output of strings and substrings.
+	    #
+	    fun line_buf_copy_vec (src, src_i, src_len, dst, dst_i)
+		=
+		cpy (src_i, dst_i, FALSE)
+		where
+		    stop = src_i + src_len;
+		    #
+		    fun cpy (src_i, dst_i, linebreak)
+			=
+			if (src_i >= stop)
+			    #
+			    linebreak;
+			else
+			    c = vec_get (src, src_i);
+
+			    rw_vec_set (dst, dst_i, c);
+
+			    cpy (src_i+1, dst_i+1, linebreak or is_nl c);
+			fi;
+		end;
+
+	    #  A copy_vec for BLOCK_BUFFERING output of strings and substrings.
+	    #
+	    fun block_buf_copy_vec (from, from_i, from_len, into, at)
+		=
+		{   wsc::copy_vector  { from =>  vsc::make_slice (from, from_i, THE from_len),
+				        into,
+				        at
+				      };
+		    FALSE;
+		};
+
+	    #
+	    fun write (stream as OUTPUT_STREAM output_stream, string_to_write)
+		=
+		case *buffering_mode
+		    #
+		    iox::NO_BUFFERING    =>  write_direct ();
+		    iox::LINE_BUFFERING  =>  insert   line_buf_copy_vec;
+		    iox::BLOCK_BUFFERING =>  insert  block_buf_copy_vec;
+		esac
+		where
+		    #
+		    raise_exception_if_output_stream_is_closed  (stream, "write");
+
+		    output_stream ->  { buffer, first_free_byte_in_buffer, buffering_mode, ... };
+
+		    #
+		    fun flush ()
+			=
+			flush_buffer (stream, "write");
+
+		    #
+		    fun write_direct ()
+			=
+			{   case *first_free_byte_in_buffer
+				#
+				0 =>	();
+				#
+				n =>    {   output_stream.write_rw_vector (wsc::make_slice (buffer, 0, THE n));
+					    #
+					    first_free_byte_in_buffer := 0;
+					};
+			    esac;
+
+			    output_stream.write_vector  (vsc::make_full_slice  string_to_write);
+			}
+			except
+			    ex =  raise_io_exception (stream, "write", ex);
+
+		    #
+		    fun insert copy_vec
+			=
+			{   buf_len  =  wvc::length  buffer;
+
+			    data_len =  rvc::length  string_to_write;
+
+			    if (data_len >= buf_len)
+				#
+				write_direct ();
+			    else
+				i     =  *first_free_byte_in_buffer;
+
+				avail =  buf_len - i;
+
+				if (avail < data_len)
+				    #
+				    wsc::copy_vector  { from =>  vsc::make_slice (string_to_write, 0, THE avail),
+							into =>  buffer,
+							at   =>  i
+						      };
+
+				    output_stream.write_rw_vector  (wsc::make_full_slice  buffer)
+				    except
+					ex =    {   first_free_byte_in_buffer :=  buf_len;
+						    #
+						    raise_io_exception (stream, "write", ex);
+						};
+
+				    needs_flush
+					=
+					copy_vec (string_to_write, avail, data_len-avail, buffer, 0);
+
+				    first_free_byte_in_buffer :=  data_len - avail;
+
+				    if needs_flush      flush ();   fi;
+
+				else
+
+				    needs_flush
+					=
+					copy_vec (string_to_write, 0, data_len, buffer, i);
+
+				    first_free_byte_in_buffer :=  i + data_len;
+
+				    if (needs_flush or (avail == data_len))
+					#  
+					flush ();
+				    fi;
+				fi;
+			    fi;
+			};
+		end;												# fun write
+
+	    #
+	    fun write_one (stream as OUTPUT_STREAM { buffer, first_free_byte_in_buffer, buffering_mode, write_rw_vector, ... }, element)
+		=
+		{   raise_exception_if_output_stream_is_closed (stream, "write_one");
+		    #
+		    case *buffering_mode
+			#
+			iox::NO_BUFFERING
+			    =>
+			    {   rw_vec_set (buffer, 0, element);
+				#
+				write_rw_vector (wsc::make_slice (buffer, 0, THE 1))
+				except
+				    ex =  raise_io_exception (stream, "write_one", ex);
+			    };
+
+			iox::LINE_BUFFERING
+			    =>
+			    {   i  =  *first_free_byte_in_buffer;
+				i' =  i+1;
+
+				rw_vec_set (buffer, i, element);
+				first_free_byte_in_buffer := i';
+
+				if  (i' == wvc::length buffer
+				or   is_nl element
+				)
+				     flush_buffer (stream, "write_one");
+				fi;
+			    };
+
+			iox::BLOCK_BUFFERING
+			    =>
+			    {   i  =  *first_free_byte_in_buffer;
+				i' =  i+1;
+
+				rw_vec_set (buffer, i, element);
+
+				first_free_byte_in_buffer :=  i';
+
+				if   (i' == wvc::length buffer)
+
+				     flush_buffer (stream, "write_one");
+				fi;
+			    };
+		    esac;
+		};
+	    #
+	    fun flush stream
+		=
+		flush_buffer (stream, "flush");
+
+	    #
+	    fun close_output  (stream  as  OUTPUT_STREAM {  filewriter => drv::FILEWRITER { filename, close, ... },  is_closed,  clean_tag,  ... } )
+		=
+		if (not *is_closed)
+		    #
+		    flush_buffer (stream, "close");
+
+		    is_closed := TRUE;
+
+		    eow::drop_stream_startup_and_shutdown_actions  clean_tag;
+
+# print ("close-output -- is_closed is FALSE so calling close() of '" + filename + "'.    -- winix-text-file-for-os-g--premicrothread.pkg\n");
+		    close ();
+# else
+# print ("close-output -- is_closed is TRUE, nothing to do for '" + filename + "'.    -- winix-text-file-for-os-g--premicrothread.pkg\n");
+		fi;
+
+	    #
+	    fun make_outstream   (wr  as  drv::FILEWRITER {  best_io_quantum,  write_rw_vector,  write_vector, ... },   mode)
+		=
+		{   fun iterate (f, size, subslice) sl
+			=
+			loop sl
+			where
+			    fun loop sl
+				=
+				if (size sl != 0)
+				    #
+				    n = f sl;
+
+				    loop (subslice (sl, n, NULL));
+				fi;
+			end;
+
+		    write_rw_vector'
+			=
+			case write_rw_vector
+			    #
+			    NULL  =>  (\\ _ =  raise exception iox::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, wsc::length, wsc::make_subslice);
+			esac;
+
+
+		    write_vector'
+			=
+			case write_vector
+			    #
+			    NULL  =>  (\\ _ =  raise exception iox::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, vsc::length, vsc::make_subslice);
+			esac;
+
+
+		    # Install a dummy cleaner:
+		    #
+		    tag = eow::note_stream_startup_and_shutdown_actions
+			      {
+				init  =>  \\ () =  (),
+				flush =>  \\ () =  (),
+				close =>  \\ () =  ()
+			      };
+
+		    stream =    OUTPUT_STREAM
+				  {
+				    buffer			=>  wvc::make_rw_vector (best_io_quantum, some_element),
+				    first_free_byte_in_buffer	=>  REF 0,
+				    #
+				    is_closed		=>  REF FALSE,
+				    buffering_mode	=>  REF mode,
+				    filewriter		=>  wr,
+				    clean_tag		=>  tag,
+
+				    write_vector	=>  write_vector',
+				    write_rw_vector	=>  write_rw_vector'
+				  };
+
+		    eow::change_stream_startup_and_shutdown_actions (
+			#
+			tag,
+			#
+			{ init  =>  \\ () = close_output  stream,
+			  flush =>  \\ () = flush         stream,
+			  close =>  \\ () = close_output  stream
+			}
+		    );
+
+		    stream;
+		};
+	    #
+	    fun get_writer (stream as OUTPUT_STREAM { filewriter, buffering_mode, ... } )
+		=
+		{   flush_buffer (stream, "getWriter");
+		    #
+		    (filewriter, *buffering_mode);
+		};
+
+
+
+	    # Position operations on outstreams:
+	    #
+	    Out_Position
+		=
+		OUT_POSITION
+		    { pos:     drv::File_Position,
+		      stream:  Output_Stream
+		    };
+	    #
+	    fun get_output_position (stream as OUTPUT_STREAM { filewriter, ... } )
+		=
+		{   flush_buffer  (stream,  "get_output_position");
+		    #
+		    case filewriter
+			#
+			drv::FILEWRITER { get_file_position => THE f, ... }
+			    =>
+			    OUT_POSITION { pos => f(), stream }
+			    except
+				ex = raise_io_exception (stream, "get_output_position", ex);
+
+			_   =>   raise_io_exception (stream, "get_output_position", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+	    #
+	    fun file_pos_out (OUT_POSITION { pos, stream } )
+		=
+		{   raise_exception_if_output_stream_is_closed (stream, "filePosOut");
+		    #
+		    pos;
+		};
+	    #
+	    fun set_output_position (OUT_POSITION { pos, stream as OUTPUT_STREAM { filewriter, ... } } )
+		=
+		{   raise_exception_if_output_stream_is_closed (stream, "set_output_position");
+		    #
+		    case filewriter
+			#
+			drv::FILEWRITER { set_file_position=>THE f, ... }
+			    =>
+			    (f pos)
+			    except
+				ex =  raise_io_exception (stream, "set_output_position", ex);
+
+			_   =>   raise_io_exception (stream, "get_output_position", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+
+
+	    # Text-specific operations:
+	    #
+	    fun write_substring (stream as OUTPUT_STREAM output_stream, ss)
+		=
+		{   raise_exception_if_output_stream_is_closed (stream, "write_substring");
+		    #
+		    (burst_substring  ss)
+			->
+		        (v, data_start, data_len);
+
+		    output_stream ->   { buffer,  first_free_byte_in_buffer,  buffering_mode,  ...  };
+
+		    buf_len =  wvc::length  buffer;
+
+		    #
+		    fun flush ()
+			=
+			flush_buffer (stream, "write_substring");
+
+		    #
+		    fun write_direct ()
+			=
+			{   case *first_free_byte_in_buffer
+				#
+				0 => ();
+				#
+				n =>    {   output_stream.write_rw_vector  (wsc::make_slice  (buffer, 0, THE n));
+					    #
+					    first_free_byte_in_buffer :=  0;
+					};
+			    esac;
+
+			    output_stream.write_vector
+				#
+				(vsc::make_slice
+				    ( v,
+				      data_start,
+				      THE data_len
+				)   );
+			}
+			except
+			    ex =  raise_io_exception (stream, "write_substring", ex);
+		    #
+		    fun insert copy_vector
+			=
+			{   buf_len =  wvc::length  buffer;
+
+			    if (data_len >= buf_len)
+				#
+				write_direct ();
+			    else
+				i =  *first_free_byte_in_buffer;
+
+				avail =  buf_len - i;
+
+				if (avail < data_len)
+				    #
+				    wsc::copy_vector  { from =>  vsc::make_slice (v, data_start, THE avail),
+							into =>  buffer,
+							at   =>  i
+						      };
+
+				    output_stream.write_rw_vector  (wsc::make_full_slice  buffer)
+				    except
+					x = {   first_free_byte_in_buffer :=  buf_len;
+						#
+						raise_io_exception  (stream,  "write_substring",  x);
+					    };
+
+				    needs_flush
+					=
+					copy_vector (v, data_start+avail, data_len-avail, buffer, 0);
+
+				    first_free_byte_in_buffer :=  data_len - avail;
+
+				    if   needs_flush      flush ();   fi;
+
+				else
+
+				    needs_flush =   copy_vector  (v, data_start, data_len, buffer, i);
+
+				    first_free_byte_in_buffer :=  i + data_len;
+
+				    if (needs_flush  or  avail == data_len)   flush ();   fi;
+				fi;
+			    fi;
+			};
+
+		    case *buffering_mode
+			#
+			iox::NO_BUFFERING    =>  write_direct ();
+			iox::LINE_BUFFERING  =>  insert  line_buf_copy_vec;
+			iox::BLOCK_BUFFERING =>  insert  block_buf_copy_vec;
+		    esac;
+		};
+
+	    #
+	    fun set_buffering_mode  (stream as OUTPUT_STREAM { buffering_mode, ... },  iox::NO_BUFFERING)
+		    =>
+		    {   flush_buffer (stream, "setBufferMode");
+			#
+			buffering_mode :=  iox::NO_BUFFERING;
+		    };
+
+		set_buffering_mode  (stream as OUTPUT_STREAM { buffering_mode, ... },  mode)
+		    =>
+		    {   raise_exception_if_output_stream_is_closed (stream, "setBufferMode");
+			#
+			buffering_mode :=  mode;
+		    };
+	    end;
+
+	    #
+	    fun get_buffering_mode  (stream as OUTPUT_STREAM { buffering_mode, ... } )			# Commented out 2012-03-03 CrT because it is never referenced.
+		=
+		{   raise_exception_if_output_stream_is_closed (stream, "getBufferMode");
+		    #
+		    *buffering_mode;
+		};
+
+	};									# package pur 		("pur" == "pure" (I/O)).
+
+
+
+
+
+
+	######################################################################3
+	# Plain file I/O
+	#
+	# We implement plain file I/O via
+	# simple wrappers around the above
+	# pure I/O implementation:
+
+	Vector  =  rvc::Vector;
+	Element =  rvc::Element;
+
+	Input_Stream  = Ref( pur::Input_Stream  );				# A plain  Input_Stream is just a refcell holding a pure  Input_Stream.
+	Output_Stream = Ref( pur::Output_Stream );				# A plain Output_Stream is just a refvell holding a pure Output_Stream.
+
+	# Input operations:
+	#
+	fun read stream
+	    =
+	    {   (pur::read  *stream)
+		    ->
+		    (v, stream');
+
+		stream := stream';
+
+		v;
+	    };
+
+	#
+	fun read_one stream
+	    =
+	    case (pur::read_one *stream)
+		#
+		THE (element, stream')
+		    =>
+		    {   stream := stream';
+			#
+			THE element;
+		    };
+
+		NULL => NULL;
+	    esac;
+
+	#
+	fun read_n (stream, n)
+	    =
+	    {   (pur::read_n (*stream, n))
+		    ->
+		    (v, stream');
+
+		stream := stream'; v;
+	    };
+	#
+	fun read_all (stream:  Input_Stream)
+	    =
+	    {   (pur::read_all  *stream)
+		    ->
+		    (v, s);
+
+		stream := s;
+
+		v;
+	    };
+
+	#
+	fun peek (stream:  Input_Stream)
+	    =
+	    case (pur::read_one *stream)
+		#
+		THE (element, _) =>  THE element;
+		NULL             =>  NULL;
+	    esac;
+
+	#
+	fun close_input stream
+	    =
+	    {   (*stream)
+		    ->
+		    s as pur::INPUT_STREAM (buf as pur::INPUT_BUFFER { data, ... }, _);
+
+		# Find the end of the stream:
+		#
+		fun find_eos (pur::INPUT_BUFFER { next=>REF (pur::NEXT buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (pur::INPUT_BUFFER { next=>REF (pur::LAST buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (buf as pur::INPUT_BUFFER { data, ... } )
+			=>
+			pur::INPUT_STREAM (buf, rvc::length data);
+		end;
+
+		pur::close_input  s;
+
+		stream :=  find_eos  buf;
+	    };
+	#
+	fun end_of_stream  stream
+	    =
+	    pur::end_of_stream  *stream;
+
+
+	# Output operations:
+	#
+	fun write     (stream, v) =  pur::write(*stream, v);
+	fun write_one (stream, c) =  pur::write_one(*stream, c);
+	#
+	fun flush         stream =  pur::flush         *stream;
+	fun close_output  stream =  pur::close_output  *stream;
+	#
+	fun get_output_position  stream
+	    =
+	    pur::get_output_position  *stream;
+	#
+	fun set_output_position  (stream,  p as pur::OUT_POSITION { stream=>stream', ... } )
+	    =
+	    {   stream := stream';
+		#
+		pur::set_output_position  p;
+	    };
+	#
+	fun make_instream  (stream:  pur::Input_Stream)           =  REF stream;
+	fun get_instream   (stream:       Input_Stream)           =  *stream;
+	fun set_instream   (stream:       Input_Stream, stream')  =  stream := stream';
+	#
+	fun make_outstream (stream:  pur::Output_Stream)          =  REF stream;
+	fun get_outstream  (stream:       Output_Stream)          =  *stream;
+	fun set_outstream  (stream:       Output_Stream, stream') =  stream := stream';
+
+	# Figure out the proper buffering mode for a given writer:
+	# 
+	fun buffering (drv::FILEWRITER { io_descriptor=>NULL, ... } )	# Should rename to "choose_buffering_mode" or similar. XXX SUCKO FIXME.
+		=>
+		iox::BLOCK_BUFFERING;
+
+	    buffering (drv::FILEWRITER { io_descriptor=>THE iod, ... } )
+		=>
+		if (wnx::io::iod_to_iodkind iod  ==   wty::CHAR_DEVICE)	    iox::LINE_BUFFERING;
+		else							    iox::BLOCK_BUFFERING;
+                fi;
+	end;
+
+
+    ######### BEGIN INTERPOLATED 'say.pkg' STUFF #######################3
+
+	server_name =  REF NULL: Ref( Null_Or( String ));
+	log_fd      =  REF NULL: Ref( Null_Or( psx::File_Descriptor ) );
+	#
+	fun log' stringlist
+	    =
+	    case (*server_name, *log_fd)
+		#
+		(THE name, THE fd)
+		    =>
+		    {   string =  (name + ":  " + (cat  stringlist));
+			bytes  =  byte::string_to_bytes string;
+			slice  =  vector_slice_of_one_byte_unts::make_slice (bytes, 0, NULL);
+			psx::write_vector( fd, slice );
+			();
+		    };
+
+		_ => ();
+	    esac;
+
+
+    ######### END   INTERPOLATED 'say.pkg' STUFF #######################3
+
+
+	# * Open files *
+	#   fun open_for_read was originally defined here... 2007-01-19 CrT 
+	#
+	fun open_for_write  filename
+	    =
+	    {   wr = wxd::open_for_write  filename;
+		#
+		make_outstream (pur::make_outstream (wr, buffering wr));
+	    }
+	    except
+		ex =    {   # The following produces too much noise to leave on permamently,
+			    # but the usual error message for a missing source file is hopelessly
+			    # vague without it.  So for now we uncomment it as needed. XXX BUGGO FIXME
+
+			    print (cat ["winix-text-file-for-os-g--premicrothread.pkg: open: failed to open for output: <<<", filename, ">>>\n" ]);
+
+			    raise exception  iox::IO { op=>"open", name=>filename, cause=>ex };
+		        };
+
+
+	#
+	fun open_for_append  filename
+	    =
+	    make_outstream
+		(pur::make_outstream
+		    (wxd::open_for_append filename, iox::NO_BUFFERING)
+		)
+	    except
+		cause =  raise exception iox::IO { op=>"open_for_append", name=>filename, cause };
+
+
+
+	# Text stream specific operations
+	#
+	fun read_line stream
+	    =
+	    null_or::map
+		(\\ (v, s) =  { stream := s;   v;})
+		(pur::read_line  *stream);
+
+	#
+	fun read_lines input_stream
+	    =
+	    read_lines' (input_stream, [])
+	    where
+		fun read_lines' (s, lines_so_far)
+		    =
+		    case (read_line s)
+			#
+			NULL     =>  reverse lines_so_far; 
+			THE line =>  read_lines' (s, line ! lines_so_far);
+		    esac;
+	    end;
+	#
+	fun write_substring (stream, ss)
+	    =
+	    pur::write_substring (*stream, ss);
+
+	#
+	fun open_string src
+	    =
+	    make_instream (pur::make_instream (wxd::string_reader src, empty))
+	    except
+		cause =  raise exception iox::IO { op=>"open_for_read", name=>"<string>", cause };
+
+
+										# wxd == src/lib/std/src/posix/winix-text-file-io-driver-for-posix--premicrothread.pkg
+	# The standard streams stdin/stdout/stderr				# wxd::stdin() constructs a tio::FILEREADER with an embedded 'closed' == REF FALSE.
+	#
+	stipulate
+	    #
+	    fun make_std_in ()
+		=
+		{   (pur::make_instream  (wxd::stdin(),  empty))
+			->
+			(stream as pur::INPUT_STREAM (pur::INPUT_BUFFER { global_file_stuff => pur::GLOBAL_FILE_STUFF { clean_tag, ... }, ... }, _));
+
+		    eow::change_stream_startup_and_shutdown_actions
+			(
+			  clean_tag,
+
+			  { init  =>  \\ () = (),
+			    flush =>  \\ () = (),
+			    close =>  \\ () = ()
+			  }
+			);
+
+		    stream;
+		};
+	    #
+	    fun make_std_out ()
+		=
+		{   wr =  wxd::stdout ();
+
+		    (pur::make_outstream (wr, buffering wr))
+			->
+			(stream as pur::OUTPUT_STREAM { clean_tag, ... } );
+			
+
+		    eow::change_stream_startup_and_shutdown_actions
+			(
+			  clean_tag,
+
+			  { init  =>  \\ () =  (),
+			    flush =>  \\ () =  pur::flush stream,
+			    close =>  \\ () =  pur::flush stream
+			  }
+			);
+
+		    stream;
+		  };
+	    #
+	    fun make_std_err ()
+		=
+		{   (pur::make_outstream (wxd::stderr(), iox::NO_BUFFERING))
+			->
+			(stream as pur::OUTPUT_STREAM { clean_tag, ... } );
+
+		    eow::change_stream_startup_and_shutdown_actions
+			(
+			  clean_tag,
+
+			  { init  =>  \\ () = (),
+			    flush =>  \\ () = pur::flush stream,
+			    close =>  \\ () = pur::flush stream
+			  }
+			);
+
+		    stream;
+	      };
+	herein
+	    # These statements are at top level
+	    # within the generic package; they
+	    # will execute at load/link time:
+	    #
+	    stdin  =  make_instream  (make_std_in  ());				# make_instream  just wraps a REF around arg.
+	    stdout =  make_outstream (make_std_out ());				# make_outstream just wraps a REF around arg.
+	    stderr =  make_outstream (make_std_err ());
+
+	    #  Establish a hook function to rebuild the I/O stack 
+										 my _ = 
+	    at::schedule
+	      (
+		"winix-text-file-for-os-g--premicrothread.pkg: Make stdin/stdout/stderr",	# Arbitrary label for debugging displays.
+
+		[ at::STARTUP_PHASE_4_MAKE_STDIN_STDOUT_AND_STDERR ],		# When to run the function.
+
+		\\ _ = {							# Ignored arg is at::STARTUP_PHASE_4_MAKE_STDIN_STDOUT_AND_STDERR.
+# print "FUBAR:  now  making stdin/stdout/stderr -- src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg\n";
+		    set_instream  (stdin,  make_std_in  ());
+		    set_outstream (stdout, make_std_out ());
+		    set_outstream (stderr, make_std_err ());
+# print "FUBAR:  done making stdin/stdout/stderr -- src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg\n";
+		}
+	      );
+
+	end;									#  with
+
+	#
+	fun print s
+	    =
+	    {   write (stdout, s);
+		flush stdout;
+	    };
+
+	#
+	fun scan_stream  scan_g
+	    =
+	    {   scan =  scan_g  pur::read_one;
+		#
+		do_it
+		where
+		    fun do_it  stream
+			=
+			{   instrm =  get_instream  stream;
+			    #
+			    case (scan instrm)
+				#
+				NULL => NULL;
+				#
+				THE (item, instrm')
+				    =>
+				    {   set_instream (stream, instrm');
+					THE item;
+				    };
+			    esac;
+
+			};
+		end;
+	    };
+
+	#
+	fun open_for_read  filename
+	    =
+	    make_instream (pur::make_instream  (wxd::open_for_read  filename,  empty))
+	    except
+		ex =  {    # The following produces too much noise to leave on permamently,
+			   # but the usual error message for a missing source file is hopelessly
+			   # vague without it.  So for now we uncomment it as needed. XXX BUGGO FIXME
+
+			   # log ["winix-text-file-for-os-g--premicrothread.pkg: open_for_read: failed to open for input: '"];
+			   # log [filename];
+			   # log ["'\n"];
+			   # print ("winix-text-file-for-os-g--premicrothread.pkg: psx::current_directory         = " + (psx::current_directory()) + "\n");
+			   # print "winix-text-file-for-os-g--premicrothread.pkg: open_for_read: failed to open for input: '";
+			   # print filename;
+			   # print "'\n";
+
+			   raise exception iox::IO { op=>"open_for_read", name=>filename, cause=>ex };
+		      };
+
+	#
+	fun as_lines filename
+	    =
+	    {    fd = open_for_read  filename;
+		 result = read_lines fd;
+		 close_input fd;
+		 result;
+	    };
+	#
+	fun from_lines filename lines
+	    =
+	    {   fd = open_for_write  filename;
+		#
+		map  {. write (fd, #line); }  lines;
+
+		flush        fd;
+		close_output fd;
+	    };
+
+
+	###################################################################
+	# Stuff from   src/lib/src/lib/thread-kit/src/lib/logger.pkg
+
+	exception NO_SUCH_LOGTREE_NODE;
+
+	# Where log output goes:
+	#
+	Log_To
+	  #
+	  = LOG_TO_STDOUT
+	  | LOG_TO_STDERR
+	  | LOG_TO_NULL
+	  | LOG_TO_FILE    String
+	  | LOG_TO_STREAM  Output_Stream
+	  ;
+
+	Logtree_Node
+	    =
+	    LOGTREE_NODE
+	      {
+		parent:     Null_Or (Logtree_Node),		# NULL only on root node of tree.
+		name:       String,
+		#
+		logging:    Ref( Bool ),
+		children:   Ref(  List(  Logtree_Node ) )
+	      };
+
+
+	# Default to printing log messages to "mythryl.log":
+	# until someone tells us different via 'set_logger_to':
+	#
+	log_to         =  REF (LOG_TO_FILE "mythryl.log");
+	logger_cleanup =  REF (\\ () = ());
+								my _ =	# Needed because only declarations are syntactically legal here.
+	at::schedule
+	  (
+	    "winix-text-file-for-os-g--premicrothread.pkg: Reset mythryl.log",		# Arbitrary label for debugging displays.
+	    #
+	    [ at::STARTUP_PHASE_2_REOPEN_MYTHRYL_LOG,			# When to run the function.
+	      at::STARTUP_PHASE_14_START_BASE_IMPS
+	    ],
+	    #
+	    \\ _ = {							# Ignored arg is at::STARTUP_PHASE_2_REOPEN_MYTHRYL_LOG
+		server_name    :=  NULL;
+		log_fd         :=  NULL;
+		log_to         :=  LOG_TO_FILE "mythryl.log";
+		logger_cleanup :=  (\\ () = ());
+	    }
+	  );
+
+
+	# Set output for log messsages:
+	#
+	fun set_logger_to  t
+	    =
+	    log_to := t;
+	#
+	fun logger_is_set_to ()
+	    =
+	    *log_to;
+
+	all_logging
+	    =
+	    LOGTREE_NODE
+	      {
+		parent    => NULL,
+		name      => "logger::all_logging",
+		#
+		logging   => REF FALSE,
+		children  => REF []
+	      };
+	#
+	fun for_all f
+	    =
+	    for'
+	    where
+		fun for' (tm as LOGTREE_NODE { children, ... } )
+		    =
+		    {   f tm;
+
+			for_children *children;
+		    }
+
+		also
+		fun for_children []
+			=>
+			();
+
+		    for_children (tm ! r)
+			=>
+			{   for' tm;
+			    for_children r;
+			};
+		end;
+	    end;
+
+	#
+	fun find_logtree_node_by_name  search_name
+	    =
+	    case (find [ all_logging ])
+		#
+		THE node =>  node;
+		NULL     =>  raise exception NO_SUCH_LOGTREE_NODE;
+	    esac 
+	    where
+		fun find [] =>   NULL;
+		    #
+		    find ((node as LOGTREE_NODE { name, children, ... }) ! rest)
+			=>
+			if (name == search_name)
+			    #
+			    THE node;
+			else
+			    case (find *children)
+				#
+				THE node => THE node;
+				NULL     => find rest;
+			    esac;
+			fi;
+		end;
+	    end;
+	#
+	fun make_logtree_leaf
+	    { parent => parent_node as LOGTREE_NODE parent,
+	      name,
+	      default	
+	    }
+	    =
+	    {   avoid_duplicate_children *parent.children;
+
+		new_node
+		    =
+		    LOGTREE_NODE
+		      {
+			name,
+			parent    =>  THE parent_node,
+			logging   =>  REF default,
+			children  =>  REF []
+		      };
+
+		parent.children
+		    :=
+		    new_node ! *parent.children;
+
+		new_node;
+	    }
+	    where
+		#
+		fun avoid_duplicate_children []
+			=>
+			();
+
+		   avoid_duplicate_children ((child_node as LOGTREE_NODE { name => name', ... } ) ! rest)
+		       =>
+		       if (name == name')
+			   #
+			   raise exception FAIL ("logger::make_logtree_leaf: Already have a child '" + name + "' of node '" + parent.name + "'!"  );
+		       else
+			   avoid_duplicate_children  rest;
+		       fi;
+		end;
+	    end;
+
+	# Return the name of the node
+	#
+	fun name_of_logtree_node (LOGTREE_NODE { name => node_name, ... } )
+	    =
+	    node_name;
+
+	# Return the parent of the node
+	#
+	fun parent_of_logtree_node (LOGTREE_NODE { parent => node_parent, ... } )
+	    =
+	    node_parent;
+
+	# Return all ancestors of node.
+	# First element of list (if nonempty)
+	# will always be the root node, all_logging:
+	#
+	fun ancestors_of_logtree_node  node
+	    =
+	    ancestors' (node, [])
+	    where
+		fun ancestors' (LOGTREE_NODE { parent => NULL, ... }, resultlist)
+			=>
+			resultlist;
+
+		    ancestors' (LOGTREE_NODE { parent => THE parent, name, ... }, resultlist)
+			=>
+			ancestors' (parent, name ! resultlist);
+		end;
+	    end;
+
+
+	# Turn logging on for a logtree node and its descendents:
+	#
+	enable
+	    =
+	    for_all
+		(\\ (LOGTREE_NODE { logging, ... } )
+		    =
+		    logging := TRUE);
+
+
+	# Turn logging off for a logtree node and its descendents:
+	#
+	disable
+	    =
+	    for_all
+		(\\ (LOGTREE_NODE { logging, ... } )
+		    =
+		    logging := FALSE);
+
+
+	# Turn logging on for a node (but not for its descendents):
+	#
+	fun enable_node (LOGTREE_NODE { logging, ... } )
+	    =
+	    logging := TRUE;
+
+
+	# Return TRUE if this node is being logged
+	#
+	fun am_logging (LOGTREE_NODE { logging, ... } )
+	    =
+	    *logging;
+
+
+
+	standardlib_logging
+	    =
+	    make_logtree_leaf
+	      { parent  =>  all_logging,
+		name    =>  "standardlib::logging",
+	        default =>  TRUE					# Change to TRUE or call  (log::enable standardlib_logging)   to enable logging in this file.
+	      };
+	#
+
+	compiler_logging
+	    =
+	    make_logtree_leaf
+	      { parent  =>  all_logging,
+		name    =>  "compiler::logging",
+	        default =>  TRUE					# Change to TRUE or call  (log::enable compiler_logging)   to enable logging in this file.
+	      };
+	#
+
+
+
+	# Return a list of the registered
+	# nodes dominated by the given
+	# module, and their status.
+	#
+	fun subtree_nodes_and_log_flags  root
+	    =
+	    reverse (list (root, []))
+	    where
+		fun list (tm as LOGTREE_NODE { logging, children, ... }, l)
+		    =
+		    list_children (*children, (tm, *logging) ! l)
+
+		also
+		fun list_children ([], l) => l;
+		    list_children (c ! r, l) => list_children (r, list (c, l));
+		end;
+	    end;
+
+	# As an interactive convenience,
+	# print complete logtree indented:
+	#
+	fun print_logtree ()
+	    =
+	    print_logtree' ([all_logging], 0)
+	    where
+		fun print_indent 0 => ();
+		    print_indent i => { print "    "; print_indent (i - 1); };
+		end;
+		#
+		fun print_logtree' ((LOGTREE_NODE { name, logging, children, ... }) ! rest, indent)
+			=>
+			{   print_indent indent;
+
+			    print (*logging ?? "TRUE   " :: "FALSE  ");
+			    print name;
+			    print "\n";
+
+			    print_logtree' (*children, indent+1);
+
+			    print_logtree' (rest, indent);
+			};
+
+		    print_logtree' ([], _)
+			=>
+			();
+		end;
+	    end;
+
+
+	# NOTE: There are bookkeeping bugs when
+	# changing the log destination from
+	# LOG_TO_STREAM to something else
+	# (where the original destination 
+	# was LOG_TO_FILE).        XXX BUGGO FIXME
+	#
+	stipulate
+	    #
+	    lines_printed = REF 0;
+
+	    # Extract the unix Int file descriptor
+	    # from an Output_Stream. This is a bit
+	    # like pulling teeth:
+	    #
+	    fun outstream_to_fd  stream						# file__premicrothread						is from   src/lib/std/src/posix/file--premicrothread.pkg
+		=								# winix_base_text_file_io_driver_for_posix__premicrothread	is from   src/lib/std/src/io/winix-base-text-file-io-driver-for-posix--premicrothread.pkg
+		{   purestream =  get_outstream  stream;
+		    #
+		    (pur::get_writer  purestream)
+			->
+		        (writer, _);
+
+		    fd =    case writer
+				#
+				winix_base_text_file_io_driver_for_posix__premicrothread::FILEWRITER { io_descriptor => THE iod, ... } =>  iod;
+				#
+				_ =>  raise exception  FAIL "logger.pkg: No iod in stream?!";
+				#
+			    esac:	Int;	
+
+		    fd;
+		};		
+
+#	    fun cfun name =   ci::find_c_function  {  lib_name => "heap",  fun_name => name };
+#
+#	    write_line_to_log	 = (cfun "write_line_to_log"):		String -> Void;						# write_line_to_log			def in    src/c/lib/heap/libmythryl-heap.c
+#	    write_line_to_stderr = (cfun "write_line_to_stderr"):	String -> Void;						# write_line_to_stderr			def in    src/c/lib/heap/libmythryl-heap.c
+
+	herein
+	    #
+	    fun logprint_to_stderr  message
+		=
+		{   heap_debug::write_line_to_stderr  message;
+		    ();
+		};
+
+	    fun logprint  message
+		=
+		if TRUE														# Using an 'if TRUE' (instead of commenting-out) protects the unused code from bitrot -- guarantees that it at least still compiles.
+		    #
+		    # The older implementation below is more flexible.
+		    # But I haven't been using that flexibility in practice,
+		    # and it uses many more syscalls, which makes it problematic
+		    # for debugging syscall redirection (my current project) and
+		    # also prevents log::note() from being used in secondary hostthreads,
+		    # so for the moment I'm using this simpler alternative implementation:
+		    #                        -- 2012-10-20 CrT
+
+
+		    heap_debug::write_line_to_log  message;
+
+		    ();
+		else
+		    # This is the (older) stock production implementation of logprint:
+		    #	
+		    {   fun write' stream
+			    =	
+			    {    # Leave every fourth line blank for readability:
+				 #
+				 if (*lines_printed & 3 == 0)
+				     #
+				     write (stream, "\n");
+				 fi;
+
+				 lines_printed :=  1 + *lines_printed;
+
+				 write (stream, message);
+
+				 flush stream;
+			    };
+
+											# date		is from   src/lib/std/src/date.pkg
+											# time		is from   src/lib/std/types-only/basis-time.pkg
+			case (logger_is_set_to ())
+			    #
+			    LOG_TO_NULL    =>   ();
+			    #
+			    LOG_TO_STDOUT        =>  write'  stdout;
+			    LOG_TO_STDERR        =>  write'  stderr;
+			    LOG_TO_STREAM stream =>  write'  stream;
+			    #
+			    LOG_TO_FILE filename
+				=>
+				{   to  =   {   logfile_is_new =  not (exists  filename);
+						#
+						stream = open_for_append  filename;
+						#
+						fd =  outstream_to_fd  stream;
+						#
+						internet_socket__premicrothread::set_printif_fd  fd;	# Enable C-level log_if()s to this log.
+
+						if logfile_is_new				# There is a race condition here, but the worst that can happen is that
+						    #					# we wind up with two logfile headers instead of one, possibly interleaved.
+						    #					# Even then, the actual logfile entries will be uncorrupted.
+						    #
+						    write (stream, "# (fd==" + (int::to_string fd) + ") This is a log created " + (date::strftime "%Y-%m-%d:%H:%M:%S" (date::from_time_local (time_guts::get_current_time_utc()))) + " by:\n");
+						    write (stream, "# \n");
+						    write (stream, "#     src/lib/src/lib/thread-kit/src/lib/logger.pkg\n");
+						    write (stream, "# \n");
+						    write (stream, "# log_if line fields are:\n");
+						    write (stream, "# \n");
+						    write (stream, "#     time:  Timestamp in seconds\n");
+						    write (stream, "#     pid:   Kernel process id for process generating the logfile line.\n");
+						    write (stream, "#     ptid:  Posix-thread id for posix-thread generating the logfile line.\n");
+						    write (stream, "#     task:  task_id for task to which microthread belongs which generated the logfile line.\n");
+						    write (stream, "#     tid:   thread_id for microthread which generated the logfile line.\n");
+						    write (stream, "#     name:  Name of  microthread which generated the logfile line.\n");
+						    write (stream, "#     msg:   Actual message of logfile line.\n");
+						    write (stream, "#     (foo::logging): Finest-grain switch to dis/able logging of the message.\n");
+						    write (stream, "# \n");
+						    write (stream, "# You can suppress such a message via:   logger::disable foo::logging\n");
+						    write (stream, "# You can reenable such a message via:   logger::enable  foo::logging\n");
+						    write (stream, "# You can enable all the messages via:   logger::enable  file::all_logging\n");
+						    write (stream, "# \n");
+						    write (stream, "# If the package is not visible (or does not export its logswitch) you can use\n");
+						    write (stream, "# \n");
+						    write (stream, "#     logger::find_logtree_node_by_name\n");
+						    write (stream, "# \n");
+						    write (stream, "# to get its logswitch, for example\n");
+						    write (stream, "# \n");
+						    write (stream, "#     logger::enable  (the (file::find_logtree_node_by_name \"foo::logging\"));\n");
+						    write (stream, "# \n");
+						    write (stream, "# \n");
+						    write (stream, "# If you cannot access the logger package (e.g., because of the package-graph acyclicity constraint)\n");
+						    write (stream, "# you can substitute file::enable for logger::enable (etc).\n");
+						    write (stream, "# \n");
+						    write (stream, "# See also:  Comments in src/lib/src/lib/thread-kit/src/lib/logger.api\n");
+						    write (stream, "############################ endofheader ############################\n");
+						    write (stream, "\n");
+						    write (stream, "\n");
+						    write (stream, "\n");
+						fi;
+
+						# Closing the logfile at shutdown seems
+						# at first blush like the tidy and proper thing
+						# to do, but in practice it seems a dubious idea:
+						#	
+						#   o The exact order of events such as cleanup calls
+						#     during shutdown is not well-defined, so we may
+						#     easily wind up trying to log stuff after
+						#     the log has already been closed.
+						#	
+						#   o Unix will close all open files at program exit()
+						#     anyhow, and since we're doing unbuffered I/O on
+						#     the log fd, there is not even any buffer
+						#     flushing needing to be done.
+						#	
+						# In short, there seems to be a significant downside to
+						# closing the stream at SHUTDOWN_PHASE_1_USER_HOOKS but no upside to speak
+						# of, so	I've commented it out.  Note that caller can
+						# always close the log manually if desired by calling
+						# 
+						#     set_logger_to LOG_TO_STDERR
+						#
+						# or such, thus implicitly closing the file.	
+						#
+						#                              -- 2010-02-26 CrT
+						#	
+						# logger_cleanup
+						#	  :=
+						#	  (\\ () = close_output  stream);
+
+						LOG_TO_STREAM stream;
+					    }
+					    except					# threakit_debug	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
+						_ = {   print ( "logging: Unable to open \""
+							      + filename
+							      + "\" redirecting to stdout"
+							      );
+
+							LOG_TO_STDOUT;
+						    };
+
+				    set_logger_to to;
+
+				    logprint  message;
+				};
+			 esac;
+
+		    };
+		fi;
+	end;			# stipulate
+
+	stipulate
+	    fun drop_leading_whitespace  string
+		=
+		if (str::length string == 0
+		or  not (stc::is_space( string, 0)))
+		    #
+		    string;
+		else
+		    str::implode (drop_leading_whitespace' (str::explode  string))
+		    where
+			fun drop_leading_whitespace' (charlist as (c ! rest))
+				=>
+				if (char::is_space c)   drop_leading_whitespace' rest;
+				else			charlist;    
+				fi;
+
+			    drop_leading_whitespace' [] =>   [];
+			end;
+		    end;
+		fi;
+
+	herein
+
+	    current_thread_info__hook =  REF (NULL: Null_Or(   Void -> (Int, String, Int)   ));				# Returned values are (thread_id, thread_name, task_id).
+															# This gets set by  reset_thread_scheduler	in   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+															# and reset at::STARTUP_PHASE_1_RESET_STATE_VARIABLES	in same file.
+	    #
+	    fun make_logstring (severity, LOGTREE_NODE { name => logswitch_name, ... },  make_message_string_fn)
+		=	
+		{
+		    # Construct the 'log_if' string to print,
+		    # and then pass it to the log imp.
+		    #
+		    # The point of constructing the string here,
+		    # rather than in the  log_if  call, is that
+		    # this way we avoid the work of creating it
+		    # if we're not going to print it (i.e., if
+		    # logging is disabled for that call).
+		    #
+		    # NB: The line format we generate here should
+		    # stay synched with those in
+		    #
+		    #     src/lib/src/lib/thread-kit/src/lib/logger.pkg
+		    #     src/c/main/error-reporting.c
+
+
+		    # NB: If you change the time_string content/format you
+		    #     should probably make corresponding changes in log_if in
+		    #
+		    #         src/c/main/error-reporting.c
+		    #     and
+		    # 	  src/lib/src/lib/thread-kit/src/lib/logger.pkg
+
+		    # Get pid and left-pad with zeros to width 8:				# The intention is that 
+		    #										# 
+		    #
+		    pid = psx::get_process_id ();						# We don't have access to sprintf() in this library, 
+		    pid = int::to_string pid;							# so we do   sprintf "%8d" pid   by hand.
+		    pid = ns::pad_left '0' 8 pid;
+
+		    ptid = hth::get_hostthread_ptid();
+		    ptid = u1w::to_string ptid;
+		    ptid = ns::pad_left '0' 8 ptid;
+
+#                   time_string  =  date::strftime "%Y-%m-%d:%H:%M:%S" (date::from_time_local (time_guts::get_current_time_utc()));		# "2010-01-05:14:17:23" or such.
+		    time_string  =  time_guts::format 6 (time_guts::get_current_time_utc());						# "1262722876.273621"   or such.
+
+		    message_string =  drop_leading_whitespace (make_message_string_fn ());
+
+
+		    my (thread_id, thread_name, task_id)
+			=
+			case *current_thread_info__hook
+			    #
+			    THE f =>    f ();
+			    NULL  =>    (0, "none", 0);
+			esac; 
+
+		    tid =  int::to_string  thread_id;
+		    tid =  ns::pad_left '0' 8 tid;
+
+		    tad =  int::to_string  task_id;
+		    tad =  ns::pad_left '0' 8 tad;
+
+		    nam =  thread_name;
+		    pad =  ns::pad_right ' ' (48 - str::length nam) "";
+
+
+
+		    # The intent here is
+		    #
+		    #   1) That doing unix 'sort' on a logfile will do the right thing:
+		    #      sort first by time, then by process id, then by thread id.
+		    #
+		    #   2) To facilitate egrep/perl processing, e.g. doing stuff like
+		    #            egrep 'pid=021456' logfile
+		    #
+		    logstring =  "time="   + time_string
+			      +  " pid="   + pid
+			      +  " ptid="  + ptid
+			      +  " task="  + tad
+			      +  " tid="   + tid
+			      +  " sev="   + (int::to_string  severity)
+			      +  " name='" + nam
+			      +  "'"       + pad
+			      +  " msg="  + message_string
+			      +  "    \t(" + logswitch_name + ")"
+			      ;
+
+		    logstring;
+		};
+
+	    #
+        end;
+
+	fun log_if  (logtree_node as LOGTREE_NODE { logging, name, ... })  severity  make_message_string_fn
+	    =
+	    if (*logging)
+		    #
+		    msg =	make_logstring  (severity, logtree_node, make_message_string_fn);
+
+		    logprint  msg;
+
+		    if (severity > 4)
+			#
+			bar = "===============================================================================================================================================";
+			#
+			logprint_to_stderr bar;													# 
+			if (severity > 8)  logprint_to_stderr bar;  logprint_to_stderr bar;	fi;						# Messages for fatal errors get triple bars above.
+
+			logprint_to_stderr msg;
+
+			logprint_to_stderr bar;
+			if (severity > 8)
+			    logprint_to_stderr bar;  logprint_to_stderr bar;									# Messages for fatal errors get triple bars below.
+			    logprint_to_stderr "Calling exit_uncleanly(failure)";								# 
+			    wnx::process::exit_uncleanly  wnx::process::failure;								# A clean exit would try to run shutdown code -- probably not a good idea with the system badly broken.
+			fi;
+		    fi;
+
+		    ();
+	    fi;
+
+	fun log_fatal      msg
+	    =
+	    {	bar = "===============================================================================================================================================";
+		#
+		logprint_to_stderr bar;														# 
+		logprint_to_stderr bar;														# 
+		logprint_to_stderr bar;														# 
+
+		logprint_to_stderr msg;
+
+		logprint_to_stderr bar;
+		logprint_to_stderr bar;
+		logprint_to_stderr bar;														# Messages for fatal errors get triple bars.
+
+		logprint_to_stderr "Calling exit_uncleanly(failure)";										# 
+
+		wnx::process::exit_uncleanly  wnx::process::failure;										# A clean exit would try to run shutdown code -- probably not a good idea with the system badly broken.
+
+		raise exception FAIL msg;													# Should not get here. Gives us the required X return type.
+	    };
+
+
+
+
+    ######### BEGIN INTERPOLATED 'say.pkg' STUFF #######################3
+    #
+	fun note		make_message_string_fn = {  log_if  compiler_logging  0  make_message_string_fn;		};
+	fun warn		make_message_string_fn = {  log_if  compiler_logging  5  make_message_string_fn;		};
+	fun fatal		    message_string     = {  log_fatal                         message_string;			};		# WILL NOT RETURN.
+	fun note_in_ramlog	make_message_string_fn = {  heap_debug::write_line_to_ramlog (make_message_string_fn ());	};
+	fun note_on_stderr	make_message_string_fn = {  heap_debug::write_line_to_stderr (make_message_string_fn ());	};
+
+	fun say  make_message_string_fn
+	    =
+	    {   print (make_message_string_fn ()  +  "\n");
+		flush  stdout;
+
+		note  make_message_string_fn;
+	    };
+
+#									my _ =	# Only declarations are syntactically allowed here.
+#	log::log_note__hook := THE note;				my _ =	# log	is from   src/lib/std/src/log.pkg
+#	log::log_warn__hook := THE note;				my _ =	# log	is from   src/lib/std/src/log.pkg
+#	log::log_fatal__hook := THE note;					# log	is from   src/lib/std/src/log.pkg
+	    #
+	    # A kludge allowing lower-level code like
+	    #     src/lib/std/src/posix/winix-process--premicrothread.pkg
+	    # to call log() without introducing package
+	    # dependency cycles.
+
+									my _ =	# Only declarations are syntactically allowed here.
+	log::log_note_in_ramlog__hook	:=  THE note_in_ramlog;		my _ =
+	log::log_note_on_stderr__hook	:=  THE note_on_stderr;			# log	is from   src/lib/std/src/log.pkg
+
+
+								my _ =	# Needed because only declarations are syntactically legal here.
+	at::schedule
+	  (
+	    "winix-text-file-for-os-g--premicrothread.pkg: Reset mythryl.log",		# Arbitrary label for debugging displays.
+	    #
+	    [ at::STARTUP_PHASE_15_START_XKIT_IMPS ],			# When to run the function. We do this late because user thunks passed to log::note may use arbitrary system resources.
+	    #
+	    \\ _ = {							# Ignored arg is at::STARTUP_PHASE_2_REOPEN_MYTHRYL_LOG
+		# Blindly added the following lines (copied from above)
+		# because otherwise we crash on a stale file scriptor
+		# in the test log::note call.
+		# Obviously, it would be nice to better understand and
+		# refine this solution, but for the moment I'm content
+		# to be able to get back to debugging the problem at hand.
+		# (I'm guessing STARTUP_PHASE_5_CLOSE_STALE_OUTPUT_STREAMS
+		# is clobbering our STARTUP_PHASE_2_REOPEN_MYTHRYL_LOG work.)
+		#
+		server_name    :=  NULL;
+		log_fd         :=  NULL;
+		log_to         :=  LOG_TO_FILE "mythryl.log";
+
+		log::log_note__hook		:=  THE note;			# log	is from   src/lib/std/src/log.pkg
+		log::log_warn__hook		:=  THE warn;			# log	is from   src/lib/std/src/log.pkg
+		log::log_fatal__hook		:=      fatal;			# log	is from   src/lib/std/src/log.pkg
+
+		log::log_note_in_ramlog__hook	:=  THE note_in_ramlog;		# log	is from   src/lib/std/src/log.pkg
+		log::log_note_on_stderr__hook	:=  THE note_on_stderr;		# log	is from   src/lib/std/src/log.pkg
+	    }
+	  );
+    #
+    ######### END   INTERPOLATED 'say.pkg' STUFF #######################3
+
+
+    };				# generic package winix_text_file_for_os_g__premicrothread 
+end;
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"				 	 #
+# End:									 #
+##########################################################################
+

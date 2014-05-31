@@ -1,0 +1,244 @@
+## bitmap-widget.pkg
+#
+# Display a rectangular grid of fat pixels.
+# Each pixel is displayed in one of two given colors.
+# set_pixel may be used to set the state (color) of any given pixel.
+
+# Compiled by:
+#     src/lib/x-kit/tut/bitmap-editor/bitmap-editor.lib
+
+stipulate
+    include threadkit;					# threadkit	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg =  xgeometry;				# xclient	is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package xc =  xclient;				# xclient	is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg =  widget;				# widget	is from   src/lib/x-kit/widget/basic/widget.pkg
+herein
+
+    package   bitmap_widget
+    :         Bitmap_Widget				# Bitmap_Widget		is from   src/lib/x-kit/tut/bitmap-editor/bitmap-widget.api
+    {
+	exception BAD_PARAMETER;
+
+	Pixel_Change = (Bool, xg::Point);
+
+	Plea_Mail
+	  = SET_PIXEL              Pixel_Change
+	  | CLIENTSIDE_PIXMAP_OF   Oneshot_Maildrop( xc::Cs_Pixmap_Old )
+	  | DO_REALIZE
+	      { kidplug:      xc::Kidplug,
+		window:       xc::Window,
+		window_size:  xg::Size
+	      }
+	  ;
+
+	Bitmap_Widget
+	    =
+	   BITMAP_WIDGET
+	      { widget:     wg::Widget,
+		plea_slot:  Mailslot( Plea_Mail )
+	      };
+
+	fun set_color screen (THE color, _)  =>  color;
+	    set_color screen (NULL, default) =>  default;
+	end;
+
+	fun make_bitmap_widget root_window { horizontal_size_in_cells, vertical_size_in_cells, foreground, background }
+	    =
+	    {   screen =  wg::screen_of  root_window;
+
+		plea_slot = make_mailslot ();
+
+		psize = { wide => horizontal_size_in_cells,
+			  high =>   vertical_size_in_cells
+			};
+
+		pixmap =  xc::make_readwrite_pixmap screen (psize, 1);
+
+		pm     =  xc::drawable_of_rw_pixmap pixmap;
+
+		prect  =  xg::box::make (xg::point::zero, psize);
+
+		xc::clear_drawable pm;
+
+		size =  wg::make_tight_size_preference  (horizontal_size_in_cells, vertical_size_in_cells);
+
+		forec = set_color screen (foreground, xc::rgb8_black);
+		backc = set_color screen (background, xc::rgb8_white);
+
+
+		on_pen   =  xc::make_pen [xc::p::FOREGROUND xc::rgb8_white];
+		off_pen  =  xc::make_pen [xc::p::FOREGROUND xc::rgb8_black];
+		copy_pen =  xc::make_pen [xc::p::FOREGROUND forec, xc::p::BACKGROUND backc];
+
+
+		fun set_pixel (TRUE,  point) =>  xc::draw_point pm on_pen  point;
+		    set_pixel (FALSE, point) =>  xc::draw_point pm off_pen point;
+		end;
+
+
+		fun blt drawable box
+		    =
+		    xc::bitblt drawable copy_pen
+		      {
+			from     => xc::FROM_RW_PIXMAP  pixmap,
+			from_box => box,
+			to_pos   => xg::box::upperleft box
+		      };
+
+
+		fun redraw (drawable, boxlist)
+		    =
+		    apply (ignore o (blt drawable)) boxlist;
+
+
+		fun send_clientside_pixmap  reply_1shot
+		    =
+		    put_in_oneshot
+		      ( reply_1shot,
+			xc::make_clientside_pixmap_from_readwrite_pixmap  pixmap
+		      );
+
+
+		#
+		fun realize { kidplug, window, window_size }
+		    =
+		    loop ()
+		    where
+
+			(xc::ignore_mouse_and_keyboard  kidplug)
+			    ->
+			    xc::KIDPLUG { from_other', ... };
+
+			m_slot = make_mailslot ();
+
+			drawable =  xc::drawable_of_window  window;
+
+
+			fun do_other (xc::ETC_RESIZE ({ row, col, wide, high } ))
+				=>
+				();
+
+			    do_other (xc::ETC_REDRAW rlist)
+				=>
+				{   redraw (drawable, rlist);
+				    ();
+				};
+
+			    do_other xc::ETC_OWN_DEATH
+				=>
+				();
+
+			    do_other _
+				=>
+				();
+			end;
+
+
+			fun do_plea (DO_REALIZE _)
+				=>
+				();
+
+			    do_plea (CLIENTSIDE_PIXMAP_OF reply_1shot)
+				=>
+				{   send_clientside_pixmap  reply_1shot;
+				    ();
+				};
+
+			    do_plea (SET_PIXEL  pixel_change)
+				=>
+				{   set_pixel  pixel_change;
+
+				    redraw (drawable, [prect]);
+
+				    ();
+				};
+			end;
+
+			fun loop ()
+			    =
+			    for (;;) {
+
+				do_one_mailop [
+				    from_other'  ==>
+					(\\ mailop = (do_other  (xc::envelope_contents  mailop))),
+
+				    take_from_mailslot' plea_slot
+					==>
+					{.  do_plea #mailop;  }
+				];
+			    };
+
+		    end;
+
+		fun init_loop ()
+		    =
+		    case (take_from_mailslot  plea_slot)
+			#
+			DO_REALIZE arg                      =>    realize arg;
+			SET_PIXEL  pixel_change             => {  set_pixel   pixel_change;              init_loop ();  };
+			CLIENTSIDE_PIXMAP_OF   reply_1shot  => {  send_clientside_pixmap  reply_1shot;   init_loop ();  };
+		    esac;
+
+		make_thread "bitmap widget" init_loop;
+
+		BITMAP_WIDGET
+		  {
+		    plea_slot,
+
+		    widget =>   wg::make_widget
+				  {
+				    root_window,
+				    size_preference_thunk_of =>   \\ ()  =  size, 
+				    realize   =>   \\ arg =  put_in_mailslot (plea_slot, DO_REALIZE arg),
+                                    args      =>  \\ () = { background => NULL }	# Added 2010-05-15 CrT just to make it compile.
+				  }
+		  };
+	    };
+
+	fun as_widget (BITMAP_WIDGET { widget, ... } )
+	    =
+	    widget;
+
+	fun set_pixel
+		(BITMAP_WIDGET { plea_slot, ... } )
+		pixel_change
+	    =
+	    put_in_mailslot (plea_slot, SET_PIXEL pixel_change);
+
+	fun clientside_pixmap_of (BITMAP_WIDGET { plea_slot, ... } )
+	    =
+	    {   reply_1shot = make_oneshot_maildrop ();
+
+		put_in_mailslot (plea_slot, CLIENTSIDE_PIXMAP_OF reply_1shot);
+
+		get_from_oneshot  reply_1shot;
+	    };
+    };						# package bitmap_widget
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

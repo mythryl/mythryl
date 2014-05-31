@@ -1,0 +1,405 @@
+# loop-structure-g.pkg
+# This module is responsible for locating loop structures (intervals).
+# All loops have only one single entry (via the header) but
+# potentially multiple exits, i.e. the header dominates all nodes.
+# Basically this is Tarjan's algorithm.  
+#
+# The old version is broken as reported by William Chen.
+# This is a rewrite.
+
+# Compiled by:
+#     src/lib/graph/graphs.lib
+
+
+
+###       "Lovers of problem solving, they are apt to play chess at lunch
+###        or doodle in algebra over cocktails, speak an esoteric language
+###        that some suspect is just their way of mystifying outsiders.
+###        Deeply concerned about logic and sensitive to its breakdown
+###        in everyday life, they often annoy friends by asking them to
+###        rephrase their questions more logically."
+###
+###                                 -- Time Magazine, 1965
+
+
+stipulate
+    package djs =  disjoint_sets_with_constant_time_union;		# disjoint_sets_with_constant_time_union	is from   src/lib/src/disjoint-sets-with-constant-time-union.pkg
+    package odg =  oop_digraph;						# oop_digraph					is from   src/lib/graph/oop-digraph.pkg
+    package rwv =  rw_vector;						# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/frequencies/guess-machcode-loop-probabilities-g.pkg
+    #
+    generic package   loop_structure_g   (
+	#             ================
+	#
+	package meg:  Make_Empty_Graph;					# Make_Empty_Graph				is from   src/lib/graph/make-empty-graph.api
+									# digraph_by_adjacency_list			is from   src/lib/graph/digraph-by-adjacency-list.pkg
+
+	package dom:  Dominator_Tree;					# Dominator_Tree				is from   src/lib/graph/dominator-tree.api
+									# dominator_tree_g				is from   src/lib/graph/dominator-tree-g.pkg
+    )
+    : (weak)  Loop_Structure						# Loop_Structure				is from   src/lib/graph/loop-structure.api
+    {
+	# Export to client packages:
+	#
+	package meg = meg;						# "meg" == "make_empty_graph".
+	package dom = dom;
+
+	Loop (N,E,G)
+	    = 
+	    LOOP { nesting:     Int,
+		   header:      odg::Node_Id,
+		   loop_nodes:  List( odg::Node_Id ),
+		   backedges:   List( odg::Edge(E) ),
+		   exits:       List( odg::Edge(E) )
+		 };
+
+	Loop_Info (N, E, G)
+	    = 
+	    INFO  { dom:  dom::Dominator_Tree(N,E,G)  };		# Here N,E,G stand stead for the types of client-package-supplied records associated with (respectively) nodes, edges and graphs.
+
+	Loop_Structure (N,E,G)
+	    = 
+	    odg::Digraph (Loop(N,E,G), Void, Loop_Info(N,E,G));
+
+	fun dom (odg::DIGRAPH { graph_info=>INFO { dom, ... }, ... } )
+	    =
+	    dom;
+
+	fun loop_structure dom'
+	    = 
+	    ls'
+	    where
+		info                 = INFO { dom => dom' };
+
+		my odg::DIGRAPH mcg      = dom::mcg dom';
+		my odg::DIGRAPH dom      = dom';
+
+		nnn                  = dom.capacity ();
+		dominates            = dom::dominates dom';
+
+		my ls' as odg::DIGRAPH ls
+		    =
+		    meg::make_empty_graph
+		      {
+			graph_name	    =>  "Loop package",		# Arbitrary client name for graph, for human-display purposes.
+			graph_info	    =>  info,			# Arbitrary client value to associate with graph.
+			expected_node_count =>	nnn			# Hint for initial sizing of internal graph vectors.  This is not a hard limit.
+		      };
+
+		entry                = case (mcg.entries ())
+					   #
+					   [entry] =>  entry;
+					   _       =>  raise exception odg::NOT_SINGLE_ENTRY;
+				       esac;
+
+
+		headers		# Mapping from node id -> header 
+		    =
+		    rwv::make_rw_vector (nnn, -1);
+
+
+
+
+		last_headers	# Mapping from header -> previous header in the loop 
+		    =
+		    rwv::make_rw_vector (nnn, -1);
+
+
+		visited		# Mark all visited nodes during construction 
+		    =
+		    rwv::make_rw_vector (nnn, -1);
+
+
+		ppp			# Mapping from nodes id -> collapsed header during construction 
+		   =
+		   rwv::from_fn (nnn, djs::make_singleton_disjoint_set);
+
+
+		fun walk (xxx, loops)	#  Walk the dominator tree and return a list of loops 
+		    =
+		    {   #  Look for backedges 
+			backedges
+			    =
+			    list::filter 
+				(\\ (yyy, xxx, _) => dominates (xxx, yyy); end )
+				(mcg.in_edges xxx);
+
+			#  xxx is a header iff it has backedges or xxx is the entry 
+
+			is_header
+			    =
+			    case backedges
+
+				 []  =>   xxx == entry;
+				 _   =>   TRUE;
+			    esac;
+
+
+			# Walk the dominator tree first:
+			#
+			loops =   list::fold_backward walk loops (dom.next xxx);
+
+			# If xxx is a header node then collaspe all the nodes within
+			# the loop into the header.  The entry node has to be
+			# treated specially, unfortunately.
+
+			if is_header 
+
+			     lll =   mark (xxx, xxx, []);
+			     lll =   if (xxx == entry ) find_entry_loop_nodes []; else lll; fi;
+			     collapse (xxx, lll);
+			     exits = find_exits (lll, []);
+
+			     #  Create a new loop node 
+			     (xxx, backedges, lll, exits) ! loops;
+			else
+			     loops;
+			fi;
+		    }
+
+
+
+		also
+		fun mark (xxx, header, lll)
+		    =
+
+		    # Mark all the nodes that are within
+		    # the loop identified by the header.
+		    #
+		    # Return a list of loop nodes.
+
+		    if (rwv::get (visited, xxx) != header)
+			#
+			rwv::set (visited, xxx, header);	#  mark xxx as visited 
+
+			#  header of xxx 
+			h_x = rwv::get (headers, xxx);
+
+			lll =   if (h_x == -1)		#  xxx has no header yet 
+				    #
+				    xxx ! lll;
+				else
+				    if (h_x == xxx and rwv::get (last_headers, xxx) == -1)
+					#
+					#  Add loop edge 
+					rwv::set (last_headers, xxx, header);
+					ls.add_edge (header, xxx, ());
+					lll;
+				    else
+					lll;
+				    fi;
+			       fi;
+
+			list::fold_backward
+			    (\\ ((yyy, _, _), lll)
+				=
+				{   yyy = djs::get (rwv::get (ppp, yyy));
+
+				    if (dominates (header, yyy))   mark (yyy, header, lll);
+				    else                                              lll;
+				    fi;
+				}
+			    )
+			    lll
+			    (mcg.in_edges xxx);
+
+		    else
+			 lll;
+		    fi
+
+		also
+		fun collapse (hhh, lll)		#  Collapse all nodes in lll to the header hhh.
+		    = 
+		    {   h =  rwv::get (ppp, hhh);
+
+			list::apply
+			    (\\ xxx
+				=
+				{   djs::link (rwv::get (ppp, xxx), h);
+
+				    if (rwv::get (headers, xxx) == -1)
+					#
+					rwv::set (headers, xxx, hhh);
+				    fi;
+				}
+			    )
+			    lll;
+		    }
+
+		also
+		fun find_entry_loop_nodes lll       # Find all nodes that are not part of any loops.
+		    =
+		    list::fold_backward
+			(\\ ((xxx, _), lll)
+			     =
+			     if (rwv::get (headers, xxx) == -1)
+				 #  
+				 xxx ! lll;
+			     else
+				 if  (xxx != entry
+				 and  rwv::get (headers, xxx) == xxx
+				 and  rwv::get (last_headers, xxx) == -1
+				 )
+				      ls.add_edge (entry, xxx, ());
+				      rwv::set (last_headers, xxx, entry);
+				      lll;
+				 else 
+				      lll;
+				 fi;
+			     fi
+			)
+			lll
+			(mcg.nodes ())
+
+
+		also
+		fun find_exits ([], exits)		# Find all edges that can exit from the loop hhh. 
+			=>
+			exits;
+
+		   find_exits (xxx ! xs, exits)
+		       =>
+		       find_exits (xs, f (mcg.out_edges xxx, exits))
+		       where
+			   fun f ((e as (xxx, yyy, _)) ! es, exits)
+				   =>
+				   if   (rwv::get (headers, yyy) == -1) 
+					f (es, e ! exits); 
+				   else f (es, exits);
+				   fi;
+
+			       f ([], exits)
+				   =>
+				   exits;
+			   end;
+		       end;
+		end;
+
+
+
+		# Walk tree and create edges: 
+		#
+		loops
+		    =
+		    walk (entry, []);
+
+
+		# Create nodes:
+		#
+		list::apply
+		    (\\ (hhh, backedges, loop_nodes, exits)
+			=
+			{   last =   rwv::get (last_headers, hhh);
+
+			    nesting
+				=
+				if   (last == -1)
+
+				     0; 
+				else 
+				     my  LOOP { nesting, ... }
+					 = 
+					 ls.node_info last;
+
+				     nesting + 1;
+				fi;
+
+			    ls.add_node (
+
+				hhh,
+
+				LOOP {
+				  nesting,
+				  header     => hhh,
+				  backedges,
+				  loop_nodes,
+				  exits
+				}
+			    );
+			}
+		    )
+		    loops;
+
+	    end;
+
+	fun nesting_level (odg::DIGRAPH lll)
+	    =
+	    levels
+	    where
+		my INFO { dom=>odg::DIGRAPH dom, ... }
+		    =
+		    lll.graph_info;
+
+		nnn    =  dom.capacity ();
+		levels =  rwv::make_rw_vector (nnn, 0);
+
+		fun tabulate (_, LOOP { nesting, header, loop_nodes, ... } )
+		    =
+		    {   rwv::set (levels, header, nesting);
+			apply (\\ i => rwv::set (levels, i, nesting); end ) loop_nodes;
+		    };
+
+		lll.forall_nodes  tabulate;
+	    end;
+
+	fun header (odg::DIGRAPH lll)
+	    = 
+	    headers
+	    where
+
+		my INFO { dom=>odg::DIGRAPH dom, ... }
+		    =
+		    lll.graph_info;
+
+		nnn     =  dom.capacity ();
+		headers =  rwv::make_rw_vector (nnn, 0);
+
+		fun tabulate (_, LOOP { header, loop_nodes, ... } )
+		    =
+		    {   rwv::set (headers, header, header);
+
+			apply
+			    (\\ i =  rwv::set (headers, i, header))
+			    loop_nodes;
+		    };
+
+		lll.forall_nodes tabulate;
+	    end;
+
+	fun entry_edges (loop as odg::DIGRAPH lll)
+	    =
+	    entry_edges
+	    where
+		dom =  dom loop;
+
+		my odg::DIGRAPH mcg
+		    =
+		    dom::mcg dom;
+
+		dominates =  dom::dominates dom;
+
+		fun entry_edges header
+		    = 
+		    if   (lll.has_node header)
+
+			 list::filter
+			     (\\ (i, j, _) =  not (dominates (j, i)))
+			     (mcg.in_edges header);
+		    else
+			 [];
+		    fi;
+	    end;
+
+	fun is_back_edge (loop as odg::DIGRAPH lll)
+	    = 
+	    \\ (v, w) =  lll.has_node w  and  dom (w, v)
+	    where
+		dom =  dom::dominates (dom loop);
+	    end;
+    };    
+end;
+

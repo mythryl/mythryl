@@ -1,0 +1,344 @@
+## shade-ximp.pkg
+#
+# Publish the current trio of color shades
+# (light/base/dark) to be used for drawing
+# 3-D widgets etc.
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+###                   "The idea of a formal design discipline is often rejected
+###                    on account of vague cultural/philosophical condemnations
+###                    such as ``stifling creativity'';  this is more pronounced
+###                    in the Anglo-Saxon world where a romantic vision of
+###                    ``the humanities'' in fact idealizes technical incompetence."
+###
+###                                                -- E.J. Dijkstra
+
+
+stipulate
+    include threadkit;						# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xc  =  xclient;					# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    package pms =  standard_clientside_pixmaps;			# standard_clientside_pixmaps	is from   src/lib/x-kit/widget/lib/standard-clientside-pixmaps.pkg
+    package shp =  shade;					# shade				is from   src/lib/x-kit/widget/lib/shade.pkg
+    package rpm =  ro_pixmap;					# ro_pixmap			is from   src/lib/x-kit/xclient/src/window/ro-pixmap.pkg
+    package pn  =  pen;						# pen				is from   src/lib/x-kit/xclient/src/window/pen.pkg
+    package xt  =  xtypes;					# xtypes			is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package cs  =  color_spec;					# color_spec			is from   src/lib/x-kit/xclient/src/window/color-spec.pkg
+herein
+
+    package   shade_ximp
+    : (weak)  Shade_Ximp					# shade	_Ximp			is from   src/lib/x-kit/widget/lib/shade-ximp.api
+    {
+	Exports	  = {						# Ports we export for use by other imps.
+		      shade:	shp::Shade			# Requests from widget/application code.
+		    };
+
+	Imports   = {						# Ports we use which are exported by other imps.
+		    };
+
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Shade_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+	exception BAD_SHADE;
+
+								# typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
+	package rgb_hashtable
+	    =
+	    typelocked_hashtable_g (
+
+		Hash_Key = rgb::Rgb;
+
+		fun same_key (k1:  Hash_Key, k2)
+		    =
+		    rgb::same_rgb (k1, k2);
+
+		fun hash_value (rgb: rgb::Rgb)
+		    =
+		    {   (rgb::rgb_to_unts rgb)
+			    ->
+			    (red, green, blue);
+
+			red + green + blue;
+		    };
+	    );
+
+	Rgb_Table = rgb_hashtable::Hashtable( shp::Shades );
+
+	Shade_Ximp_State												# Holds all mutable state maintained by ximp.
+	    =
+	    {
+	      rgb_table:  Rgb_Table
+	    };
+
+	Me_Slot = Mailslot( {  imports:	Imports,
+				   me:		Shade_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun,
+				   screen:	xsession_junk::Screen
+				 }
+			      );
+	fun monochrome screen
+	    = 
+	    xsession_junk::display_class_of_screen screen == xt::STATIC_GRAY       and 
+	    xsession_junk::depth_of_screen         screen == 1;
+
+	exception NOT_FOUND;
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Shade_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		      screen:				xsession_junk::Screen
+		    };
+
+	Client_Q    =   Mailqueue( Runstate -> Void );
+
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Shade_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    screen:				xsession_junk::Screen
+		  }
+		)
+	    =
+	    loop ()
+	    where
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    end_gun'                       ==>  shut_down_shade_ximp',
+			    take_from_mailqueue' client_q  ==>  do_client_plea
+			];
+
+			loop ();
+		    }	
+		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
+			fun shut_down_shade_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
+		#
+		shade  = {
+				get_shades
+			      };
+
+		to =  make_replyqueue ();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { shade }));							# Return value from image_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from image_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun', screen };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run (client_q,{ me, imports, to, end_gun', screen });							# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun get_shades  (rgb: rgb::Rgb)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop ():  Oneshot_Maildrop( Null_Or(shp::Shades) );
+			#
+			put_in_mailqueue (client_q,
+			    #
+			    \\ ({ me, screen, ... }: Runstate)
+				=
+				case (rgb_find rgb)
+				    #
+				    NULL =>  put_in_oneshot (reply_1shot, allot_shade (rgb, rgb));
+				    s    =>  put_in_oneshot (reply_1shot, s);
+				esac
+				where
+				    rgb_ins  =  rgb_hashtable::set    me.rgb_table;
+				    rgb_find =  rgb_hashtable::find   me.rgb_table;
+
+				    max_i = 0u65535;
+
+				    fun lighten v c = unt::min (max_i, (v*c) / 0u100) except _ = max_i;
+				    fun darken  v c = unt::min (max_i, (v*c) / 0u100) except _ = max_i;
+
+				    lighten =  lighten 0u140;
+				    darken  =  darken  0u060;
+
+				    fun color (r, g, b)
+					= 
+					cs::get_color (cs::CMS_RGB { red=>r, green=>g, blue=>b } );
+
+				    fun make_p c
+					=
+					pn::make_pen [pn::p::FOREGROUND (rgb8::rgb8_from_rgb c) ];
+
+				    fun make_p' t
+					=
+					pn::make_pen [ pn::p::FOREGROUND  rgb8::rgb8_black,
+						       pn::p::BACKGROUND  rgb8::rgb8_white,
+						       pn::p::STIPPLE t,
+						       pn::p::FILL_STYLE_OPAQUE_STIPPLED
+						     ];
+
+				    fun bw_shade (c, rgb)
+					=
+					{   lgray = rpm::make_readonly_pixmap_from_clientside_pixmap  screen  pms::light_gray;
+					    dgray = rpm::make_readonly_pixmap_from_clientside_pixmap  screen  pms::dark_gray;
+
+					    my (lt, dk)
+						=
+						rgb::same_rgb (c, rgb::white)
+						  ?? (lgray, dgray)
+						  :: (dgray, lgray);
+
+					    s = { light => make_p' lt, base => make_p c, dark => make_p' dk };
+
+					    rgb_ins (rgb, s);
+
+					    THE s;
+					}
+					except _ = NULL;
+
+				    fun gray_shade (c, rgb)
+					=
+					{
+					    lgray =  cs::get_color (cs::CMS_NAME "gray87");
+					    dgray =  cs::get_color (cs::CMS_NAME "gray44");
+
+					    my (lt, dk)
+						=
+						rgb::same_rgb (c, rgb::white)
+						 ?? (lgray, dgray)
+						 :: (dgray, lgray);
+
+					    s = { light => make_p lt, base => make_p c, dark => make_p dk };
+
+					    rgb_ins (rgb, s);
+					    THE s;
+					}
+					except
+					    _ = bw_shade (c, rgb);
+
+				    fun color_shade (c, rgb)
+					=
+					{   (rgb::rgb_to_unts rgb)
+						->
+						(red, blue, green);
+
+					    fun shade ()
+						=
+						{   lt = color (lighten red, lighten green, lighten blue);
+						    dk = color (darken red, darken green, darken blue);
+						    s = { light => make_p lt, base => make_p c, dark => make_p dk };
+
+						    rgb_ins (rgb, s);
+						    THE s;
+						}
+						except _ = NULL;
+
+					    if (rgb::same_rgb (c, rgb::white)
+					    or  rgb::same_rgb (c, rgb::black)
+					    )
+						 gray_shade (c, rgb);
+					    else shade ();
+					    fi;
+					};
+
+				    allot_shade =   monochrome screen   ??   bw_shade   ::   color_shade;
+				end
+			);
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_shade_egg												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	      (
+		screen:		xsession_junk::Screen,
+		options:	List(Option)
+	      )
+	    =
+	    {   (process_options (options, { name => "shade" }))
+		    ->
+		    { name };
+	
+		me = 	{
+			  rgb_table =>    rgb_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+			};
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun', screen });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

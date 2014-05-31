@@ -1,0 +1,432 @@
+## adl-type-junk.pkg -- derived from   ~/src/sml/nj/smlnj-110.60/MLRISC/Tools/ADL/mdl-type-utils.sml 
+#
+# Utilities for manipulating types
+
+# Compiled by:
+#     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages.lib
+
+
+###                   "We think in generalities, but we live in detail."
+###
+###                                       -- Alfred North Whitehead 
+
+
+
+stipulate
+    package err =  adl_error;								# adl_error			is from   src/lib/compiler/back/low/tools/line-number-db/adl-error.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lms =  list_mergesort;							# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package raw	=  adl_raw_syntax_form;							# adl_raw_syntax_form		is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.pkg
+    package rsu =  adl_raw_syntax_unparser;						# adl_raw_syntax_unparser	is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.pkg
+    package spp =  simple_prettyprinter;						# simple_prettyprinter		is from   src/lib/prettyprint/simple/simple-prettyprinter.pkg
+herein
+
+    # This package is referenced in:
+    #
+    #     src/lib/compiler/back/low/tools/arch/adl-typing.pkg
+    #     src/lib/compiler/back/low/tools/arch/adl-symboltable.pkg	
+    #     src/lib/compiler/back/low/tools/arch/architecture-description.pkg
+    #     src/lib/compiler/back/low/tools/arch/lowhalf-types-g.pkg
+    #
+    package  adl_type_junk
+    : (weak) Adl_Type_Junk								# Adl_Type_Junk			is from   src/lib/compiler/back/low/tools/arch/adl-type-junk.api
+    {
+	Level = Int;
+
+	counter = REF 0;
+
+	fun make_typevar  typevar_kind  level
+	    =
+	    {   counter :=  *counter + 1;
+		#
+		raw::TYPEVAR_TYPE (typevar_kind, *counter, REF level, REF NULL);
+	    };
+
+	make_ivar     =  make_typevar  raw::INTKIND;
+	make_variable =  make_typevar  raw::TYPEKIND;
+
+	exception OCCURS_CHECK;
+	exception UNIFY_TYPES; 
+
+	fun init () =   counter := 0;
+
+	fun bug msg =   lem::error ("MDTyping", msg);
+
+	fun pr type =   spp::prettyprint_expression_to_string  (rsu::type  type);
+
+	fun deref (raw::TYPEVAR_TYPE(_, _, _, REF (THE t))) =>  deref t;
+	    deref t                                               =>        t;
+	end;
+
+	fun tuple_type [t] =>  t;
+	    tuple_type ts  =>  raw::TUPLETY ts;
+	end;
+
+	fun copy (     raw::TYPEVAR_TYPE(_, _, _, REF (THE t))) =>   copy t;
+	    #
+	    copy (t as raw::TYPEVAR_TYPE	_) =>  t;
+	    copy (t as raw::TYVARTY		_) =>  t;
+	    copy (t as raw::REGISTER_TYPE	_) =>  t;				# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+	    copy (t as raw::IDTY		_) =>  t;
+	    copy (t as raw::INTVARTY		_) =>  t;
+	    #
+	    copy (     raw::TYPESCHEME_TYPE	_) =>  bug "copy: poly";
+	    #
+	    copy (     raw::TUPLETY ts)           =>  raw::TUPLETY (map copy ts);
+	    copy (     raw::RECORDTY ts)          =>  raw::RECORDTY (map (\\ (l, t) = (l, copy t)) ts);
+	    copy (     raw::FUNTY (a, b))         =>  raw::FUNTY (copy a, copy b);
+	    copy (     raw::APPTY (f, tys))       =>  raw::APPTY (f, map copy tys);
+	    #
+	    copy (     raw::LAMBDATY _)           =>  bug "copy: lambda";
+	end;
+
+	iboundvars =    list::filter    \\  raw::TYPEVAR_TYPE (raw::INTKIND, _, _, _) =>  TRUE ;
+					    _                                               =>  FALSE;
+					end;
+
+	fun instantiate lvl (e, raw::TYPESCHEME_TYPE (tvs, type))
+		=> 
+		{   tvs' =  map f tvs
+			    where
+				fun f  (raw::TYPEVAR_TYPE (k, _, _, x))
+					=>
+					{   v =  make_typevar  k  lvl;
+					    #
+					    x :=  THE v;
+					    #
+					    v;
+					};
+
+				    f _ =>  raise exception FAIL "Compiler bug: inst: f: Only TYPEVAR_TYPE supported.";
+				end;
+			    end;
+
+		    type =  copy  type;
+
+		    apply f tvs
+		    where
+			fun f (raw::TYPEVAR_TYPE (_, _, _, x))	=>   x := NULL;
+			    f _						=>   raise exception FAIL "Compiler bug: inst: f: Only TYPEVAR_TYPE supported.";
+			end;
+		    end;	
+
+		    ivars = iboundvars tvs';
+
+		    case ivars
+			#
+			[] => (e, type);
+			_  => (raw::APPLY_EXPRESSION (e, raw::TUPLE_IN_EXPRESSION (map raw::TYPE_IN_EXPRESSION ivars)), type);
+		    esac;
+		};
+
+	    instantiate lvl (e, t)
+		=>
+		(e, t);
+	end;
+
+	fun generalize lvl (e, type)
+	    =
+	    {   mark  =  *counter;
+		#
+		bvs   =  REF [];
+		trail =  REF [];
+
+		fun f (raw::TYPEVAR_TYPE(_, _, _, REF (THE t)))
+			=>
+			f t;
+
+		    f (t as raw::TYPEVAR_TYPE (k, i, REF l, r))
+			=>
+			if (i > mark  or  l < lvl)
+			    #
+			    t;
+			else
+			    v =  make_typevar  k  0;
+			    #
+			    r     :=  THE v; 
+			    bvs   :=  (v, t) ! *bvs;
+			    trail :=  r      ! *trail;
+			    #
+			    v; 
+			fi;
+
+		    f (t as raw::TYVARTY  _) =>  t;
+		    f (t as raw::REGISTER_TYPE   _) =>  t;					# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+		    f (t as raw::IDTY     _) =>  t;
+		    f (t as raw::INTVARTY _) =>  t;
+		    #
+		    f (raw::FUNTY (a, b))  =>  raw::FUNTY (f a, f b);
+		    f (raw::TUPLETY ts)    =>  raw::TUPLETY  (map f ts);
+		    f (raw::RECORDTY lts)  =>  raw::RECORDTY (map  (\\ (l, t) = (l, f t))  lts);
+		    f (raw::APPTY (a, ts)) =>  raw::APPTY (a, map f ts);
+		    #
+		    f (raw::TYPESCHEME_TYPE _) => bug "gen: poly";
+		    f (raw::LAMBDATY         _) => bug "gen: lambda";
+		end;
+
+		t = f type;
+
+		fun arity_raise (bvs, e)	# "bvs" might be "bound_variables"...?
+		    =
+		    case (iboundvars bvs)
+			#
+			[]  =>  e;
+			#
+			bvs =>  {   fun f (raw::TYPEVAR_TYPE (_, n, _, _)) =>   "T"  +  int::to_string  n;
+					f _					 =>   raise exception FAIL "Compiler bug: arity_raise: f: Only TYPEVAR_TYPE supported.";
+				    end;
+
+				    xs =  map f bvs;
+
+				    args =  map  raw::IDPAT  xs;
+
+				    case e
+					#
+					raw::FN_IN_EXPRESSION cs =>  raw::FN_IN_EXPRESSION (map   (\\ raw::CLAUSE (cs, g, e) =   raw::CLAUSE (raw::TUPLEPAT args ! cs, g, e))   cs);
+					_                        =>  raw::FN_IN_EXPRESSION [ raw::CLAUSE([ raw::TUPLEPAT args ], NULL, e) ];
+				    esac;
+				};
+		    esac;
+
+		apply (\\ r =  r := NULL)
+		      *trail;
+
+		case *bvs
+		    #
+		    []  => (e, type);
+		    #
+		    bvs => {   bvs = reverse bvs;			#  Boundvars are listed in reverse 
+
+			       ( arity_raise (map #2 bvs, e),
+				 raw::TYPESCHEME_TYPE (map #1 bvs, t)
+			       );
+			   };
+		esac;
+	    };
+
+	fun lambda level type
+	    =
+	    case (generalize level (raw::LITERAL_IN_EXPRESSION (raw::INT_LIT 0), type))
+		#
+		(_, raw::TYPESCHEME_TYPE (bvs, t)) =>  raw::LAMBDATY (bvs, t);
+		(_, t)                              =>  t;
+	    esac;
+
+	fun unify (msg, x, y)
+	    =
+	    {   fun error_occurs_check (t1, t2)
+		    =
+		    err::error("occurs check failed in unifying " + pr t1 + " and " + pr t2 + msg());
+
+		fun error_unify (t1, t2)
+		    =
+		    err::error("can't unify " + pr t1 + " and " + pr t2 + msg());
+
+		fun f (   raw::TYPEVAR_TYPE(_, _, _, REF (THE x)), y) =>  f (x, y);
+		    f (x, raw::TYPEVAR_TYPE(_, _, _, REF (THE y)))    =>  f (x, y);
+
+		    f ( x as raw::TYPEVAR_TYPE (k1, _, m, u),
+                        y as raw::TYPEVAR_TYPE (k2, _, n, v)
+                      )
+			=>
+			if (u != v)
+			    #
+			    if (k1 == raw::INTKIND)
+				#
+				v := THE x;
+				m := int::max(*m,*n);
+			    else
+				u := THE y;
+				n := int::max(*m,*n);
+			    fi;
+			fi;
+
+		    f (raw::TYPEVAR_TYPE x, e) =>  upd x e;
+		    f (e, raw::TYPEVAR_TYPE x) =>  upd x e;
+
+		    f (raw::IDTY    x, raw::IDTY    y) =>  if (x != y)  raise exception UNIFY_TYPES;  fi;
+		    f (raw::TYVARTY x, raw::TYVARTY y) =>  if (x != y)  raise exception UNIFY_TYPES;  fi;
+
+		    f (raw::TUPLETY x, raw::TUPLETY y)   =>  g (x, y);
+		    f (raw::TUPLETY [x], y)              =>  f (x, y);
+		    f (x, raw::TUPLETY [y])              =>  f (x, y);
+		    f (raw::RECORDTY x, raw::RECORDTY y) =>  h (x, y);
+
+		    f ( raw::REGISTER_TYPE x,								# This (with x=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+                        raw::REGISTER_TYPE y
+                      )
+			=>
+                        if (x != y)    raise exception UNIFY_TYPES; fi;
+
+		    f ( raw::FUNTY (a, b),
+                        raw::FUNTY (c, d)
+                      )
+			=>
+			{   f (a, c);
+			    f (b, d);
+			};
+
+		    f (raw::APPTY (a, b), raw::APPTY (c, d))
+			=>
+			if (a == c)    g (b, d);
+			else          raise exception UNIFY_TYPES;
+			fi;
+
+		    f (raw::INTVARTY i, raw::INTVARTY j)
+			=>
+			if (i != j)  raise exception UNIFY_TYPES;  fi;
+
+		    f _ => raise exception UNIFY_TYPES;
+		end
+
+		also
+		fun g ([],[])        =>  ();
+		    g (a ! b, c ! d) =>  {  f (a, c);  g (b, d); };
+		    g _              =>  raise exception UNIFY_TYPES;
+		end
+
+		also
+		fun h (ltys1, ltys2)
+		    =
+		    merge (ltys1, ltys2)
+		    where
+			sort = lms::sort_list (\\ ((a, _), (b, _)) =  a > b);
+
+			ltys1 = sort ltys1;
+			ltys2 = sort ltys2;
+
+			fun merge ((x, t) ! m, (y, u) ! n)
+				=>
+				if (x == y)
+				    #
+				    f (t, u);
+				    merge (m, n);
+				else
+				    raise exception UNIFY_TYPES;
+				fi;
+
+			    merge ([],[]) =>  ();
+			    merge  _      =>  raise exception UNIFY_TYPES;
+			end;
+		    end
+
+		also
+		fun upd (t1 as (k, name, lvl, v)) t2
+		    =
+		    {   fun g (raw::TYPEVAR_TYPE(_, _, _, REF (THE t)))
+				=>
+				g t;
+
+			    g (raw::TYPEVAR_TYPE (k', n, l, y))
+				=> 
+				if (y == v)   raise exception OCCURS_CHECK;
+				else          l := int::max (*lvl, *l);
+				fi;
+
+			    g (raw::TUPLETY       ts   ) =>  apply g ts;
+			    g (raw::RECORDTY      lts  ) =>  apply (\\ (_, t) = g t) lts;
+			    g (raw::REGISTER_TYPE _    ) =>  ();					# This (with id=="bar") came from a   foo: $bar   declaration -- the '$' distinguishes these from regular type declarations.
+			    g (raw::TYVARTY       t    ) =>  ();
+			    g (raw::FUNTY        (a, b)) =>  { g a;  g b; };
+			    g (raw::IDTY         _     ) =>  ();
+			    g (raw::INTVARTY     _     ) =>  ();
+			    g (raw::APPTY        (_, b)) =>  apply g b;
+			    #
+			    g (raw::TYPESCHEME_TYPE _) =>  bug "unify: poly";
+			    g (raw::LAMBDATY         _) =>  bug "unify: lambda";
+			end;
+
+			g t2
+			except
+			    UNIFY_TYPES  =>  error_unify        (raw::TYPEVAR_TYPE t1, t2);
+			    OCCURS_CHECK =>  error_occurs_check (raw::TYPEVAR_TYPE t1, t2);
+			end;  
+
+			v :=  THE t2;
+		    };
+
+		f (x, y)
+		except
+		    UNIFY_TYPES =  error_unify (x, y);
+	    };
+
+	fun apply' (msg, raw::TYPEVAR_TYPE (_, _, _, REF (THE t)), args)
+		=>
+		apply' (msg, t, args);
+
+	    apply' (msg, f as raw::LAMBDATY (tvs, body), args)
+		=>
+		{   arity1 = length tvs;
+		    arity2 = length args;
+
+		    if (arity1 != arity2)   err::error("arity mismatch between "  +  pr(f)  +  " and "   +  pr(raw::TUPLETY args)  +  msg);   fi;
+
+		    paired_lists::apply  fxy  (tvs, args)
+		    where
+			fun fxy (x, y)
+			    =
+			    case (deref x, deref y)
+				#
+				(   raw::TYPEVAR_TYPE (raw::TYPEKIND, _, _, x), y) =>   x := THE y;
+				(x, raw::TYPEVAR_TYPE (raw::TYPEKIND, _, _, y))    =>   y := THE x;
+				#
+				(raw::TYPEVAR_TYPE (raw::INTKIND, _, _, x), y as raw::INTVARTY _                                ) =>   x := THE y;
+				(raw::TYPEVAR_TYPE (raw::INTKIND, _, _, x), y as raw::TYPEVAR_TYPE (raw::INTKIND, _, _, _)) =>   x := THE y;
+				#
+				(raw::TYPEVAR_TYPE (raw::INTKIND, _, _, x), y)
+				    =>
+				    err::error( "kind mismatch in application between " + pr f + " and " + pr (raw::TUPLETY args) + msg);
+
+				(_, _) =>  err::error( "Compiler bug: Unsupported args in apply'.");
+			    esac;
+		    end;
+
+		    copy body
+		    then
+			apply  f  tvs
+			where
+			    fun f (raw::TYPEVAR_TYPE (_, _, _, x)) =>  x := NULL;
+				f _					 =>  raise exception FAIL "Only TYPEVAR_TYPE supported in apply'";
+			    end;
+			end;
+		};
+
+	    apply' (msg, t, args)
+		=>
+		{   err::error  ("type "  +  pr t  +  " is not a type constructor"  +  msg);
+		    #
+		    make_variable 0;
+		};
+	end;
+
+	fun poly ([],  t) =>  t;
+	    poly (tvs, t) =>  raw::TYPESCHEME_TYPE (tvs, t);
+	end;
+
+	fun make_type (raw::SUMTYPE { name=>id, typevars, ... } )
+		=>
+		{   type =  raw::IDTY (raw::IDENT([], id));
+		    #
+		    case typevars
+			#
+			[] => ([], type);
+			#
+			typevars
+			    =>
+			    {   vs =   map (\\ _ =  make_variable 0)
+					   typevars;
+				#
+				(vs, type);
+			    };
+		    esac;
+		};
+
+	    make_type (raw::SUMTYPE_ALIAS _)
+		=>
+		raise exception FAIL "Compiler bug:  make_type: SUMTYPE_ALIAS unsupported.";
+	end;
+
+	apply = apply';
+    };										# package   adl_type_junk
+end;										# stipulate
+

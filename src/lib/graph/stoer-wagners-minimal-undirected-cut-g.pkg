@@ -1,0 +1,231 @@
+# stoer-wagners-minimal-undirected-cut-g.pkg
+#
+# This module implements minimal (undirected) cut.
+# The algorithm is due to Mechtild Stoer and Frank Wagner.
+#
+# -- Allen Leung
+
+# Compiled by:
+#     src/lib/graph/graphs.lib
+
+# See also:
+#     src/lib/compiler/back/low/doc/latex/graphs.tex
+#     src/lib/graph/test3.pkg
+
+
+###             "The time will come when diligent research
+###              over long periods will bring to light
+###              things which now lie hidden.
+###        
+###             "A single lifetime, even though entirely
+###              devoted to the sky, would not be enough
+###              for the investigation of so vast a subject...
+###        
+###             "And so this knowledge will be unfolded only
+###              through long successive ages.
+###        
+###             "There will come a time when our descendants
+###              will be amazed that we did not know things
+###              that are so plain to them...
+###              Many discoveries are reserved for ages
+###              still to come, when memory of us
+###              will have been effaced.
+###        
+###             "Our universe is a sorry little affair
+###              unless it has in it something for
+###              every age to investigate...
+###        
+###             "Nature does not reveal her mysteries
+###              once and for all."
+###        
+###                       -- Seneca, Book 7, first century
+
+
+
+stipulate
+    package odg =  oop_digraph;					# oop_digraph			is from   src/lib/graph/oop-digraph.pkg
+    package vec =  rw_vector;					# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+    package pq  =  node_priority_queue_g( vec );  		# node_priority_queue_g		is from   src/lib/graph/node-priority-queue-g.pkg
+    package cl  =  catlist;	          			# catlist			is from   src/lib/std/src/catlist.pkg
+herein								# catlist gives us fast list concatenation.
+
+    generic package   stoer_wagners_minimal_undirected_cut_g (
+	#
+	num:  Abelian_Group		 			# Abelian_Group	is from   src/lib/graph/group.api
+    )
+    : (weak) Min_Cut						# Min_Cut	is from   src/lib/graph/min-cut.api
+    {
+	package num = num;					# Export for client packages.
+
+	fun min_cut { graph=>odg::DIGRAPH ggg, weight }
+	    =
+	    {   nnn         = ggg.capacity ();
+
+		adj         = vec::make_rw_vector (nnn,[]);
+		group       = vec::make_rw_vector (nnn, cl::empty);
+		on_queue    = vec::make_rw_vector (nnn,-1);
+		adj_edges   = vec::make_rw_vector (nnn, (-1, REF num::zero));
+		weights     = vec::make_rw_vector (nnn, num::zero);
+
+		fun new_edge (i, j, w)
+		   =
+		   {   vec::set (adj, i, (j, w) ! vec::get (adj, i));
+		       vec::set (adj, j, (i, w) ! vec::get (adj, j));
+		   };
+
+		# Initialize the adjacency and group arrays:
+		#
+		fun initialize (nodes)
+		    =
+		    {   fun node (i)
+			    =
+			    vec::set (group, i, cl::single i);
+
+			fun edge (e as (i, j, _))
+			    =
+			    if (i != j)
+				#
+				new_edge (i, j, REF (weight e));
+			    fi;
+
+			apply
+			    (\\ i =  { node i;   apply edge (ggg.out_edges i); })
+			    nodes;
+		    };
+
+		# Priority queue ranked by non-decreasing cut weights:
+		#
+		qqq =   pq::create
+			    nnn
+			    (\\ (u, v)
+				=
+				num::(<) (vec::get (weights, v), vec::get (weights, u))
+                            );
+
+		# Find a better cut (V-{ t },{ t } ) 
+		#
+		fun find_cut (phase, a, nodes)
+		    =
+		    {   fun mark v     = vec::set (on_queue, v, phase);
+			fun unmark v   = vec::set (on_queue, v,-1);
+			fun marked v   = vec::get (on_queue, v) == phase;
+			fun deleted v  = vec::get (on_queue, v) == -2;
+
+			fun relax (v, w)
+			    =
+			    {   vec::set (weights, v, num::(+) (vec::get (weights, v),*w)); 
+				pq::decrease_weight (qqq, v);
+			    };
+
+			fun loop (s, t)
+			    =
+			    if (pq::is_empty qqq)
+				#
+				(s, t, vec::get (weights, t));
+			    else
+				t' =  pq::delete_min qqq;
+				unmark t';
+
+				apply
+				    (\\ (v, w) =  if   (marked v   )   relax (v, w);   fi)
+				    (vec::get (adj, t'));
+				    loop (t, t');
+			    fi;  
+
+			apply
+			    (\\ u
+				=
+				if  (not (deleted u))
+				     vec::set (weights, u, num::zero); 
+				     mark u;
+				     pq::set (qqq, u);
+				fi
+			    )
+			    nodes;
+
+			apply relax (vec::get (adj, a));
+
+			loop (-1, a);
+		    };			# fun find_cut
+
+		#  Coalesce vertices s and t 
+		fun coalesce (s, t)
+		    =
+		    {   # Merge the group of s and t:
+
+			vec::set (group, s, cl::append (vec::get (group, s), vec::get (group, t)));
+
+
+
+			# Mark neighbors of s:
+
+			apply (\\ (u, w) => vec::set (adj_edges, u, (s, w)); end ) (vec::get (adj, s));
+
+
+
+			# Change t-v (w) and s-v (w') to s-v (w+w') 
+			# Change t-v (w) to s-v (w) 
+
+			fun rmv ([], l) => l; 
+			    rmv((x as (u, _)) ! l, l') => rmv (l, if (t == u ) l'; else x ! l';fi);
+			end;
+
+			apply
+			    (\\ (v, w)
+				=
+				{   my (s', w')
+					=
+					vec::get (adj_edges, v);
+
+				    if  (s == s')
+
+					 w' := num::(+) (*w',*w);
+				    else
+					 if   (s != v)
+					      new_edge (s, v, w);
+					 fi;
+				    fi;
+				    vec::set (adj, v, rmv (vec::get (adj, v),[]));
+				})
+
+			    (vec::get (adj, t));
+
+			vec::set (adj, t,[]); 
+			vec::set (on_queue, t,-2); #  Delete node t 
+		    };
+
+		fun iterate (n, a, best_group, best_cut, best_weight, nodes)
+		    = 
+		    if (n >= 2)
+			#
+			my (s, t, w) =   find_cut (n, a, nodes);
+
+			my (best_group, best_cut, best_weight)
+			    = 
+			    if (best_group < 0 or num::(<) (w, best_weight))
+				#
+				(t, vec::get (group, t), w);
+			    else
+				(best_group, best_cut, best_weight);
+			    fi; 
+
+			coalesce (s, t);
+
+			iterate (n - 1, a, best_group, best_cut, best_weight, nodes); 
+		    else
+			(cl::to_list (best_cut), best_weight);
+		    fi;
+
+		nodes = map #1 (ggg.nodes ());
+
+		case nodes
+		    #
+		    []    =>  ([], num::zero);
+		    [_]   =>  ([], num::zero);
+		    a ! l =>  {   initialize (nodes); 
+				  iterate (length nodes, a,-1, cl::empty, num::zero, l);
+			      };
+		esac;
+	    };			# fun min_cut
+    };
+end;

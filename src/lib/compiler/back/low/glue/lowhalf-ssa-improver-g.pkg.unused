@@ -1,0 +1,308 @@
+# lowhalf-ssa-improver-g.pkg
+#
+# SSA optimizer for doing experiments 
+
+###        "Trustworthy Computing = Come here little girl, I've got candy."
+###
+###                                          -- Ben Rosenberg
+
+
+generic package   lowhalf_ssa_improver_g   (
+    #             ======================
+    #
+    package asm_emitter:  Machcode_Codebuffer
+    package translate_treecode_to_machcode:  Translate_Treecode_To_Machcode
+    package f:   FLOWGRAPH
+    package p:   Machcode_Universals
+    package sp:  SSA_PROPERTIES
+    package operand_table:  OPERAND_TABLE
+    package gc_type_sys:  GC_TYPE_SYSTEM
+    package frequency_properties:  Instruction_Frequency_Properties
+       sharing p::I = sp::I = asm_emitter::I = f::I = OperandTable::I =
+               frequency_properties::I = translate_treecode_to_machcode::I 
+       sharing f::P = asm_emitter::P = translate_treecode_to_machcode::t::PseudoOp 
+       sharing translate_treecode_to_machcode::t::Constant = f::i::Constant
+       sharing sp::RTL = GCTypeSys::RTL
+    type sext and rext and fext and ccext
+    my callgc:  { id:      Int,
+                   msg:     String,
+                   gcLabel:   label::label,
+                   returnLabel:   label::label,
+                   roots:    List( p::i::c::cell * GCTypeSys::gc::gctype ),
+                   stream:  translate_treecode_to_machcode::treecodeStream( sext, rext, fext, ccext )
+                 } -> Void
+   ) : Lowhalf_Ssa_Improver 
+{
+   package f = F
+   package i = f::I
+
+   view_IR    = LowhalfControl::getFlag "view-IR" 
+   verbose    = LowhalfControl::getFlag "verbose"
+   min_blocks = LowhalfControl::getInt "min-blocks"
+
+   fun error msg
+       =
+       lowhalf_error_message::error ("lowhalf_ssa_improver_g", msg)
+
+   package graph_viewer = graph_viewer_g (AllDisplays)
+
+   package format_instruction = format_instruction_g (asm_emitter)
+
+   package machcode_controlflow_graph = machcode_controlflow_graph
+      (package i = I
+       package p = f::P
+       package make_empty_graph = digraph_by_adjacency_list
+       package asm_emitter = asm_emitter
+      )
+
+   package util = local_machcode_controlflow_graph_transformations_g
+      (package machcode_controlflow_graph = machcode_controlflow_graph
+       package p   = P
+      )
+
+   package cfg_to_cluster = CFG2Cluster
+      (package machcode_controlflow_graph  = machcode_controlflow_graph
+       package f    = F
+      )
+
+   package cluster_to_cfg = Cluster2CFG
+      (package machcode_controlflow_graph  = machcode_controlflow_graph
+       package util = Util
+       package f    = F
+       package p    = P
+      )
+       
+   package dom = dominator_tree (digraph_by_adjacency_list)
+
+   package cdg = ControlDependenceGraph
+      (package dom       = Dom
+       package make_empty_graph = digraph_by_adjacency_list
+      )
+
+   package loop = loop_structure
+      (package dom       = Dom
+       package make_empty_graph = digraph_by_adjacency_list
+      )
+
+   package ir = LOWHALF_IR
+      (package machcode_controlflow_graph         = machcode_controlflow_graph
+       package cdg         = CDG
+       package loop        = Loop
+       package graph_viewer = graph_viewer
+       package util        = Util
+      )
+
+   package guess = StaticBranchPrediction
+     (package ir = IR
+      package props = P
+      package frequency_properties = frequency_properties
+      loopMultiplier=10
+     )
+      
+   package liveness = LivenessAnalysis (machcode_controlflow_graph)
+
+   package ssa = SSA
+      (package machcode_controlflow_graph  = machcode_controlflow_graph 
+       package dom  = Dom
+       package sp   = SP
+       package props= P
+       package rtl  = sp::RTL
+       package format_instruction = FormatInstruction
+       package make_empty_graph = digraph_by_adjacency_list
+       package gc_map = GCTypeSys::GCMap
+      )
+      
+   package cfg2ssa = cfg2ssa
+      (package ssa = SSA
+       package liveness = liveness
+      )
+
+   package reshape = ReshapeBranches (package ir = IR
+                                       package p  = P)
+   package branch_chaining = branch_chaining (package ir = IR
+                                             package p  = P)
+
+   package insert_preheaders = insert_preheaders (package ir = IR
+                                                 package p  = P)
+
+   package ssa_dce = SSADeadCodeElim (SSA)
+
+   package cf  = SSAConstantFolding (SSA)
+
+   package gvn = SSAGlobalValueNumbering (CF)
+
+   package ccp = SSACondConstProp (CF)
+
+   package ssagvn = ssagvn (package gvn = gvn 
+                             leaveBehindCopy = FALSE
+                             foldGlobalConstants = TRUE)
+
+   package ssagvnl = ssagvn (package gvn = gvn 
+                              leaveBehindCopy = FALSE
+                              foldGlobalConstants = FALSE)
+
+   package ssagvn' = ssagvn (package gvn = gvn 
+                              leaveBehindCopy = FALSE
+                              foldGlobalConstants = TRUE)
+
+   package ssaccp = ssaccp (ccp)
+
+   package ssagcm = SSAGlobalCodeMotion (SSA)
+   #  package ssagcm2 = SSAGlobalCodeMotion2 (SSA) 
+   #  package depressurize = SSADepressurize (SSA)
+
+   package ssa_liveness = ssa_liveness (SSA)
+
+   package ssa_to_cfg = ssa_to_cfg
+      (package ssa      = SSA
+       package liveness = ssa_liveness
+       package props    = P
+       package util     = Util
+      ) 
+
+   package gc_invariants = gc_invariants
+      (package ir = IR
+       package props = P
+       package gc_rtl_props = sp::RTLProps
+       package operand_table = OperandTable
+       package type_sys = gc_type_sys
+      )
+
+   package ssa_gc_invariants = ssa_gc_invariants
+      (package ssa     = SSA
+       package type_sys = gc_type_sys
+      )
+
+   package gc_g = gc_g
+      (package translate_treecode_to_machcode = translate_treecode_to_machcode
+       package ir = IR
+       package gc_map = GCTypeSys::GCMap
+       package machcode_universals = P
+      )
+
+   fun view phase ir
+       =
+       if *view_IR   then ir::view phase ir
+                     else ()
+
+   fun optimize cluster
+       =
+       {   enum rep = IR of ir::IR
+			| CLUSTER of f::cluster
+			| SSA of SSA::ssa;
+
+	   fun do_phase "cluster->mcg" (CLUSTER c) = IR (Cluster2CFG::cluster2cfg c)
+	     | do_phase "mcg->cluster" (IR mcg) = 
+		CLUSTER (CFG2Cluster::cfg2cluster { mcg=cfg, relayout=FALSE } )
+	     | do_phase "guess" (r as IR ir) = (Guess::run ir; r)
+	     | do_phase "reshape"   (r as IR ir) = (Reshape::run ir; r)
+	     | do_phase "branch-chaining" (r as IR ir) = (branch_chaining::run ir; r)
+	     | do_phase "insert-preheaders" (r as IR ir) = 
+		 (insert_preheaders::run ir; r)
+	     | do_phase "split-critical-edges" (r as IR ir) = 
+		 (Util::splitAllCriticalEdges ir; r)
+	     | do_phase "view-mcg"  (r as IR ir) = (view "mcg" ir; r)
+	     | do_phase "view-dom"  (r as IR ir) = (view "dom" ir; r)
+	     | do_phase "view-doms" (r as IR ir) = (view "doms" ir; r)
+	     | do_phase "view-cdg"  (r as IR ir) = (view "cdg" ir; r)
+	     | do_phase "view-loop" (r as IR ir) = (view "loop" ir; r)
+	     | do_phase "view-ssacfg"  (r as SSA ssa) = 
+		(if *view_IR then graph_viewer::view (SSA::viewAsCFG ssa)  r)
+	     | do_phase "view-ssa"  (r as SSA ssa) = 
+		(if *view_IR then graph_viewer::view (SSA::viewAsSSA ssa)  r)
+	     | do_phase "mcg->ssa"  (IR ir)   = SSA (cfg2ssa::buildSSA (ir, ir::dom ir))
+	     | do_phase "ssa-dce"   (SSA ssa) = SSA (ssa_dce::optimize ssa)
+	     | do_phase "ssa-gvn"   (SSA ssa) = SSA (ssagvn::optimize ssa)
+	     | do_phase "ssa-gvnl"  (SSA ssa) = SSA (ssagvnl::optimize ssa)
+	     | do_phase "ssa-gvn'"  (SSA ssa) = SSA (ssagvn'.optimize ssa)
+	     | do_phase "ssa-gcm"   (SSA ssa) = SSA (ssagcm::optimize ssa)
+	     | do_phase "ssa-ccp"   (SSA ssa) = SSA (ssaccp::optimize ssa)
+	     | do_phase "ssa-gc-invariants" (SSA ssa) =
+		  SSA (ssa_gc_invariants::optimize ssa)
+	     #  | do_phase "ssa-gcm2"  (SSA ssa) = SSA (SSAGCM2::optimize ssa) 
+	     #  | do_phase "ssa-dep"   (SSA ssa) = SSA (Depressurize::optimize ssa)
+	     | do_phase "gvn"       (r as SSA ssa) =
+		  (gvn::computeValueNumbers ssa; r)
+	     | do_phase "ssa->mcg"  (SSA ssa) = IR (ssa_to_cfg::buildCFG ssa)
+	     | do_phase "gc-invariants" (r as IR ir) = (gc_invariants::run ir; r)
+	     | do_phase "gc-gen"    (r as IR ir) = 
+		  (gc_g::gcGen { callgc=callgc } ir; r)
+	     | do_phase phase _ = error (phase);
+
+	   fun do_phases [] (CLUSTER c)
+                   =
+                   c
+
+	     | do_phases [] _
+                   =
+                   error "cluster needed"
+
+	     | do_phases (phase . phases) ir
+		  = 
+		  {   fun pr msg
+                          =
+                          file::write (file::stderr, msg);
+
+		      if *verbose   then pr("[ start "$phase$"]") 
+                                     
+										# cpu_timer		is from   src/lib/std/src/cpu-timer.pkg
+		      timer =   cpu_timer::make_cpu_timer ();
+
+		      ir =   do_phase phase ir
+                             except
+                                 e => {   print("[ "$phase$": uncaught exception: "
+				                  + exception_name e + " ]\n");
+                                          raise exception e;
+                                      }
+
+		      my  { gc, sys, usr }
+                          =
+                          timer::get_elapsed_usr_and_sys_cpu_time timer;
+
+		      if *verbose
+                      then 
+			       pr("[ end " + phase + " usr=" + time::to_string usr  + 
+				  " sys=" + time::to_string sys  + 
+				  " gc=" + time::to_string gc + "]\n")
+                      
+
+		      do_phases phases ir;
+                  };
+
+	   my f::CLUSTER { blocks, ... }
+               =
+               cluster;
+
+	   fun isAllGC([], gc, n)
+                   =
+                   (gc, n)
+
+	     | isAllGC (f::BBLOCK { next, prior, ... } . bs, gc, n)
+                   =  
+		   isAllGC (bs, gc and (case (*next, *prior) of
+					    ([_],[_]) => TRUE | _ => FALSE), n+1)
+	     | isAllGC(_ . bs, gc, n)
+                   =
+                   isAllGC (bs, gc, n);
+
+           case isAllGC (blocks, TRUE, 0)
+
+             of (TRUE, _)
+                    =>
+                    cluster
+
+	      | (FALSE, n)
+		    =>
+		    if n >= *min_blocks
+                    then
+		       do_phases (*LowhalfControl::lowhalf_phases) (CLUSTER cluster)
+		    else
+		       cluster;
+       }
+
+   fun coder cluster
+       = 
+       if *LowhalfControl::lowhalf   then optimize cluster
+                                      else cluster
+
+}

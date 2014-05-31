@@ -1,0 +1,441 @@
+## lay-out-linearly.pkg
+#
+# Code for laying out widgets
+# in lines or columns.
+#
+# This is essentially private internal support for
+#
+#     src/lib/x-kit/widget/layout/line-of-widgets.pkg
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+###                           "Implementation hiding good.
+###                            Information hiding bad.
+###                            Expose critical data!"
+
+
+
+stipulate
+    package xg =  xgeometry;					# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    package wg =  widget;					# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wt =  widget_types;					# widget_types		is from   src/lib/x-kit/widget/basic/widget-types.pkg
+herein
+
+    package   lay_out_linearly
+    : (weak)  Lay_Out_Linearly					# Lay_Out_Linearly	is from   src/lib/x-kit/widget/layout/lay-out-linearly.api
+    {
+	min = int::min;
+	max = int::max;
+
+	Box_Item
+	  #
+	  = GEOMETRY      wg::Widget_Size_Preference
+	  | WIDGET        wg::Widget
+	  #
+	  | HB           (wt::Vertical_Alignment, List( Box_Item ))
+	  | NAMED_VALUE  (wt::Vertical_Alignment, List( Box_Item ))
+	  ;
+
+	Bnds_Tree
+	  #
+	  = BT_G    wg::Widget_Size_Preference
+	  | BT_W   (wg::Widget_Size_Preference, wg::Widget)
+	  | BT_HB  (wg::Widget_Size_Preference, wt::Vertical_Alignment, List( Bnds_Tree ))
+	  | BT_VB  (wg::Widget_Size_Preference, wt::Vertical_Alignment, List( Bnds_Tree ))
+	  ;
+
+	max_x = 65535;       #  Maximum dimension of an X window. 
+
+	fun flip_bounds ( { col_preference, row_preference }:  wg::Widget_Size_Preference)
+	    =
+	    { col_preference => row_preference,
+	      row_preference => col_preference
+	    };
+
+	fun bnds_of (BT_G b) => b;
+	    bnds_of (BT_W (b, _)) => b;
+	    bnds_of (BT_HB (b, _, _)) => b;
+	    bnds_of (BT_VB (b, _, _)) => b;
+	end;
+
+	fun flip_bt (BT_G b) => BT_G (flip_bounds b);
+	    flip_bt (BT_W (b, tw)) => BT_W (flip_bounds b, tw);
+	    flip_bt (BT_HB (b, a, l)) => BT_HB (flip_bounds b, a, l);
+	    flip_bt (BT_VB (b, a, l)) => BT_VB (flip_bounds b, a, l);
+	end;
+
+	fun get_bounds (wg::INT_PREFERENCE { start_at, step_by, min_steps, ideal_steps, max_steps=>NULL } )
+		=>
+		(start_at+step_by*ideal_steps, start_at+step_by*min_steps, NULL, step_by);
+
+	   get_bounds (wg::INT_PREFERENCE { start_at, step_by, min_steps, ideal_steps, max_steps=>THE max } )
+	       =>
+	       (start_at+step_by*ideal_steps, start_at+step_by*min_steps, THE (start_at+step_by*max), step_by);
+	end;
+
+	fun x_bounds ( { col_preference, ... }: wg::Widget_Size_Preference) =  get_bounds col_preference;
+	fun y_bounds ( { row_preference, ... }: wg::Widget_Size_Preference) =  get_bounds row_preference;
+
+	fun compute_size' cl
+	    =
+	    {   fun do_x (NULL, _) => NULL;
+		    do_x (_, NULL) => NULL;
+		    do_x (THE cx, THE sx) => THE (cx + sx);
+		end;
+
+		fun do_y (cy, NULL) => cy;
+		    do_y (NULL, THE sy) => THE sy;
+		    do_y (THE cy, THE sy) => THE (max (cy, sy));
+		end;
+
+		fun tight (_, NULL) => FALSE;
+		    tight (mn, THE mx) => (mn == mx);
+		end;
+
+		fun maximum_length (wg::INT_PREFERENCE { start_at, step_by, max_steps=>NULL,    ... } ) =>  NULL;
+		    maximum_length (wg::INT_PREFERENCE { start_at, step_by, max_steps=>THE max, ... } ) =>  THE (start_at + step_by*max);
+		end;
+
+		fun acc_bounds ( { col_preference, row_preference }, (nx, ny, mnx, mny, mxx, mxy, ix, iy))
+		    =
+		    {   col_preference ->  wg::INT_PREFERENCE { start_at=>basex, step_by=>incx, min_steps=>minx, ideal_steps=>natx, max_steps=>maxx };
+			row_preference ->  wg::INT_PREFERENCE { start_at=>basey, step_by=>incy, min_steps=>miny, ideal_steps=>naty, max_steps=>maxy };
+
+			( nx + basex + incx*natx,
+			  max (ny, basey + incy*naty),
+			  mnx + basex + incx*minx,
+			  max (mny, basey + incy*miny),
+			  do_x (mxx, maximum_length col_preference), 
+			  do_y (mxy, maximum_length row_preference),
+			  if (tight (minx, maxx) ) ix; else min (ix, incx);fi, 
+			  if (tight (miny, maxy) or incy == 1) iy; 
+			  else min (iy, incy);fi
+			);
+		      };
+
+		my (natx, naty, minx, miny, maxx, maxy, incx, incy)
+		    = 
+		    list::fold_forward acc_bounds (0, 0, 0, 0, THE 0, NULL, max_x, max_x) cl;
+
+		# Guarantee increment > 0 
+		#	
+		fun adjust_incr i
+		    =
+		   (i == max_x  or  i <= 0)   ??   1
+					      ::   i;
+
+		incx = adjust_incr incx;
+		incy = adjust_incr incy;
+
+		# Guarantee maxy >= naty 
+		#
+		maxy = case maxy
+			   THE m_y => THE (max (m_y, naty));
+			   NULL    => NULL;
+		       esac;
+
+		# Return least f such that min + f*inc >= v 
+		#
+		fun factor (min,   1) v =>  v - min;
+		    factor (min, inc) v =>  ((v - min + inc - 1) / inc);
+		end;
+
+		xfact = factor (minx, incx);
+		yfact = factor (miny, incy);
+
+		{ col_preference
+		    =>
+		    wg::INT_PREFERENCE
+		      { start_at=>minx,
+			step_by=>incx,
+			min_steps=>0,
+			ideal_steps=>xfact natx,
+			max_steps=>case maxx    NULL => NULL;  THE v => THE (xfact v); esac
+		      },
+
+		  row_preference
+		    =>
+		    wg::INT_PREFERENCE
+		      { start_at=>miny,
+			step_by=>incy,
+			min_steps=>0,
+			ideal_steps=>yfact naty,
+			max_steps=>case maxy    NULL => NULL;  THE v => THE (yfact v); esac
+		      }
+		};
+	    };
+
+	fun compute_size (GEOMETRY bnds) =>  bnds;
+	    compute_size (WIDGET widget) =>  wg::size_preference_of  widget;
+	    compute_size (HB(_, boxes))  =>  compute_size' (map compute_size boxes);
+
+	    compute_size (NAMED_VALUE(_, boxes))
+		=> 
+		flip_bounds (compute_size' (map (flip_bounds o compute_size) boxes));
+	end;
+
+	fun flr (v:  Int, base, inc)
+	    =
+	    if (v == base)  v;
+	    else            base + ((v - base) / inc)*inc;
+	    fi
+	    except
+                DIVIDE_BY_ZERO
+                    =
+                    raise exception  wg::BAD_STEP;
+
+	fun ceil (v:  Int, base, inc)
+	    =
+	    if (v == base ) v; else base + ((v - base + inc - 1) / inc)*inc;fi
+	    except
+		DIVIDE_BY_ZERO
+		    =
+                    raise exception  wg::BAD_STEP;
+
+	fun set_minors (yo, ys, bndl, align)
+	    =
+	    map set_m bndl
+	    where
+		fun set_m bnd
+		    =
+		    {   size = case (y_bounds (bnds_of bnd))   
+				   (nat, mn, NULL,   1   ) => max (ys, mn);
+				   (nat, mn, THE mx, 1   ) => min (mx, max (ys, mn));
+				   (nat, mn, NULL,   incy) => max (flr (ys, nat, incy), ceil (mn, nat, incy));
+				   (nat, mn, THE mx, incy) => min (flr (mx, nat, incy), max (flr (ys, nat, incy), ceil (mn, nat, incy)));
+			       esac;
+
+			case align
+			    #
+			    wt::VCENTER => (yo + ((ys - size) / 2), size);
+			    wt::VTOP    => (yo, size);
+			    wt::VBOTTOM => (yo + ys - size, size);
+			esac;
+		    };
+
+	    end;
+
+	fun set_majors (xo, xs, bndl)
+	    =
+	    {   fun make_quad (BT_G b)
+			=>  
+			case (x_bounds b)   
+			    #
+			    (nat, mn, NULL,   inc) => (nat, nat-mn, max_x-nat, inc);
+			    (nat, mn, THE mx, inc) => (nat, nat-mn, mx-nat, inc);
+			esac;
+
+
+		    make_quad bnd
+			=> 
+			case (x_bounds (bnds_of bnd))   
+			    #
+			    (nat, mn, NULL,   inc) =>  (nat, nat-max (1, mn), max_x-nat, inc);
+			    (nat, mn, THE mx, inc) =>  (nat, nat-max (1, mn), mx-nat,    inc);
+			esac;
+		end;
+
+		size_list = map make_quad bndl;
+
+		fun add_count ((s: Int, 0, 0, _), (cs, sh_count, st_count)) => (cs+s, sh_count,   st_count  );
+		    add_count ((s,      0, _, _), (cs, sh_count, st_count)) => (cs+s, sh_count,   st_count+1);
+		    add_count ((s,      _, 0, _), (cs, sh_count, st_count)) => (cs+s, sh_count+1, st_count  );
+		    add_count ((s,      _, _, _), (cs, sh_count, st_count)) => (cs+s, sh_count+1, st_count+1);
+		end;
+
+		my (size, shr_count, str_count)
+		    =
+		    list::fold_forward add_count (0, 0, 0) size_list;
+
+		fun add_wd (l, amt, count)
+		    =
+		    {   fun dst ([], amt, _, count, l)
+				=>
+				(reverse l, amt, count);
+
+			    dst ((v as (s, _, 0, _)) ! tl, amt, per, count, l)
+				=>
+				dst (tl, amt, per, count, v ! l);
+
+			    dst ((s, sh, st, inc) ! tl, amt, per, count, l)
+				=>
+				{   delta = if  (inc == 1 ) min (amt, min (per, st));
+					    else            inc*(min (amt, min (per, st)) / inc);
+					    fi;
+
+				    if   (delta == amt)                ((reverse l)@((s+delta, sh, st-delta, inc) ! tl), 0, 0);
+				    elif (delta == st or delta == 0)   dst (tl, amt-delta, per, count, (s+delta, sh, 0, inc) ! l);
+				    else                               dst (tl, amt-delta, per, count+1, (s+delta, sh, st-delta, inc) ! l);
+				    fi;
+				};
+			end;
+
+			if (amt <= 0 or count == 0 )   l;
+			else                         add_wd (dst (l, amt, max (1, amt / count), 0, []));
+			fi;
+		    };
+
+		fun sub_wd (l, amt, count)
+		    =
+		    {     fun dst ([], amt, _, count, l)
+				  =>
+				  (reverse l, amt, count);
+
+			      dst ((v as (s, 0, _, _)) ! tl, amt, per, count, l)
+				  =>
+				  dst (tl, amt, per, count, v ! l);
+
+			      dst ((s, sh, st, inc) ! tl, amt, per, count, l)
+				  =>
+				  {   delta = if (inc == 1)  min (amt, min (per, sh));
+					      else           inc*(min (amt, min (per, sh)) / inc);
+					      fi;
+
+				      if   (delta == amt)                  ((reverse l)@((s-delta, sh-delta, st, inc) ! tl), 0, 0);
+				      elif (delta == sh or delta == 0)     dst (tl, amt-delta, per, count, (s-delta, 0, st, inc) ! l);
+				      else                                 dst (tl, amt-delta, per, count+1, (s-delta, sh-delta, st, inc) ! l);
+				      fi;
+				  };
+			  end;
+
+			  if (amt <= 0 or count == 0)   l;
+			  else                          sub_wd (dst (l, amt, max (1, amt / count), 0, []));
+			  fi;
+		      };
+
+		fun distrib ()
+		    =
+		    if   (size == xs)   size_list;
+		    elif (size <  xs)   add_wd (size_list, xs-size, str_count);
+		    else              sub_wd (size_list, size-xs, shr_count);
+		    fi;
+
+		fun add_or (curo, ((wd:  Int, _, _, _) ! tl)) => (curo, wd) ! (add_or (curo+wd, tl));
+		    add_or (curo, []) => [];
+		end;
+
+
+		add_or (xo, distrib ());
+	    };
+
+	fun bnds_tree (GEOMETRY bnds)
+		=>
+		BT_G bnds;
+
+	    bnds_tree (WIDGET tw)
+		=>
+		BT_W (wg::size_preference_of  tw,  tw);
+
+	    bnds_tree (HB (a, boxes))
+		=>
+		{   tree = map bnds_tree boxes;
+
+		    BT_HB (compute_size' (map bnds_of tree), a, tree);
+		};
+
+	    bnds_tree (NAMED_VALUE (a, boxes))
+		=>
+		{   tree = map (flip_bt o bnds_tree) boxes;
+
+		    BT_VB (flip_bounds (compute_size' (map bnds_of tree)), a, tree);
+		};
+	end;
+
+	# Given a box and the bounds tree for the layout,
+	# compute the layout, which consists of a
+	# list of widgets and their new rectangles.
+	#
+	stipulate
+
+	    fun merge ([],[],[])
+		    =>
+		    [];
+
+		merge ((x, w) ! xs, (y, h) ! ys, b ! bs)
+		    =>
+		    ({ col=>x, row=>y, wide=>w, high=>h }, b) ! (merge (xs, ys, bs));
+
+		merge _
+		    =>
+		    raise exception lib_base::IMPOSSIBLE "BoxLayout::HB";
+	    end;
+
+	herein
+
+	    fun compute_layout' (_, BT_G _)
+		    =>
+		    [];
+
+		compute_layout' (r, BT_W (_, w))
+		    =>
+		    [(w, r)];
+
+		compute_layout' ({ col=>x, row=>y, wide, high }, BT_HB(_, a, bl))
+		    =>
+		    {   l = merge (set_majors (x, wide, bl), set_minors (y, high, bl, a), bl);
+
+			list::fold_forward   (\\ (bx, bl) = (compute_layout' bx)@bl)   []   l;
+		    };
+
+		compute_layout' (r as { col=>x, row=>y, wide, high }, BT_VB(_, a, bl))
+		    =>
+		    {   l = merge (set_minors (x, wide, bl, a), set_majors (y, high, bl), bl);
+
+			list::fold_forward (\\ (bx, bl) => (compute_layout' bx)@bl; end ) [] l;
+		     };
+	    end;
+	end;
+
+	fun compute_layout (box, boxes)
+	    =
+	    {   bnds_t = bnds_tree boxes;
+
+		fits = wg::is_within_size_limits
+                         ( bnds_of  bnds_t,
+                           xg::box::size  box
+                         );
+
+		l = case bnds_t   
+			BT_G _
+			    =>
+			    [];
+
+			v as BT_W (bnds, w)
+			    => 
+			    compute_layout' (box, BT_HB (bnds, wt::VCENTER,[v]));
+
+			bt => compute_layout' (box, bt);
+		    esac;
+
+		  (fits, l);
+	    };
+
+    };		# package box_layout 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991, 1992 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

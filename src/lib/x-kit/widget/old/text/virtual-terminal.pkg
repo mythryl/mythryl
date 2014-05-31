@@ -1,0 +1,561 @@
+## virtual-terminal.pkg
+#
+# Compare to:
+#     src/lib/x-kit/widget/text/one-line-virtual-terminal.pkg
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+# A simple virtual terminal built on top of the text widget.  This supports
+# an interface that is compatible with the file package in threadkit.
+#
+# TODO:				XXX BUGGO FIXME
+#    Flow control (^S/^Q)
+#    User-defined erase, kill, etc.
+
+
+
+###                         "The lurking suspicion that something could be simplified
+###                          is the world's richest source of rewarding challenges."
+###
+###                                                    -- E.J. Dijkstra
+
+
+stipulate
+    include threadkit;						# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package file = file;					# file		is from   src/lib/std/src/posix/file.pkg
+    #
+    package xc =  xclient;					# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package tw =  text_widget;					# text_widget		is from   src/lib/x-kit/widget/text/text-widget.pkg
+    package wg =  widget;					# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+herein
+
+    package   virtual_terminal
+    : (weak)  Virtual_Terminal					# Virtual_Terminal	is from   src/lib/x-kit/widget/text/virtual-terminal.api
+    {
+	Virtual_Terminal
+	    =
+	    VIRTUAL_TERMINAL
+	      { widget:    wg::Widget,
+		instream:  file::Input_Stream,
+		outstream: file::Output_Stream
+	      };
+
+	stipulate
+
+	    tab_stop = 8;
+
+	    fun expand_tab col
+		=
+		expand (tab_stop - int::rem (col, tab_stop))
+		where
+		    s = "               ";
+		    len_s = string::length s;
+
+		    fun expand i
+			=
+			if (i <= len_s)
+
+			     substring (s, 0, i);
+			else
+			     s + (expand (i - len_s));
+			fi;
+		end;
+
+	    Draw_Fn = ERASE | DRAW  String;
+
+	    # Echo imp.
+	    #	
+	    # The echo imp monitors the stream of
+	    # keyboard events and echos keystrokes
+	    # on the terminal and forwards completed
+	    # lines to the Input_Stream buffer.
+	    #
+	    fun make_echo_imp (key_mailop, keysym_to_ascii_mapping, draw_slot, put_data)
+		=
+		{   fun beep () = (); # * NOP for now *
+
+		    to_ascii =  xc::map_keysym_to_ascii
+                                    keysym_to_ascii_mapping;
+
+		    fun loop cur_line
+			=
+			case (xc::envelope_contents  (block_until_mailop_fires  key_mailop))
+			    #
+			    xc::KEY_PRESS  arg
+				=>
+				{   fun tab ()
+					=
+					{   put_in_mailslot (draw_slot, DRAW "\t");
+					    loop ('\t' ! cur_line);
+					};
+
+				    fun new_line ()
+					=
+					{
+					    put_in_mailslot (draw_slot, DRAW "\n");
+					    put_data (implode (reverse ('\n' ! cur_line)));
+					    loop [];
+					};
+
+				    fun erase ()
+					=
+					loop case cur_line
+						 []      => { beep(); [];};
+						 (c ! r) => { put_in_mailslot (draw_slot, ERASE); r;};
+					     esac;
+
+				    fun flow_on  () = loop cur_line;  # * NOP for now * XXX BUGGO FIXME
+				    fun flow_off () = loop cur_line;  # * NOP for now * XXX BUGGO FIXME
+
+				    case (to_ascii arg  except _ = "")
+					#
+					"" => loop cur_line;
+					"\t" => tab();
+					"\^M" => new_line();  #  <cr> mapped to newline 
+					"\n" => new_line();
+					"\127" => erase();   #  <del> mapped to backspace 
+					"\008" => erase();
+					"\^Q" => flow_on();
+					"\^S" => flow_off();
+					s => {
+					   put_in_mailslot (draw_slot, DRAW s);
+					   loop ((explode s) @ cur_line);
+					};
+				    esac;
+			      };
+
+			    _ => loop cur_line;
+			esac;
+
+		    make_thread  "virtual_terminal echo"  {.
+			#	
+			loop [];
+		    };
+
+		    ();
+		};						# fun make_echo_imp 
+
+
+	    # * the text history buffer **
+	    # this buffers complete lines of text for redisplay when the widget is resized.
+
+	    Plea_Mail
+	      = SET_LEN  Int
+	      | PUSH_LN  String
+	      | MAP_TEXT  { nlines:  Int, ln_wid:  Int }
+	      ;
+
+	    History_Buf
+		=
+		HISTORY_BUF
+		{ plea_slot:   Mailslot( Plea_Mail ),
+		  reply_slot:  Mailslot( List(  String ) )
+		};
+
+	    fun make_history_buffer len
+		=
+		{   plea_slot  =  make_mailslot ();
+		    reply_slot =  make_mailslot ();
+
+		    fun config (max_len, init_rear)
+			=
+			{
+			  fun prefix (0, l) => [];
+			      prefix (_, []) => [];
+			      prefix (n, x ! r) => x ! prefix (n - 1, r);
+			  end;
+
+			  fun shift ([], []) => ([], []);
+			      shift ([], rear) => shift (reverse rear, []);
+			      shift (_ ! front, rear) => (front, rear);
+			  end;
+
+			  fun imp_loop (n, front, rear)
+			      =
+			      case (take_from_mailslot  plea_slot)
+
+				   SET_LEN len
+				       =>
+				       config (len, prefix (len, rear@(reverse front)));
+
+				   PUSH_LN s
+				       =>
+				      if (n < max_len)
+
+					   imp_loop (n+1, front, s ! rear);
+				      else 
+					   my (front, rear) = shift (front, rear);
+
+					   imp_loop (n, front, s ! rear);
+				       fi;
+
+				   MAP_TEXT { nlines, ln_wid }
+				       =>
+				       {   fun get_lines (_, [], lines) =>  lines;
+					       get_lines (0,  _, lines) =>  lines;
+
+					       get_lines (n, s ! r, lines)
+						   =>
+						   {   len = size s;
+
+						       fun get_ln (0, _, lines) => lines;
+							   get_ln (n, 0, lines) => get_lines (n, r, lines);
+
+							   get_ln (n, i, lines)
+							       =>
+							       get_ln (n - 1, i-ln_wid, substring (s, i-ln_wid, ln_wid) ! lines);
+						       end;
+
+						       if (len > ln_wid)
+
+							   tail_len = int::rem (len, ln_wid);
+
+							   i = (len - tail_len);
+
+							   get_ln (n - 1, i, substring (s, i, tail_len) ! lines);
+
+						       else
+							    get_lines (n - 1, r, s ! lines);
+						       fi;
+						 };
+					   end;
+
+					   put_in_mailslot (reply_slot, get_lines (nlines, rear@(reverse front), []));
+
+					   imp_loop (n, front, rear);
+				      };
+			      esac;
+
+			      imp_loop (list::length init_rear, [], init_rear);
+			};
+
+			make_thread "virtual_terminal history_buffer"  {.
+			    #
+			    config (len, []);
+			};
+
+			HISTORY_BUF { plea_slot, reply_slot };
+
+		  };			# fun make_history_buffer 
+
+	    # Give a line into a history buffer:
+	    #
+	    fun give_line (HISTORY_BUF { plea_slot, ... }, ln)
+		=
+		put_in_mailslot (plea_slot, PUSH_LN ln);
+
+	    # Set the length of a history buffer:
+	    #
+	    fun set_length (HISTORY_BUF { plea_slot, ... }, len)
+		=
+		len <= 0   ??   put_in_mailslot (plea_slot, SET_LEN 1  )
+			   ::   put_in_mailslot (plea_slot, SET_LEN len);
+
+	    # Map the maximum suffix (that will fit) of a history buffer onto a
+	    # rectangular array of characters.  The suffix is returned as a list
+	    # of at most "numLines" strings, each string being at most "lineWid"
+	    # characters.  The strings are in top-down order.
+	    #
+	    fun map_text (HISTORY_BUF { plea_slot, reply_slot }, num_lines, line_wid)
+		=
+		{   put_in_mailslot (plea_slot, MAP_TEXT { nlines=>num_lines, ln_wid=>line_wid } );
+		    take_from_mailslot reply_slot;
+		};
+
+
+	    # The draw imp.
+	    #
+	    # The draw imp receives strings from
+	    # the output stream and the echo imp.
+	    #
+	    # It draws the text for these strings
+	    # and merges them into complete lines
+	    # of text, which are buffered in a
+	    # text history buffer.
+	    #
+	    fun make_draw_imp (tw, get_data', echo_slot, command', tw_cmd_slot)
+		=
+		{   set_cursor = tw::move_cursor tw;
+
+		    fun write (r, c, s)
+			=
+			tw::write_text tw
+				       { at=>tw::CHAR_COORD { col=>c, row=>r }, text=>s };
+
+		    scroll_up = tw::scroll_up tw;
+
+		    fun clear_to_eol (r, c)
+			=
+			tw::clear_to_eol tw (tw::CHAR_COORD { col=>c, row=>r } );
+
+		    fun clear ()
+			=
+			tw::clear_to_eos tw (tw::CHAR_COORD { col=>0, row=>0 } );
+
+		    hb = make_history_buffer 0;
+
+		    echo' =  take_from_mailslot'  echo_slot;
+
+		    fun fill_text l
+			=
+			{   row = REF 0;
+			    clear();
+
+			    apply
+				(\\ s = { write(*row, 0, s);
+					  row := *row+1;
+					}
+				)
+				l;
+			};
+
+		    fun config (cur_ln_len, cur_ln)
+			=
+			{   my { rows, cols }
+				=
+				tw::char_size_of tw;
+
+			    set_length (hb, rows - 1);
+			    text = map_text (hb, rows - 1, cols);
+			    row = length text;
+			    col = length cur_ln;
+
+			    fun redraw_cur_ln l
+				=
+				f (0, l)
+				where
+				    fun f (_, [])
+					    =>
+					    ();
+
+					f (i, ln ! r)
+					    =>
+					    write (row, i, string::from_char ln);
+				    end;
+				end;
+	  /*** TYAN CODE:
+			    fun redrawCurLn l = apply (\\ i => write (row, i, nth (l, i)))
+						    (0 thru col)
+	  ***/
+	  /*** I moved the following into the body of the let
+			    fillText text;
+			    redrawCurLn (reverse curLn);
+	  ***/
+			    # Keep track if there is any user input on the line.
+			    # We allow user input to follow output on the same line:
+			    #
+			    fun imp_loop (arg as (cursor_r, cursor_c, cur_ln_len, cur_ln))
+				=
+				{   fun do_output s
+					=
+					imp_loop
+					    (list::fold_forward
+						(\\ (c, (row, col, len, ln))
+						    =
+						    case c
+
+							'\^M'  => {   give_line (hb, implode (reverse ln));
+								      (row+1, 0, len,[]);
+								  };
+
+							'\n'   => {   give_line (hb, implode (reverse ln));
+								      (row+1, 0, len,[]);
+								  };
+
+							_      => {   write (row, col, string::from_char c);
+								      (row, col+1, len, c ! ln);
+								  };
+						    esac
+						)
+						arg
+						(explode s)
+					    );
+
+				    fun do_echo ERASE
+					    =>
+					    if (cursor_c > 0)
+
+						 write  (cursor_r, cursor_c - 1, " ");
+						 imp_loop (cursor_r, cursor_c - 1, cur_ln_len, tail cur_ln);
+					    else
+						 imp_loop arg;
+					    fi;
+
+				       do_echo (DRAW s)
+					   =>
+					   do_output s;
+				    end;
+
+				    fun do_cmd  envelope
+					=
+					{   put_in_mailslot (tw_cmd_slot, envelope);
+
+					    case (xc::envelope_contents  envelope)
+						#
+						(xc::ETC_RESIZE _) => config (cur_ln_len, cur_ln);
+					       _ => imp_loop arg;
+					    esac;
+
+					    if (cursor_r >= rows)
+						#
+						scroll_up { from=>rows - 1, nlines=>1 };
+						imp_loop (cursor_r - 1, cursor_c, cur_ln_len, cur_ln);
+					    else
+						do_one_mailop [
+						    get_data' ==>  do_output,
+						    echo'     ==>  do_echo,
+						    command'  ==>  do_cmd
+						];
+					    fi;
+					};
+			      };			# fun imp_loop 
+
+			      fill_text text;
+			      redraw_cur_ln (reverse cur_ln);
+			      imp_loop (row, col, cur_ln_len, cur_ln);
+
+			  };				# fun config 
+
+		      make_thread  "virtual_terminal draw"  {.
+			  #
+			  config (0, []);
+		      };
+
+		      ();
+		  };			# make_draw_imp 
+	herein
+
+	    fun make_virtual_terminal  root_window  size
+		=
+		{   text_widget =  tw::make_text_widget root_window size;
+		    twidget     =  tw::as_widget text_widget;
+
+		    #  tky thinks these might need to be here 
+
+		    my (put_data, instream)
+			=
+			{   slot =  make_mailslot ();
+
+			    ( \\ s = put_in_mailslot (slot, s),
+			      #
+			      file::open_slot_in  slot
+			    );
+			};
+
+		    my (get_data', outstream)
+			=
+			{   slot =  make_mailslot ();
+
+			    ( take_from_mailslot'          slot,
+			      file::open_slot_out  slot
+			    );
+			};
+
+		    # realize the virtual_terminal. 
+		    #
+		    fun realize_virtual_terminal { kidplug, window, window_size }
+			=
+			{   kidplug ->  xc::KIDPLUG { from_keyboard' => key_mailop,
+						      from_other'    => ci_mailop,
+						      ...
+						    };
+
+			    echo_slot      = make_mailslot ();
+			    tw_cmd_in_slot = make_mailslot ();
+
+			    in_kidplug
+				=
+				xc::replace_other
+				  (
+				    xc::replace_keyboard  (xc::ignore_mouse  kidplug,  xc::null_stream),
+				    take_from_mailslot'  tw_cmd_in_slot
+				  );
+
+			    wg::realize_fn
+				twidget
+				{
+				  kidplug => in_kidplug,
+				  window,
+				  window_size
+				};
+
+			    make_draw_imp
+			      (
+				text_widget,
+				get_data',
+				echo_slot,
+				ci_mailop,
+				tw_cmd_in_slot
+			      );
+
+			    make_echo_imp
+			      ( key_mailop,
+				xc::default_keysym_to_ascii_mapping,
+				echo_slot,
+				put_data
+			      );
+
+			};					# fun realize_virtual_terminal 
+
+		      VIRTUAL_TERMINAL
+			{
+			  instream,
+			  outstream,
+
+			  widget
+			      =>
+			      wg::make_widget
+				{
+				  root_window,
+				  args      =>  \\ () = { background => NULL }, 
+				  realize   =>  realize_virtual_terminal,
+
+				  size_preference_thunk_of
+				      =>
+				      wg::size_preference_thunk_of  twidget
+				}
+			};
+		  };		# fun make_virtual_terminal
+
+	end;			# stipulate
+
+
+	fun as_widget (VIRTUAL_TERMINAL { widget, ... } )
+	    =
+	    widget;
+
+
+	fun open_virtual_terminal (VIRTUAL_TERMINAL { instream, outstream, ... } )
+	    =
+	    (instream, outstream);
+
+    };							# package virtual_terminal 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

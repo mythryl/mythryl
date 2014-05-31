@@ -1,0 +1,1113 @@
+## perl-regex-engine-g.pkg
+#
+# Implements a perl-like regular expression matcher.
+# This module is based on backtracking search.
+#
+# TODO:
+# 1. Compile suitable subexpressions into DFA
+# 2. Lookahead optimizations when scanning for substring match.
+#        --- Allen Leung Leung
+#            (leunga@{ cs.nyu.edu, dorsai.org } )
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+###                 "There is a great satisfaction in building
+###                  good tools for other people to use."
+###
+###                                      -- Freeman Dyson
+
+
+
+stipulate
+
+   # Set this to TRUE if you need a representation that is thread-safe; 
+   # When this is TRUE the backreferences table will be allocated anew
+   # every time a new match is performed.
+
+   thread_safe = TRUE;
+
+herein
+
+    generic package perl_regex_engine_g (
+	#
+	r:  Char_Abstract_Regular_Expression					# Char_Abstract_Regular_Expression	is from   src/lib/regex/front/abstract-regular-expression.api
+    )										# abstract_regular_expression		is from   src/lib/regex/front/abstract-regular-expression.pkg
+    : (weak)
+    Perl_Regular_Expression_Engine						# Perl_Regular_Expression_Engine	is from   src/lib/regex/backend/perl-regex-engine.api
+    {
+
+	package r =  r;
+	package s =  r;
+#	package d =  dfa_engine;						# dfa_engine				is from   src/lib/regex/backend/dfa-engine.pkg
+	package m =  regex_match_result;					# regex_match_result			is from   src/lib/regex/glue/regex-match-result.pkg
+	package v =  rw_vector;							# rw_vector				is from   src/lib/std/src/rw-vector.pkg
+
+	Compiled_Regular_Expression
+	    =
+	    COMPILED_REGULAR_EXPRESSION {
+		backref_var_count:  Int,					# Number of backreference variables. 
+		references:         v::Rw_Vector( String ),			# References table.
+		regexp:             s::Abstract_Regular_Expression,
+		multiline:          Bool,					# ^ and $ match '\n' iff this is TRUE.
+		begin_only:         Bool,					# Can only match at beginning of line? 
+		lookahead:  Null_Or(  s::Abstract_Regular_Expression )		# A simple lookahead test
+	    };
+
+
+	exception BACKTRACK;
+	exception BUG;
+
+
+	fun multiline (COMPILED_REGULAR_EXPRESSION { backref_var_count, references, regexp, begin_only, lookahead, ... } )
+	    = 
+	    COMPILED_REGULAR_EXPRESSION { backref_var_count, references, regexp, begin_only, lookahead, multiline=>TRUE };
+
+
+	fun singleline (COMPILED_REGULAR_EXPRESSION { backref_var_count, references, regexp, begin_only, 
+			     lookahead, ... } )
+	    = 
+	    COMPILED_REGULAR_EXPRESSION { backref_var_count, references, regexp, begin_only, lookahead, multiline=>FALSE };
+
+
+	# It would be worth looking at the
+	# set of optimizations implemented
+	# by the Perl5 regex optimizaer for
+	# ideas here -- it is a mature
+	# implementation with lots of good
+	# ideas.  Note that some optimizations
+	# such as star-sequence collapse are
+	# already implemented in
+	#     src/lib/regex/front/generic-regular-expression-syntax-g.pkg
+	# so there is no point replicating that
+	# effort here:
+	#
+	fun optimize re
+	    =
+	    re;		#  Not implemented yet.
+
+
+
+	# Analyse a regular expression
+        # for three properties:
+	#
+	#   1) Will it match only at the beginning of a string?
+	#   2) "must be empty"?
+	#   3) Length needed for backref vector.
+        #      This is one more than max backref
+        #      variable used:  \1 \2 \3 ...
+	#
+	fun collect_info re
+	    =
+	    {	(analyse_regex re) ->  (begin_only, is_empty);
+
+		(begin_only, is_empty, *n+1);
+	    }	
+	    where
+	        n = REF -1;
+
+		fun track_max_backref v
+		    =
+		    if (*n <  v)
+                         n := v;
+                    fi;
+
+
+		# regex -> (begin_only, is_empty):
+		#
+		fun analyse_regex (s::CHAR         _) =>  (FALSE, FALSE);
+		    analyse_regex (s::MATCH_SET    _) =>  (FALSE, FALSE);
+		    analyse_regex (s::NONMATCH_SET _) =>  (FALSE, FALSE);
+
+		    analyse_regex (s::PLUS     re) =>   analyse_regex re;
+		    analyse_regex (s::STAR     re) =>   analyse_regex re;
+		    analyse_regex (s::OPTION   re) =>   analyse_regex re;
+		    analyse_regex (s::GROUP    re) =>   analyse_regex re;
+		    analyse_regex (s::GUARD(_, re))=>   analyse_regex re;
+
+		    analyse_regex (s::BEGIN) =>   (TRUE, TRUE);
+		    analyse_regex (s::END  ) =>   (FALSE, TRUE);
+
+		    analyse_regex (s::CONCAT es) =>   analyse_concat es;
+		    analyse_regex (s::ALT    es) =>   analyse_alt es;
+
+		    analyse_regex (s::INTERVAL (re, min, THE 0)) => (FALSE, TRUE);
+		    analyse_regex (s::INTERVAL (re, min, max)) => analyse_regex re;
+
+		    analyse_regex (s::ASSIGN   (v, _, re)) => { track_max_backref v;   analyse_regex re; };
+		    analyse_regex (s::BACK_REF (_, v))     => { track_max_backref v;   (FALSE, FALSE); };
+		    analyse_regex (s::BOUNDARY _)          => (FALSE, TRUE);
+		end
+
+		# Analyse a concatenation of patterns:
+		#
+		also
+		fun analyse_concat [] => (FALSE, TRUE);
+
+		    analyse_concat (e ! es)
+			=>
+			{   (analyse_regex  e ) ->  (begin_only,  is_empty );
+			    (analyse_concat es) ->  (begin_only', is_empty');
+
+			    ( begin_only or is_empty and begin_only',
+			      is_empty and is_empty'
+                            );
+			};
+		end
+
+		# Analyse an alternation of patterns:
+		#
+		also
+		fun analyse_alt []  =>  (FALSE, FALSE);		 #  Can never match anything 
+
+		    analyse_alt [e] =>  analyse_regex e;
+
+		    analyse_alt (e ! es)
+			=>
+			{   (analyse_regex e ) -> (begin_only , is_empty );
+			    (analyse_alt   es) -> (begin_only', is_empty');
+
+			    ( begin_only and begin_only', 
+			      is_empty   and is_empty'
+			    );
+			};
+		end;
+	    end;			# where
+
+	fun compile regexp
+	    =
+	    {   (collect_info regexp)
+                    ->
+                    (begin_only, is_empty, backref_var_count);
+
+		COMPILED_REGULAR_EXPRESSION { backref_var_count,
+			begin_only,
+			regexp,
+			multiline  =>  FALSE,
+			lookahead  =>  NULL,
+			references =>  thread_safe  ??   v::make_rw_vector (0,                 "")
+				                    ::   v::make_rw_vector (backref_var_count, "")
+		      };
+	    };
+
+	fun scan (COMPILED_REGULAR_EXPRESSION { regexp, multiline, ... }, references, getc, start_pos, stream, last)
+	    =
+	    {
+                fun lesseq (i, NULL   ) =>   TRUE;
+		    lesseq (i, THE max) =>   i <= max;
+		end;
+
+		fun less   (i, NULL   ) =>   TRUE;
+		    less   (i, THE max) =>   i < max;
+		end;
+
+		# Get n characters from the stream.
+		#
+		# There must be at least n characters
+		# in the stream:
+		#
+		fun get_n_chars (n, s)
+		    = 
+		    {   fun f (0, s)
+                                =>
+                                [];
+
+			    f (n, s)
+				=>
+				case (getc s)
+				  
+				     THE (c, s) =>   c ! f (n - 1, s);
+				     NULL       =>   raise exception BUG;
+				esac;
+			end;
+
+			string::implode (f (n, s));
+		    };
+
+
+		# Get and set back-references:
+		#
+		fun get_backref  v     =  v::get (references, v);
+		fun set_backref (v, s) =  v::set (references, v, s);
+
+
+		# At the beginning of the line? 
+		#
+		fun at_start (0, last         ) =>   TRUE;
+		    at_start (_, NULL         ) =>   TRUE;
+		    at_start (_, THE('\n', _) ) =>   multiline;
+		    at_start (_, _            ) =>   FALSE;
+		end;
+
+		# This function constructs an
+                # empty match, used when the
+                # appropriate alternative is
+                # not followed at all:
+		#
+		fun empty_alternative (s::GROUP e ) =>   [m::REGEX_MATCH_RESULT (NULL, empty_alternative e)];
+
+		    empty_alternative (s::ALT l   ) =>   list::cat (map empty_alternative l);
+		    empty_alternative (s::CONCAT l) =>   list::cat (map empty_alternative l);
+
+		    empty_alternative (s::INTERVAL (e, _, _)) =>   empty_alternative e;
+		    empty_alternative (s::OPTION e)           =>   empty_alternative e;
+		    empty_alternative (s::STAR   e)           =>   empty_alternative e;
+		    empty_alternative (s::PLUS   e)           =>   empty_alternative e;
+
+		    empty_alternative (s::ASSIGN (v, _, e))
+			=>
+			{   set_backref (v, "");		 #  reset reference 
+			    empty_alternative e;
+                        };
+
+		    empty_alternative (s::GUARD(_, e))
+			=>
+			empty_alternative e;
+
+		    empty_alternative _ => [];
+		end;
+
+		################################################################################
+		#                  Overview of Match Engine Core
+		#
+                # Following is the core of the Perl5-compatible
+		# regex engine, consisting of two functions:
+		#
+		#     match_regex 
+		#     pop_stack_and_continue
+		#
+		# Together these implement a simple finite state
+		# machine (fsm) which marches through the regular
+		# expression matching process via a sequence
+		# of tail-recursive calls.
+		#
+		# (Since the Mythryl compiler promises to implement
+		# tail-recursive calls "properly", which is to say
+		# without pushing anything on the stack, instead
+		# doing just a jump with parameters, tail recursive
+		# calls are a great way in Mythryl to do finite
+		# state matchine transitions.  Don't do this in
+		# C -- you'll overflow your stack.)
+		#
+		# These two functions use "fate-passing style"
+		# which means essentially that we maintain our return
+		# stack explicitly by hand as a datastructure rather
+		# than depending on the language's implicit compiler-
+		# implemented call stack.
+		#
+		# As coded, the parameters to   match_regex
+		# are the state of our fsm and
+		# the tail-recursive calls to   match_regex
+		# are our state transitions.
+		#
+		# The  match_regex  args (and thus fsm state variables) are:
+		#
+		#     re              = The part of current regex subexpression not yet matched.
+		#     pos             = Current integer position within the string we're matching against.
+		#     this_char       = NULL or else the current char being matched, as a (char, rest-of-string) pair.
+		#     last_char       = Last value of 'this_char', for doing boundary matches like \b.
+		#     rest_of_string  = Remaining part of string being matched, as a stream of chars.
+		#     matches_found   = List of regex matches already found, in reverse order.
+		#     stack           = Return_Stack -- remaining work to do after current sub-regex match is done.
+		#
+		# Our regex-matching algorithm requires backtracking
+                # at times;  we implement this by raising a BACKTRACK
+		# exception and trapping it at the appropriate resumption
+		# point. 
+		#
+		# Note that our Abstract_Regular_Expression
+		# regex representation supports operations
+		# not defined in the surface Perl5 syntax,
+		# and that our regex engine here implements
+		# them.
+		#
+                # In particular, in backrefs we support
+		# application of an arbitrary user-defined
+		# function for transforming the matched text
+		# before matching (it might map to uppercase
+		# or reverse the string, say), and we support
+		# arbitrary user-defined GUARD predicates which
+		# must match at a given point.
+		#
+		# Since the Perl5 surface syntax provides
+		# no way to access these capabilities, they
+		# are currently irrelevant to end-users.
+		#
+		#
+		################################################################################
+
+
+
+		# Define the explicitly-maintained
+                # "return stack" (fate) used
+		# to remember where we are in outer
+		# regex matching while processing
+		# an inner nested regex match:
+
+		Return_Stack(X)
+
+		  = GROUP    ( List( s::Abstract_Regular_Expression ),		# Regular expressions to match.
+                               X,						# String to match against.
+                               Int,						# Position in string.
+                               List( Regex_Match_Result(X) ),			# List of matches found so far, most recent first.
+                               Return_Stack(X)					# 
+                             )
+
+		  | ASSIGN   ( Int,						# Backref var, as int offset into vector.
+                              (String -> String),				# String transform, I think unused at present.
+			       List( s::Abstract_Regular_Expression ),		# Regular expressions to match.
+                               X,						# String to match against.
+                               Int,						# Position in string.
+                               List( Regex_Match_Result(X) ),			# List of matches found so far, most recent first.
+                               Return_Stack(X)
+                             )
+
+		  | GUARD    ((String -> Bool),					# Predicate to test matched substring.
+			       List( s::Abstract_Regular_Expression ),		# Regular expressions to match.
+                               X,						# String to match against.
+                               Int,						# Position in string.
+                               List( Regex_Match_Result(X) ),			# List of matches found so far, most recent first.
+                               Return_Stack(X)
+                             )
+
+		  | CONCAT   ( List( s::Abstract_Regular_Expression ),		# Regular expressions to match.
+                               Return_Stack(X)
+                             )
+
+		  | REPEAT   ( s::Abstract_Regular_Expression,			# Regex to match repeatedly.
+                               Int,						# Value of 'pos' before last match of preceding.
+                               Int,						# Minimum number of matches.
+                               Null_Or( Int ),					# Maximum number of matches (NULL == infinity).
+                               Int,						# Number of matches so far.
+			       List( s::Abstract_Regular_Expression ),		# Regular expressions to match.
+                               List( Regex_Match_Result(X) ),			# List of matches found so far, most recent first.
+                               Return_Stack(X)
+                             )
+
+		  | RETURN
+
+		withtype Regex_Match_Result(X)
+			 =
+			 m::Regex_Match_Result ( Null_Or { match_position: X,  match_length: Int } )
+
+		    also Buf(X)
+			 =
+			 Null_Or ((Char, X));
+
+
+
+		# Here we define our core
+                # finite state machine
+                # transition function.
+		#
+		# The arguments define our
+		# fsm state -- see comments above:
+		#
+	        fun match_regex ([], pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We have successfully matched
+			# a regex subexpression, so pop
+			# the stack and continue with
+			# enclosing regex matches.
+			#
+			# (If 'stack' is empty, we're done.)
+			#
+			pop_stack_and_continue (pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::CHAR c ! re, pos, this_char as THE (c', rest_of_string'), last_char, rest_of_string, matches_found, stack)
+			=>
+			# Match a simple constant character c:
+			#
+			if (c == c')   match_regex (re, pos+1, NULL, this_char, rest_of_string', matches_found, stack);
+			else
+                             raise exception BACKTRACK;
+                        fi;
+
+
+		    match_regex (s::MATCH_SET set ! re, pos, this_char as THE (c', rest_of_string'), last_char, rest_of_string, matches_found, stack)
+			=>
+			# Match this_char against a
+			# character set like [A-Za-z]:
+			#
+			if  (s::char_set::member (set, c'))   match_regex (re, pos+1, NULL, this_char, rest_of_string', matches_found, stack);
+			else 
+                             raise exception BACKTRACK;
+                        fi;
+
+
+		    match_regex (s::NONMATCH_SET set ! re, pos, this_char as THE (c', rest_of_string'), last_char, rest_of_string, matches_found, stack)
+			=>
+			# Match this_char against a negated
+			# character set like [^A-Za-z]:
+			#
+			if (not (s::char_set::member (set, c')))   match_regex (re, pos+1, NULL, this_char, rest_of_string', matches_found, stack);
+			else 
+                             raise exception BACKTRACK;
+			fi;
+
+
+		    match_regex (s::GROUP x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# Match a parenthesized subexpression
+			# by pushing our current state on the
+			# stack and continuing:
+			#
+			match_regex ([x], pos, this_char, last_char, rest_of_string, [], GROUP (re, rest_of_string, pos, matches_found, stack));
+
+
+		    match_regex (s::ALT [] ! _, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We've failed to match any of
+			# the alternatives in a
+			#     (foo|bar|zot)
+			# type construct, so it is time
+			# to backtrack:
+			# 
+			raise exception BACKTRACK;
+
+
+		    match_regex (s::ALT [x] ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We've arrived at the last
+			# alternative in a
+			#     (foo|bar|zot)
+			# type construct.  The only
+			# difference between this and
+			# the next case is that we do
+			# not bother trapping BACKTRACK,
+			# since we have no remaining
+			# alternatives to try:
+			# 
+			match_regex (x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::ALT (x ! xs) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We've arrived at a non-final
+			# alternative in a
+			#     (foo|bar|zot)
+			# type construct.  We try matching
+			# the next untried alternative;
+			# if it is forced to BACKTRACK,
+			# we iterate to the next alternative:
+			# 
+			match_regex (x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			except
+			    BACKTRACK
+				=
+				match_regex (s::ALT xs ! re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::CONCAT x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match a sequence of
+			# two or more regular expressions.
+			# We call ourself to match the first
+			# one, pushing the rest on the stack:
+			#
+			match_regex (x, pos, this_char, last_char, rest_of_string, matches_found, CONCAT (re, stack));
+
+
+		    match_regex (s::STAR x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match  foo*
+			# for some regex foo.
+			#
+			# We treat this as a special
+			# case of the general INTERVAL
+			# operator foo{m,n}:
+			#
+			match_regex (s::INTERVAL (x, 0, NULL) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::PLUS x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match  foo+
+			# for some regex foo.
+			#
+			# We treat this as a special
+			# case of the general INTERVAL
+			# operator foo{m,n}:
+			#
+			match_regex (s::INTERVAL (x, 1, NULL) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::OPTION x ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match  foo?
+			# for some regex foo.
+			#
+			# We treat this as a special
+			# case of the general INTERVAL
+			# operator foo{m,n}:
+			#
+			match_regex (s::INTERVAL (x, 0, THE 1) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    match_regex (s::INTERVAL (x, min, max) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match  foo{m,n}
+			# for some regex foo,
+			# where n might be
+			# infinite (represented by
+			# NULL) or we might have
+			# m>n, which always fails.
+			#
+			# In general we handle this
+			# by calling ourself recursively
+			# to match foo after pushing an
+			# appropriate REPEAT(foo) on the
+			# stack to handle the required
+			# remaining number of matches:
+			#
+			{   fun empty_match ()
+				= 
+				match_regex (re, pos, this_char, last_char, rest_of_string, 
+				       list::reverse_and_prepend (empty_alternative x, matches_found), stack);
+
+			    fun try_at_least_one ()
+				= 
+				match_regex ([x], pos, this_char, last_char, rest_of_string, [], 
+				        REPEAT (x, pos, min, max, 1, re, matches_found, stack));
+
+			    if (lesseq (min, max))
+			         
+				 if (min > 0)
+				     
+				      try_at_least_one ();
+				 else
+				      try_at_least_one ()
+				      except
+					  BACKTRACK = empty_match ();
+				 fi;
+			    else
+				empty_match ();		 # The range is empty.
+			    fi;
+			};
+
+
+		    match_regex (s::BEGIN ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match   ^
+                        # the start-of-string char:
+			#
+			if (at_start (pos, last_char))   match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+			else
+                            raise exception BACKTRACK;
+                        fi;
+
+
+		    match_regex (s::END ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# We're trying to match   $
+                        # the end-of-string char:
+			#
+			case (getc rest_of_string)
+			  
+			     NULL
+				 =>
+				 match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+			     last_char' as THE (c', rest_of_string')
+				 => 
+				 if (c' == '\n')
+
+				     if multiline
+
+					  # In multi-line  mode
+                                          #  '$' matches a newline:
+					  #
+				          match_regex (re, pos+1, NULL, last_char', rest_of_string', matches_found, stack);
+				     else
+			
+					  # Even in single-line mode
+					  # '$' matches a newline
+                                          # before the end of string:
+					  #
+					  case (getc rest_of_string')
+
+					      NULL =>  match_regex (re, pos, this_char, last_char, rest_of_string', matches_found, stack);
+					      _    =>  raise exception BACKTRACK;
+					  esac; 	
+				     fi;
+
+				 else
+
+				     raise exception BACKTRACK;
+				 fi;
+			esac;
+
+
+		    # Save a group match in a backref variable.
+		    # The generic_regular_expression_syntax_g
+		    # logic only generates this if there is a
+		    # backref referencing the group:
+		    #
+		    match_regex (s::ASSIGN (v, f, x) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			match_regex ([x], pos, this_char, last_char, rest_of_string, [], ASSIGN (v, f, re, rest_of_string, pos, matches_found, stack));
+
+
+		    # Match a back reference:
+		    #
+		    match_regex (s::BACK_REF (f, v) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			match_backref (0, last_char, rest_of_string)
+                        where
+			    text =  f (get_backref v);
+
+			    n =   size text;
+
+			    fun match_backref (i, last_char, rest_of_string)
+				= 
+				if   (i >= n)
+				     
+				     match_regex (re, pos+n, NULL, last_char, rest_of_string, matches_found, stack);
+				else
+				     case (getc rest_of_string)
+				       
+					  last_char as THE (c', rest_of_string')
+					      => 
+					      if (c' == string::get (text, i))   match_backref (i+1, last_char, rest_of_string');
+					      else
+                                                  raise exception BACKTRACK;
+                                              fi;
+
+					  NULL => raise exception BACKTRACK;
+				     esac;
+			      fi;
+			end;
+
+
+		    match_regex (s::GUARD (predicate, x) ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# Handle a guard predicate.  (There is currently
+			# no way to invoke this from Perl5 syntax.)  At
+			# this point all we do is push a GUARD entry on
+			# our return stack;  the actual check will be done
+			# on return:
+			#
+			match_regex([x], pos, this_char, last_char, rest_of_string, [], GUARD (predicate, re, rest_of_string, pos, matches_found, stack));
+
+
+		    # Generalized boundary operator 
+		    #
+		    match_regex (s::BOUNDARY ok ! re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			=>
+			# Here we handle matching of
+			# the zero-length constructs
+			#
+			#    ^ $ \A \b \B \z \Z
+			#
+			# The 'ok' argument is one of
+			# the predicate functions
+			#
+			#     is_word_boundary
+			#     is_start_of_string
+			#     is_end_of_string
+			#     is_end_of_string'
+			#            ...
+			#
+			# defined and passed to us by
+			#
+			#     src/lib/regex/front/perl-regex-parser-g.pkg
+			#
+			{   prev =   case last_char
+				       
+				          THE (c, _) =>   THE c;
+					  NULL       =>   NULL;
+                                     esac;
+
+			    my  (this, next)
+				= 
+				case (getc rest_of_string)
+				  
+				     NULL => (NULL, NULL);
+
+				     THE (c, rest_of_string')
+					 => 
+					 case (getc rest_of_string')
+					   
+					      NULL        =>   (THE c, NULL  );
+					      THE (c', _) =>   (THE c, THE c');
+					 esac;
+				esac;
+
+
+			    if (ok { prev, this, next })   match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+			    else
+				 raise exception BACKTRACK;
+			    fi;
+			};
+
+
+		    # Fetch next char from string
+		    # and pass it as this_char:
+		    #
+		    match_regex (re, pos, NULL, last_char, rest_of_string, matches_found, stack)
+			=>
+			case (getc rest_of_string)
+			     NULL =>  raise exception BACKTRACK;
+			     this_char =>  match_regex (re, pos, this_char, NULL, rest_of_string, matches_found, stack);
+			esac;
+		end
+
+
+
+	        also
+		fun pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, nested,
+
+                          GROUP (re, rest_of_string', pos', siblings, stack)
+                        )
+			=>
+			# Finished matching a group,
+			# so note the matched string
+			# in our matches_found slot
+			# and continue:
+			#
+			{   matches_found
+                                =
+                                m::REGEX_MATCH_RESULT
+                                  (
+                                    THE { match_position => rest_of_string',
+                                          match_length   => pos - pos'
+                                        },
+                                    reverse nested
+                                  )
+				!
+				siblings;
+
+			    match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+			};
+
+
+		    pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, matches_found2,
+
+                          ASSIGN (backref_var, f, re, rest_of_string', pos', matches_found1, stack)
+                        )
+			=>
+			# Note in indicated backreference variable the
+			# string matched since the ASSIGN was pushed
+			# on the stack, which is to say the part of
+			# the input string in the range (pos', pos).
+			#
+			# We have to be able to undo this when backtracking,
+			# so we also remember the old value of the var:
+			#
+			{   saved_value =   get_backref backref_var;
+
+			    matches_found =   matches_found2 @ matches_found1;
+
+			    set_backref (backref_var, f (get_n_chars (pos - pos', rest_of_string')));
+
+			    match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack)
+			    except
+				# Restore saved backref value
+				# when backtracking:
+				#
+				BACKTRACK
+				    =
+				    {   set_backref (backref_var, saved_value);
+					raise exception BACKTRACK;
+				    };
+
+			};
+
+
+		    pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, matches_found2,
+
+                          GUARD (predicate, re, rest_of_string', pos', matches_found1, stack)
+                        )
+			=>
+			# Call the given predicate with the
+			# substring matched since GUARD was
+			# pushed on the stack, which is to
+			# say the range (pos', pos).  If the
+			# predicate returns FALSE, fail this
+			# match try and backtrack.
+			#
+			# Our Perl5 surface syntax does not
+			# provide any way to specify such a
+			# predicate, so we aren't going to
+			# be doing this too often at present:
+			#
+			{   matches_found =   matches_found2 @ matches_found1;
+
+			    if   (predicate (get_n_chars (pos - pos', rest_of_string')))
+			        
+				 match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+			    else
+				 raise exception BACKTRACK;
+                            fi;
+			};
+
+
+		    pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, matches_found,
+
+                          CONCAT (re, stack)
+                        )
+			# We're matching two regexes
+			# in sequence and just finished
+			# the first one, so pop the second
+			# off the stack and carry on:
+			#
+			=>
+			match_regex (re, pos, this_char, last_char, rest_of_string, matches_found, stack);
+
+
+		    # We're handling a match of one of
+		    #     foo*
+		    #     foo+
+		    #     foo?
+		    #     foo{m,n}  
+		    # for some regex 'foo'. (We use
+		    # the same logic to handle all
+		    # four constructs.)  We just
+		    # completed a match of foo.
+		    #
+		    pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, matches_found2,
+
+                          REPEAT
+                            ( foo,		# Regex being matched repeatedly.
+                              pos',		# Value of 'pos' before last match of 'foo'.
+                              min,		# Minimum number of 'foo' matches needed.
+                              max,		# Maximum number of 'foo' matches allowed. (NULL == "infinity".)
+                              i,		# Actual  mumber of 'foo' matches now done.
+                              re,		# Remaining regex to match when done.
+                              matches_found1,	# Substrings previously matched while iterating over 'foo'.
+                              stack
+                            )
+                        )
+			=>
+			if (i > 1 and pos == pos')
+
+			    # This check keeps cases like
+			    #
+			    #     "abc" =~ ./(.?)*/
+			    #
+			    # from looping infinitely due to
+			    # the fact that '*' repeats until
+			    # the subexpression fails but that
+			    # (without this check) (.?) will
+			    # never fail:
+			    #
+			    raise exception BACKTRACK;
+
+			elif (i < min)
+			    
+			     # We haven't yet made our nut,
+			     # so keep on iterating:
+			     #	
+			     match_regex
+                               ( [foo], pos, this_char, last_char, rest_of_string, [],
+                                 REPEAT (foo, pos, min, max, i+1, re, matches_found1, stack)
+                               );
+
+			elif (less (i, max))
+
+			     # We've made our nut.  We keep
+			     # on iterating 'foo' so as to
+			     # favor a "maximum-munch" solution
+			     # but we have a legal number of
+			     # 'foo' matches now, so if the
+                             # next 'foo' match fails we trap
+			     # the BACKTRACK and continue the
+			     # rest of the global match with
+			     # just the current number of 'foo'
+			     # matches:
+			     #	  
+			     match_regex
+                               ( [foo], pos, this_char, last_char, rest_of_string, [],
+                                 REPEAT (foo, pos, min, max, i+1, re, matches_found1, stack)
+                               )
+			     except
+				 BACKTRACK
+				     =
+				     match_regex (re, pos, this_char, last_char, rest_of_string, matches_found2 @ matches_found1, stack);
+			else 
+			             match_regex (re, pos, this_char, last_char, rest_of_string, matches_found2 @ matches_found1, stack);
+			    	     #
+				     # We've reached our 'foo' repeats limit
+				     # so carry on with the rest of the global
+				     # regex match.
+			fi;
+
+		    pop_stack_and_continue
+                        ( pos, this_char, last_char, rest_of_string, matches_found,
+
+                          RETURN
+                        )
+			=>
+			# We've successfully completed the entire
+			# requested regex match on the string, so
+			# reverse the match results to put them
+			# in the caller-expected left-to-right order,
+			# and we're done:
+			#
+			(pos, this_char, last_char, rest_of_string, reverse matches_found);
+	        end;
+
+
+		# Do the complete requested regex match.
+		# If it doesn't succeed, we'll wind up
+		# at the "except BACKTRACK" below;  if
+		# we return normally, the match succeeded:
+		#
+		my (pos, this_char, last_char, rest_of_string, matches_found)
+		    = 
+		    match_regex ([regexp], start_pos, NULL, last, stream, [], RETURN);
+
+		# By convention "group 0" match is the
+		# entire matched (sub)string, so push
+		# that on the front of the list of
+		# match results and return the lot:
+		#
+		THE ( m::REGEX_MATCH_RESULT
+                        ( THE { match_position =>  stream,
+			        match_length   =>  pos - start_pos
+			      },
+
+			  matches_found
+			),
+
+			rest_of_string
+		    );
+	    }						# fun scan
+	    except
+		BACKTRACK = NULL;
+
+
+	fun allot_refs (COMPILED_REGULAR_EXPRESSION { backref_var_count, references, ... } )
+	    = 
+	    if   (thread_safe   and   backref_var_count > 0) 
+	        
+		 v::make_rw_vector (backref_var_count, "");
+	    else
+		 references;
+	    fi;
+
+
+	fun prefix regexp getc stream
+	    = 
+	    scan (regexp, allot_refs regexp, getc, 0, stream, NULL);
+
+
+	fun find   (regexp as COMPILED_REGULAR_EXPRESSION { begin_only, multiline, ... } )   getc   stream
+	    =  
+	    {
+	        refs =   allot_refs regexp;
+
+		#  Most general and slowest 
+		#
+		fun loop1 (pos, stream, last)
+		    = 
+		    case (scan (regexp, refs, getc, pos, stream, last))
+		      
+			 NULL
+			     =>
+			     case (getc stream)
+			       
+				  NULL => NULL;
+
+				  last as THE (c, s)
+				       =>
+				       loop1 (pos+1, s, last);
+			     esac;
+
+			 x => x;
+		    esac;
+
+
+		# Multiline pattern that only
+                # matches at start of line:
+		#
+		fun loop2 (pos, stream, last)
+		    = 
+		    case (scan (regexp, refs, getc, pos, stream, last))
+		      
+			  NULL =>   skip_to_next_line (pos, stream);
+			  x    =>   x;
+		    esac
+
+		also
+		fun skip_to_next_line (pos, stream)
+		    =
+		    case (getc stream)
+		      
+			 NULL => NULL;
+			 last as THE('\n', s) =>   loop2 (pos+1, s, last);
+			 last as THE(_,    s) =>   skip_to_next_line (pos+1, s);
+		    esac;
+
+		case (begin_only, multiline)
+		  
+		     (TRUE, FALSE) =>   scan (regexp, refs, getc, 0, stream, NULL);
+		     (FALSE, _   ) =>   loop1 (0, stream, NULL);
+		     (TRUE, TRUE ) =>   loop2 (0, stream, NULL);
+		esac;
+	    };
+
+
+	# Execute the longest match:
+	#
+	fun match rules
+	    = 
+	    do_it
+            where
+	        # Precompile all patterns:
+		#
+		rules =  map  (\\ (re, act) =  (compile re, act))
+			      rules;
+
+		fun do_it getc stream
+		    = 
+		    find_best (rules, NULL)
+                    where 
+		        fun find_best ([], NULL)
+				=>
+				NULL;
+
+			    find_best ([], THE (len, match, s, act))
+				=>
+				THE (act match, s);
+
+			    find_best((re, act) ! rest, best)
+				=>
+				case (prefix re getc stream, best)
+				  
+				     (NULL, best)
+					 =>
+					 find_best (rest, best);
+
+
+				     ( THE (m as m::REGEX_MATCH_RESULT (THE { match_length, ... }, _), s),
+				       NULL
+				     )
+					 => 
+					 find_best (rest, THE (match_length, m, s, act));
+
+
+				     ( THE (m as m::REGEX_MATCH_RESULT (THE { match_length, ... }, _), s), 
+				       THE (len', _, _, _)
+				     )
+					 =>
+					 if (match_length > len')   find_best (rest, THE (match_length, m, s, act));
+					 else                       find_best (rest, best);
+                                         fi;
+
+				      _ => raise exception BUG;
+				esac;
+			end; 				# fun find_best
+		    end;				# where/do_it
+	    end;					# where/match
+
+    };
+
+end;							# stipulate

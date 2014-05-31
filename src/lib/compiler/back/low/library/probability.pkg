@@ -1,0 +1,286 @@
+## probability.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lib.lib
+
+
+
+# A representation of probabilities for branch prediction.
+
+
+###          "The function of genius is not to give
+###           new answers, but to pose new questions
+###           which time and mediocrity can resolve."
+###
+###                       -- Hugh Trevor-Roper
+
+
+stipulate
+    package f8b =  eight_byte_float;					# eight_byte_float	is from   src/lib/std/eight-byte-float.pkg
+herein
+
+    api Probability {
+	#
+	Probability;
+
+	exception BAD_PROBABILITY;
+
+	never:  Probability;	#  0% probability 
+	unlikely:  Probability;	#  very close to 0% 
+	likely:  Probability;	#  very close to 100% 
+	always:  Probability;	#  100% probability 
+
+	prob:  ((Int, Int)) -> Probability;
+	from_freq:  List( Int ) -> List( Probability );
+
+	+ : ((Probability, Probability)) -> Probability;
+	- : ((Probability, Probability)) -> Probability;
+	* : ((Probability, Probability)) -> Probability;
+	/ : ((Probability, Int)) -> Probability;
+	not:  Probability -> Probability;		#  not p == always - p 
+
+	percent:  Int -> Probability;
+
+	# combine a conditional branch probability (trueProb) with a
+	# prediction heuristic (takenProb) using Dempster-Shafer theory.
+
+	combine_prob2:  { true_prob:  Probability, taken_prob:  Probability } -> { t:  Probability, f:  Probability };
+
+	to_float:   Probability -> Float;
+	to_string:  Probability -> String;
+
+    };
+
+    package probability: Probability {		# Probability	is from   src/lib/compiler/back/low/library/probability.pkg
+	#
+	include multiword_int;
+
+	zero = from_int 0;
+	one = from_int 1;
+	two = from_int 2;
+	hundred = from_int 100;
+
+	fun eq (a, b)
+	    =
+	    compare (a, b) == EQUAL;
+
+	# Probabilities are represented as positive rationals.  Zero is
+	# represented as PROB (0w0, 0w0) and one is represented as
+	# PROB (0w1, 0w1).  There are several invariants about PROB (n, d):
+	#	1) n <= d
+	#	2) if n == 0w0, then d == 0w0 (uniqueness of zero)
+	#	3) if d == 0w1, then n == 0w1 (uniqueness of one)
+	#
+	Probability = PROB  ((multiword_int::Int, multiword_int::Int));
+
+	exception BAD_PROBABILITY;
+
+	never    = PROB (zero, one);
+	unlikely = PROB (one, from_int 1000);
+	likely   = PROB (from_int 999, from_int 1000);
+	always   = PROB (one, one);
+
+	fun gcd (m, n)
+	    =
+	    eq (n, zero)
+		??  m
+		::  gcd (n,  m % n);
+
+	fun normalize (n, d)
+	    =
+	    if (eq (n, zero))
+
+		 never;
+	    else 
+		 case (compare (n, d))
+
+		      LESS => {
+			g = gcd (n, d);
+
+			  if (eq (g, one))
+				 PROB (n, d);
+			    else PROB (n / g, d / g); fi;
+			};
+
+		     EQUAL => always;
+		     GREATER => raise exception BAD_PROBABILITY;
+		esac;
+	    fi;		# end case
+
+	fun prob (n, d)
+	      =
+	      if (int::(>)  (n, d) or
+		  int::(<)  (n, 0) or
+		  int::(<=) (d, 0)
+		 )
+		   raise exception DOMAIN;
+	      else normalize (from_int n, from_int d);
+	      fi;
+
+	fun add (PROB (n1, d1), PROB (n2, d2))
+	    =
+	    normalize (d2*n1 + d1*n2, d1*d2);
+
+	fun sub (PROB (n1, d1), PROB (n2, d2))
+	    =
+	    {
+		n1' = d2*n1;
+		n2' = d1*n2;
+
+		if (n1' < n2')   raise exception BAD_PROBABILITY;
+		else             normalize (n1'-n2', d1*d2);
+		fi;
+	    };
+
+	fun mul (PROB (n1, d1), PROB (n2, d2))
+	    =
+	    normalize (n1*n2, d1*d2);
+
+	fun divide (PROB (n, d), m)
+	    =
+	    if   (int::(<=) (m, 0))	 raise exception BAD_PROBABILITY;
+	    elif (eq (n, zero))      never;
+	    else                     normalize (n, d * from_int m);
+	    fi;
+
+	fun percent n
+	    =
+	    if (int::(<) (n, 0) ) raise exception BAD_PROBABILITY;
+	    else                  normalize (from_int n, hundred);
+	    fi;
+
+	fun from_freq l
+	    =
+	    {
+		fun sum ([], tot)
+			=>
+			tot;
+
+		    sum (w ! r, tot)
+			=>
+			if (int::(<) (w, 0))   raise exception BAD_PROBABILITY;
+			else                   sum (r, from_int w + tot);
+			fi;
+		end;
+
+		tot = sum (l, zero);
+
+		list::map  (\\ w =  normalize (from_int w, tot))
+			   l;
+	    };
+
+	fun to_float (PROB (n, d))
+	      =
+	      if   (eq (n, zero))   0.0;
+	      elif (eq (d, one ))   1.0;
+	      else
+		  size = log2 d;
+
+		  my (n, d)
+		      =
+		      if (int::(>=) (size, 30))
+
+			  scale = pow (two, int::(-) (size, 30));
+			  n = n / scale;
+
+			  ( n > zero  ?? n  :: one,
+			    d / scale
+			  );
+
+			else
+			    (n, d);
+			fi;
+
+		  fun to_float n
+		      =
+		      f8b::from_multiword_int  (to_multiword_int  n);
+
+		    n = to_float n;
+		    d = to_float d;
+
+		    f8b::(/) (n, d);
+	      fi;
+
+	fun to_string (PROB (n, d))
+	    =
+	    if   (eq (n, zero)) "0";
+	    elif (eq (d, one )) "1";
+	    else                cat [multiword_int::to_string n, "/", multiword_int::to_string d];
+	    fi;
+
+	# I'd guess the "Wu-Larus 1994" below is:
+	#     Statis Branch Frequency and Program Profile Analysis
+	#     Youfeng Wu + James R Larus
+	#     http://www.cs.wisc.edu/techreports/1994/TR1248.pdf 
+	# or a close relative thereof. -- 2011-08-15 CrT
+	#
+	#
+	#     "combine a conditional branch probability (trueProb) with a
+	#      prediction heuristic (takenProb) using Dempster-Shafer theory.
+	#      The basic equations (from Wu-Larus 1994) are:
+	#        t = trueProb*takenProb / d
+	#	     f = ((1-trueProb)*(1-takenProb)) / d
+	#     where
+	#	    d = trueProb*takenProb + ((1-trueProb)*(1-takenProb))
+	#
+
+	fun combine_prob2 { true_prob=>PROB (n1, d1), taken_prob=>PROB (n2, d2) }
+	    =
+	    {
+		# compute sn/sd, where
+		#    sd/sn = (trueProb*takenProb) + (1-trueProb)*(1-takenProb)
+
+		d12 = d1*d2;
+		n12 = n1*n2;
+
+		my (sn, sd)
+		    =
+		    {
+			n = d12 + two*n12 - (d2*n1) - (d1*n2);
+
+			  (d12, n);
+		    };
+
+		# Compute the TRUE probability 
+		#	
+		my t as PROB (tn, td) = normalize (n12*sn, d12*sd);
+
+		# Compute the FALSE probability 
+		#	
+		f = PROB (td-tn, td);
+
+		{ t, f };
+	    };
+
+	fun not (PROB (n, d)) = PROB (d-n, d);
+
+	my (+) = add;
+	my (-) = sub;
+	my (*) = mul;
+	my (/) = divide;
+
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,179 @@
+#
+# map enum that uses hashing.
+#
+# -- allen
+
+
+
+
+
+package hash_map :> HASH_MAP =
+pkg
+
+   package a = rw_vector
+
+   enum tree X = NODE of X * tree(X) * tree(X)
+                | EMPTY 
+
+   enum Map (X,Y) = 
+      MAP of
+      { table:   Ref( rw_vector::Rw_Vector( tree( X * Y ) ) ),
+        size:   Ref( Int ),
+        order:  X * X -> order,
+        hash:   X -> Int,
+        exn:    exn
+      }
+
+   fun create { order, hash, exn } N =
+   let N = if N <= 10 then 10 else N
+   in
+      MAP { table    = REF (rw_vector::rw_vector (N, EMPTY)),
+            size     = REF 0,
+            order    = order,
+            hash     = hash,
+            exn      = exn
+          }
+   end
+
+   fun size (MAP { size, ... } ) = *size
+
+   fun bucketSize (MAP { table, ... } )
+       =
+       rw_vector::length *table
+
+   fun is_empty (MAP { size, ... } ) = *size = 0
+
+   fun clear (MAP { size, table, ... } ) = 
+       (table := a::rw_vector (a::length *table, EMPTY); size := 0)
+
+   and insert (m as MAP { size, table = REF T, order, hash, exn, ... } )
+              (e as (x, y)) = 
+   let pos = hash x mod a::length T
+       fun ins EMPTY = (size := *size + 1; NODE (e, EMPTY, EMPTY))
+         | ins (NODE (e' as (x', y'), l, r)) =
+           case order (x, x') of
+              LESS    => NODE (e', ins l, r)
+           |  EQUAL   => NODE (e, l, r)
+           |  GREATER => NODE (e', l, ins r)
+   in  a::update (T, pos, ins (a::sub (T, pos)));
+       if *size > 6 * a::length T then
+          grow m
+       else ()
+   end
+
+   and grow (MAP { size, table = table as REF T, order, hash, exn, ... } ) =
+   let my m2 as 
+           MAP { table = REF T', ... } = create { order=order, hash=hash, exn=exn } 
+                   (*size * 2 + 10) #  : Map( X, Y )
+       ins = insert m2 
+       fun loop EMPTY = ()
+         | loop (NODE (e, l, r)) = (ins e; loop l; loop r)
+   in  a::apply loop T; table := T'
+   end
+
+   and update (m as MAP { size, table = REF T, order, hash, exn, ... } )
+              (e as (x, y), f) = 
+   let pos = hash x mod a::length T
+       fun ins EMPTY = (size := *size + 1; NODE (e, EMPTY, EMPTY))
+         | ins (NODE (e' as (x', y'), l, r)) =
+           case order (x, x') of
+              LESS    => NODE (e', ins l, r)
+           |  EQUAL   => NODE((x', f y'), l, r)
+           |  GREATER => NODE (e', l, ins r)
+   in  a::update (T, pos, ins (a::sub (T, pos)));
+       if *size > 6 * a::length T then
+          grow m
+       else ()
+   end
+
+   fun remove (MAP { size, table = REF T, order, hash, exn, ... } ) x =
+   let pos = hash x mod a::length T
+       fun del EMPTY = EMPTY
+         | del (NODE (e' as (x', _), l, r)) =
+           case order (x, x') of
+              LESS    => NODE (e', del l, r)
+           |  EQUAL   => (size := *size - 1;
+                         case (l, r) of
+                            (EMPTY, r) => r
+                         |  (l, EMPTY) => l
+                         |  _         => let my (leftmost, r') = delLeftMost r
+                                         in  NODE (leftmost, l, r')
+                                         end
+                         )
+           |  GREATER => NODE (e', l, del r)
+       and delLeftMost EMPTY = raise exception exn
+         | delLeftMost (NODE (e, EMPTY, r)) = (e, r)
+         | delLeftMost (NODE (e, l, r)) = 
+           let my (e', r') = delLeftMost r
+           in  (e', NODE (e, l, r'))
+           end
+ 
+   in  a::update (T, pos, del (a::sub (T, pos)))
+   end
+
+   fun lookup (MAP { table = REF T, order, hash, exn, ... } ) x =
+   let pos = hash x mod a::length T
+       fun get EMPTY = raise exception exn
+         | get (NODE (e' as (x', y'), l, r)) =
+            case order (x, x') of
+               LESS    => get l
+            |  EQUAL   => y'
+            |  GREATER => get r
+   in  get (a::sub (T, pos))
+   end
+
+   fun lookupOrElse m default x = lookup m x except _ => default
+
+   fun contains (MAP { table = REF T, order, hash, ... } ) x =
+   let pos = hash x mod a::length T
+       fun find EMPTY = FALSE
+         | find (NODE (e' as (x', y'), l, r)) =
+            case order (x, x') of
+               LESS    => find l
+            |  EQUAL   => TRUE
+            |  GREATER => find r
+   in  find (a::sub (T, pos))
+   end
+
+   fun fold f x =
+      \\ (MAP { table = REF T, ... } ) =>
+      let fun collect (EMPTY, L)           = L
+            | collect (NODE (e, l, r), L) = collect (l, collect (r, f (e, L)))
+      in  a::fold_forward (\\ (t, l) => collect (t, l)) x T
+      end
+
+   fun apply f = 
+      \\ (MAP { table = REF T, ... } ) =>
+      let fun applyTree EMPTY         = ()
+            | applyTree (NODE (e, l, r)) = (f e; applyTree l; applyTree r)
+      in  a::apply applyTree T
+      end
+
+   fun toList map = fold (op . ) [] map
+
+   fun to_string (f, g) map
+       =
+       "{ " + fold (\\ ((x, y), "") => "(" + f x + ", " + g y + ")"
+                   | ((x, y), l)  => "(" + f x + ", " + g y + "), " + l
+                 ) "" map + "}"  
+
+end
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,158 @@
+# hostthread.pkg
+#
+# For background, see "Overview" comments in    src/lib/std/src/hostthread.api
+#
+# Mythryl-level interface to support for parallel computation
+# via host-os (i.e. kernel) threads.  Currently we base this
+# on Posix threads, but one could imagine using other kernel
+# thread APIs underneath this layer, perhaps on Windows.
+#
+# We are the Mythryl side of the
+#
+#     src/c/lib/hostthread/libmythryl-hostthread.c
+#
+# interface to functionality defined in the hostthread section of
+#
+#     src/c/h/runtime-base.h   
+#
+# and implemented in
+#
+#     src/c/hostthread/hostthread-on-posix-threads.c							# hostthread built on top of modern posix-threads interface.
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+stipulate
+    package ci  =  mythryl_callable_c_library_interface;						# mythryl_callable_c_library_interface	is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    package fat =  fate;										# fate					is from   src/lib/std/src/nj/fate.pkg
+    package ip  =  interprocess_signals;								# interprocess_signals			is from   src/lib/std/src/nj/interprocess-signals.pkg
+    package psx =  posixlib;										# posixlib				is from   src/lib/std/src/psx/posixlib.pkg
+    package w1u =  one_word_unt_guts;									# one_word_unt_guts			is from   src/lib/std/src/one-word-unt-guts.pkg
+    #
+    fun cfun fun_name											
+	=
+	ci::find_c_function { lib_name => "pthread", fun_name };					# "pthread"				is from   src/c/lib/hostthread/libmythryl-hostthread.c
+herein
+													# All the cfuns in this file are all about posix-thread manipulation,
+													# so redirecting them to execute in a different hostthread by switching
+													# over from  ci::find_c_function  to   ci::find_c_function'
+													# would be a really bad idea.
+    package   hostthread
+    : (weak)  Hostthread										# Hostthread				is from   src/lib/std/src/hostthread.api
+    {
+	# We allot our hostthread, mutex, condvar and barrier values
+	# on the C heap because having the Mythryl garbage
+	# collector moving them around seems like a really
+	# really bad idea -- see	src/c/lib/hostthread/libmythryl-hostthread.c
+	#
+	# At the Mythryl level we represent them as C
+	# addresses encoded as unsigned integer values:
+	#
+	Barrier =  tagged_int::Int;
+	Condvar =  tagged_int::Int;
+	Mutex   =  tagged_int::Int;
+
+	Hostthread =   tagged_int::Int;
+	    #
+	    # We keep this type opaque to client packages.
+	    # In practice Hostthread is currently implemented as an index
+	    # into our  hostthread_table__global[] table which is
+	    # declared		in   src/c/h/runtime-base.h
+	    # defined		in   src/c/main/runtime-state.c
+	    # and used mostly by
+	    # pth__pthread_create and
+	    # pth__pthread_exit in   src/c/hostthread/hostthread-on-posix-threads.c
+
+	Try_Mutex_Result =  ACQUIRED_MUTEX | MUTEX_WAS_UNAVAILABLE;
+
+	exception MAKE_PTRHEAD;
+
+	# Return number of cores on host CPU,
+	# for use in deciding how many posix
+	# threads to run in parallel when
+	# doing cpu-bound computations:
+	#
+	fun get_cpu_core_count ()									# We support this fn in this api partly to put it where it is expected
+	    =												# and partly because we may need this call on platforms (Windows?) where
+	    w1u::to_int  (psx::sysconf  "NPROCESSORS_ONLN");						# sysconf "NPROCESSORS_ONLN" is not supported -- if so, at that point
+													# we can switch to per-platform drivers without breaking client code.
+	# Here we're looking up fns in
+	# the table constructed in
+	#
+	#     src/c/lib/hostthread/libmythryl-hostthread.c
+	#
+	join_hostthread	=	cfun   "join_hostthread":		Hostthread -> Void;
+
+	spawn_hostthread'	=	cfun   "spawn_hostthread":		fat::Fate(Void) -> Hostthread;		# Private to this file.
+
+	#
+	fun spawn_hostthread  void_to_void
+	    =
+	    spawn_hostthread'  (fat::make_isolated_fate  void_to_void);					# Hide the "fate::" stuff because for almost all users it will just be distracting clutter.
+
+	stipulate											# We need this little two-step because we'll get complaints
+	    foo =  cfun   "hostthread_exit";								# from the typechecker (due to the "value restriction")
+	herein												# if we just do    my hosthread_exit:   Void -> X =   cfun "hostthread_exit" here.
+	    hostthread_exit =	(unsafe::cast foo):	Void -> X ;
+	end;
+
+	get_hostthread		=	cfun   "get_hostthread_id":	Void -> Hostthread;
+	get_hostthread_ptid	=	cfun   "get_hostthread_ptid":	Void -> w1u::Unt;
+
+	get_hostthread_name	=	cfun   "get_hostthread_name":	Hostthread -> String;
+	set_hostthread_name	=	cfun   "set_hostthread_name":	String -> Void;
+
+	hostthread_to_int = identity;
+
+	make_mutex	=	cfun "mutex_make":		Void -> Mutex;
+	free_mutex	=	cfun "mutex_free":		Mutex -> Void;
+	acquire_mutex	=	cfun "mutex_lock":		Mutex -> Void;
+	release_mutex	=	cfun "mutex_unlock":		Mutex -> Void;
+	try_mutex'	=	cfun "mutex_trylock":		Mutex -> Bool;				# This is not exported to clients -- we export try_mutex (below) instead.
+
+	make_barrier	=	cfun "barrier_make":		Void -> Barrier;
+	free_barrier	=	cfun "barrier_free":		Barrier -> Void;
+	set_barrier'	=	cfun "barrier_init":		(Barrier, Int) -> Void;			# 'Int' is number of threads which must arrive at barrier before it will release them.
+	wait_on_barrier	=	cfun "barrier_wait":		Barrier -> Bool;			# Exactly one hostthread waiting on barrier gets a TRUE return value.
+
+	make_condvar	=	cfun "condvar_make":		Void -> Condvar;
+	free_condvar	=	cfun "condvar_free":		Condvar -> Void;
+	wait_on_condvar	=	cfun "condvar_wait":		(Condvar, Mutex) -> Void;
+	signal_condvar	=	cfun "condvar_signal":		Condvar -> Void;
+	broadcast_condvar =	cfun "condvar_broadcast":	Condvar -> Void;
+
+	fun try_mutex mutex						# Returning a Bool is too confusing, so we use a custom sumtype for clarity.
+	    =
+	    if (try_mutex' mutex)   MUTEX_WAS_UNAVAILABLE;		# I got these two backwards the first time around, confirming that the Bool value is confusing. :-)   -- 2011-12-05 CrT
+	    else		    ACQUIRED_MUTEX;
+	    fi;
+
+	fun with_mutex_do  mutex  thunk
+	    =
+	    {   acquire_mutex  mutex;
+		    #
+		    result = thunk ();
+		    #
+		release_mutex  mutex;
+		#
+		result;
+	    }
+	    except x =  {   release_mutex  mutex;
+			    #
+			    raise exception x;
+			};
+
+	fun set_barrier { barrier, threads }
+	    =
+	    set_barrier' (barrier, threads);				# We do not actually need to repackage the record
+									# as a tuple -- they have the same heap structure anyhow.
+									# But for clarity we do so anyway, for the moment at least.
+
+
+# Temporary debug hack:
+fun mutex_to_int  mutex = mutex;
+    };
+end;
+
+## Code by Jeff Prothero: Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

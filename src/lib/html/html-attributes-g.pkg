@@ -1,0 +1,1508 @@
+## html-attributes-g.pkg
+
+# Compiled by:
+#     src/lib/html/html.lib
+
+# This provides support for parsing element start tags.
+
+
+stipulate
+    package has =  html_abstract_syntax;							# html_abstract_syntax			is from   src/lib/html/html-abstract-syntax.pkg
+herein
+
+    generic package html_attributes_g (err:  Html_Error)		# Html_Error	is from   src/lib/html/html-error.api
+    : (weak)
+    Html_Attributes						# Html_Attributes	is from   src/lib/html/html-attributes.api
+    {
+	include htmlattr_vals;	#  inherit types 
+
+	fun attribute_val_to_string (NAME s)   => s;
+	    attribute_val_to_string (STRING s) => s;
+	    attribute_val_to_string IMPLICIT   => "";
+	end;
+
+	Attribute_Ty
+	  = AT_TEXT			# Either a string or name value.
+	  | AT_NAMES List String	# One of a list of names.
+	  | AT_NUMBER		# An integer attribute.
+	  | AT_IMPLICIT
+	  | AT_INSTANCE		# If an attribute FOO has type AT_NAMES with 
+	  ;				# values BAR and BAZ, then BAR and BAZ are 
+				    # legal attributes, being shorthand for 
+				    # FOO=BAR and FOO=BAZ.  We introduce an 
+				    # (k, AT_INSTANCE) entry for BAR and BAZ, where 
+				    # k is the slot that FOO has been assigned. 
+
+	Context = err::Context;
+
+	package sht
+	    =
+	    typelocked_hashtable_g (
+
+		Hash_Key = String;
+
+		hash_value = hash_string::hash_string;
+
+		same_key = ((==) : ((String, String)) -> Bool);
+	    );
+
+	# An attribute map (attribute_map) is a
+	# map from attribute names to attribute
+	# value slots and types.
+	#
+	abstype Attribute_Map
+	    =
+	    ATTRIBUTE_MAP
+	      {
+		num_attributes:  Int,
+		attribute_table:  sht::Hashtable( (Int, Attribute_Ty) )
+	      }
+
+	also
+	Attribute_Vec
+	    = 
+	    ATTRIBUTE_VECTOR
+	      {
+		vec:  rw_vector::Rw_Vector(  Null_Or(  Attribute_Val ) ),
+		ctx:  Context
+	      }
+
+	with
+	    fun make_attributes data
+		=
+		{   # Create an attribute_map from
+		    # the list of attribute names
+		    # and types. 
+
+		    n = length data;
+
+		    table = sht::make_hashtable  { size_hint => n,  not_found_exception => FAIL "Attributes" };
+
+		    fun ins ((name, type), id)
+			=
+			{   sht::set table (name, (id, type));
+
+			    case type
+
+				AT_NAMES l
+				    => 
+				    list::apply ins' l
+				    where
+					fun ins' nm
+					    =
+					    if (nm != name)
+					       sht::set table (nm, (id, AT_INSTANCE));
+					    fi;
+				    end;
+
+			       _ => ();
+			    esac;
+
+			    id+1;
+			};
+
+		      list::fold_forward ins 0 data;
+		      ATTRIBUTE_MAP { num_attributes => n, attribute_table => table };
+		  };
+
+
+	    # Create an atttribute vector of
+	    # attribute values using the attribute
+	    # map to assign slots and typecheck
+	    # the values.
+
+	    fun attribute_list_to_vec (ctx, ATTRIBUTE_MAP { num_attributes, attribute_table }, attributes)
+		=
+		{   attribute_array
+			=
+			rw_vector::make_rw_vector (num_attributes, NULL);
+
+		    fun update (id, THE v)
+			    =>
+			    case (rw_vector::get (attribute_array, id))
+				#
+				NULL  =>  rw_vector::set (attribute_array, id, THE v);
+				THE _ =>  ();							#  Ignore multiple attribute definition 
+			   esac;
+
+			update (_, NULL)
+			    =>
+			    ();
+		    end;
+
+		    # Compare two names for case-insensitive
+		    # equality, where the second name is
+		    # known to be all uppercase.
+
+		    fun eq_name name name'
+			=
+			(string::compare_sequences compare_c (name, name')) == EQUAL
+			where
+			    fun compare_c (c1, c2)
+				=
+				char::compare (char::to_upper c1, c2);
+			end;
+
+		    fun ins (attribute_name, attribute_val)
+			=
+			case (sht::find attribute_table attribute_name)
+			    #
+			    THE (id, type) =>  update (id, convert (type, attribute_val));
+			    NULL             =>  err::unknown_attribute ctx attribute_name;
+			esac
+			where
+			    fun error ()
+				=
+				{   err::bad_attribute_val ctx (attribute_name, attribute_val_to_string attribute_val);
+				    NULL;
+				};
+
+			    fun convert (AT_IMPLICIT, IMPLICIT) =>  THE IMPLICIT;
+				convert (AT_INSTANCE, IMPLICIT) =>  THE (NAME attribute_name);
+
+				convert (AT_TEXT,   v) =>  THE v;
+				convert (AT_NUMBER, v) =>  THE v;
+
+				convert (AT_NAMES names, (NAME s | STRING s))
+				    =>
+				    case (list::find (eq_name s) names)
+
+					 NULL     =>  error ();
+					 THE name =>  THE (NAME name);
+				    esac;
+
+				convert (AT_IMPLICIT, (NAME s | STRING s))
+				    =>
+				    if   (s == attribute_name   )   THE IMPLICIT;
+							  else   error();       fi;
+				convert _ => error();
+			    end;
+			end;
+
+		    list::apply ins attributes;
+
+		    ATTRIBUTE_VECTOR { vec => attribute_array, ctx };
+		};
+
+	    # Given an attribute map and attribute name,
+	    # return a function that fetches a value from
+	    # the attribute's slot in an attribute vector.
+	    #
+	    fun bind_find_attribute (ATTRIBUTE_MAP { attribute_table, ... }, attribute)
+		=
+		{   id = #1 (sht::get attribute_table attribute);
+
+		    \\ (ATTRIBUTE_VECTOR { vec, ... } )
+			=
+			rw_vector::get (vec, id);
+		};
+
+
+	    # Return the context of the element that contains the attribute vector 
+	    #
+	    fun get_context (ATTRIBUTE_VECTOR { ctx, ... } )
+		=
+		ctx;
+
+	end; #  Abstype 
+
+	fun get_flag (attribute_map, attribute)
+	    =
+	    get
+	    where
+		get_fn = bind_find_attribute (attribute_map, attribute);
+
+		fun get attribute_vec
+		    =
+		    case (get_fn attribute_vec)
+
+			 NULL =>  FALSE;
+			 _    =>  TRUE;
+		    esac;
+	    end;
+
+	fun get_cdata (attribute_map, attribute)
+	    =
+	    get
+	    where
+		get_fn = bind_find_attribute (attribute_map, attribute);
+
+		fun get attribute_vec
+		    =
+		    case (get_fn attribute_vec)
+
+			 NULL => NULL;
+
+			 (THE((STRING s) | (NAME s))) => THE s;
+
+			 _ => {   err::missing_attribute_val (get_context attribute_vec) attribute;
+				  NULL;
+			      };
+		    esac;
+	    end;
+
+	fun get_names from_string (attribute_map, attribute)
+	    =
+	    get
+	    where
+		get_fn = bind_find_attribute (attribute_map, attribute);
+
+		fun get attribute_vec
+		    =
+		    case (get_fn attribute_vec)
+
+			THE (NAME s) => from_string s;
+
+			THE v => raise exception FAIL "getNAMES";
+			    #
+			    # This case should be impossible, since attrListToVec
+			    # ensures that AT_NAMES valued attributes are always NAME.
+
+			NULL => NULL;
+
+		    esac;
+	    end;
+
+	fun get_number (attribute_map, attribute)
+	    =
+	    get
+	    where
+		  get_fn = bind_find_attribute (attribute_map, attribute);
+
+		  fun get attribute_vec
+		      =
+		      case (get_fn attribute_vec)
+
+			  THE (STRING s | NAME s)
+			      =>
+			      case (int::from_string  s)
+
+				   NULL =>  {   err::bad_attribute_val (get_context attribute_vec) (attribute, s);
+						NULL;
+					    };
+				   some_n => some_n;
+			      esac;
+
+			  THE IMPLICIT
+			      =>
+			      raise exception FAIL "getNUMBER: IMPLICIT unexpected";
+
+			  NULL => NULL;
+		      esac;
+	      end;
+
+
+	fun get_char (attribute_map, attribute)
+	    =
+	    get
+	    where
+		get_fn = bind_find_attribute (attribute_map, attribute);
+
+		fun get attribute_vec
+		    =
+		    case (get_fn attribute_vec)
+
+			THE (STRING s | NAME s)
+			    =>
+			    if (size s == 1)
+
+				 THE (string::get (s, 0));
+				     #
+				     # * NOTE: we should probably accept &#xx; as a character value *  XXX BUGGO FIXME (or kill the comment).
+			    else
+				 err::bad_attribute_val (get_context attribute_vec) (attribute, s);
+				 NULL;
+			    fi;
+
+			THE IMPLICIT
+			    =>
+			    raise exception FAIL "getChar: IMPLICIT unexpected";
+
+			NULL => NULL;
+		    esac;
+
+	    end;
+
+	fun require (get_fn, attribute_map, attribute, default)
+	    =
+	    get
+	    where
+
+	      get_fn = get_fn (attribute_map, attribute);
+
+	      fun get attribute_vec
+		  =
+		  case (get_fn attribute_vec)
+		      NULL  =>  { err::missing_attribute (get_context attribute_vec) attribute;   default; };
+		      THE v =>  v;
+		  esac;
+	    end;
+
+	###########################
+	#     Element ISINDEX
+
+	stipulate
+
+	    attribute_map = make_attributes [
+		    ("PROMPT",	AT_TEXT)
+		  ];
+	    get_prompt	= get_cdata (attribute_map, "PROMPT");
+
+	herein
+
+	    # The ISINDEX element can occur in both
+	    # the HEAD an BODY, so there are two enum
+	    # constructors for it.  We just define
+	    # the argument of the constructor here.
+
+	    fun make_isindex (ctx, attributes)
+		=
+		{ prompt => get_prompt (attribute_list_to_vec (ctx, attribute_map, attributes)) };
+
+	end;
+
+
+
+	###########################
+	#     Element BASE 
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes [ ("HREF", AT_TEXT) ];
+
+	    get_href =  require (get_cdata, attribute_map, "HREF", "");
+
+	herein
+
+	    fun make_base (ctx, attributes)
+		=
+		has::HEAD_BASE { href => get_href (attribute_list_to_vec (ctx, attribute_map, attributes)) };
+	end;
+
+
+
+	###########################
+	#     Element META
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("HTTP-EQUIV",	AT_TEXT),
+		    ("NAME",		AT_TEXT),
+		    ("CONTENT",	AT_TEXT)
+		  ];
+
+	    get_http_equiv	= get_cdata (attribute_map, "HTTP-EQUIV");
+	    get_name	= get_cdata (attribute_map, "NAME");
+	    get_content	= require (get_cdata, attribute_map, "CONTENT", "");
+
+	herein
+
+	    fun make_meta (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::HEAD_META
+		      {
+			http_equiv =>  get_http_equiv attribute_vec,
+			name       =>  get_name       attribute_vec,
+			content    =>  get_content    attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element LINK
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("HREF",		AT_TEXT),
+		    ("ID",		AT_TEXT),
+		    ("TITLE",		AT_TEXT),
+		    ("REL",		AT_TEXT),
+		    ("REV",		AT_TEXT)
+		  ];
+
+	    get_href  = get_cdata (attribute_map, "HREF");
+	    get_id	  = get_cdata (attribute_map, "ID");
+	    get_rel	  = get_cdata (attribute_map, "REL");
+	    get_rev	  = get_cdata (attribute_map, "REV");
+	    get_title = get_cdata (attribute_map, "TITLE");
+
+	herein
+
+	    fun make_link (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::HEAD_LINK
+		      {
+			href    => get_href attribute_vec,
+			id      => get_id attribute_vec,
+			rel     => get_rel attribute_vec,
+			reverse => get_rev attribute_vec,
+			title   => get_title attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element BODY 
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("BACKGROUND",	AT_TEXT),
+		    ("BGCOLOR",	AT_TEXT),
+		    ("TEXT",		AT_TEXT),
+		    ("LINK",		AT_TEXT),
+		    ("VLINK",		AT_TEXT),
+		    ("ALINK",		AT_TEXT)
+		  ];
+
+	    get_background	= get_cdata (attribute_map, "BACKGROUND");
+	    get_bgcolor	= get_cdata (attribute_map, "BGCOLOR");
+	    get_text	= get_cdata (attribute_map, "TEXT");
+	    get_link	= get_cdata (attribute_map, "LINK");
+	    get_vlink	= get_cdata (attribute_map, "VLINK");
+	    get_alink	= get_cdata (attribute_map, "ALINK");
+
+	herein
+
+	    fun make_body (ctx, attributes, blk)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::BODY
+		      {
+			background => get_background attribute_vec,
+			bgcolor    => get_bgcolor    attribute_vec,
+			text       => get_text       attribute_vec,
+			link       => get_link       attribute_vec,
+			vlink      => get_vlink      attribute_vec,
+			alink      => get_alink      attribute_vec,
+			content    => blk
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Elements H1, H2, H3, H4, H5, H6 and P
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN", AT_NAMES ["LEFT", "CENTER", "RIGHT"])
+		  ];
+
+	    get_align
+		=
+		get_names has::halign::from_string (attribute_map, "ALIGN");
+
+	herein
+
+	    fun make_hn (n, ctx, attributes, text)
+		=
+		has::HN {
+		    n,
+		    align => get_align (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content => text
+		  };
+
+	    fun make_p (ctx, attributes, text)
+		=
+		has::PP {
+		    align => get_align (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content => text
+		  };
+	end;
+
+
+
+	###########################
+	#     Element UL
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes [
+		    ("COMPACT",	AT_IMPLICIT),
+		    ("TYPE",	AT_NAMES ["DISC", "SQUARE", "CIRCLE"])
+		  ];
+
+	    get_compact =  get_flag (attribute_map, "COMPACT");
+	    get_type    =  get_names has::ulstyle::from_string (attribute_map, "TYPE");
+
+	herein
+
+	    fun make_ul (ctx, attributes, items)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::UL {
+			type => get_type attribute_vec,
+			compact => get_compact attribute_vec,
+			content => items
+		      };
+		};
+	end;
+
+
+
+	###########################
+	#     Element OL
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes [
+		    ("COMPACT",	AT_IMPLICIT),
+		    ("START",		AT_NUMBER),
+		    ("TYPE",		AT_TEXT)
+		  ];
+
+	    get_compact = get_flag (attribute_map, "COMPACT");
+	    get_start = get_number (attribute_map, "START");
+	    get_type = get_cdata (attribute_map, "TYPE");
+
+	herein
+
+	    fun make_ol (ctx, attributes, items)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::OL {
+			compact => get_compact attribute_vec,
+			start => get_start attribute_vec,
+			type => get_type attribute_vec,
+			content => items
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Elements DIR, MENU and DL
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes [
+		    ("COMPACT",	AT_IMPLICIT)
+		];
+
+	    get_compact =  get_flag (attribute_map, "COMPACT");
+
+	herein
+
+	    fun make_dir (ctx, attributes, items)
+		    =
+		    has::DIR {
+			compact => get_compact (attribute_list_to_vec (ctx, attribute_map, attributes)),
+			content => items
+		    };
+
+	    fun make_menu (ctx, attributes, items)
+		    =
+		    has::MENU {
+			compact => get_compact (attribute_list_to_vec (ctx, attribute_map, attributes)),
+			content => items
+		    };
+
+	    fun make_dl (ctx, attributes, items)
+		   =
+		   has::DL {
+		       compact => get_compact (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		       content => items
+		   };
+
+	end;
+
+
+
+	###########################
+	#     Element LI
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("TYPE",  AT_TEXT),
+		    ("VALUE", AT_NUMBER)
+		  ];
+
+	    get_type  =  get_cdata  (attribute_map, "TYPE");
+	    get_value =  get_number (attribute_map, "VALUE");
+
+	herein
+
+	    fun make_li (ctx, attributes, text)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::LI
+		      {
+			type    => get_type  attribute_vec,
+			value   => get_value attribute_vec,
+			content => text
+		      };
+		};
+	end;
+
+
+
+	###########################
+	#     Element PRE
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("WIDTH",		AT_NUMBER)
+		  ];
+
+	    get_width = get_number (attribute_map, "WIDTH");
+
+	herein
+
+	    fun make_pre (ctx, attributes, text)
+		=
+		has::PRE
+		  {
+		    width   => get_width (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content => text
+		  };
+	end;
+
+
+
+	###########################
+	#     Element DIV
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",		AT_NAMES ["LEFT", "CENTER", "RIGHT"])
+		  ];
+
+	    get_align
+		=
+		require
+		  ( get_names has::halign::from_string,
+		    attribute_map,
+		    "ALIGN",
+		    has::halign::left
+		  );
+	herein
+
+	    fun make_div (ctx, attributes, content)
+		=
+		has::DIV
+		  {
+		    align => get_align (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content
+		  };
+	end;
+
+
+
+	###########################
+	#     Element FORM 
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ACTION",	AT_TEXT),
+		    ("METHOD",	AT_NAMES ["GET", "PUT"]),
+		    ("ENCTYPE",	AT_TEXT)
+		  ];
+
+	    get_action	= get_cdata (attribute_map, "ACTION");
+	    get_method	= require (get_names has::http_method::from_string,
+				  attribute_map, "METHOD", has::http_method::get);
+
+	    get_enctype	= get_cdata (attribute_map, "ENCTYPE");
+
+	herein
+
+	    fun make_form (ctx, attributes, contents)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::FORM
+		      {
+			action  => get_action  attribute_vec,
+			method' => get_method  attribute_vec,
+			enctype => get_enctype attribute_vec,
+			content => contents
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element HR
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["LEFT", "CENTER", "RIGHT"]),
+		    ("NOSHADE",	AT_IMPLICIT),
+		    ("SIZE",	AT_TEXT),
+		    ("WIDTH",	AT_TEXT)
+		  ];
+
+	    get_align   =  get_names has::halign::from_string (attribute_map, "ALIGN");
+	    get_noshade =  get_flag                            (attribute_map, "NOSHADE");
+	    get_size    =  get_cdata                           (attribute_map, "SIZE");
+	    get_width   =  get_cdata                           (attribute_map, "WIDTH");
+
+	herein
+
+	    fun make_hr (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::HR
+		      {
+			align   =>  get_align    attribute_vec,
+			noshade =>  get_noshade  attribute_vec,
+			size    =>  get_size     attribute_vec,
+			width   =>  get_width    attribute_vec
+		      };
+		};		
+	end;
+
+
+
+	###########################
+	#     Element TABLE
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["LEFT", "CENTER", "RIGHT"]),
+		    ("BORDER",	AT_TEXT),
+		    ("CELLSPACING",	AT_TEXT),
+		    ("CELLPADDING",	AT_TEXT),
+		    ("WIDTH",		AT_TEXT)
+		  ];
+
+	    get_align		= get_names has::halign::from_string (attribute_map, "ALIGN");
+	    get_border		= get_cdata (attribute_map, "BORDER");
+
+	    get_cellspacing	= get_cdata (attribute_map, "CELLSPACING");
+	    get_cellpadding	= get_cdata (attribute_map, "CELLPADDING");
+
+	    get_width		= get_cdata (attribute_map, "WIDTH");
+
+	herein
+
+	    fun make_table (ctx, attributes, { caption, body } )
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::TABLE
+		      {
+			align       => get_align       attribute_vec,
+			border      => get_border      attribute_vec,
+			cellspacing => get_cellspacing attribute_vec,
+			cellpadding => get_cellpadding attribute_vec,
+			width       => get_width       attribute_vec,
+			caption,
+			content => body
+		      };
+		};
+	end;
+
+
+
+	###########################
+	#     Element CAPTION
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",  AT_NAMES ["TOP", "BOTTOM"])
+		  ];
+
+	    get_align
+		=
+		get_names has::caption_align::from_string (attribute_map, "ALIGN");
+
+	herein
+
+	    fun make_caption (ctx, attributes, text)
+		=
+		has::CAPTION {
+		    align => get_align (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content => text
+		  };
+	end;
+
+
+
+	###########################
+	#     Element TR
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["LEFT", "CENTER", "RIGHT"]),
+		    ("VALIGN",	AT_NAMES ["TOP", "MIDDLE", "BOTTOM", "BASELINE"])
+		  ];
+
+	    get_align	= get_names has::halign::from_string (attribute_map, "ALIGN");
+	    get_valign	= get_names has::cell_valign::from_string (attribute_map, "VALIGN");
+
+	herein
+
+	    fun make_tr (ctx, attributes, cells)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::TR {
+			align   => get_align  attribute_vec,
+			valign  => get_valign attribute_vec,
+			content => cells
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#    Elements TH and TD
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["LEFT", "CENTER", "RIGHT"]),
+		    ("COLSPAN",	AT_NUMBER),
+		    ("HEIGHT",	AT_TEXT),
+		    ("NOWRAP",	AT_IMPLICIT),
+		    ("ROWSPAN",	AT_NUMBER),
+		    ("VALIGN",	AT_NAMES ["TOP", "MIDDLE", "BOTTOM", "BASELINE"]),
+		    ("WIDTH",	AT_TEXT)
+		  ];
+
+	    get_align	= get_names has::halign::from_string (attribute_map, "ALIGN");
+	    get_colspan	= get_number (attribute_map, "COLSPAN");
+	    get_height	= get_cdata (attribute_map, "HEIGHT");
+	    get_nowrap	= get_flag (attribute_map, "NOWRAP");
+	    get_rowspan	= get_number (attribute_map, "ROWSPAN");
+	    get_valign	= get_names has::cell_valign::from_string (attribute_map, "VALIGN");
+	    get_width	= get_cdata (attribute_map, "WIDTH");
+
+	    fun make_cell (ctx, attributes, cells)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    { align => get_align attribute_vec,
+		      colspan => get_colspan attribute_vec,
+		      height => get_height attribute_vec,
+		      nowrap => get_nowrap attribute_vec,
+		      rowspan => get_rowspan attribute_vec,
+		      valign => get_valign attribute_vec,
+		      width => get_width attribute_vec,
+		      content => cells
+		    };
+		  };
+	herein
+
+	    fun make_th arg = has::TH (make_cell arg);
+	    fun make_td arg = has::TD (make_cell arg);
+
+	end;
+
+
+
+	###########################
+	#     Element A
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("HREF",	AT_TEXT),
+		    ("NAME",	AT_TEXT),
+		    ("REL",		AT_TEXT),
+		    ("REV",		AT_TEXT),
+		    ("TITLE",	AT_TEXT)
+		  ];
+
+	    get_href	= get_cdata (attribute_map, "HREF");
+	    get_name	= get_cdata (attribute_map, "NAME");
+	    get_rel	= get_cdata (attribute_map, "REL");
+	    get_rev	= get_cdata (attribute_map, "REV");
+	    get_title	= get_cdata (attribute_map, "TITLE");
+
+	herein
+
+	    fun make_a (ctx, attributes, contents)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::AX
+		      {
+			name    => get_name  attribute_vec,
+			href    => get_href  attribute_vec,
+			rel     => get_rel   attribute_vec,
+			reverse => get_rev   attribute_vec,
+			title   => get_title attribute_vec,
+			content => contents
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element IMG
+
+	stipulate
+
+	     attribute_map
+		 =
+		 make_attributes
+		   [
+		     ("ALIGN",	AT_NAMES ["TOP", "MIDDLE", "BOTTOM", "LEFT", "RIGHT"]),
+		     ("ALT",	AT_TEXT),
+		     ("BORDER",	AT_TEXT),
+		     ("HEIGHT",	AT_TEXT),
+		     ("HSPACE",	AT_TEXT),
+		     ("ISMAP",	AT_IMPLICIT),
+		     ("SRC",	AT_TEXT),
+		     ("USEMAP",	AT_TEXT),
+		     ("VSPACE",	AT_TEXT),
+		     ("WIDTH",	AT_TEXT)
+		   ];
+
+	     get_align	= get_names has::ialign::from_string (attribute_map, "ALIGN");
+	     get_alt	= get_cdata (attribute_map, "ALT");
+	     get_border	= get_cdata (attribute_map, "BORDER");
+	     get_height	= get_cdata (attribute_map, "HEIGHT");
+	     get_hspace	= get_cdata (attribute_map, "HSPACE");
+	     get_ismap	= get_flag (attribute_map, "ISMAP");
+	     get_src	= require (get_cdata, attribute_map, "SRC", "");
+	     get_usemap	= get_cdata (attribute_map, "USEMAP");
+	     get_vspace	= get_cdata (attribute_map, "VSPACE");
+	     get_width	= get_cdata (attribute_map, "WIDTH");
+
+	herein
+
+	    fun make_img (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::IMG
+		      {
+			src    => get_src    attribute_vec,
+			alt    => get_alt    attribute_vec,
+			align  => get_align  attribute_vec,
+			height => get_height attribute_vec,
+			width  => get_width  attribute_vec,
+			border => get_border attribute_vec,
+			hspace => get_hspace attribute_vec,
+			vspace => get_vspace attribute_vec,
+			usemap => get_usemap attribute_vec,
+			ismap  => get_ismap  attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element APPLET
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["TOP", "MIDDLE", "BOTTOM", "LEFT", "RIGHT"]),
+		    ("ALT",		AT_TEXT),
+		    ("CODE",	AT_TEXT),
+		    ("CODEBASE",	AT_TEXT),
+		    ("HEIGHT",	AT_TEXT),
+		    ("HSPACE",	AT_TEXT),
+		    ("NAME",	AT_TEXT),
+		    ("VSPACE",	AT_TEXT),
+		    ("WIDTH",	AT_TEXT)
+		  ];
+
+	    get_align	= get_names has::ialign::from_string (attribute_map, "ALIGN");
+	    get_alt	= get_cdata (attribute_map, "ALT");
+	    get_code	= require (get_cdata, attribute_map, "CODE", "");
+	    get_codebase	= get_cdata (attribute_map, "CODEBASE");
+	    get_height	= get_cdata (attribute_map, "HEIGHT");
+	    get_hspace	= get_cdata (attribute_map, "HSPACE");
+	    get_name	= get_cdata (attribute_map, "NAME");
+	    get_vspace	= get_cdata (attribute_map, "VSPACE");
+	    get_width	= get_cdata (attribute_map, "WIDTH");
+
+	herein
+
+	    fun make_applet (ctx, attributes, content)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::APPLET
+		      {
+			codebase => get_codebase attribute_vec,
+			code     => get_code     attribute_vec,
+			name     => get_name     attribute_vec,
+			alt      => get_alt      attribute_vec,
+			align    => get_align    attribute_vec,
+			height   => get_height   attribute_vec,
+			width    => get_width    attribute_vec,
+			hspace   => get_hspace   attribute_vec,
+			vspace   => get_vspace   attribute_vec,
+			content
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element PARAM
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("NAME",		AT_TEXT),
+		    ("VALUE",		AT_TEXT)
+		  ];
+
+	    get_name	= require (get_cdata, attribute_map, "NAME", "");
+	    get_value	= get_cdata (attribute_map, "VALUE");
+
+	herein
+
+	    fun make_param (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::PARAM
+		      {
+			name  => get_name  attribute_vec,
+			value => get_value attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element FONT
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("COLOR",		AT_TEXT),
+		    ("SIZE",		AT_TEXT)
+		  ];
+
+	    get_color	= get_cdata (attribute_map, "COLOR");
+	    get_size	= get_cdata (attribute_map, "SIZE");
+
+	herein
+
+	    fun make_font (ctx, attributes, content)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::FONT
+		      {
+			size  => get_size  attribute_vec,
+			color => get_color attribute_vec,
+			content
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element BASEFONT
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("SIZE",		AT_TEXT)
+		  ];
+
+	    get_size	= get_cdata (attribute_map, "SIZE");
+
+	herein
+
+	    fun make_basefont (ctx, attributes, content)
+		=
+		has::BASEFONT
+		  {
+		    size => get_size (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content
+		  };
+	end;
+
+
+
+	###########################
+	#     Element BR
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("CLEAR",		AT_NAMES ["LEFT", "RIGHT", "ALL", "NULL"])
+		  ];
+
+	    get_clear = get_names has::text_flow_ctl::from_string (attribute_map, "CLEAR");
+
+	herein
+
+	    fun make_br (ctx, attributes)
+		=
+		has::BR
+		  {
+		    clear => get_clear (attribute_list_to_vec (ctx, attribute_map, attributes))
+		  };
+	end;
+
+
+
+	###########################
+	#     Element MAP
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("NAME",		AT_TEXT)
+		  ];
+
+	    get_name =  get_cdata (attribute_map, "NAME");
+
+	herein
+
+	    fun make_map (ctx, attributes, content)
+		=
+		has::MAP
+		  {
+		    name => get_name (attribute_list_to_vec (ctx, attribute_map, attributes)),
+		    content
+		  };
+	end;
+
+
+
+	###########################
+	#     Element INPUT
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALIGN",	AT_NAMES ["TOP", "MIDDLE", "BOTTOM", "LEFT", "RIGHT"]),
+		    ("CHECKED",	AT_IMPLICIT),
+		    ("MAXLENGTH",	AT_NUMBER),
+		    ("NAME",	AT_TEXT),
+		    ("SIZE",	AT_TEXT),
+		    ("SRC",		AT_TEXT),
+		    ("TYPE",	AT_NAMES [
+					  "TEXT", "PASSWORD", "CHECKBOX",
+					  "RADIO", "SUBMIT", "RESET",
+					  "FILE", "HIDDEN", "IMAGE"
+					]),
+		    ("VALUE",	AT_TEXT)
+		];
+
+	    get_align	= get_names has::ialign::from_string (attribute_map, "ALIGN");
+	    get_checked	= get_flag   (attribute_map, "CHECKED");
+	    get_maxlength	= get_number (attribute_map, "MAXLENGTH");
+	    get_name	= get_cdata  (attribute_map, "NAME");
+	    get_size	= get_cdata  (attribute_map, "SIZE");
+	    get_src	        = get_cdata  (attribute_map, "SRC");
+	    get_type	= get_names has::input_type::from_string (attribute_map, "TYPE");
+	    get_value	= get_cdata  (attribute_map, "VALUE");
+
+	herein
+
+	    fun make_input (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::INPUT
+		      {
+			type      => get_type      attribute_vec,
+			name      => get_name      attribute_vec,
+			value     => get_value     attribute_vec,
+			src       => get_src       attribute_vec,
+			checked   => get_checked   attribute_vec,
+			size      => get_size      attribute_vec,
+			maxlength => get_maxlength attribute_vec,
+			align     => get_align     attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element SELECT
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("NAME",		AT_TEXT),
+		    ("SIZE",		AT_TEXT)
+		  ];
+
+	    get_name	= require (get_cdata, attribute_map, "NAME", "");
+	    get_size	= get_number (attribute_map, "SIZE");
+
+	herein
+
+	    fun make_select (ctx, attributes, contents)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::SELECT
+		      {
+			name => get_name attribute_vec,
+			size => get_size attribute_vec,
+			content => contents
+		      };
+		};
+	end;
+
+
+
+	###########################
+	#     Element TEXTAREA
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("NAME",		AT_TEXT),
+		    ("ROWS",		AT_NUMBER),
+		    ("COLS",		AT_NUMBER)
+		  ];
+
+	    get_name	= require (get_cdata, attribute_map, "NAME", "");
+	    get_rows	= require (get_number, attribute_map, "ROWS", 0);
+	    get_cols	= require (get_number, attribute_map, "COLS", 0);
+
+	herein
+
+	    fun make_textarea (ctx, attributes, contents)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::TEXTAREA {
+			name => get_name attribute_vec,
+			rows => get_rows attribute_vec,
+			cols => get_cols attribute_vec,
+			content => contents
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element AREA
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("ALT",		AT_TEXT),
+		    ("COORDS",	AT_TEXT),
+		    ("HREF",	AT_TEXT),
+		    ("NOHREF",	AT_IMPLICIT),
+		    ("SHAPE",	AT_NAMES ["RECT", "CIRCLE", "POLY", "DEFAULT"])
+		  ];
+
+	    get_alt	= require (get_cdata, attribute_map, "ALT", "");
+	    get_coords	= get_cdata (attribute_map, "COORDS");
+	    get_href	= get_cdata (attribute_map, "HREF");
+	    get_nohref	= get_flag (attribute_map, "NOHREF");
+	    get_shape	= get_names has::shape::from_string (attribute_map, "SHAPE");
+
+	herein
+
+	    fun make_area (ctx, attributes)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::AREA
+		      {
+			shape  => get_shape  attribute_vec,
+			coords => get_coords attribute_vec,
+			href   => get_href   attribute_vec,
+			nohref => get_nohref attribute_vec,
+			alt    => get_alt    attribute_vec
+		      };
+		  };
+	end;
+
+
+
+	###########################
+	#     Element OPTION
+
+	stipulate
+
+	    attribute_map
+		=
+		make_attributes
+		  [
+		    ("SELECTED",	AT_IMPLICIT),
+		    ("VALUE",		AT_TEXT)
+		  ];
+
+	    get_selected	= get_flag (attribute_map, "SELECTED");
+	    get_value	= get_cdata (attribute_map, "VALUE");
+
+	herein
+
+	    fun make_option (ctx, attributes, contents)
+		=
+		{   attribute_vec
+			=
+			attribute_list_to_vec (ctx, attribute_map, attributes);
+
+		    has::OPTION
+		      {
+			selected => get_selected attribute_vec,
+			value    => get_value attribute_vec,
+			content  => contents
+		      };
+		};
+	end;
+    };					# generic package html_attributes_g 
+end;
+
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

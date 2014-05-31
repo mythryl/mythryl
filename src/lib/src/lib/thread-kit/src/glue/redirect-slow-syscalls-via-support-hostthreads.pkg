@@ -1,0 +1,348 @@
+## redirect-slow-syscalls-via-support-hostthreads.pkg
+#
+# For background see Note[1]		in   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+stipulate
+    include threadkit;									# threadkit						is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package at  =  run_at__premicrothread;						# run_at__premicrothread				is from   src/lib/std/src/nj/run-at--premicrothread.pkg
+    package ci  =  mythryl_callable_c_library_interface;				# mythryl_callable_c_library_interface			is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    package dhl =  dns_host_lookup;							# dns_host_lookup					is from   src/lib/std/src/socket/dns-host-lookup.pkg
+    package ict =  internal_cpu_timer;							# internal_cpu_timer					is from   src/lib/std/src/internal-cpu-timer.pkg
+    package io  =  io_bound_task_hostthreads;						# io_bound_task_hostthreads				is from   src/lib/std/src/hostthread/io-bound-task-hostthreads.pkg
+    package is  =  internet_socket__premicrothread;					# internet_socket__premicrothread			is from   src/lib/std/src/socket/internet-socket--premicrothread.pkg
+    package mps =  microthread_preemptive_scheduler;					# microthread_preemptive_scheduler			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/microthread-preemptive-scheduler.pkg
+    package nd  =  net_db;								# net_db						is from   src/lib/std/src/socket/net-db.pkg
+    package npd =  net_protocol_db;							# net_protocol_db					is from   src/lib/std/src/socket/net-protocol-db.pkg
+    package nsd =  net_service_db;							# net_service_db					is from   src/lib/std/src/socket/net-service-db.pkg
+    package ps  =  plain_socket__premicrothread;					# plain_socket__premicrothread				is from   src/lib/std/src/socket/plain-socket--premicrothread.pkg
+    package psx =  posixlib;								# posixlib						is from   src/lib/std/src/psx/posixlib.pkg
+    package sg  =  socket_guts;								# socket_guts						is from   src/lib/std/src/socket/socket-guts.pkg
+    package sok =  socket;								# socket						is from   src/lib/std/src/socket/socket.pkg
+    package tg  =  time_guts;								# time_guts						is from   src/lib/std/src/time-guts.pkg
+    package uds	=  unix_domain_socket__premicrothread;					# unix_domain_socket__premicrothread			is from   src/lib/std/src/socket/unix-domain-socket--premicrothread.pkg
+    package wg  =  winix_guts;								# winix_guts						is from   src/lib/std/src/posix/winix-guts.pkg
+
+    Result(Z) =  RESULT Z
+	      |  EXCEPTION Exception
+	      ;
+herein
+
+    package  redirect_slow_syscalls_via_support_hostthreads
+    :        Redirect_Slow_Syscalls_Via_Support_Hostthreads				# Redirect_Slow_Syscalls_Via_Support_Hostthreads	is from   src/lib/src/lib/thread-kit/src/glue/redirect-slow-syscalls-via-support-hostthreads.api
+    {
+	redirection_is_on     =  REF FALSE;
+	redirected_calls_done =  REF 0;
+
+
+	fun system_calls_are_being_redirected_via_support_hostthreads ()
+	    =
+	    *redirection_is_on;
+
+	fun count_of_redirected_system_calls_done ()
+	    =
+	    *redirected_calls_done;
+
+	fun redirect_slow_syscalls_via_support_hostthreads _				# Ignored arg will be at::STARTUP_PHASE_13_REDIRECT_SYSCALLS
+	    =
+	    if (posixlib::getenv "MYTHRYL_NO_IO_REDIRECT" == NULL)			# Allow users to suppress I/O redirection by setting this.
+		#
+		fun redirect_one_io_call
+			{
+			   io_call:  Y -> Z,
+			  lib_name:  String,
+			  fun_name:  String
+			}
+		    =
+		    {
+														call_number =  REF 0;
+
+			\\ (y: Y)
+			    =
+			    {   Result(Z) =  RESULT Z
+					  |  EXCEPTION Exception
+					  ;
+
+														n = *call_number;	call_number := n + 1;	# Yes, in principle we should use a mutex. In practice we're testing mono-calling-thread  and the window is small and a bad 'n' is no biggie anyhow.
+
+
+				oneshot =   make_oneshot_maildrop ();
+				#
+				io::do {.
+					    result =    RESULT (io_call y)
+							except
+							    x = EXCEPTION x;
+
+
+					    mps::do {.
+
+							redirected_calls_done :=  *redirected_calls_done + 1;	# Purely for src/lib/std/src/psx/posix-io-unit-test.pkg
+														# No mutex here -- the performance hit wouldn't be worth it and we only use it in a single-threaded context.
+														# NB: It is important to do this before the following set(), otherwise posix_io_unit_test will probably miss the last increment.
+							put_in_oneshot (oneshot, result);
+							#
+						    };
+					};
+
+														result =
+				case (get_from_oneshot  oneshot)
+				    #
+				    RESULT    z =>  z;
+				    EXCEPTION x =>  raise exception  x;
+				esac;
+														result;
+			    }; 
+		    };
+
+		fun redirect_one_io_call'									# Same as above, except yielding a mailop.
+			{
+			   io_call:  Y -> Z,
+			  lib_name:  String,
+			  fun_name:  String
+			}
+		    =
+		    {
+														call_number =  REF 0;
+
+			\\ (y: Y)
+			    =
+			    {
+
+														n = *call_number;	call_number := n + 1;	# Yes, in principle we should use a mutex. In practice we're testing mono-calling-thread  and the window is small and a bad 'n' is no biggie anyhow.
+
+
+				oneshot =   make_oneshot_maildrop ();
+				#
+				io::do {.
+					    result =    RESULT (io_call y)
+							except
+							    x = EXCEPTION x;
+
+
+					    mps::do {.
+
+							redirected_calls_done :=  *redirected_calls_done + 1;	# Purely for src/lib/std/src/psx/posix-io-unit-test.pkg
+														# No mutex here -- the performance hit wouldn't be worth it and we only use it in a single-threaded context.
+														# NB: It is important to do this before the following set(), otherwise posix_io_unit_test will probably miss the last increment.
+							put_in_oneshot (oneshot, result);
+							#
+						    };
+					};
+
+				get_from_oneshot'  oneshot  ==>   (\\ x = case x RESULT y => y; EXCEPTION x => raise exception x; esac);
+			    }; 
+		    };
+
+		fun foo { io_call, lib_name, fun_name }
+		    =
+		    io_call;
+		#
+											log::note {. "redirect_slow_syscalls_via_support_hostthreads/TOP"; };
+
+		# Note that if we were to redirect ramlog_printf() we would be
+		# unable to call it from secondary hostthreads.  We will probably
+		# eventually need to arrange for -all- regular log::* calls to be
+		# usable in secondary hostthreads by making them not depend upon
+		# redirectable syscalls.
+												# net_db						is from   src/lib/std/src/socket/net-db.pkg
+		nd::set__get_network_by_name__ref			redirect_one_io_call;
+		nd::set__get_network_by_address__ref			redirect_one_io_call;
+
+												# posix_id						is from   src/lib/std/src/psx/posix-id.pkg
+		psx::set__get_parent_process_id__ref			redirect_one_io_call;
+		psx::set__get_user_id__ref				redirect_one_io_call;
+		psx::set__get_effective_user_id__ref			redirect_one_io_call;
+		psx::set__get_group_id__ref				redirect_one_io_call;
+		psx::set__get_effective_group_id__ref			redirect_one_io_call;
+		psx::set__set_user_id__ref				redirect_one_io_call;
+		psx::set__set_group_id__ref				redirect_one_io_call;
+		psx::set__get_group_ids__ref				redirect_one_io_call;
+		psx::set__get_login__ref				redirect_one_io_call;
+		psx::set__get_process_group__ref			redirect_one_io_call;
+		psx::set__set_session_id__ref				redirect_one_io_call;
+		psx::set__set_process_group_id__ref			redirect_one_io_call;
+		psx::set__get_kernel_info__ref				redirect_one_io_call;
+		psx::set__get_elapsed_seconds_since_1970__ref		redirect_one_io_call;
+		psx::set__times__ref					redirect_one_io_call;
+		psx::set__getenv__ref					foo;			# Redirecting getenv() gives us problems and anyhow it is not a real system call, just a local memory operation.
+		psx::set__environment__ref				foo;			# Ditto, more or less.
+		psx::set__get_name_of_controlling_terminal__ref		redirect_one_io_call;
+		psx::set__get_name_of_terminal__ref			redirect_one_io_call;
+		psx::set__is_a_terminal__ref				redirect_one_io_call;
+
+												# socket_guts						is from   src/lib/std/src/socket/socket-guts.pkg
+		sg::set__list_addr_families__ref			(case (posixlib::getenv "NOREDIR1") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__list_socket_types__ref				(case (posixlib::getenv "NOREDIR2") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_debug__ref					(case (posixlib::getenv "NOREDIR3") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_reuseaddr__ref				(case (posixlib::getenv "NOREDIR4") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_keepalive__ref				(case (posixlib::getenv "NOREDIR5") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_dontroute__ref				(case (posixlib::getenv "NOREDIR6") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_broadcast__ref				(case (posixlib::getenv "NOREDIR7") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_oobinline__ref				(case (posixlib::getenv "NOREDIR8") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_sndbuf__ref				(case (posixlib::getenv "NOREDIR9") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_rcvbuf__ref				(case (posixlib::getenv "NOREDIRA") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__ctl_linger__ref				(case (posixlib::getenv "NOREDIRB") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_type__ref					(case (posixlib::getenv "NOREDIRC") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_error__ref					(case (posixlib::getenv "NOREDIRD") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_peer_name__ref				(case (posixlib::getenv "NOREDIRE") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_sock_name__ref				(case (posixlib::getenv "NOREDIRF") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_nread__ref					(case (posixlib::getenv "NOREDIRG") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_atmark__ref				(case (posixlib::getenv "NOREDIRH") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__set_nonblockingio__ref				(case (posixlib::getenv "NOREDIRI") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__get_address_family__ref			(case (posixlib::getenv "NOREDIRJ") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__accept__ref					(case (posixlib::getenv "NOREDIRK") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__bind__ref					(case (posixlib::getenv "NOREDIRL") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__connect__ref					(case (posixlib::getenv "NOREDIRM") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__listen__ref					(case (posixlib::getenv "NOREDIRN") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__close__ref					(case (posixlib::getenv "NOREDIRO") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__shutdown__ref					(case (posixlib::getenv "NOREDIRP") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__send_v__ref					(case (posixlib::getenv "NOREDIRQ") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__send_a__ref					(case (posixlib::getenv "NOREDIRR") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__send_to_v__ref					(case (posixlib::getenv "NOREDIRS") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__send_to_a__ref					(case (posixlib::getenv "NOREDIRT") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__recv_v__ref					(case (posixlib::getenv "NOREDIRU") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__recv_a__ref					(case (posixlib::getenv "NOREDIRV") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__recv_from_v__ref				(case (posixlib::getenv "NOREDIRW") NULL => redirect_one_io_call; _ => foo; esac);
+		sg::set__recv_from_a__ref				(case (posixlib::getenv "NOREDIRX") NULL => redirect_one_io_call; _ => foo; esac);
+
+		sok::set__recv_v__ref					redirect_one_io_call ;
+		sok::set__recv_v_mailop__ref				redirect_one_io_call';
+
+
+												# posix_etc						is from   src/lib/std/src/psx/posix-etc.pkg
+		psx::set__getgrgid__ref  				redirect_one_io_call;
+		psx::set__getgrnam__ref  				redirect_one_io_call;
+		psx::set__getpwuid__ref  				redirect_one_io_call;
+		psx::set__getpwnam__ref  				redirect_one_io_call;
+
+		# SHOULD NOT REDIRECT THIS CALL AT PRESENT BECAUSE IT IS USED BY make_logstring() in src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
+		# which we want to be able to use in secondary hostthreads.
+		psx::set__get_process_id__ref				foo;
+												# posix_process						is from   src/lib/std/src/psx/posix-process.pkg
+#		psx::set__osval__ref					redirect_one_io_call;
+		psx::set__osval__ref					foo;
+		psx::set__sysconf__ref					redirect_one_io_call;
+		psx::set__waitpid__ref					redirect_one_io_call;
+		psx::set__kill__ref					redirect_one_io_call;
+
+												# posix_io						is from   src/lib/std/src/psx/posix-io.pkg
+#		psx::set__osval2__ref					redirect_one_io_call;
+		psx::set__osval2__ref					foo;
+		psx::set__make_pipe__ref				redirect_one_io_call;
+		psx::set__dup__ref					redirect_one_io_call;
+		psx::set__dup2__ref					redirect_one_io_call;
+		psx::set__close__ref					redirect_one_io_call;
+		psx::set__read__ref					redirect_one_io_call;
+		psx::set__readbuf__ref					redirect_one_io_call;
+		psx::set__write_ro_slice__ref				redirect_one_io_call;
+		psx::set__write_rw_slice__ref				redirect_one_io_call;
+		psx::set__fcntl_d__ref					redirect_one_io_call;
+		psx::set__fcntl_gfd__ref				redirect_one_io_call;
+		psx::set__fcntl_sfd__ref				redirect_one_io_call;
+		psx::set__fcntl_gfl__ref				redirect_one_io_call;
+		psx::set__fcntl_sfl__ref				redirect_one_io_call;
+		psx::set__fcntl_l__ref					redirect_one_io_call;
+		psx::set__lseek__ref					redirect_one_io_call;
+		psx::set__fsync__ref					redirect_one_io_call;
+
+
+
+												# posix_file						is from   src/lib/std/src/psx/posix-file.pkg
+		psx::set__stat__ref					redirect_one_io_call;
+		psx::set__lstat__ref					redirect_one_io_call;
+		psx::set__fstat__ref					redirect_one_io_call;
+		psx::set__access__ref					redirect_one_io_call;
+		psx::set__chmod__ref					redirect_one_io_call;
+		psx::set__fchmod__ref					redirect_one_io_call;
+		psx::set__chown__ref					redirect_one_io_call;
+		psx::set__fchown__ref					redirect_one_io_call;
+		psx::set__utime__ref					redirect_one_io_call;
+		psx::set__pathconf__ref					redirect_one_io_call;
+		psx::set__fpathconf__ref				redirect_one_io_call;
+
+
+												# posix_tty						is from   src/lib/std/src/psx/posix-tty.pkg
+		psx::tty::set__tcgetattr__ref				redirect_one_io_call;
+		psx::tty::set__tcsetattr__ref				redirect_one_io_call;
+		psx::tty::set__tcsendbreak__ref				redirect_one_io_call;
+		psx::tty::set__tcdrain__ref				redirect_one_io_call;
+		psx::tty::set__tcflush__ref				redirect_one_io_call;
+		psx::tty::set__tcflow__ref				redirect_one_io_call;
+		psx::tty::set__tcgetpgrp__ref				redirect_one_io_call;
+		psx::tty::set__tcsetpgrp__ref				redirect_one_io_call;
+
+
+
+		# SHOULD NOT REDIRECT THIS CALL AT PRESENT BECAUSE IT IS USED BY make_logstring() in src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
+		# which we want to be able to use in secondary hostthreads.
+												# time_guts						is from   src/lib/std/src/time-guts.pkg
+		tg::set__timeofday__ref					redirect_one_io_call;
+
+												# net_protocol_db					is from   src/lib/std/src/socket/net-protocol-db.pkg
+		npd::set__get_prot_by_name__ref				redirect_one_io_call;
+		npd::set__get_prot_by_number__ref			redirect_one_io_call;
+
+												# internet_socket__premicrothread			is from   src/lib/std/src/socket/internet-socket--premicrothread.pkg
+		is::set__to_inet_addr__ref				redirect_one_io_call;
+		is::set__from_inet_addr__ref				redirect_one_io_call;
+		is::set__inet_any__ref					redirect_one_io_call;
+		is::set__ctl_delay__ref					redirect_one_io_call;
+
+		is::set__set_printif_fd__ref				foo;			# DO NOT REDIRECT THIS SYSTEM CALL!  It is used by log::* and we want that stuff to be callable from secondary hostthreads, which won't work if it depends on redirection.
+												# Same comments apply to ramlog calls.
+
+												# net_service_db					is from   src/lib/std/src/socket/net-service-db.pkg
+		nsd::set__get_service_by_name__ref			redirect_one_io_call;
+		nsd::set__get_service_by_port__ref			redirect_one_io_call;
+
+
+												# plain_socket__premicrothread				is from   src/lib/std/src/socket/plain-socket--premicrothread.pkg
+		ps::set__c_socket__ref					redirect_one_io_call;
+		ps::set__c_socket_pair__ref				redirect_one_io_call;
+
+
+												# unix_domain_socket__premicrothread			is from   src/lib/std/src/socket/unix-domain-socket--premicrothread.pkg
+		uds::set__string_to_unix_domain_socket_address__ref	redirect_one_io_call;
+		uds::set__unix_domain_socket_address_to_string__ref	redirect_one_io_call;
+
+												# dns_host_lookup					is from   src/lib/std/src/socket/dns-host-lookup.pkg
+		dhl::set__get_host_by_name__ref				redirect_one_io_call;
+		dhl::set__get_host_by_addr__ref				redirect_one_io_call;
+		dhl::set__get_host_name__ref				redirect_one_io_call;
+
+												# winix_file						is from   src/lib/std/src/posix/winix-file.pkg
+		wg::file::set__tmp_name__ref				redirect_one_io_call;
+
+												# win8ix_io						is from   src/lib/std/src/posix/winix-io--premicrothread.pkg
+		wg::io::set__poll__ref					redirect_one_io_call;
+
+												# internal_cpu_timer					is from   src/lib/std/src/internal-cpu-timer.pkg
+		ict::set__gettime__ref					redirect_one_io_call;
+
+		redirection_is_on :=  TRUE;
+	    fi;
+
+
+	fun unredirect_slow_syscalls _					# Ignored arg will be at::SHUTDOWN_PHASE_2_UNREDIRECT_SYSCALLS
+	    =
+	    {
+		ci::restore_redirected_syscalls_to_direct_form ();
+
+		redirection_is_on :=  FALSE;
+	    };
+
+									my _ =		# my _ =   needed because only declarations are syntactically valid here.
+	{
+	    at::schedule  ("redirect-slow-syscalls-via-support-hostthreads.pkg:   redirect all 'slow' syscalls",      [ at::STARTUP_PHASE_13_REDIRECT_SYSCALLS   ],  redirect_slow_syscalls_via_support_hostthreads	);
+	    at::schedule  ("redirect-slow-syscalls-via-support-hostthreads.pkg: unredirect all 'slow' syscalls",      [ at::SHUTDOWN_PHASE_2_UNREDIRECT_SYSCALLS ],  unredirect_slow_syscalls			);
+	};
+    };
+end;
+
+
+## Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,1072 @@
+# spill-instruction-generation-intel32-g.pkg
+#
+# Intel32 spilling is complicated business. 
+# Allen: and it just got more complicated; now we have to recognize the regmap.
+# I've also improved the spilling code so that more instructions are
+# recognized.  Addressing modes are now folded into the existing instruction
+# whenever possible.  This eliminates some redundant temporaries which were
+# introduced before.
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+
+
+###              "No, no, you're not thinking;
+###               you're just being logical."
+###
+###                         -- Niels Bohr 
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+
+stipulate
+    package lem =  lowhalf_error_message;							# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;								# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   spill_instruction_generation_intel32_g   (
+	#             ======================================
+	#
+	package mcf: Machcode_Intel32;								# Machcode_Intel32				is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+	package mu:  Machcode_Universals							# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+		     where
+			 mcf == mcf;								# "mcf" == "machcode_form" (abstract machine code).
+    )
+    : (weak) Architecture_Specific_Spill_Instructions						# Architecture_Specific_Spill_Instructions	is from   src/lib/compiler/back/low/regor/arch-spill-instruction.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;									# "mcf" == "machcode_form" (abstract machine code).
+
+	stipulate
+	    package rgk	=  mcf::rgk;								# "rgk" == "registerkinds".
+	herein
+
+	    fun error msg
+		=
+		lem::impossible("INTEL32Spill: " + msg);
+
+	    fun immed (mcf::IMMED _)       =>  TRUE;
+		immed (mcf::IMMED_LABEL _) =>  TRUE;
+		#
+		immed _                   =>  FALSE;
+	    end;
+
+	    fun immed_or_reg (mcf::DIRECT r)      =>  TRUE;
+		immed_or_reg (mcf::IMMED _)       =>  TRUE;
+		immed_or_reg (mcf::IMMED_LABEL _) =>  TRUE;
+		#
+		immed_or_reg _                   =>  FALSE;
+	    end;
+
+	    fun is_memory (mcf::RAMREG   _) =>  TRUE;
+		is_memory (mcf::DISPLACE _) =>  TRUE;
+		is_memory (mcf::INDEXED  _) =>  TRUE;
+		is_memory (mcf::LABEL_EA _) =>  TRUE;
+		#
+		is_memory _                =>  FALSE;
+	    end;
+
+	    # Annotate instruction:
+	    #
+	    fun annotate (op,           []) =>  op;
+		annotate (op, note ! notes) =>  annotate (mcf::NOTE { op, note }, notes);
+	    end;
+
+	    fun mark (instruction, an)
+		=
+		annotate (mcf::BASE_OP instruction, an);
+
+	    fun live_dead (add, rmv) ( { regs, spilled }, reg)
+		= 
+		{   regs    =>   rmv (reg, regs),
+		    spilled =>   add (reg, spilled)
+		};
+
+	    f_live_dead =  live_dead (rgk::add_codetemp_info_to_appropriate_kindlist, rgk::drop_codetemp_info_from_codetemplists);
+	    r_live_dead =  live_dead (rgk::add_codetemp_info_to_appropriate_kindlist, rgk::drop_codetemp_info_from_codetemplists);
+
+	    make_int_codetemp_info = rgk::make_int_codetemp_info;
+
+
+	    fun spill_r (instruction, reg, spill_loc)
+		=
+		{   fun intel32spill (instruction, an)
+			=
+			{
+			    fun done (instruction, an)
+				=
+				{ code => [mark (instruction, an)], prohibitions => [], make_reg=>NULL };
+
+			    case instruction    
+				#
+				mcf::CALL { operand=>address, defs, uses, return, cuts_to, ramregion, pops }
+				    =>
+				    done (mcf::CALL { operand=>address, defs=>rgk::drop_codetemp_info_from_codetemplists (reg, defs), 
+							  return, uses, 
+					       cuts_to, ramregion, pops }, an);
+
+				mcf::MOVE { mv_op as (mcf::MOVZBL|mcf::MOVSBL|mcf::MOVZWL|mcf::MOVSWL), src, dst }
+				    => 
+				    {   tmp_r = make_int_codetemp_info ();
+					tmp = mcf::DIRECT tmp_r;
+
+					{ prohibitions => [tmp_r], make_reg=>THE tmp_r,
+					  code => [mark (mcf::MOVE { mv_op, src, dst=>tmp }, an),
+					      mcf::move { mv_op=>mcf::MOVL, src=>tmp, dst=>spill_loc } ]
+					};
+				   };
+
+				mcf::MOVE { mv_op, src as mcf::DIRECT rs, dst }
+				    =>
+				    if (rkj::codetemps_are_same_color (rs, reg) ) { code => [], prohibitions => [], make_reg=>NULL };
+				    else done (mcf::MOVE { mv_op, src, dst=>spill_loc }, an);
+				    fi;
+
+				mcf::MOVE { mv_op, src, dst=>mcf::DIRECT _}
+				   => 
+				   if (mu::eq_operand (src, spill_loc) )
+
+					{ code => [], prohibitions => [], make_reg=>NULL };
+
+				   elif (immed src) 
+
+					done (mcf::MOVE { mv_op, src, dst=>spill_loc }, an);
+				   else 
+					tmp_r = make_int_codetemp_info ();
+					tmp  = mcf::DIRECT tmp_r;
+					{ prohibitions => [tmp_r],
+					  make_reg=>THE tmp_r,
+					  code => [ mark (mcf::MOVE { mv_op, src, dst=>tmp }, an),
+						    mcf::move { mv_op, src=>tmp, dst=>spill_loc }
+						  ]
+					};
+				   fi;
+
+				mcf::LEA { address, r32 }
+				   => 
+				   {   tmp_r = make_int_codetemp_info ();
+
+				       { prohibitions => [tmp_r],
+					 make_reg=>THE tmp_r,
+					 code => [mark (mcf::LEA { address, r32=>tmp_r }, an),
+						mcf::move { mv_op=>mcf::MOVL, src=>mcf::DIRECT tmp_r, dst=>spill_loc } ]
+				       };
+				   }; 
+
+				mcf::BINARY { bin_op=>mcf::XORL, src as mcf::DIRECT rs, dst=>mcf::DIRECT rd }
+				    => 
+				    if (rkj::codetemps_are_same_color (rs, rd) ) 
+					#
+					{ prohibitions =>  [],
+					  code         =>  [mark (mcf::MOVE { mv_op=>mcf::MOVL, src=>mcf::IMMED 0, dst=>spill_loc }, an)],
+					  make_reg      =>  NULL
+					};
+				    else
+					{ prohibitions => [],
+					  code => [mark (mcf::BINARY { bin_op=>mcf::XORL, src, dst=>spill_loc }, an)],
+					  make_reg=>NULL
+					};
+				    fi;
+
+				mcf::BINARY { bin_op, src, dst }
+				    =>
+				    {   # Note: dst = reg 
+
+					fun mult_bin_op (mcf::MULL|mcf::MULW|mcf::MULB|mcf::IMULL|mcf::IMULW|mcf::IMULB) => TRUE;
+					    mult_bin_op _ => FALSE;
+					end;
+
+					 if (mult_bin_op bin_op )
+					    #  Destination must remain a register 
+					     tmp_r = make_int_codetemp_info ();
+					     tmp = mcf::DIRECT tmp_r;
+
+					     { prohibitions => [tmp_r],
+					       code=>  [mcf::move { mv_op=>mcf::MOVL, src=>spill_loc, dst=>tmp },
+						      mcf::binary { bin_op, src, dst=>tmp },
+						      mcf::move { mv_op=>mcf::MOVL, src=>tmp, dst=>spill_loc } ],
+					       make_reg=>THE tmp_r
+					     };
+
+					 elif (immed_or_reg src )
+
+					    #  Can replace the destination directly 
+					    done (mcf::BINARY { bin_op, src, dst=>spill_loc }, an);
+
+					 else
+					    # A memory src and non mult_bin_op  
+					    # --- cannot have two memory operands
+
+					     tmp_r = make_int_codetemp_info ();
+					     tmp = mcf::DIRECT tmp_r;
+
+					     { prohibitions => [tmp_r],
+					       code => [ mcf::move { mv_op=>mcf::MOVL, src, dst=>tmp },
+							 mcf::binary { bin_op, src=>tmp, dst=>spill_loc } ],
+					       make_reg=>NULL
+					      };
+				       fi;
+				    }; 
+
+				mcf::SHIFT { shift_op, count, src, dst }
+				    =>
+				    error "go and implement SHIFT";
+
+				mcf::CMOV { cond, src, dst }
+				    => 
+				    #  note: dst must be a register 
+				    case spill_loc   
+					#
+					mcf::DIRECT r
+					    =>
+					    { prohibitions => [],
+					      make_reg=>NULL,
+					      code => [mark (mcf::CMOV { cond, src, dst=>r }, an)]
+					    };
+
+					_ =>
+					    {   tmp_r = make_int_codetemp_info ();
+						tmp  = mcf::DIRECT tmp_r;
+
+						{ prohibitions => [tmp_r],
+						  make_reg=>THE tmp_r,
+						  code => [mcf::move { mv_op=>mcf::MOVL, src=>spill_loc, dst=>tmp },
+							mark (mcf::CMOV { cond, src, dst=>tmp_r }, an),
+							mcf::move { mv_op=>mcf::MOVL, src=>tmp, dst=>spill_loc } ]
+						};
+					    };
+				    esac;
+
+				mcf::CMPXCHG { lock, size, src, dst }
+				    => 
+				    if (immed_or_reg src)
+					#
+					{ prohibitions => [],
+					  code => [mark (mcf::CMPXCHG { lock, size, src, dst=>spill_loc }, an)],
+					  make_reg=>NULL
+					};
+				    else
+					tmp_r = make_int_codetemp_info ();
+					tmp  = mcf::DIRECT tmp_r;
+
+					{ prohibitions => [],
+					  code => [mcf::move { mv_op=>mcf::MOVL, src, dst=>tmp },
+						 mark (mcf::CMPXCHG { lock, size, src=>tmp, dst=>spill_loc }, an)],
+					  make_reg=>NULL
+				       };
+				    fi;
+
+				mcf::MULTDIV _ => error "spill: MULTDIV";
+
+				mcf::MUL3 { src1, src2, dst }
+				   => 
+				   {   tmp_r = make_int_codetemp_info (); 
+
+				       { prohibitions => [tmp_r], make_reg=>THE tmp_r,
+					  code => [mark (mcf::MUL3 { src1, src2, dst=>tmp_r }, an),
+						mcf::move { mv_op=>mcf::MOVL, src=>mcf::DIRECT tmp_r, dst=>spill_loc } ]
+				       };
+				   };
+
+				mcf::UNARY { un_op, operand } => done (mcf::UNARY { un_op, operand=>spill_loc }, an);
+				mcf::SET { cond, operand } => done (mcf::SET { cond, operand=>spill_loc }, an);
+				mcf::POP _ => done (mcf::POP spill_loc, an);
+				mcf::FNSTSW  => error "spill: FNSTSW";
+				_ => error "spill";
+			    esac;
+			};						# fun intel32spill 
+
+		    fun f (mcf::BASE_OP instruction, an)
+			      =>
+			      intel32spill (instruction, an);
+
+			f (mcf::NOTE { note, op }, notes)
+			      =>
+			      f (op, note ! notes);
+
+			f (mcf::DEAD lk, an)
+			      => 
+			      { code => [annotate (mcf::DEAD (r_live_dead (lk, reg)), an)],
+				prohibitions => [],
+				make_reg=>NULL
+			      };
+
+			f _ => error "spill: f";
+		    end;
+
+		    f (instruction, []);
+		}; 
+
+	    fun reload_r (instruction, reg, spill_loc)
+		=
+		{
+		    fun reload_intel32 (instruction, reg, spill_loc, an)
+			=
+			{
+			    fun do_operand (rt, operand)
+				=
+				case operand
+				    #
+				    mcf::DIRECT r
+					=>
+					if (rkj::codetemps_are_same_color (r, reg))   mcf::DIRECT rt;
+					else                            operand;
+					fi;
+
+				    mcf::DISPLACE { base, disp, ramregion }
+					=> 
+					if (rkj::codetemps_are_same_color (base, reg))  mcf::DISPLACE { base=>rt, disp, ramregion }; 
+					else                              operand;
+					fi;
+
+				    mcf::INDEXED { base=>NULL, index, scale, disp, ramregion }
+					=> 
+					if (rkj::codetemps_are_same_color (index, reg))   mcf::INDEXED { base=>NULL, index=>rt, scale, disp, ramregion };
+					else                                operand;
+					fi;
+
+				    mcf::INDEXED { base as THE b, index, scale, disp, ramregion }
+					=> 
+					if (rkj::codetemps_are_same_color (b, reg))          do_operand (rt, mcf::INDEXED { base=>THE rt, index, scale, disp, ramregion } );
+					elif (rkj::codetemps_are_same_color (index, reg))    mcf::INDEXED { base, index=>rt, scale, disp, ramregion };
+					else                                  operand;
+					fi;
+
+				    operand => operand;
+				esac;
+
+
+			    fun done (instruction, an)
+				=
+				{   code => [mark (instruction, an)],
+				    prohibitions => [],
+				    make_reg=>NULL
+				};
+
+			    fun is_reloading (mcf::DIRECT r) =>   rkj::codetemps_are_same_color (r, reg); 
+				is_reloading _             =>   FALSE;
+			    end;
+
+			    #  This version assumes that the value of tmpR is killed 
+			    #
+			    fun with_tmp (f, an)
+				= 
+				case spill_loc    
+				    #
+				    mcf::DIRECT tmp_r
+					=>  
+					{   make_reg=>NULL,
+					    prohibitions => [], 
+					    code => [mark (f tmp_r, an)]
+					};
+
+				    _ =>
+				     {  tmp_r = make_int_codetemp_info ();
+				        { make_reg=>NULL,
+					  prohibitions => [tmp_r], 
+					  code => [ mcf::move { mv_op=>mcf::MOVL, src=>spill_loc, dst=>mcf::DIRECT tmp_r }, 
+					            mark (f tmp_r, an)
+					          ]
+					};
+				     };
+				esac;
+
+			    # This version assumes that the
+			    # value of tmp_r is available afterwards 
+			    #
+			    fun with_tmp_avail (f, an)
+				=  
+				case spill_loc   
+				    #
+				    mcf::DIRECT tmp_r
+					=>
+					{ make_reg      => THE tmp_r,
+					  prohibitions => [tmp_r], 
+					  code         => [mark (f tmp_r, an)]
+					};
+
+				    _   =>
+					{   tmp_r = make_int_codetemp_info ();
+					    tmp  = mcf::DIRECT tmp_r;
+
+					    { make_reg=>THE tmp_r,
+					      prohibitions => [tmp_r], 
+					      code => [mcf::move { mv_op=>mcf::MOVL, src=>spill_loc, dst=>mcf::DIRECT tmp_r }, 
+						    mark (f tmp_r, an)
+						   ]
+					    };
+					};
+				esac;
+
+			    fun replace (opn as mcf::DIRECT r)
+				    => 
+				    if (rkj::codetemps_are_same_color (r, reg))   spill_loc;
+				    else                            opn;
+				    fi;
+
+				replace opn
+				    =>
+				    opn;
+			    end;
+
+			    # Fold in a memory operand if possible.
+			    # Make sure that both operands are
+			    # not in memory.  lsrc cannot be immediate.
+			    #
+			    fun reload_cmp (cmp, lsrc, rsrc, an)
+				= 
+				{   fun reload_it ()
+					=  
+					with_tmp ( \\ tmp_r =   cmp { lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc) },
+						   an
+						 );
+
+				    if (immed_or_reg lsrc and immed_or_reg rsrc )
+
+					lsrc' = replace lsrc;
+					rsrc' = replace rsrc;
+
+					if (is_memory lsrc' and is_memory rsrc')   reload_it ();
+					else				         done (cmp { lsrc=>lsrc', rsrc=>rsrc'}, an);
+					fi;
+
+				    else
+
+					reload_it();
+				    fi;
+				};
+
+			    fun reload_bt (bit_op, lsrc, rsrc, an)
+				= 
+				reload_cmp
+				    ( \\ { lsrc, rsrc } =  mcf::BITOP { bit_op, lsrc, rsrc },
+				      lsrc,
+				      rsrc,
+				      an
+				    );
+
+			    # Fold in a memory operand if possible.  Makes sure that the right 
+			    # operand is not in memory and left operand is not an immediate.
+			    #  lsrc   rsrc
+			    #   AL,   imm8  opc1 A8
+			    #  EAX,   imm32 opc1 A9
+			    #  r/m8,  imm8  opc2 F6/0 ib
+			    #  r/m32, imm32 opc2 F7/0 id
+			    #  r/m32, r32   opc3 85/r
+			    #
+			    fun reload_test (test, lsrc, rsrc, an)
+				= 
+				{   fun reload_it ()
+					= 
+					with_tmp ( \\ tmp_r =  test { lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc) },
+						   an
+						 );
+
+				    if (immed_or_reg lsrc and immed_or_reg rsrc)
+
+					lsrc = replace lsrc;
+					rsrc = replace rsrc;
+
+					if (is_memory rsrc)
+					    if (is_memory lsrc)
+						reload_it();
+					    else
+						# It is commutative:
+						done (test { lsrc=>rsrc, rsrc=>lsrc }, an);
+					    fi;
+					else 
+					    done (test { lsrc, rsrc }, an);
+					fi;
+
+				    else
+					reload_it ();
+				    fi;
+				};
+
+			    fun reload_push (push, arg as mcf::DIRECT _, an)
+				    =>
+				    done (push (replace arg), an);
+
+				reload_push (push, arg, an)
+				    =>
+				    with_tmp_avail (\\ tmp_r =  push (do_operand (tmp_r, arg)), an);
+			    end;
+
+			    fun reload_real (real_op, operand, an)
+				=
+				with_tmp_avail (\\ tmp_r = real_op (do_operand (tmp_r, operand)), an);
+
+			    case instruction
+				#
+				mcf::JMP (mcf::DIRECT _, labs) => done (mcf::JMP (spill_loc, labs), an);
+				mcf::JMP (operand, labs) => with_tmp (\\ t => mcf::JMP (do_operand (t, operand), labs); end, an);
+				mcf::JCC { operand=>mcf::DIRECT _, cond } => done (mcf::JCC { operand=>spill_loc, cond }, an);
+
+				mcf::JCC { operand, cond }
+				    => 
+				    with_tmp (\\ t => mcf::JCC { operand=>do_operand (t, operand), cond }; end, an);
+
+				mcf::CALL { operand, defs, uses, return, cuts_to, ramregion, pops }
+				    => 
+				    with_tmp
+				      ( \\ t = mcf::CALL { operand=>do_operand (t, operand), defs, return, pops,
+							 uses=>rgk::drop_codetemp_info_from_codetemplists (reg, uses), cuts_to, ramregion
+						       },
+					an
+				      );
+
+				mcf::MOVE { mv_op, src as mcf::DIRECT _, dst as mcf::DIRECT _}
+				    => 
+				    done (mcf::MOVE { mv_op, src=>replace src, dst }, an);
+
+				mcf::MOVE { mv_op, src, dst as mcf::DIRECT _}
+				    => 
+				    with_tmp_avail (\\ t =>mcf::MOVE { mv_op, src=>do_operand (t, src), dst }; end, an);
+
+				mcf::MOVE { mv_op, src as mcf::DIRECT _, dst }
+				    => 
+				    if (mu::eq_operand (dst, spill_loc))
+
+					 { code => [], prohibitions => [], make_reg=>NULL };
+
+				    else
+					 #  Dst is not the spill reg 
+
+					 with_tmp_avail
+					     (\\ t = mcf::MOVE { mv_op, src=>do_operand (t, src), dst=>do_operand (t, dst) }, an);
+				    fi;
+
+				mcf::MOVE { mv_op, src, dst }
+				    => 
+				    with_tmp_avail #  Dst is not the spill reg 
+					(\\ t = mcf::MOVE { mv_op, src=>do_operand (t, src), dst=>do_operand (t, dst) }, an);
+
+				mcf::LEA { r32, address }
+				    => 
+				    with_tmp_avail (\\ tmp_r = mcf::LEA { r32, address=>do_operand (tmp_r, address) }, an);
+
+				mcf::CMPL { lsrc, rsrc } => reload_cmp (mcf::CMPL, lsrc, rsrc, an); 
+				mcf::CMPW { lsrc, rsrc } => reload_cmp (mcf::CMPW, lsrc, rsrc, an); 
+				mcf::CMPB { lsrc, rsrc } => reload_cmp (mcf::CMPB, lsrc, rsrc, an); 
+				mcf::TESTL { lsrc, rsrc } => reload_test (mcf::TESTL, lsrc, rsrc, an); 
+				mcf::TESTW { lsrc, rsrc } => reload_test (mcf::TESTW, lsrc, rsrc, an); 
+				mcf::TESTB { lsrc, rsrc } => reload_test (mcf::TESTB, lsrc, rsrc, an); 
+				mcf::BITOP { bit_op, lsrc, rsrc } => reload_bt (bit_op, lsrc, rsrc, an); 
+
+				mcf::BINARY { bin_op, src, dst as mcf::DIRECT _}
+				    => 
+				    case src   
+					#
+					mcf::DIRECT _
+					    => 
+					    done (mcf::BINARY { bin_op, src=>replace src, dst }, an);
+
+					_   =>
+					    with_tmp
+						(\\ tmp_r = mcf::BINARY { bin_op, src=>do_operand (tmp_r, src), dst }, an);
+				    esac;
+
+
+
+				mcf::BINARY { bin_op, src, dst }
+				    => 
+				    with_tmp
+					(\\ tmp_r = mcf::BINARY { bin_op, src=>do_operand (tmp_r, src), dst=>do_operand (tmp_r, dst) }, an);
+
+
+				mcf::CMOV { cond, src, dst }
+				    => 
+				    if (rkj::codetemps_are_same_color (dst, reg))  error "CMOV";
+				    else                            done (mcf::CMOV { cond, src=>spill_loc, dst }, an);
+				    fi;
+
+
+				mcf::SHIFT { shift_op, count, src, dst }
+				    =>
+				    error "go and implement SHIFT";
+
+
+				mcf::CMPXCHG { lock, size, src, dst }
+				    => 
+				    with_tmp (\\ tmp_r =  mcf::CMPXCHG { lock, size,
+							       src=>do_operand (tmp_r, src),
+							       dst=>do_operand (tmp_r, dst) }, an);
+
+
+				mcf::MULTDIV { mult_div_op, src as mcf::DIRECT _}
+				    => 
+				    done (mcf::MULTDIV { mult_div_op, src=>replace src }, an);
+
+
+				mcf::MULTDIV { mult_div_op, src }
+				    =>
+				    with_tmp (\\ tmp_r =
+				      mcf::MULTDIV { mult_div_op, src=>do_operand (tmp_r, src) }, an);
+
+
+				mcf::MUL3 { src1, src2, dst }
+				    => 
+				    with_tmp ( \\ tmp_r =  mcf::MUL3 { src1 => do_operand (tmp_r, src1), src2, 
+								    dst  => if (rkj::codetemps_are_same_color (dst, reg) )
+									       error "reload: MUL3";
+									    else dst;fi
+								  },
+					       an
+					     );
+
+				mcf::UNARY { un_op, operand }
+				    => 
+				    with_tmp_avail
+				       (\\ tmp_r = mcf::UNARY { un_op, operand=>do_operand (tmp_r, operand) }, an);
+
+
+				mcf::SET { cond, operand }
+				    => 
+				    with_tmp_avail (\\ tmp_r = mcf::SET { cond, operand=>do_operand (tmp_r, operand) }, an);
+
+
+				mcf::PUSHL arg => reload_push (mcf::PUSHL, arg, an);
+				mcf::PUSHW arg => reload_push (mcf::PUSHW, arg, an);
+				mcf::PUSHB arg => reload_push (mcf::PUSHB, arg, an);
+				mcf::FILD operand => reload_real (mcf::FILD, operand, an); 
+				mcf::FILDL operand => reload_real (mcf::FILDL, operand, an); 
+				mcf::FILDLL operand => reload_real (mcf::FILDLL, operand, an); 
+				mcf::FLDT operand => reload_real (mcf::FLDT, operand, an);
+				mcf::FLDL operand => reload_real (mcf::FLDL, operand, an);
+				mcf::FLDS operand => reload_real (mcf::FLDS, operand, an);
+				mcf::FSTPT operand => reload_real (mcf::FSTPT, operand, an);
+				mcf::FSTPL operand => reload_real (mcf::FSTPL, operand, an);
+				mcf::FSTPS operand => reload_real (mcf::FSTPS, operand, an);
+				mcf::FSTL operand => reload_real (mcf::FSTL, operand, an);
+				mcf::FSTS operand => reload_real (mcf::FSTS, operand, an);
+				mcf::FUCOM operand => reload_real (mcf::FUCOM, operand, an);
+				mcf::FUCOMP operand => reload_real (mcf::FUCOMP, operand, an);
+				mcf::FCOMI operand => reload_real (mcf::FCOMI, operand, an);
+				mcf::FCOMIP operand => reload_real (mcf::FCOMIP, operand, an);
+				mcf::FUCOMI operand => reload_real (mcf::FUCOMI, operand, an);
+				mcf::FUCOMIP operand => reload_real (mcf::FUCOMIP, operand, an);
+
+				mcf::FENV { fenv_op, operand }
+				    =>
+				    reload_real (\\ operand = mcf::FENV { fenv_op, operand }, operand, an);
+
+				mcf::FBINARY { bin_op, src, dst }
+				    => 
+				    with_tmp_avail (\\ tmp_r = mcf::FBINARY { bin_op, src=>do_operand (tmp_r, src), dst }, an);
+
+				mcf::FIBINARY { bin_op, src }
+				    => 
+				    with_tmp_avail (\\ tmp_r =  mcf::FIBINARY { bin_op, src=>do_operand (tmp_r, src) }, an);
+
+				 #  Pseudo fp instrctions 
+				mcf::FMOVE { fsize, src, dst }
+				    => 
+				    with_tmp_avail (\\ tmp_r =  mcf::FMOVE { fsize, src=>do_operand (tmp_r, src), 
+							dst=>do_operand (tmp_r, dst) }, an);
+
+				mcf::FILOAD { isize, ea, dst }
+				    => 
+				    with_tmp_avail (\\ tmp_r =  mcf::FILOAD { isize, ea=>do_operand (tmp_r, ea), 
+							 dst=>do_operand (tmp_r, dst) }, an);
+
+				mcf::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    with_tmp_avail (\\ tmp_r =  mcf::FBINOP { fsize, bin_op, lsrc=>do_operand (tmp_r, lsrc),
+					      rsrc=>do_operand (tmp_r, rsrc), dst=>do_operand (tmp_r, dst) }, an);
+
+				mcf::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    with_tmp_avail (\\ tmp_r = mcf::FIBINOP { isize, bin_op, lsrc=>do_operand (tmp_r, lsrc),
+						 rsrc=>do_operand (tmp_r, rsrc), dst=>do_operand (tmp_r, dst) }, an);
+
+				mcf::FUNOP { fsize, un_op, src, dst }
+				    =>
+				    with_tmp_avail (\\ tmp_r =  mcf::FUNOP { fsize, un_op, src=>do_operand (tmp_r, src),
+					     dst=>do_operand (tmp_r, dst) }, an);
+
+				mcf::FCMP { i, fsize, lsrc, rsrc }
+				    =>
+				    with_tmp_avail (\\ tmp_r = mcf::FCMP { i, fsize, 
+					    lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc)
+					   }, an);
+
+				_ => error "reload";
+
+			    esac;
+			};			# fun reload_intel32
+
+		    fun f (mcf::NOTE { note, op }, notes)
+			      =>
+			      f (op, note ! notes);
+
+			f (mcf::BASE_OP i, an)
+			      =>
+			      reload_intel32 (i, reg, spill_loc, an);
+
+			f (mcf::LIVE lk, an)
+			    => 
+			    { code => [annotate (mcf::LIVE (r_live_dead (lk, reg)), an)],
+			      prohibitions => [],
+			      make_reg=>NULL
+			    };
+
+			f _ => error "reload: f";
+		    end;
+
+		    f (instruction, []);
+		};				# fun reload 
+
+
+
+
+	    fun spill_f (instruction, reg, spill_loc)
+		=
+		{
+		    fun intel32fspill (instruction, reg, spill_loc, an)
+			=
+			{
+			    fun with_tmp (f, fsize, an)
+				=
+				{   tmp_r =  rgk::make_float_codetemp_info ();
+
+				    tmp   =  mcf::FPR tmp_r;
+
+				     { prohibitions => [tmp_r], 
+				       code => [mark (f tmp, an), 
+					     mcf::fmove { fsize, src=>tmp, dst=>spill_loc } ],
+				       make_reg=>THE tmp_r #  XXX Should we propagate the definition? 
+				     };
+				};
+
+			    case instruction 
+				mcf::FSTPL _ => { prohibitions => [], code => [mark (mcf::FSTPL spill_loc, an)], make_reg=>NULL };
+				mcf::FSTPS _ => { prohibitions => [], code => [mark (mcf::FSTPS spill_loc, an)], make_reg=>NULL };
+				mcf::FSTPT _ => { prohibitions => [], code => [mark (mcf::FSTPT spill_loc, an)], make_reg=>NULL };
+				mcf::FSTL _ => { prohibitions => [], code => [mark (mcf::FSTL spill_loc, an)], make_reg=>NULL };
+				mcf::FSTS _ => { prohibitions => [], code => [mark (mcf::FSTS spill_loc, an)], make_reg=>NULL };
+
+				mcf::CALL { operand, defs, uses, return, cuts_to, ramregion, pops }
+				    =>
+				    {   prohibitions => [],
+					code => [mark (mcf::CALL { operand, defs=>rgk::drop_codetemp_info_from_codetemplists (reg, defs), 
+						    return, uses, 
+						    cuts_to, ramregion, pops }, an)],
+					make_reg=>NULL
+				    };
+
+				#  Pseudo fp instrctions 
+				mcf::FMOVE { fsize, src, dst }
+				    => 
+				      if (mu::eq_operand (src, spill_loc) ) 
+					  #
+					  { prohibitions => [], code => [], make_reg=>NULL };
+				      else
+					  { prohibitions => [], code => [mark (mcf::FMOVE { fsize, src, dst=>spill_loc }, an)],
+					  make_reg=>NULL };
+				      fi;
+
+				mcf::FILOAD { isize, ea, dst }
+				    =>
+				    { prohibitions => [], code => [mark (mcf::FILOAD { isize, ea, dst=>spill_loc }, an)],
+				     make_reg=>NULL }; #  XXX bad for single precision 
+
+				mcf::FBINOP { fsize as mcf::FP64, bin_op, lsrc, rsrc, dst }
+				    =>
+				    { prohibitions => [], code => [mark (mcf::FBINOP { fsize, bin_op,
+								 lsrc, rsrc,
+								 dst=>spill_loc }, an)],
+				     make_reg=>NULL };
+
+				mcf::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    with_tmp (\\ tmp_r =
+					  mcf::FBINOP { fsize, bin_op,
+						   lsrc, rsrc, dst=>tmp_r },
+					  fsize, an);
+
+				mcf::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    with_tmp (\\ tmp_r =
+					  mcf::FIBINOP { isize, bin_op,
+						    lsrc, rsrc, dst=>tmp_r },
+					  mcf::FP64, an); #  XXX 
+
+				mcf::FUNOP { fsize, un_op, src, dst }
+				    =>
+				    { prohibitions => [], code => [mark (mcf::FUNOP { fsize, un_op,
+							      src, dst=>spill_loc }, an)],
+						make_reg=>NULL };
+
+			       _ => error "fspill";
+			    esac;
+
+			};				# fun intel32fspill 
+
+
+		    fun f (mcf::NOTE { note, op }, notes)
+			    =>
+			    f (op, note ! notes);
+
+			f (mcf::BASE_OP (i), an)
+			    =>
+			    intel32fspill (i, reg, spill_loc, an);
+
+			f (mcf::DEAD lk, an)
+			    => 
+			    {   code => [annotate (mcf::DEAD (f_live_dead (lk, reg)), an)],
+				prohibitions => [],
+				make_reg=>NULL
+			    };
+
+			f _ =>
+			    error "fspill: f";
+		    end;
+
+		    f (instruction, []);
+		};
+
+
+	    fun reload_f (instruction, reg, spill_loc)
+		=
+		f (instruction, [])
+		where 
+
+		    fun intel32freload (instruction, reg, spill_loc, an)
+			=
+			{   fun rename (src as mcf::FDIRECT f)
+				    => 
+				    if (rkj::codetemps_are_same_color (f, reg))  spill_loc;
+				    else                           src;
+				    fi; 
+
+				rename (src as mcf::FPR f)
+				    => 
+				    if (rkj::codetemps_are_same_color (f, reg))   spill_loc;
+				    else                            src;
+				    fi; 
+
+				rename src
+				    =>
+				    src;
+			    end;
+
+			    fun with_tmp (fsize, f, an)
+				= 
+				case spill_loc
+				    #
+				    mcf::FDIRECT _ => { make_reg=>NULL, prohibitions => [], code => [mark (f spill_loc, an)] };
+
+				    mcf::FPR _ => { make_reg=>NULL, prohibitions => [], code => [mark (f spill_loc, an)] };
+
+				     _ =>
+					{   ftmp_r =  rgk::make_float_codetemp_info ();
+					    #
+					    ftmp   =  mcf::FPR (ftmp_r);
+
+					    { make_reg=>NULL,
+					      prohibitions => [ftmp_r], 
+					      code => [ mcf::fmove { fsize, src=>spill_loc, dst=>ftmp }, 
+						        mark (f ftmp, an)
+						      ]
+					    };
+					};
+				esac;
+
+			    case instruction
+				#
+				mcf::FLDT    operand => { code => [mark (mcf::FLDT    spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				mcf::FLDL    operand => { code => [mark (mcf::FLDL    spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				mcf::FLDS    operand => { code => [mark (mcf::FLDS    spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				#
+				mcf::FUCOM   operand => { code => [mark (mcf::FUCOM   spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				mcf::FUCOMP  operand => { code => [mark (mcf::FUCOMP  spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				#
+				mcf::FCOMI   operand => { code => [mark (mcf::FCOMI   spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				mcf::FCOMIP  operand => { code => [mark (mcf::FCOMIP  spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				#
+				mcf::FUCOMI  operand => { code => [mark (mcf::FUCOMI  spill_loc, an)], prohibitions => [], make_reg=>NULL };
+				mcf::FUCOMIP operand => { code => [mark (mcf::FUCOMIP spill_loc, an)], prohibitions => [], make_reg=>NULL };
+
+				mcf::FBINARY { bin_op, src=>mcf::FDIRECT f, dst }
+				    => 
+				    if  (rkj::codetemps_are_same_color (f, reg))
+					#                                 
+					{ code		=>  [mark (mcf::FBINARY { bin_op, src=>spill_loc, dst }, an)],
+					  prohibitions	=>  [], 
+					  make_reg	=>  NULL
+					};
+				    else
+					error "reloadF: FBINARY";
+				    fi;
+
+				# Pseudo fp instructions.
+
+				mcf::FMOVE { fsize, src, dst }
+				    => 
+				    if (mu::eq_operand (dst, spill_loc))   { code => [],                                                       prohibitions => [], make_reg=>NULL };
+				    else			           { code => [mark (mcf::FMOVE { fsize, src=>spill_loc, dst }, an)],   prohibitions => [], make_reg=>NULL };
+				    fi;
+
+				mcf::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    { code => [mark (mcf::FBINOP { fsize, bin_op, lsrc=>rename lsrc, rsrc=>rename rsrc, dst }, an)],
+				      prohibitions => [],
+				      make_reg=>NULL
+				    };
+
+				mcf::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+				    =>
+				    { code => [mark (mcf::FIBINOP { isize, bin_op, lsrc=>rename lsrc, rsrc=>rename rsrc, dst }, an)],
+				      prohibitions => [],
+				      make_reg=>NULL
+				    };
+
+				mcf::FUNOP { fsize, un_op, src, dst }
+				    =>
+				    { code => [mark (mcf::FUNOP { fsize, un_op,
+							src=>rename src, dst }, an)], 
+				      prohibitions => [],
+				      make_reg=>NULL
+				    };
+
+				mcf::FCMP { i, fsize, lsrc, rsrc }
+				    =>
+				    # Make sure that the lsrc and
+				    # rsrc cannot both be in memory:
+				    #
+				    case (lsrc, rsrc)   
+					#		
+					(mcf::FPR fs1, mcf::FPR fs2)
+					    =>
+					    case ( rkj::codetemps_are_same_color (fs1, reg),
+						   rkj::codetemps_are_same_color (fs2, reg)
+						 )
+						#
+						(TRUE, TRUE)
+						    =>
+						    with_tmp (fsize, 
+							\\ tmp =  mcf::FCMP { i, fsize, lsrc=>tmp, rsrc=>tmp }, an);
+
+						(TRUE, FALSE)
+						    =>
+						    { code => [mark (mcf::FCMP { i, fsize, lsrc=>spill_loc, rsrc }, an)],
+						      prohibitions => [], make_reg=>NULL };
+
+						(FALSE, TRUE)
+						    =>
+						    { code => [mark (mcf::FCMP { i, fsize, lsrc, rsrc=>spill_loc }, an)],
+						      prohibitions => [], make_reg=>NULL };
+
+						_ => error "fcmp.1";
+					    esac;
+
+				       (mcf::FPR _, _)
+					   =>
+					   with_tmp (fsize, 
+					    \\ tmp = mcf::FCMP { i, fsize, lsrc=>tmp, rsrc }, an);
+
+				       (_, mcf::FPR _)
+					   =>
+					   with_tmp ( fsize, 
+						      \\ tmp =  mcf::FCMP { i, fsize, lsrc, rsrc=>tmp }, an);
+
+				       _ => error "fcmp.2";
+				    esac;
+
+
+				mcf::CALL { operand, defs, uses, return, cuts_to, ramregion, pops }
+				    =>
+				    { prohibitions => [],
+				      code => [mark (mcf::CALL { operand, defs=>rgk::drop_codetemp_info_from_codetemplists (reg, defs), 
+						       return, pops,
+						       uses, cuts_to, ramregion }, an)],
+				      make_reg=>NULL
+				    };
+
+				_  => error "reloadF";
+			    esac;
+			};					# fun intel32freload
+
+
+		  fun f (mcf::NOTE { note, op }, notes)
+			    =>
+			    f (op, note ! notes);
+
+		      f (mcf::BASE_OP i, an)
+			    =>
+			    intel32freload (i, reg, spill_loc, an);
+
+		      f (mcf::LIVE lk, an)
+			    => 
+			    { code => [annotate (mcf::LIVE (f_live_dead (lk, reg)), an)],
+			      prohibitions => [],
+			      make_reg=>NULL
+			    };
+
+		      f _ => error "freload::f";
+		  end;
+
+	    end;
+
+	    fun spill_to_ea  rkj::INT_REGISTER  (reg, ea)
+		=>
+		{   fun return_move ()
+			= 
+			{   code => [mcf::move { mv_op=>mcf::MOVL, src=>mcf::DIRECT reg, dst=>ea } ],
+			    prohibitions => [], make_reg=>NULL
+			};
+
+		     case ea
+			#	       
+			mcf::RAMREG   _ => return_move ();
+			mcf::DISPLACE _ => return_move ();
+			mcf::INDEXED _ => return_move ();
+			_ => error "spillToEA: GP";
+		    esac;
+		};
+
+		spill_to_ea rkj::FLOAT_REGISTER (freg, ea) => error "spillToEA: FP";
+		spill_to_ea _ _ => error "spillToEA";
+	    end;
+
+	    fun reload_from_ea  rkj::INT_REGISTER  (reg, ea)
+		    =>
+		    case ea
+			#	
+			mcf::RAMREG   _ =>  return_move ();
+			mcf::DISPLACE _ =>  return_move ();
+			mcf::INDEXED  _ =>  return_move ();
+			#	
+			_ => error "reloadFromEA: GP";
+		    esac
+		    where
+			fun return_move ()
+			    = 
+			    { code => [mcf::move { mv_op=>mcf::MOVL, dst=>mcf::DIRECT reg, src=>ea } ],
+			      prohibitions => [],
+			      make_reg=>NULL
+			    };
+		    end; 
+
+		reload_from_ea rkj::FLOAT_REGISTER (freg, ea) => error "spillToEA: FP";
+		reload_from_ea _ _ => error "spillToEA";
+	    end;
+
+
+	    fun reload rkj::INT_REGISTER => reload_r;
+		reload rkj::FLOAT_REGISTER => reload_f;
+		reload _ => error "reload";
+	    end;
+
+	    fun spill rkj::INT_REGISTER => spill_r;
+		spill rkj::FLOAT_REGISTER => spill_f;
+		spill _ => error "spill";
+	    end;
+	end;
+    };
+end;

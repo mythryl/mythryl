@@ -1,0 +1,322 @@
+## write-time-profiling-report.pkg
+#
+# Summarize results of time-profiling some packages.
+#
+# For background see:
+#
+#     src/A.TRACE-DEBUG-PROFILE.OVERVIEW
+
+# Compiled by:
+#     src/lib/compiler/debugging-and-profiling/debugprof.sublib
+
+
+
+###            "There are no significant bugs in our
+###             released software that any significant 
+###             number of users want fixed."
+###
+###                            -- Bill Gates
+
+
+
+#DO set_control "compiler::trap_int_overflow" "TRUE";
+
+stipulate
+    package f8b =  eight_byte_float;							# eight_byte_float		is from   src/lib/std/eight-byte-float.pkg
+    package fil =  file__premicrothread;						# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package lms =  list_mergesort;							# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package rwv =  rw_vector;								# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+    package rpc =  runtime_internals::rpc;						# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
+herein
+
+    # This package is referenced (only) in:
+    #
+    #     src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+    #     src/lib/compiler/debugging-and-profiling/profiling/profiling-control-g.pkg
+    #
+    package write_time_profiling_report
+    : (weak)
+	    api {
+		get_per_fun_timing_stats_sorted_by_cpu_time_then_callcount	#  Return the unformatted data for a report.
+		    :
+		    Void
+		    ->
+		    List
+		      { fun_name:	String,					# "foo::bar": Name of some fn compiled while   profiling_control::compiler_is_set_to_add_per_fun_call_counters_to_deep_syntax()  was TRUE.
+			call_count:	Int,					# Number of times the function was called.
+			cpu_seconds:	Float					# From number of times SIGVTALRM was handled while this fn was executing. We generate SIGVTALRM at 100Hz, so we tally these as 0.01 CPU second each.
+		      };
+
+		write_per_fun_time_profile_report0:  fil::Output_Stream -> Void;	# Print result of above call, one function per line.
+		write_per_fun_time_profile_report:   fil::Output_Stream -> Void;	# Same as above, but ignore uncalled functions.
+
+
+		# Almost all of the slots in our global    time_profiling_rw_vector
+		# track the SIGVTARLM-measured runtime
+		# for particular functions, but the first
+		# five slots are reserved for tracking
+		# CPU time spent in runtime, heapcleaner
+		# ("garbage collector"), compiler and
+		# "other":
+		# 
+		in_runtime__cpu_user_index:			Int;
+		in_minor_heapcleaner__cpu_user_index:		Int;
+		in_major_heapcleaner__cpu_user_index:		Int;
+		in_other_code__cpu_user_index:			Int;
+		in_compiler__cpu_user_index:			Int;
+		number_of_predefined_indices:			Int;
+
+	    }
+    {
+												# runtime_profiling_control	is from   src/lib/std/src/nj/runtime-profiling-control.pkg
+	in_runtime__cpu_user_index	    =  rpc::in_runtime__cpu_user_index;			# 0
+	in_minor_heapcleaner__cpu_user_index  =  rpc::in_minor_heapcleaner__cpu_user_index;	# 1
+	in_major_heapcleaner__cpu_user_index  =  rpc::in_major_heapcleaner__cpu_user_index;	# 2
+	in_other_code__cpu_user_index         =  rpc::in_other_code__cpu_user_index;		# 3
+	in_compiler__cpu_user_index           =  rpc::in_compiler__cpu_user_index;			# 4
+	number_of_predefined_indices								# 5
+	    =
+	    rpc::number_of_predefined_indices;
+
+	Fun_Stats = FUN_STATS
+		      { fun_name:		String,					# "foo::bar": Name of some fn compiled while   profiling_control::compiler_is_set_to_add_per_fun_call_counters_to_deep_syntax()   was TRUE.
+			call_count:		Int,					# Number of times the function was called.
+			sigvtalrm_count:	Int					# Number of times SIGVTALRM was handled while this function was executing. We generate SIGVTALRM at 100Hz, so we tally these as 0.01 CPU second each.
+		      };
+
+
+
+	fun get_funstats_for_all_profiled_funs_sorted_by_cpu_time_then_callcount ()
+	    =
+	    lms::sort_list  funstat_lt  funstats_for_all_profiled_funs
+	    where
+		fun funstat_lt (
+		      FUN_STATS {  fun_name=>na, call_count=>ca, sigvtalrm_count=>a  },
+		      FUN_STATS {  fun_name=>nb, call_count=>cb, sigvtalrm_count=>b  }
+		    )
+		    =
+		    a < b
+		    or
+		    a == b   and   (ca < cb   or   ca == cb and na > nb);
+
+		funstats_for_all_profiled_funs
+		    =
+		    list::cat  (map  get_funstats_for_all_funs_in_package  (rpc::get_profiled_packages_list()))
+		    where
+			fun get_funstats_for_all_funs_in_package (rpc::PROFILED_PACKAGE { fun_names, first_slot_in_time_profiling_rw_vector, per_fun_call_counts, ... } )
+			    =
+			    get_funstats_for_all_funs_in_package'
+			      ( [],							# Resultlist of FUN_STATS records.
+				first_slot_in_time_profiling_rw_vector,
+				0,
+				per_fun_call_counts,					# This is the package-local vector with one slot per fn being time-profiled, containing the number of times each fun has been called.
+				rpc::get_time_profiling_rw_vector (),			# This is the global vector with one slot per fn being time-profiled, containing the number of times SIGVTALRM (100Hz) has hit while we were executing that fn.
+				splitlines  fun_names					# 'fun_names' is a list of newline-terminated package-qualified function names,
+			      )								#             constructed in   src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+			    where
+				splitlines =    string::tokens				# We use string::tokens rather than string::fields because
+						    \\ '\n' => TRUE;			# the function names are terminated by newlines rather than
+							 _   => FALSE;			# separated by them -- we don't want an empty string at the
+						    end;				# end of the list.
+
+				fun get_funstats_for_all_funs_in_package' (funstats, _, _, _, _, [])
+					=>
+					funstats;
+
+				    get_funstats_for_all_funs_in_package'
+                                          (
+					    funstats,					# Result list of FUN_STATS records.
+					    first_slot,					# Start of this package's slotrange in global time_profiling_rw_vector
+					    fun_number,					# 0..N-1 number of function being processed this time around.
+					    per_fun_call_counts,			# This is the package-local vector with one slot per fn being time-profiled, containing the number of times each fun has been called.
+					    time_profiling_rw_vector,			# This is the global vector with one slot per fn being time-profiled, containing the number of times SIGVTALRM (100Hz) has hit while we were executing that fn.
+					    fun_name ! rest_of_fun_names
+					  )
+					=>
+					get_funstats_for_all_funs_in_package'
+                                          (
+					    FUN_STATS {
+						  fun_name,										# Note name of profiled function.
+						  call_count	  =>  rwv::get (per_fun_call_counts,                 fun_number),	# Note number of times function was called.
+						  sigvtalrm_count =>  rwv::get (time_profiling_rw_vector, first_slot+fun_number)	# Note number of times the 100Hz SIGVTALRM occurred while this function was executing.
+						}
+						!
+                                                funstats,
+
+					    first_slot,
+					    fun_number + 1,				# Now go do next function in package.
+					    per_fun_call_counts,
+					    time_profiling_rw_vector,
+					    rest_of_fun_names
+					  );
+				end;
+			    end;
+		    end;	
+	    end;
+
+	fun get_per_fun_timing_stats_sorted_by_cpu_time_then_callcount ()
+	    =
+	    map sigvtalrm_ticks_to_seconds (get_funstats_for_all_profiled_funs_sorted_by_cpu_time_then_callcount ())
+	    where
+	        seconds_per_sigvtalrm									# This value is ultimately defined as   MICROSECONDS_PER_SIGVTALRM   in   src/c/h/profiler-call-counts.h
+		    =
+		    0.000001 * f8b::from_int (rpc::get_sigvtalrm_interval_in_microseconds()); # get_sigvtalrm_interval_in_microseconds	def in    src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+
+		fun sigvtalrm_ticks_to_seconds								# Convert from raw SIGVTALRM count to seconds.
+                    (											# We normally run SIGVTALRM at 100Hz, making each count == 0.01 seconds of CPU time in the function.
+		        FUN_STATS
+			  {
+			    fun_name,
+			    call_count,
+			    sigvtalrm_count
+                          }
+                    )
+		    =
+		    { fun_name,
+                      call_count,
+                      cpu_seconds =>  f8b::from_int sigvtalrm_count  *  seconds_per_sigvtalrm
+                    };
+	    end;
+
+	fun write_per_fun_report { ignored_uncalled_funs } output_stream
+	    =
+	    {   sorted_funstats_for_all_profiled_funs
+		    =
+		    get_funstats_for_all_profiled_funs_sorted_by_cpu_time_then_callcount ();
+
+		# Compute total CPU time and max number of calls for any function,
+		# so we can scale appropriately as we print:
+		#
+		total_sigvtalrm_counts = list::fold_backward (\\ (FUN_STATS { sigvtalrm_count => a, ... }, b) =  a+b             ) 0 sorted_funstats_for_all_profiled_funs;
+		max_call_count         = list::fold_backward (\\ (FUN_STATS {      call_count => a, ... }, b) =  int::max (a, b) ) 0 sorted_funstats_for_all_profiled_funs;
+
+		######################################################
+		# All this crazy int/char jiggery-pokery should be
+		# replaced with straightforward float computations
+		# and sprintf formatting.	-- 2011-07-11 CrT	XXX SUCKO FIXME.
+		######################################################
+
+		stipulate
+		    fun log10 0 =>  0;
+			log10 i =>  1 + log10 (i / 10);
+		    end;
+		herein
+		    digits_cum   =  log10 total_sigvtalrm_counts;
+		    digits_count =  int::max (6, 1+log10 max_call_count);
+		end;
+
+		fun pr s
+		    =
+		    fil::write (output_stream, s);
+
+		fun muldiv (i, j, k)
+		    =
+		    (i*j / k) 
+		    except
+			OVERFLOW =  muldiv (i, j / 2, k / 2);
+
+
+		#  This convolution is required because the PWRPC32 cannot distinguish 
+		#  between div-by-zero and overflow -- Lal.
+		#
+		fun muldiv (i, j, 0)
+			=>
+			raise exception exceptions::DIVIDE_BY_ZERO;
+
+		    muldiv (i, j, k)
+			=> 
+			(i * j / k)
+			except
+			    OVERFLOW =  muldiv (i, j / 2, k / 2);
+		end;
+
+		fun field' (string, width)
+		    =
+		    number_string::pad_left ' ' width string;		# number_string	is from   src/lib/std/src/number-string.pkg
+
+		stipulate
+		    # Take a string of digits and a number
+		    # of decimal places, and return the
+		    # digits with the decimal point added
+		    # in the right place.
+		    #
+		    fun decimal (string, decimals)
+			=
+			{   len =  size string;
+
+			    if (len <= decimals)   string::cat [".", number_string::pad_left '0' decimals string];
+			    else                   string::cat [ substring (string, 0, len-decimals), ".", substring (string, len-decimals, decimals) ];
+			    fi;
+			};
+		herein
+		    fun decfield (n, j, k, w1, w2)
+			= 
+			field' (
+			    decimal (int::to_string (muldiv (n, j, k)), w1)
+			    except
+				DIVIDE_BY_ZERO = "",
+			    w2
+			);
+		end;
+
+
+		pr (field'("%time", 6));
+		pr (field'("cumsec", 7));
+		pr (field'("#call", digits_count));
+#		pr (field'("ms/call", 10)); 
+		pr("  fun_name\n");
+		print_time_stats_one_fun_per_line (sorted_funstats_for_all_profiled_funs, 0)					# '0' is cumulative_sigvtalrm_counts.
+		where
+		    fun print_time_stats_one_fun_per_line (FUN_STATS { fun_name, call_count, sigvtalrm_count } ! rest, cumulative_sigvtalrm_counts)
+			    =>
+			    if (call_count != 0
+			    or  sigvtalrm_count !=0										# There should actually be no way for this to be nonzer when call_count is zero.
+			    or  not ignored_uncalled_funs)
+				#
+				pr (decfield (sigvtalrm_count, 10000, total_sigvtalrm_counts, 2, 6));
+
+				if (digits_cum > 4)   pr (field' (int::to_string (cumulative_sigvtalrm_counts+sigvtalrm_count+50 / 100), 7));
+				else                  pr (decfield (cumulative_sigvtalrm_counts+sigvtalrm_count, 1, 1, 2, 7));
+				fi;
+
+				pr (field' (int::to_string call_count, digits_count));
+				pr (decfield (sigvtalrm_count, 50000, call_count, 4, 10)); 
+				pr "  "; pr fun_name; pr "\n";
+
+				print_time_stats_one_fun_per_line (rest, cumulative_sigvtalrm_counts+sigvtalrm_count);
+			    fi;
+
+			print_time_stats_one_fun_per_line ([], _) =>   ();
+		    end;
+		end;
+
+		fil::flush output_stream;
+	    };
+
+       write_per_fun_time_profile_report  =  write_per_fun_report { ignored_uncalled_funs => TRUE  };
+       write_per_fun_time_profile_report0 =  write_per_fun_report { ignored_uncalled_funs => FALSE };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

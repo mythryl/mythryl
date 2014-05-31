@@ -1,0 +1,1028 @@
+## core-multiword-int.pkg
+#
+# Basic integer functionality for translating certain primops and
+# multiword_int::Int literals within the compiler.  This gets expanded
+# into a full-functionality indefinite-precision integer arithmetic
+# package in
+#
+#     src/lib/std/src/multiword-int-guts.pkg
+
+# Compiled by:
+#     src/lib/core/init/init.cmi
+
+
+
+
+
+
+package core_multiword_int: api {
+
+				    # We use a 30-bit representation, stored in 31-bit words for digits.
+				    # This way we avoid the extra boxing that would come with 32-bit values
+				    # and also have the benefit of an extra bit that can be used to store
+				    # carries.
+
+				    Rep = BI  { negative:	Bool,
+						digits:		List( Unt )
+					      };
+
+				    # This is the abstract built-in type "integer".  It comes with no
+				    # operations of its own.  We use casts to go back and forth between
+				    # the representation type "rep" and the abstract type "integer".
+
+				    Multiword_Int =   base_types::Multiword_Int;
+
+				    #  Here are the "cast" operations: 
+				    abstract:  Rep    -> Multiword_Int;
+				    concrete:  Multiword_Int -> Rep;
+
+				    base_bits:  Unt;					# The number of bits in one "big digit" 
+
+				    base:  Unt;						# The actual base. 
+
+				    max_digit:  Unt;					# Maximum value of a "big digit". 
+
+				    # The following three functions are copied into package _Core
+				    # from where the compiler's "translate" phase will pick them to
+				    # implement precision-extending and precision-shrinking conversions
+				    # that involve Multiword_Int.  We only provide operations between
+				    # Int1 and Multiword_Int.  For precisions less than 32 bits the compiler
+				    # must insert an additional conversion:
+
+				    test_inf:    Multiword_Int -> Int1;			# fit value (2's complement) in Int1, raise OVERFLOW if too large 
+				    trunc_inf:   Multiword_Int -> Int1;			#  truncate value (2's complement repr) to fit in Int1: 
+				    copy_inf:    Int1 -> Multiword_Int;			#  Copy bits from Int1 into (non-negative) Multiword_Int: 
+
+				    extend_inf:  Int1 -> Multiword_Int;			#  sign-extend Int1: 
+				    fin_to_inf:   (Int1, Bool) -> Multiword_Int;	#  Combined (sign-extension takes place when second argument is TRUE): 
+				    test_inf64:    Multiword_Int -> (Unt1, Unt1);	#  fit value (2's complement) in "two_word_int", raise OVERFLOW if too large 
+
+				    trunc_inf64:   Multiword_Int -> (Unt1, Unt1);	#  truncate value (2's complement repr) to fit in "two_word_int": 
+				    copy_inf64:    (Unt1, Unt1) -> Multiword_Int;	#  Copy bits from "two_word_int" into (non-negative) Multiword_Int: 
+				    extend_inf64:  (Unt1, Unt1) -> Multiword_Int;	#  sign-extend "two_word_int": 
+
+				    fin_to_inf64:   (Unt1, Unt1, Bool) -> Multiword_Int;	#  Combined (sign-extension takes place when second argument is TRUE): 
+
+				    # These two directly take the list of digits
+				    # to be used by the internal representation:
+				    #
+				    make_neg_inf:  List( Unt ) -> Multiword_Int;
+				    make_pos_inf:  List( Unt ) -> Multiword_Int;
+
+				    # In the common case where only one big digit is involved,
+				    # use a shortcut without list allocation:
+				    #
+				    make_small_neg_inf:  Unt -> Multiword_Int;
+				    make_small_pos_inf:  Unt -> Multiword_Int; 
+
+				    # For -base < i < base we have low_value i = i.
+				    # For other i we have low_value i = -base (= neg_base_as_int).
+				    # This can be used to implement faster pattern-match code for
+				    # the common case that the pattern consists of small values.
+				    #
+				    low_value:  Multiword_Int -> Int;
+				    neg_base_as_int:  Int;
+
+				    # Various primitive operations for use by the pervasive dictionary,
+				    # plus stuff that we have to implement here anyway, so the
+				    # real package integer can pick them up:
+				    #
+				    (-_) : Multiword_Int -> Multiword_Int;
+				    neg  : Multiword_Int -> Multiword_Int;
+				    + : (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    - : (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    * : (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    div:  (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    mod:  (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    quot:  (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    rem:  (Multiword_Int, Multiword_Int) -> Multiword_Int;
+				    < : (Multiword_Int, Multiword_Int) -> Bool;
+				    <= : (Multiword_Int, Multiword_Int) -> Bool;
+				    > : (Multiword_Int, Multiword_Int) -> Bool;
+				    >= : (Multiword_Int, Multiword_Int) -> Bool;
+				    compare:  (Multiword_Int, Multiword_Int) -> order::Order;
+				    abs:  Multiword_Int -> Multiword_Int;
+				    pow:  (Multiword_Int, Int) -> Multiword_Int;
+
+				    div_mod:   (Multiword_Int, Multiword_Int) -> (Multiword_Int, Multiword_Int);
+				    quot_rem:  (Multiword_Int, Multiword_Int) -> (Multiword_Int, Multiword_Int);
+
+				    # Support for scanning and formatting:
+				    #
+				    natdivmodd:  (List( Unt ), Unt) -> (List( Unt ), Unt);
+				    natmadd:  (Unt, List( Unt ), Unt) -> List( Unt );
+
+				}
+{
+    infixr my 60 ! ;
+
+    not = inline::not_macro;
+
+    w31to_i32  = inline::copy_31_32_i;
+    w32to_i32  = inline::copy_32_32_ui;
+    w31to_w32  = inline::copy_31_32_u;
+    i32to_w31  = inline::trunc_32_31_i;
+    i32to_w32  = inline::copy_32_32_iu;
+    w32to_w31  = inline::trunc_32_31_u;
+
+    my (-_) = inline::i1_negate;
+    my neg  = inline::i1_negate;
+
+    infix my | & >> ^ <<;
+
+    (|)  = inline::u1_bitwise_or;
+    (^)  = inline::u1_bitwise_xor;
+    (&)  = inline::u1_bitwise_and;
+    (>>) = inline::u1_rshiftl;
+    (<<) = inline::u1_lshift;
+
+    #  ******************* 
+    Multiword_Int =   base_types::Multiword_Int;
+
+    # assuming 30-bit digits (must match actual implementation),
+    # least significant digit first,
+    # normalized (last digit != 0)
+
+    Rep = BI  { negative:  Bool, digits:  List( Unt ) };
+
+    fun abstract (r:  Rep    ) : Multiword_Int = inline::cast r;
+    fun concrete (i:  Multiword_Int) : Rep     = inline::cast i;
+
+    my h_base_bits:  Unt = 0u15;
+    my base_bits:  Unt = inline::tu1_lshift (h_base_bits, 0u1);
+    my max_digit:  Unt = 0ux3fffffff;
+    max_digit32 = w31to_w32 max_digit;
+    my max_digit_l:  Unt = 0ux7fff;	#  lower half of maxDigit 
+    max_digit_l32 = w31to_w32 max_digit_l;
+    my base:  Unt = 0ux40000000;
+    base32 = w31to_w32 base;
+    my neg_base_as_int:  Int = -0x40000000;
+
+    gap = inline::tu1_subtract (0u32, base_bits); #  32 - base_bits 
+    slc = inline::tu1_subtract (base_bits, gap);  #  BaseBits - gap 
+
+    fun neg64 (hi, 0u0) =>  (inline::u1_negate hi, 0u0);
+        neg64 (hi,  lo) =>  (inline::u1_bitwise_not hi, inline::u1_negate lo);
+    end;
+	      
+    fun test_inf i
+        =
+	{   (concrete i) ->   BI { negative, digits };
+	    #
+	    fun negif i32
+                =
+                if negative  -i32;
+                else          i32;
+                fi;
+
+	    case digits
+		#              
+		[]         =>   0;
+		[d]        =>   negif (w31to_i32 d);
+		[d0, 0u1]  =>   negif (w32to_i32 (w31to_w32 d0 | base32));
+
+		[0u0, 0u2] =>   if negative  -0x80000000;
+				else         raise exception runtime::OVERFLOW;
+				fi;
+
+		_ => raise exception runtime::OVERFLOW;
+            esac;
+	};
+
+    fun test_inf64 i
+        =
+	{   (concrete i) ->   BI { negative, digits };
+	    #
+	    fun negif hilo
+                =
+                if negative   neg64 hilo;
+                else                hilo;
+                fi;
+
+	    case digits
+		#              
+		[]  =>  (0u0, 0u0);
+		[d] =>  negif (0u0, w31to_w32 d);
+
+		[d0, d1]
+		    =>
+		    {   my (w0, w1) = (w31to_w32 d0, w31to_w32 d1);
+			#
+			negif (w1 >> gap, w0 | (w1 << base_bits));
+		    };
+
+		[0u0, 0u0, 0u8]
+		    =>
+		    if negative  (0ux80000000, 0u0);
+		    else         raise exception runtime::OVERFLOW;
+                    fi;
+
+		[d0, d1, d2]
+		    =>
+		    if (inline::tu1_ge (d2, 0u8))
+			#
+			raise exception runtime::OVERFLOW;
+		    else
+			w0 =  w31to_w32  d0;
+			w1 =  w31to_w32  d1;
+			w2 =  w31to_w32  d2;
+
+			negif ((w1 >> gap) | (w2 << slc),
+			      w0 | (w1 << base_bits));
+		    fi;
+
+		_   => raise exception runtime::OVERFLOW;
+            esac;
+	};
+
+    fun trunc_inf i
+        =
+	{   (concrete i) ->   BI { negative, digits };
+	    #
+	    b = case digits
+		    #                  
+		    []          =>   0u0;
+		    [d]         =>   w31to_w32 d;
+		    d0 ! d1 ! _ =>   w31to_w32 d0 | (w31to_w32 d1 << base_bits);
+                esac;
+
+	    w32to_i32   if negative  inline::u1_negate b;
+                        else                           b;
+                        fi;
+	};
+
+    fun trunc_inf64 i
+        =
+	{   (concrete i) ->    BI { negative, digits };
+	    #
+	    hilo =  case digits
+			#                  
+			[]   =>  (0u0, 0u0);
+			[d0] =>  (0u0, w31to_w32 d0);
+
+			[d0, d1]
+			    =>
+			    {   my (w0, w1) = (w31to_w32 d0, w31to_w32 d1);
+				#
+				(w1 >> gap, w0 | (w1 << base_bits));
+			    };
+
+		       d0 ! d1 ! d2 ! _
+			    =>
+			    {   my (w0, w1, w2)
+				   =
+				   (w31to_w32 d0, w31to_w32 d1, w31to_w32 d2);
+
+				((w1 >> gap) | (w2 << slc), w0 | (w1 << base_bits));
+			    };
+		    esac;
+
+	    if negative    neg64 hilo;
+            else                 hilo;
+            fi;
+	};
+
+    fun extend_inf i32
+        =
+	abstract  if   (inline::i1_eq (i32, -0x80000000) )  BI { negative => TRUE, digits => [0u0, 0u2 ] };
+		  elif (inline::i1_lt (i32, 0) )            e (TRUE, i32to_w31 (-i32));
+		  else                                      e (FALSE, i32to_w31 i32);
+		  fi
+	where
+            fun e (_, 0u0)
+                    =>
+                    BI { negative => FALSE, digits => [] };
+
+	        e (negative, w31)
+                    =>
+		    BI { negative,
+			 #
+		         digits   => if (inline::tu1_ge (w31, base))    [inline::tu1_subtract (w31, base), 0u1];
+				     else                              [w31];
+                                     fi
+                       };
+            end;
+        end;
+
+
+    fun copy_inf64' (_, (0u0, 0u0))
+            =>
+            abstract (BI { negative => FALSE,
+						 digits => [] } );
+        copy_inf64' (negative, (hi, lo))
+	    => 
+	    {   infix my <>;
+		#
+                (<>) =  inline::tu1_ne;
+
+		d0 = w32to_w31 (lo & 0ux3fffffff);
+		d1 = w32to_w31 (((hi & 0uxfffffff) << 0u2) | (lo >> 0u30));
+		d2 = w32to_w31 (hi >> 0u28);
+
+		abstract (BI { negative,
+			       digits => if   (d2 <> 0u0 ) [d0, d1, d2];
+					 elif (d1 <> 0u0 ) [d0, d1];
+					 elif (d0 <> 0u0 ) [d0];
+					 else [];
+					 fi
+			      }
+			  );
+	    };
+    end;
+
+    fun copy_inf64 hilo
+        =
+        copy_inf64' (FALSE, hilo);
+
+    fun extend_inf64 (hi, lo)
+        =
+	if (inline::u1_ne (hi & 0ux80000000, 0u0))
+	     #            
+	     copy_inf64' (TRUE, neg64 (hi, lo));
+	else copy_inf64' (FALSE,      (hi, lo));
+        fi;
+
+    fun copy_inf i32
+        =
+	{   w32 = i32to_w32 i32;
+	    #
+	    digits =    if   (inline::u1_eq (w32, 0u0) ) [];
+			elif (inline::u1_ge (w32, base32) )
+			    [w32to_w31 (w32 & max_digit32), w32to_w31 (w32 >> base_bits)];
+			else [w32to_w31 w32];
+			fi;
+
+	    abstract (BI { negative => FALSE, digits } );
+	};
+
+    fun fin_to_inf (i32, extend)
+        =
+	if extend  extend_inf i32;
+        else         copy_inf i32;
+        fi;
+
+    fun fin_to_inf64 (hi, lo, extend)
+        =
+	if extend  extend_inf64 (hi, lo);
+        else         copy_inf64 (hi, lo);
+        fi;
+
+    fun make_inf negative digits
+        =
+	abstract (BI { negative, digits } );
+
+    make_neg_inf = make_inf TRUE;
+    make_pos_inf = make_inf FALSE;
+
+    fun make_small_inf _ 0u0
+            =>
+	    abstract (BI { negative => FALSE, digits => [] } );
+
+       make_small_inf negative digit
+           =>
+	   abstract (BI { negative, digits => [digit] } );
+    end;
+
+    make_small_neg_inf =  make_small_inf TRUE;
+    make_small_pos_inf =  make_small_inf FALSE;
+
+    fun low_value i
+        =
+	case (concrete i)
+	    #          
+	    BI { digits => [], ... }                =>   0;
+	    BI { digits => [d], negative => FALSE } =>   inline::copy_31_31_ui d;
+	    BI { digits => [d], negative => TRUE  } =>   inline::ti1_negate (inline::copy_31_31_ui d);
+	    _                                       =>   neg_base_as_int;
+       esac;
+
+    # Concrete->abstract wrappers for unary and binary functions 
+    #
+    fun fabs1  f  x     =  abstract (f (concrete x));
+    fun fabs2  f (x, y) =  abstract (f (concrete x, concrete y));
+    fun fabs2c f (x, y) =            f (concrete x, concrete y);
+
+    fun fabs22 f (x, y)
+	=
+	{   my (a, b) =  f (concrete x, concrete y);
+	    #
+	    (abstract a,  abstract b);
+	};
+
+    # Like BI, but make sure that digits = [] implies not negative 
+    #
+    fun bi { digits => [], ... } => BI { digits => [], negative => FALSE };
+        bi arg => BI arg;
+    end;
+
+    fun abs' (BI { negative, digits } )
+        =
+	BI { negative => FALSE, digits };
+
+    fun neg (BI { digits, negative } )
+        =
+	bi { digits, negative => not negative };
+
+    include order;
+	     
+    fun dcmp (x, y)
+        =
+	if   (inline::tu1_lt (x, y))  LESS;
+        elif (inline::tu1_gt (x, y))  GREATER;
+        else                         EQUAL;
+        fi;
+
+    fun natcmp ([], []) =>  EQUAL;
+	natcmp ([], _)  =>  LESS;
+	natcmp (_, [])  =>  GREATER;
+
+	natcmp (x ! xs, y ! ys)
+            =>
+	    case (natcmp (xs, ys))
+              
+		EQUAL   =>  dcmp (x, y);
+	        unequal =>  unequal;
+            esac;
+    end;
+
+    fun lt (BI { negative => FALSE, ... },
+            BI { negative => TRUE, ... } )
+            =>
+            FALSE;
+
+	lt (BI { negative => TRUE, ... },
+            BI { negative => FALSE, ... } )
+            =>
+            TRUE;
+
+	lt (BI { negative, digits => d1 },
+            BI { digits => d2, ... } )
+            =>
+	    (inline::(==)) (natcmp (d1, d2), if negative  GREATER; else LESS;fi);
+    end;
+
+    fun gt (x, y) =  lt (y, x);
+    fun ge (x, y) =  not (lt (x, y));
+    fun le (x, y) =  not (gt (x, y));
+
+    fun adddig (d1, d2)
+        =
+        {   sum = inline::tu1_add (d1, d2);
+
+	    { carry  =>  inline::tu1_ge (sum, base),
+	      result =>  inline::tu1_bitwise_and (sum, max_digit)
+            };
+	};
+
+    # Add one to nat:
+    # 
+    fun natinc [] => [0u1];
+	#
+        natinc (x ! xs)
+            =>
+	    if (inline::tu1_eq (x, max_digit))     0u0 ! natinc xs;
+	    else                                  inline::tu1_add (x, 0u1) ! xs;
+            fi;
+    end;
+
+    fun natdec (0u0 ! xs) =>  max_digit ! natdec xs;
+	natdec [0u1]      =>  [];
+	natdec (x ! xs)   =>  inline::tu1_subtract (x, 0u1) ! xs;
+	natdec []         =>  raise exception runtime::OVERFLOW;			# Should never happen! 
+    end;
+
+
+    # Add two nats plus 1 (carry):
+    #
+    fun natadd1 (x, []) =>  natinc x;
+	natadd1 ([], y) =>  natinc y;
+	#
+	natadd1 (x ! xs, y ! ys)
+            =>
+            {   (adddig (x, y)) ->   { carry, result };
+
+		my (carry, result)
+                    =
+		    if (inline::tu1_eq (result, max_digit))     (TRUE, 0u0);
+		    else                                       (carry, inline::tu1_add (result, 0u1));
+                    fi;
+
+		result ! natadd01 (carry, xs, ys);
+	    };
+    end 
+
+    # Add two nats:
+    #
+    also
+    fun natadd0 (x, []) =>  x;
+        natadd0 ([], y) =>  y;
+	#
+        natadd0 (x ! xs, y ! ys)
+	    =>
+	    {   (adddig (x, y)) ->   { carry, result };
+		#
+		result  !  natadd01 (carry, xs, ys);
+	    };
+    end 
+
+    # Add two nats with optional carry:
+    #
+    also
+    fun natadd01 (carry, xs, ys)
+         =
+	 if carry   natadd1 (xs, ys);
+         else       natadd0 (xs, ys);
+         fi;
+
+    exception NEGATIVE;
+
+    # natsub hopes that xs >= ys + carry, raises NEGATIVE otherwise 
+    #
+    fun natsub (xs, [], FALSE) => xs;
+	natsub (xs, [], TRUE) => natsub (xs, [0u0], TRUE);
+	natsub ([], _, _) => raise exception NEGATIVE;
+
+	natsub (x ! xs, y ! ys, c)
+            =>
+            {   y' =  if c    inline::tu1_add (y, 0u1);
+                      else    y;
+                      fi;
+
+		my (result, carry)
+                    =
+		    if (inline::tu1_lt (x, y'))    (inline::tu1_subtract (inline::tu1_add (x, base), y'), TRUE);
+		    else                          (inline::tu1_subtract (x, y'), FALSE);
+                    fi;
+
+		case (natsub (xs, ys, carry))
+		    #                  
+		    []   =>  if (inline::tu1_eq (result, 0u0))    [];
+                             else                                [result];
+			     fi;
+
+		    more =>  result ! more;
+                esac;
+	    };
+    end;
+
+
+
+    fun natsub0 (xs, ys)
+        =
+        natsub (xs, ys, FALSE);
+
+
+
+    fun sub0 (xs, ys)
+        =
+	BI { negative => FALSE,
+             digits   => natsub0 (xs, ys)
+           }
+	except
+            NEGATIVE =  bi { negative => TRUE, digits => natsub0 (ys, xs) };
+
+
+
+    fun add0 (FALSE, xs1, FALSE, xs2)
+	    =>
+	    BI { negative => FALSE, digits => natadd0 (xs1, xs2) };
+
+       add0 (TRUE, xs1, TRUE, xs2)
+           =>
+	   BI { negative => TRUE, digits => natadd0 (xs1, xs2) };
+
+       add0 (FALSE, xs1, TRUE, xs2)
+           =>
+	   sub0 (xs1, xs2);
+
+       add0 (TRUE, xs1, FALSE, xs2)
+           =>
+	   sub0 (xs2, xs1);
+    end;
+
+
+
+    fun add (BI b1, BI b2)
+        =
+	add0 (b1.negative, b1.digits, b2.negative, b2.digits);
+
+
+
+    fun sub (BI b1, BI b2)
+        =
+	add0 (b1.negative, b1.digits, not b2.negative, b2.digits);
+
+
+
+    fun compare' (BI { negative => TRUE, ... }, BI { negative => FALSE, ... } )
+            =>
+	    LESS;
+
+	compare' (BI { negative => FALSE, ... }, BI { negative => TRUE, ... } )
+            =>
+	    GREATER;
+
+	compare' (BI { negative, digits => d1 }, BI { digits => d2, ... } )
+            =>
+	    if negative  natcmp (d2, d1);
+	    else         natcmp (d1, d2);
+	    fi;
+    end;
+
+    fun ddmul (x, y)
+	=
+	{   fun high w32 =  w32 >> h_base_bits;
+	    fun low  w32 =  w32 & max_digit_l32;
+	    fun hl   w32 = (high w32, low w32);
+
+	    (hl (w31to_w32 x)) ->   (xh, xl);
+	    (hl (w31to_w32 y)) ->   (yh, yl);
+
+	    a = inline::u1_mul (xh, yh);
+	    c = inline::u1_mul (xl, yl);
+
+	    #  B = b' - a - c = xh * yl + xl * yh 
+	    #
+	    b' = inline::u1_mul (inline::u1_add (xh, xl), inline::u1_add (yh, yl));
+	    b  = inline::u1_subtract (b', inline::u1_add (a, c));
+
+	    (hl b) ->   (bh, bl);
+
+	    l0 = inline::u1_add (c, inline::u1_lshift (bl, h_base_bits));
+	    l32 = l0 & max_digit32;
+	    lc = l0 >> base_bits;
+	    h32 = inline::u1_add (inline::u1_add (a, bh), lc);
+
+	    (w32to_w31 h32, w32to_w31 l32);
+	};
+
+    fun natmadd (0u0, _,  0u0) =>  [];
+	natmadd (0u0, _,    c) =>  [c];
+	natmadd (_, [],   0u0) =>  [];
+	natmadd (_, [],     c) =>  [c];
+	natmadd (0u1, xs, 0u0) =>  xs;
+	natmadd (0u1, xs,   c) =>  natadd0 (xs, [c]);
+	#
+	natmadd (w, x ! xs, c)
+            =>
+            {   (ddmul (w, x))  ->   (h, l);
+		(adddig (l, c)) ->   { carry,  result => l' };
+		#
+		h' =	if carry  inline::tu1_add (h, 0u1);
+			else      h;
+			fi;
+
+		l' ! natmadd (w, xs, h');
+	    };
+    end;
+
+    fun natmul ([], _) =>  [];
+	natmul (_, []) =>  [];
+	#
+	natmul (xs, [0u1]) =>  xs;
+	natmul ([0u1], ys) =>  ys;
+	#
+	natmul (x ! xs, ys)
+            =>
+	    natadd0 (natmadd (x, ys, 0u0), 0u0 ! natmul (xs, ys));
+    end;
+
+    fun mul (BI x, BI y)
+        =
+	bi { negative => (inline::(!=)) (x.negative, y.negative),
+	     digits => natmul (x.digits, y.digits)
+           };
+
+    one  = BI { negative => FALSE, digits => [0u1] };
+    zero = BI { negative => FALSE, digits => []    };
+
+    fun posi digits =  BI { digits, negative => FALSE };
+    fun negi digits =  BI { digits, negative => TRUE };
+    fun zneg digits =  bi { digits, negative => TRUE };
+
+    fun consd (0u0, []) => [];
+        consd (x, xs) => x ! xs;
+    end;
+
+    fun scale w
+	=
+	inline::tu1_div (base, inline::tu1_add (w, 0u1));
+
+    # Return length-1 and last element:
+    #
+    fun length'n'last []  =>  (0, 0u0);		# Should not happen. 
+        length'n'last [x] =>  (0, x);
+
+        length'n'last (_ ! l)
+	    =>
+	    {   (length'n'last l) ->   (len, last);
+		#
+		(inline::ti1_add (len, 1), last);
+	    };
+    end;
+
+    fun nth (_, []) => 0u0;
+        nth (0, x ! _ ) =>  x;
+        nth (n, _ ! xs) =>  nth (inline::ti1_subtract (n, 1), xs);
+    end;
+
+    # Divide DP number by digit; assumes u < i, i >= base/2:
+    #
+    fun natdivmod2 ((u, v), i)
+        =
+	{   fun low  w =  inline::tu1_bitwise_and    (w, max_digit_l);
+	    fun high w =  inline::tu1_rshiftl (w, h_base_bits);
+
+	    my (vh, vl) = (high v, low v);
+	    my (ih, il) = (high i, low i);
+
+	    fun adj (q, r, vx)
+                =
+		loop (q, x)
+                where
+		    x = inline::tu1_add (inline::tu1_lshift (r, h_base_bits), vx);
+		    y = inline::tu1_mul (q, il);
+
+		    fun loop (q, x)
+                        =
+			if (inline::tu1_ge (x, y))    (q, inline::tu1_subtract (x, y));
+			else                       loop (inline::tu1_subtract (q, 0u1), inline::tu1_add (x, i));
+                        fi;
+		end;
+
+	    q1 = inline::tu1_div (u, ih);
+	    r1 = inline::tu1_mod (u, ih);
+
+	    (adj (q1, r1, vh)) ->   (q1, r1);
+
+	    q0 = inline::tu1_div (r1, ih);
+	    r0 = inline::tu1_mod (r1, ih);
+
+	    (adj (q0, r0, vl)) ->   (q0, r0);
+
+	    (inline::tu1_add (inline::tu1_lshift (q1, h_base_bits), q0), r0);
+	};
+
+    # Divide bignat by digit > 0:
+    #
+    fun natdivmodd (m, 0u1) => (m, 0u0); 		#  speedup 
+	#
+        natdivmodd (m, i)
+            =>
+            { 
+		scale = scale i;
+		i' = inline::tu1_mul (i, scale);
+		m' = natmadd (scale, m, 0u0);
+
+		fun dmi [] => ([], 0u0);
+		    #
+		    dmi (d ! r)
+                        =>
+                        {   my (qt, rm) = dmi r;
+			    my (q1, r1) = natdivmod2 ((rm, d), i');
+
+			    (consd (q1, qt), r1);
+			};
+                end;
+
+		(dmi m') ->   (q, r);
+
+		(q, inline::tu1_div (r, scale));
+	    };
+    end;
+
+    # From Knuth Vol II, 4.3.1, but without opt. in step D3:
+    #
+    fun natdivmod (m, []) => raise exception runtime::DIVIDE_BY_ZERO;
+
+	natdivmod ([], n) => ([], []); #  speedup 
+
+	natdivmod (d ! r, 0u0 ! s)
+            =>
+            { 
+	        my (qt, rm) = natdivmod (r, s);
+	        (qt, consd (d, rm));
+            }; #  speedup 
+
+	natdivmod (m, [d])
+            =>
+            { 
+	        my (qt, rm) = natdivmodd (m, d);
+	        (qt, if (inline::tu1_eq (rm, 0u0) ) []; else [rm];fi);
+            };
+
+	natdivmod (m, n)
+            =>
+            {   my (ln, last) = length'n'last n; #  ln >= 1 
+
+		scale = scale last;
+
+		m' = natmadd (scale, m, 0u0);
+		n' = natmadd (scale, n, 0u0);
+
+		n1 = nth (ln, n');	#  >= base/2 
+
+		fun divl [] => ([], []);
+
+		    divl (d ! r)
+                        =>
+                        {
+			     my (qt, rm) = divl r;
+			     m = consd (d, rm);
+
+			     fun msds ([], _) => (0u0, 0u0);
+				 msds ([d], 0) => (0u0, d);
+				 msds ([d2, d1], 0) => (d1, d2);
+				 msds (d ! r, i) => msds (r, inline::ti1_subtract (i, 1));
+                             end;
+
+			     my (m1, m2) = msds (m, ln);
+
+			     tq = if (inline::(==) (m1, n1))  max_digit;
+				  else                        #1 (natdivmod2 ((m1, m2), n1));
+                                  fi;
+
+			     fun try (q, qn')
+                                 =
+                                 (q, natsub0 (m, qn'))
+				 except
+                                     NEGATIVE
+                                         =
+                                         try (inline::tu1_subtract (q, 0u1),
+							 natsub0 (qn', n'));
+
+			     my (q, rr) = try (tq, natmadd (tq, n', 0u0));
+
+			     (consd (q, qt), rr);
+                        };
+                end;
+
+		my (qt, rm') = divl m';
+		my (rm, _/*0*/) = natdivmodd (rm', scale);
+
+		(qt, rm);
+	    };
+    end;
+
+    fun quot_rem' (_, BI { digits => [], ... } )
+            =>
+            raise exception runtime::DIVIDE_BY_ZERO;
+
+	quot_rem' (BI { digits => [], ... }, _)
+            =>
+            (zero, zero);
+
+	quot_rem' (BI x, BI y)
+            =>
+            {
+		my (q, r) = natdivmod (x.digits, y.digits);
+
+		# Construct return tuple:
+		#
+		( if (((inline::(!=)) (x.negative, y.negative)))  zneg q; else posi q;fi,
+
+		  if x.negative  zneg r; else posi r;fi
+                );
+	    };
+    end;
+
+    fun div_mod' (_, BI { digits => [], ... }   ) =>  raise exception runtime::DIVIDE_BY_ZERO;
+	div_mod' (   BI { digits => [], ... }, _) =>  (zero, zero);
+
+	div_mod' (BI x, BI y)
+            =>
+	    if   (inline::(==) (x.negative, y.negative))
+                
+		 my (q, r) = natdivmod (x.digits, y.digits);
+
+		 (posi q, if x.negative  zneg r; else posi r;fi);
+		
+	    else
+		 my (m, n) = (x.digits, y.digits);
+		 my (q, r) = natdivmod (natdec m, n);
+		 mdd = natsub (n, r, TRUE);
+
+		 (negi (natinc q),
+		 if x.negative  posi mdd; else zneg mdd;fi);
+	    fi;
+    end;
+
+    fun div'  arg =  #1 (div_mod' arg);
+    fun quot' arg =  #1 (quot_rem' arg);
+
+    # For div and mod we special-case a divisor of 2 (common even-odd test):
+    #
+    fun mod' (BI { digits => [], ... }, _) => zero;
+	mod' (BI { digits => low ! _, ... },
+	       BI { digits => [0u2], negative } )
+            =>
+	    if (inline::tu1_eq (inline::tu1_bitwise_and (low, 0u1), 0u0) ) zero;
+	    else BI { digits => [0u1], negative };
+	    fi;
+
+	mod' arg => #2 (div_mod' arg);
+    end;
+
+    fun rem' (BI { digits => [], ... }, _) => zero;
+
+	rem' (BI { digits => low ! _, negative },
+	       BI { digits => [0u2], ... } )
+            =>
+	   if (inline::tu1_eq (inline::tu1_bitwise_and (low, 0u1), 0u0) )
+                zero;
+	   else BI { digits => [0u1], negative };
+           fi;
+
+	rem' arg =>  #2 (quot_rem' arg);
+    end;
+
+    fun natpow (_,  0) =>   [ 0u1 ];
+	#
+	natpow ([], n) =>   if (inline::ti1_lt (n, 0))   raise exception runtime::DIVIDE_BY_ZERO;   else [];   fi;
+	#
+	natpow (x, n)
+	    =>
+	    if (inline::ti1_lt (n, 0))
+		#                
+                [];
+	    else
+		exp (x, inline::copy_31_31_iu n)
+		where
+		    fun exp (m, 0u0) => [0u1];
+			exp (m, 0u1) => m;
+			exp (m, n) => {
+			     x = exp (m, inline::tu1_rshiftl (n, 0u1));
+			     y = natmul (x, x);
+
+			     if (inline::tu1_eq (inline::tu1_bitwise_and (n, 0u1), 0u0))     y;
+			     else 						    natmul (y, m);
+			     fi;
+			 };
+		    end;
+		end;
+            fi;
+    end;
+
+    fun pow (_, 0)
+            =>
+            abstract (BI { negative => FALSE, digits => [0u1] } );
+	#
+	pow (i, n)
+            =>
+            {   (concrete i) ->   BI { negative, digits };
+		#
+	        abstract (bi { negative => negative and  inline::ti1_eq (inline::ti1_rem (n, 2), 1),
+			       digits   => natpow (digits, n)
+                             }
+                         );
+	    };
+    end;
+
+    (-_) =  fabs1 neg;
+    neg  =  fabs1 neg;
+    (-)  =  fabs2 sub;
+    (+)  =  fabs2 add;
+    (*)  =  fabs2 mul;
+
+    div  = fabs2 div';
+    mod  = fabs2 mod';
+    quot = fabs2 quot';
+    rem  = fabs2 rem';
+
+    div_mod  = fabs22 div_mod';
+    quot_rem = fabs22 quot_rem';
+
+    (<)  = fabs2c lt;
+    (>)  = fabs2c gt;
+    (<=) = fabs2c le;
+    (>=) = fabs2c ge;
+
+    abs = fabs1 abs';
+
+    compare = fabs2c compare';
+};
+
+
+## (C) 2003 The SML/NJ Fellowship.
+## Author: Matthias Blume (blume@tti-c::org)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

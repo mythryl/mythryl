@@ -1,0 +1,650 @@
+## keymap-ximp.pkg
+#
+#    ONCE THIS COMPILES, should clone it to produce zeroth-order versions of:
+#
+#        src/lib/x-kit/xclient/src/window/xevent-to-window-ximp.pkg
+#        src/lib/x-kit/xclient/src/window/keymap-ximp.pkg
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+#
+# The font is responsible for matching
+# replies read from the X with requests sent
+# to it.
+#
+# All requests to the X-server go through the font,
+# as do all replies from the X-server.
+#
+# The font communicates on five fixed channels:
+#
+#   plea_mailslot       -- request messages from clients
+#   from_x_mailslot     -- reply, error and event messages from the X server (via the input buffer)
+#   to_x_mailslot       -- requests messages to the X server (via the output buffer)
+#   xevent_mailslot     -- X-events to the X-event buffer (and thence to clients)
+#   error_sink_mailslot -- errors to the error handler
+#
+# In addition, the font sends replies
+# to clients on the reply channel that was
+# bundled with the request.
+#
+# We maintain a pending-reply queue of requests sent
+# to the X server for which replies are expected but
+# not yet received.
+#     We represent it using the usual two-list arrangement,
+# writing new entries to the rear list while reading them
+# from the front list; when the front list is empty we
+# reverse the rear list and make it the new front list.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;										# threadkit					is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    #
+    package un  =  unt;										# unt						is from   src/lib/std/unt.pkg
+    package v1u =  vector_of_one_byte_unts;							# vector_of_one_byte_unts			is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package v2w =  value_to_wire;								# value_to_wire					is from   src/lib/x-kit/xclient/src/wire/value-to-wire.pkg
+    package w2v =  wire_to_value;								# wire_to_value					is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package xg  =  xgeometry;									# xgeometry					is from   src/lib/std/2d/xgeometry.pkg
+    package xtr =  xlogger;									# xlogger					is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+
+    package ks  =  keysym;									# keysym					is from   src/lib/x-kit/xclient/src/window/keysym.pkg
+    package kb  =  keys_and_buttons;								# keys_and_buttons				is from   src/lib/x-kit/xclient/src/wire/keys-and-buttons.pkg
+    package op  =  outbuf;									# outbuf					is from   src/lib/x-kit/xclient/src/wire/outbuf.pkg
+    package kp  =  keymap;									# keymap					is from   src/lib/x-kit/xclient/src/wire/keymap.pkg
+    package xps =  xpacket_sink;								# xpacket_sink					is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
+    package xt  =  xtypes;									# xtypes					is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+    package et  =  event_types;									# event_types					is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+
+    package x2s =  xclient_to_sequencer;							# xclient_to_sequencer				is from   src/lib/x-kit/xclient/src/wire/xclient-to-sequencer.pkg
+    package dy  =  display;									# display					is from   src/lib/x-kit/xclient/src/wire/display.pkg
+
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;							# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    # This impset is typically instantiated by:
+    #
+    #     src/lib/x-kit/xclient/src/window/xsession-ximps.pkg
+
+    package   keymap_ximp
+    : (weak)  Keymap_Ximp									# Keymap_Ximp				is from   src/lib/x-kit/xclient/src/wire/keymap-ximp.api
+    {
+	(&) = unt::bitwise_and;
+
+	Keymap_Ximp_State									# Holds all nonephemeral mutable state maintained by ximp.
+	    =
+	    Void;										# Our only state is the keymap, which gets rebuilt at every REFRESH anyhow.
+
+	Imports   = {										# Ports we use which are exported by other imps.
+		      xclient_to_sequencer:	x2s::Xclient_To_Sequencer			# Send requests to X server.
+		    };
+
+	Me_Slot = Mailslot( {  imports:	Imports,
+			       me:		Keymap_Ximp_State,
+			       run_gun':	Run_Gun,
+			       end_gun':	End_Gun,
+			       xdisplay:	dy::Xdisplay
+			     }
+			  );
+
+	Exports	= {										# Ports we export for use by other imps.
+		      keymap:		kp::Keymap						# Requests from widget/application code.
+		  };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Keymap_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+	Keycode_To_Keysym_Map									# Was "Keycode_Map/KEYCODE_MAP".
+	    =
+	    KEYCODE_TO_KEYSYM_MAP
+	      {
+		min_keycode:	Int,
+		max_keycode:	Int,
+		vector:		Rw_Vector( List(xt::Keysym) )
+	      };
+
+	Lock_Meaning =   NO_LOCK | LOCK_SHIFT | LOCK_CAPS;					# The meaning of the Lock modifier key.
+
+
+	Shift_Mode   =   UNSHIFTED | SHIFTED | CAPS_LOCKED  Bool;				# The shifting mode of a key-button state.
+
+
+	Key_Mapping  =   KEY_MAPPING
+			  {
+			    lookup:			xt::Keycode -> List(xt::Keysym),
+			    keycode_to_keysym_map:	Keycode_To_Keysym_Map,
+			    #
+			    is_mode_switched:		xt::Modifier_Keys_State -> Bool,
+			    shift_mode:			xt::Modifier_Keys_State -> Shift_Mode
+			  };
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Keymap_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		      xdisplay:				dy::Xdisplay,
+		      key_mapping:			Ref(Key_Mapping)	
+		    };
+
+	Keymap_Q = Mailqueue( Runstate -> Void );
+
+
+	# Return the upper-case and lower-case
+	# keysyms for the given keysym:
+	#
+	fun convert_case  (xt::KEYSYM  symbol)
+	        =>
+	        case (unt::from_int symbol & 0uxFF00)
+		    #
+		    0u0 =>  #  Latin1 
+
+			if   ((0x41 <= symbol) and (symbol <= 0x5A))	#  A..Z 
+			    #
+			    (xt::KEYSYM (symbol + (0x61 - 0x41)), xt::KEYSYM symbol);
+
+			elif ((0x61 <= symbol) and (symbol <= 0x7a))	#  a..z 
+
+			    (xt::KEYSYM symbol, xt::KEYSYM (symbol - (0x61 - 0x41)));
+
+			elif ((0xC0 <= symbol) and (symbol <= 0xD6))	#  Agrave..Odiaeresis
+
+			    (xt::KEYSYM (symbol + (0xE0 - 0xC0)), xt::KEYSYM symbol);
+
+			elif ((0xE0 <= symbol) and (symbol <= 0xF6))	#  Agrave..odiaeresis
+
+			    (xt::KEYSYM symbol, xt::KEYSYM (symbol - (0xE0 - 0xC0)));
+
+			elif ((0xD8 <= symbol) and (symbol <= 0xDE))	#  Ooblique..Thorn
+
+			    (xt::KEYSYM (symbol + (0xD8 - 0xF8)), xt::KEYSYM symbol);
+
+			elif ((0xF8 <= symbol) and (symbol <= 0xFE))	#  oslash..thorn
+
+			    (xt::KEYSYM symbol, xt::KEYSYM (symbol - (0xD8 - 0xF8)));
+
+			else
+
+			     (xt::KEYSYM symbol, xt::KEYSYM symbol);
+			fi;
+
+		   _ => (xt::KEYSYM symbol, xt::KEYSYM symbol);
+		esac;
+
+	    convert_case  xt::NO_SYMBOL =>  {   msg = "Bug: Unsupported case in convert_case -- keymap-ximp.pkg";
+						log::fatal             msg;
+						raise exception FAIL   msg;
+					    };
+	end;
+
+	fun query (encode, decode) (sp: x2s::Xclient_To_Sequencer)
+	    =
+	    {   send_xrequest_and_read_reply
+		    =
+		    sp.send_xrequest_and_read_reply;					# XXX BUGGO FIXME should probably be using   send_xrequest_and_pass_reply   here.
+											#                                            ============================
+		\\ request
+		    =
+		    decode (block_until_mailop_fires (send_xrequest_and_read_reply (encode request)));
+#                           ========================
+#			    XXX SUCKO FIXME
+	    };
+
+	get_keyboard_mapping
+	    =
+	    query
+	      ( v2w::encode_get_keyboard_mapping,
+		w2v::decode_get_keyboard_mapping_reply
+	      );
+
+	get_modifier_mapping
+	    =
+	    query
+	      ( {. v2w::request_get_modifier_mapping; },
+		w2v::decode_get_modifier_mapping_reply
+	      );
+
+	fun new_keycode_to_keysym_map  (xsequencer: x2s::Xclient_To_Sequencer,  info: dy::Xdisplay)
+	    =
+	    {   info.min_keycode -> least_keycode as (xt::KEYCODE min_keycode);
+		info.max_keycode ->                  (xt::KEYCODE max_keycode);
+
+		keyboard_mapping
+		    =
+		    get_keyboard_mapping
+			xsequencer
+			{ first => least_keycode,
+			  count => (max_keycode - min_keycode) + 1
+			};
+
+		KEYCODE_TO_KEYSYM_MAP  {  min_keycode,  max_keycode,  vector => rw_vector::from_list keyboard_mapping  };
+	    };
+
+
+	lower_case =  #1 o convert_case;
+	upper_case =  #2 o convert_case;
+
+	# Return the shift-mode defined by a list of modifiers
+	# with respect to the given lock meaning:
+	#
+	fun shift_mode  lock_meaning  modifiers
+	    =
+	    case ( kb::shift_key_is_set      modifiers,
+		   kb::shiftlock_key_is_set  modifiers,
+		   lock_meaning
+		 )
+		 #	
+		(FALSE, FALSE, _)         =>  UNSHIFTED;
+		(FALSE, TRUE, NO_LOCK)    =>  UNSHIFTED;
+		(FALSE, TRUE, LOCK_SHIFT) =>  SHIFTED;
+		(TRUE, TRUE, NO_LOCK)     =>  SHIFTED;
+		(TRUE, FALSE, _)          =>  SHIFTED;
+		(shift, _, _)             =>  CAPS_LOCKED shift;
+	    esac;
+
+	# Translate a keycode plus modifier-state to a keysym:
+	#	
+	fun translate_keycode_to_keysym (KEY_MAPPING { lookup, is_mode_switched, shift_mode, ... } ) (keycode, modifiers)
+	    =
+	    {   # If there are more than
+		# two keysyms for the keycode
+		# and the shift mode is switched,
+		# then discard the first two keysyms:
+		#
+		syms =  case (lookup keycode, is_mode_switched modifiers)
+			    #
+			    (_ ! _ ! (r as _ ! _), TRUE) =>  r;
+			    (l, _)                       =>  l;
+		        esac;
+
+		symbol
+		    =
+		    case (syms, shift_mode modifiers)
+			#
+			([], _)               => xt::NO_SYMBOL;
+			([ks],     UNSHIFTED) => lower_case ks;
+			(ks ! _,   UNSHIFTED) => ks;
+			([ks],       SHIFTED) => upper_case ks;
+			(_ ! ks ! _, SHIFTED) => ks;
+			([ks], CAPS_LOCKED _) => upper_case ks;
+
+			(lks ! uks ! _, CAPS_LOCKED shift)
+			    =>
+			    {   (convert_case uks) ->   (lsym, usym);
+				#
+				if (shift or (uks == usym  and  lsym != usym))
+				    #
+				    usym;
+				else
+				    upper_case lks;
+				fi;
+			   };
+		    esac;
+
+		if (symbol == ks::void_symbol)   xt::NO_SYMBOL;
+		else				 symbol;
+		fi;
+	    };			 # fun translate_keycode_to_keysym 
+
+	# Translate a keysym to a keycode.  This is intended
+	# only for occasional selfcheck use, so we just do
+	# a brute-force search down every list in every slot
+	# of the KEYCODE_TO_KEYSYM_MAP.
+	#
+	# Currently we ignore modifier key issues, so this
+	# logic won't work very well for SHIFT-ed chars or
+	# control chars.   XXX BUGGO FIXME
+	#	
+	fun translate_keysym_to_keycode
+              ( KEY_MAPPING { keycode_to_keysym_map => KEYCODE_TO_KEYSYM_MAP  { min_keycode, max_keycode, vector },
+			      is_mode_switched,
+			      shift_mode,
+			      ...
+			     }
+              )
+              keysym
+	    =
+	    {
+	        vector_len = max_keycode - min_keycode + 1;
+
+	        search_slots (vector_len - 1)
+		where
+		    include rw_vector;
+
+
+		    fun search_slots -1
+			    =>
+			    NULL;
+
+			search_slots i
+			    =>
+			    {
+			        fun search_list []
+					=>
+					NULL;
+
+				    search_list (keysym' ! rest)
+					=>
+					if (keysym == keysym')   THE (xt::KEYCODE (i + min_keycode));
+					else                     search_list rest;
+					fi;
+				end;
+
+				case (search_list  vector[i])
+				    #
+				    THE result => THE result;
+				    NULL       => search_slots (i - 1);
+				esac;
+			    };
+		    end;
+		end;
+	    };			 # fun translate_keysym_to_keycode 
+
+
+	# NOTE: some X servers generate
+	# bogus keycodes on occasion:
+	#
+	fun look_up_keycode
+		(KEYCODE_TO_KEYSYM_MAP { min_keycode, max_keycode, vector })
+		(xt::KEYCODE keycode)
+	    =
+	    rw_vector::get (vector, keycode - min_keycode)
+	    except
+		INDEX_OUT_OF_BOUNDS = [];
+
+
+	# Get the display's modifier mapping, and analyze it to set
+	# the lock semantics and which modes translate into switched mode.
+	#
+	fun create_key_mapping   (xsequencer: x2s::Xclient_To_Sequencer,   xdisplay: dy::Xdisplay)
+	    =
+	    {
+		mod_map               =  get_modifier_mapping        xsequencer  ();
+                keycode_to_keysym_map =  new_keycode_to_keysym_map  (xsequencer, xdisplay);
+		lookup                =  look_up_keycode keycode_to_keysym_map;
+
+		# Get the lock meaning, which will be
+		# LockCaps  if any lock key contains the  CAPS_LOCK keysym (KEYSYM 0xFFE5),
+		# LockShift if any lock key contains the SHIFT_LOCK keysym (KEYSYM 0xFFE6),
+		# NoLock otherwise.
+		#
+		lock_meaning
+		    =
+		    find (mod_map.lock_keycodes, [], NO_LOCK)
+		    where
+			fun find ([],          [], meaning)             =>  meaning;
+			    find (keycode ! r, [], meaning)             =>  find (r, lookup keycode, meaning);
+			    find (keycodel, (xt::KEYSYM 0xFFE5) ! _, _) =>  LOCK_CAPS;
+			    find (keycodel, (xt::KEYSYM 0xFFE6) ! r, _) =>  find (keycodel, r, LOCK_SHIFT);
+			    find (keycodel, _ ! r, meaning)             =>  find (keycodel, r, meaning);
+			end;
+		    end;
+
+		# Compute a bit-vector with a 1 in bit-i if one of ModKey[i+1] keycodes
+		# has the Mode_switch keysym (KEYSYM 0xFF7E) in its keysym list.
+		#
+		switch_mode
+		    =
+		    {
+			fun is_mode_switch []                        =>  FALSE;
+			    is_mode_switch ((xt::KEYSYM 0xFF7E) ! _) =>  TRUE;
+			    is_mode_switch (_ ! r)                   =>  is_mode_switch  r;
+			end;
+
+			check_keycode = list::exists (\\ keycode = is_mode_switch (lookup keycode));
+
+			keys = check_keycode  mod_map.mod1_keycodes  ??  [xt::MOD1KEY]         ::  [  ];
+			keys = check_keycode  mod_map.mod2_keycodes  ??  (xt::MOD2KEY ! keys)  ::  keys;
+			keys = check_keycode  mod_map.mod3_keycodes  ??  (xt::MOD3KEY ! keys)  ::  keys;
+			keys = check_keycode  mod_map.mod4_keycodes  ??  (xt::MOD4KEY ! keys)  ::  keys;
+			keys = check_keycode  mod_map.mod5_keycodes  ??  (xt::MOD5KEY ! keys)  ::  keys;
+
+			kb::make_modifier_keys_state  keys;
+		    };
+
+		fun switch_fn state
+		    =
+		    not (kb::modifier_keys_state_is_empty (kb::intersection_of_modifier_keys_states (state, switch_mode)));
+
+		KEY_MAPPING
+		  { lookup,
+		    keycode_to_keysym_map,
+		    shift_mode       => shift_mode lock_meaning,
+		    is_mode_switched => switch_fn
+		  };
+	    };								# fun create_map 
+
+	fun run ( keymap_q:				Keymap_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or keymap_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Keymap_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		    xdisplay:				dy::Xdisplay,
+		    key_mapping:			Ref(Key_Mapping)
+		  }
+		)
+	    =
+	    loop ()
+	    where
+#		key_mapping = REF (create_key_mapping (imports.xsequencer, xdisplay));
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                        ==>  shut_down_keymap_imp'),
+			    (take_from_mailqueue' keymap_q   ==>  do_keymap_plea)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun do_keymap_plea thunk
+			    =
+			    thunk runstate;
+
+			fun shut_down_keymap_imp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+			#
+
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
+		#
+
+		keymap =  { refresh_keymap,
+			    keycode_to_keysym,
+			    given_keycode_pass_keysym,
+			    keysym_to_keycode,
+			    given_keysym_pass_keycode
+			  };
+
+		to             =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { keymap }));							# Return value from keymap_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from keymap_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun', xdisplay };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		key_mapping = REF (create_key_mapping (imports.xclient_to_sequencer, xdisplay));
+
+		run (keymap_q, { me, imports, to, end_gun', xdisplay, key_mapping });					# Will not return.
+	    }
+	    where
+		keymap_q  =  make_mailqueue (get_current_microthread())	:  Keymap_Q;
+
+		#
+		fun refresh_keymap  ()
+		    =
+		    {
+			put_in_mailqueue (keymap_q,
+			    #
+			    \\ ({ me, imports, key_mapping, xdisplay, ... }: Runstate)
+				=
+				key_mapping :=  create_key_mapping  (imports.xclient_to_sequencer, xdisplay)
+			);
+		    };
+
+
+		fun keycode_to_keysym  ({ keycode, modifier_keys_state, ... }:  et::Key_Xevtinfo)
+		    =
+		    {   reply_oneshot = make_oneshot_maildrop ();
+			#
+			put_in_mailqueue (keymap_q,
+			    #
+			    \\ ({ me, imports, key_mapping, ... }: Runstate)
+				=
+				put_in_oneshot  (reply_oneshot,  translate_keycode_to_keysym *key_mapping (keycode, modifier_keys_state))
+			);
+
+			( get_from_oneshot  reply_oneshot,
+			  modifier_keys_state
+			);
+		    };
+
+		fun given_keycode_pass_keysym
+			({ keycode, modifier_keys_state, ... }: et::Key_Xevtinfo)
+			(replyqueue:	Replyqueue)
+			(reply_handler:  xt::Keysym -> Void)
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop ();
+
+			put_in_mailqueue (keymap_q,
+			    #
+			    \\ ({ me, imports, key_mapping, ... }: Runstate)
+				=
+				put_in_oneshot  (reply_oneshot,  translate_keycode_to_keysym *key_mapping (keycode, modifier_keys_state))
+			);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+
+		fun keysym_to_keycode  (keysym:  xt::Keysym)
+		    =
+		    {   reply_oneshot = make_oneshot_maildrop ();
+			#
+			put_in_mailqueue (keymap_q,
+			    #
+			    \\ ({ me, imports, key_mapping, ... }: Runstate)
+				=
+				put_in_oneshot  (reply_oneshot,  translate_keysym_to_keycode *key_mapping keysym)
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+
+		fun given_keysym_pass_keycode
+			(keysym:   xt::Keysym)
+			(replyqueue:	Replyqueue)
+			(reply_handler: (Null_Or(xt::Keycode) -> Void))
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop ();
+			#
+			put_in_mailqueue (keymap_q,
+			    #
+			    \\ ({ me, imports, key_mapping, ... }: Runstate)
+				=
+				put_in_oneshot  (reply_oneshot,  translate_keysym_to_keycode *key_mapping keysym)
+			);
+
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_keymap_egg
+	      (
+		xdisplay:	dy::Xdisplay,
+		options:	List(Option)										# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	      )	
+	    =
+	    {   (process_options (options, { name => "keymap" }))
+		    ->
+		    { name };
+	
+		me = ();
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot   (me_slot,  { me, imports, run_gun', end_gun', xdisplay });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };						# package keymap_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

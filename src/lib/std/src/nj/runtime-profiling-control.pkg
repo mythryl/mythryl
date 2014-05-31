@@ -1,0 +1,311 @@
+## runtime-profiling-control.pkg
+#
+# See comments in   src/lib/std/src/nj/runtime-profiling-control.api
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+# This package implements the interface to the
+# run-time system's profiling support library.
+# It is not meant for general use -- the general-use
+# package is    src/lib/compiler/debugging-and-profiling/profiling/profiling-control-g.pkg
+#
+# We are used in:
+#
+#     src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+#     src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg
+#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-byte-counters-to-deep-syntax.pkg
+#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+#     src/lib/compiler/debugging-and-profiling/profiling/profiling-control-g.pkg
+
+
+
+stipulate
+    package ci  =  unsafe::mythryl_callable_c_library_interface;					# unsafe					is from   src/lib/std/src/unsafe/unsafe.pkg
+    package cor =  core;										# core						is from   src/lib/core/init/core.pkg
+    package rwv =  rw_vector;										# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+    #
+    fun cfun  fun_name
+	=
+	ci::find_c_function  { lib_name => "profile",  fun_name };					# profile		lives in   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+	#
+	###############################################################
+	# The function(s) in this package are special debug/profile
+	# support.  I think it is not only unnecessary but likely
+	# actively unwise to indirect their execution through another
+	# posix thread.
+	#
+	# Consequently I'm not taking the time and effort to switch it
+	# over from using find_c_function() to using find_c_function'().
+	# 				   -- 2012-04-21 CrT
+herein
+
+    package   runtime_profiling_control
+    : (weak)  Runtime_Profiling_Control									# Runtime_Profiling_Control			is from   src/lib/std/src/nj/runtime-profiling-control.api
+    {
+													# "set__time_profiling_is_running__to"		def in    src/c/lib/space-and-time-profiling/set-time-profiling-is-running-to.c
+	set__time_profiling_is_running__to
+	    =
+	    cfun "set__time_profiling_is_running__to" 							# set__time_profiling_is_running__to		def in    src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+	    :
+	    Bool -> Void;
+
+	get_sigvtalrm_interval_in_microseconds								# MICROSECONDS_PER_SIGVTALRM			def in    src/c/h/profiler-call-counts.h
+	    =
+	    cfun "get_sigvtalrm_interval_in_microseconds"						# "get_sigvtalrm_interval_in_microseconds"	def in    src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+	    :
+	    Void -> Int;
+
+	set_time_profiling_rw_vector'
+	    =
+	    cfun "set_time_profiling_rw_vector"								# "set_time_profiling_rw_vector"		def in    src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+	    :
+	    Null_Or( Rw_Vector( Int ) ) -> Void;
+
+
+	add_per_fun_call_counters_to_deep_syntax = REF FALSE;
+	    #
+	    # Controls insertion of profiling code in add_per_fun_call_counters_to_deep_syntax		# add_per_fun_call_counters_to_deep_syntax
+													#	is from   src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+
+	sigvtalrm_time_profiler_is_running'    				= REF FALSE;			# Controls profile timer 
+
+	time_profiling_rw_vector = REF (rwv::make_rw_vector (0, 0));					# Initial value, expanded as necessary by below fun   ensure_time_vector_length_at_least
+	    #
+	    # This vector has one slot for every Mythryl function being time-profiled.
+	    # (The first four slots are used to track time spent in garbage collector etc.)
+	    # The slots in this vector will get incremented by  sigvtalrm_handler			# sigvtalrm_handler				def in    src/c/machine-dependent/posix-profiling-support.c
+	    # and then ultimately collected and printed out by  write_time_profiling_report.		# write_time_profiling_report
+													#		is from   src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg
+
+	fun sigvtalrm_time_profiler_is_running ()
+	    =
+	    *sigvtalrm_time_profiler_is_running';
+
+	fun set_time_profiling_rw_vector  rw_vector
+	    =
+	    {   if *sigvtalrm_time_profiler_is_running'
+		    #
+		    set_time_profiling_rw_vector'(THE rw_vector);					# Tell C runtime logic about new time profiling rw_vector.
+		fi;
+
+		time_profiling_rw_vector := rw_vector;
+	    };
+
+	fun get_time_profiling_rw_vector ()								# This fun is called below and also in    src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg
+	    =
+	    *time_profiling_rw_vector;
+
+	fun start_sigvtalrm_time_profiler ()
+	    =
+	    if (not *sigvtalrm_time_profiler_is_running')
+		#
+		sigvtalrm_time_profiler_is_running' := TRUE;
+		set_time_profiling_rw_vector'(THE *time_profiling_rw_vector);	# This enables handling of SIGVTALRM signals by the process -- the handler increments slots in *time_profiling_rw_vector.
+										#											See:   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+		set__time_profiling_is_running__to TRUE;			# This enables sending  of SIGVTALRM signals to the process.				See:   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+	    fi;
+
+	fun stop_sigvtalrm_time_profiler ()
+	    =
+	    if *sigvtalrm_time_profiler_is_running'
+		#
+		set__time_profiling_is_running__to   FALSE;			# This disables handling of SIGVTALRM signals by the process.				See:   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+		set_time_profiling_rw_vector' NULL;				# This  enables sending  of SIGVTALRM signals to the process.				See:   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+		#
+		sigvtalrm_time_profiler_is_running' := FALSE;
+	    fi;
+
+	# We maintain one of these records for each
+	# package being time-profiled:
+	#
+	Profiled_Package							# Technically these track compilation units, not packages  but 99% of the time we're compiling a package.
+	    =
+	    PROFILED_PACKAGE							# The only external reference to this type is in   src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg
+	      {
+		fun_names:				String,			# Names of all funs being profiled, in order. This is conceptually a list or vector of strings; to save space we pack them into a single string, terminated by newlines.
+										# This string gets generated by the instrumentation logic in   src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+		fun_count:				Int,			# Number of functions being time-profiled in this package.  (Same as number of newlines in fun_names, and in fact that is how we generate this value.)
+		first_slot_in_time_profiling_rw_vector:	Int,			# This package has 'fun_count' slots in time_profiling_rw_vector starting at this offset.
+		per_fun_call_counts:			rwv::Rw_Vector( Int )	# Length 'fun_count', holds the call-counts for all functions in this package.
+	      };
+
+	# Our primary job is to track, for each profiled user function,
+	# the number of times it is called and the number of seconds spent
+	# in it.  But we also track the number of seconds spent in the
+	# runtime, in the major and minor garbage collectors, in the
+	# compiler, and in "other".  We reserve the first five slots in
+	# the time_profiling_rw_vector for this purpose, and here publish
+	# these special five offsets into them:
+	#
+	in_runtime__cpu_user_index	     = 0;			# ! MUST match	IN_RUNTIME__CPU_USER_INDEX		from   src/c/h/profiler-call-counts.h
+	in_minor_heapcleaner__cpu_user_index = 1;			# ! MUST match  IN_MINOR_HEAPCLEANER__CPU_USER_INDEX	from   src/c/h/profiler-call-counts.h
+	in_major_heapcleaner__cpu_user_index = 2;			# ! MUST match  IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX	from   src/c/h/profiler-call-counts.h
+	in_other_code__cpu_user_index	     = 3;			# ! MUST match  IN_OTHER_CODE__CPU_USER_INDEX		from   src/c/h/profiler-call-counts.h
+	in_compiler__cpu_user_index	     = 4;
+	number_of_predefined_indices	     = 5;
+
+	my this_fn_profiling_hook_refcell__global:  Ref( Int )
+	   =
+	   cor::runtime::this_fn_profiling_hook_refcell__global;
+
+	my _ =  {   set_time_profiling_rw_vector (rwv::make_rw_vector (number_of_predefined_indices, 0));
+
+		    this_fn_profiling_hook_refcell__global				# Ultimately from src/c/main/construct-runtime-package.c
+			:=
+			in_other_code__cpu_user_index;
+		};
+
+	fun ensure_time_vector_length_at_least n
+	    =
+	    {   old =  get_time_profiling_rw_vector ();
+
+		if (n > rwv::length old)
+		    #
+		    new = rwv::make_rw_vector (n+n, 0);
+		    #
+		    rwv::copy  { from => old,  into => new,  at => 0 };
+		    #
+		    set_time_profiling_rw_vector  new;
+		fi;
+	    };
+
+	# We initialize our packages-being-profiled list
+	# with a pseudopackage which tracks the number of
+	# seconds spent in the runtime system, heapcleaner
+	# (=="garbage collector"), compiler and "other":
+	#
+	profiled_packages
+	    =
+	    REF
+	      [ PROFILED_PACKAGE
+		  {
+		    fun_names 		=> "\
+					    \Run-time System\n\
+					    \Minor GC\n\
+					    \Major GC\n\
+					    \Other\n\
+					    \Compilation\n",
+		    #
+		    fun_count					=>  number_of_predefined_indices,
+		    first_slot_in_time_profiling_rw_vector	=>  0,
+		    per_fun_call_counts 			=>  rwv::make_rw_vector (number_of_predefined_indices, 0)
+		  }
+	      ];
+
+	fun get_profiled_packages_list ()
+	    =
+	    *profiled_packages;
+
+
+
+	fun count_newlines_in  string
+	    =
+	    vector_of_chars::fold_forward
+		#
+                \\ ('\n', n) =>  n + 1;
+                   (_,    n) =>  n;
+                end
+		0				# Initial newline count.
+		string;				# Count newlines in this string.
+
+
+	# The time-profiling instrumentation logic in
+	#
+	#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+	#
+	# hacks each instrumented package to (at linktime)
+	# call this function -- thus automatically setting
+	# itself up for time profiling:
+	#
+	fun register_package_for_time_profiling  fun_names
+	    =
+	    {   pkgs = *profiled_packages;
+		(head pkgs) ->   PROFILED_PACKAGE { first_slot_in_time_profiling_rw_vector, fun_count, ... };
+		fun_count = count_newlines_in  fun_names;
+		per_fun_call_counts = rwv::make_rw_vector (fun_count, 0);
+		b = first_slot_in_time_profiling_rw_vector+fun_count;
+		#
+		ensure_time_vector_length_at_least (b+fun_count);				# This looks like a bug. Shouldn't "b+fun_count" be "first_slot_in_time_profiling_rw_vector+fun_count" (or just "b")?  XXX BUGGO FIXME
+		#
+		profiled_packages
+		    :=
+		    PROFILED_PACKAGE { fun_names, fun_count, first_slot_in_time_profiling_rw_vector=>b, per_fun_call_counts }
+		    !
+		    pkgs;
+		#
+		( b,
+		  per_fun_call_counts,
+		  this_fn_profiling_hook_refcell__global						# Ultimately from src/c/main/construct-runtime-package.c
+		);
+	    };
+
+								    my _ =
+	cor::register_package_for_time_profiling						# Publish us where we can be found by    src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg
+	    :=
+	    register_package_for_time_profiling;
+
+
+	stipulate
+	    fun zero_out_time_profiling_rw_vector ()
+		=
+		zero *time_profiling_rw_vector
+		where
+		    fun zero a
+			=
+			rwv::map_in_place  (\\ _ = 0)  a;
+		end;
+	herein
+
+	    fun zero_profiling_counts ()
+		=
+		{   zero_out_time_profiling_rw_vector ();
+		    #
+		    apply
+			(\\ PROFILED_PACKAGE { per_fun_call_counts, ... } =  zero per_fun_call_counts)
+			*profiled_packages
+		    where
+			fun zero a
+			    =
+			    rwv::map_in_place  (\\ _ = 0)  a;					# Set all slots to zero.
+		    end;
+		};
+	end;
+
+
+	# Space profiling hooks:								# This is UTTERLY BROKEN garbage code.
+	#
+	space_profiling = REF FALSE;
+	#
+	my space_prof_register
+	   :
+	   Ref( (unsafe::unsafe_chunk::Chunk, String) -> unsafe::unsafe_chunk::Chunk)
+	   =
+	   unsafe::cast  cor::space_profiling_register;
+
+    };
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

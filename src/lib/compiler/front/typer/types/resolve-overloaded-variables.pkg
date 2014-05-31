@@ -1,0 +1,467 @@
+## resolve-overloaded-variables.pkg 
+#
+# Here we handle resolution of overloaded variables (operators) like
+#
+#     + - / *
+#
+# These variables are originally defined by
+#
+#     overloaded my ...
+#
+# statements, e.g. as found in   src/lib/core/init/pervasive.pkg
+#
+# Note that overloading of literals is a separate mechanism, handled in
+#
+#     src/lib/compiler/front/typer/types/resolve-overloaded-literals.pkg
+#
+# Overloading of variables is an ad hoc kludge;  it does not
+# fit well with the design of the language, but it is needed
+# if use of arithmetic operatiors is not to be unbearably clumsy.
+# (Although Ocaml manages without overloading.)
+#
+# At runtime we get invoked (only) from:
+#
+#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+#
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# Our protocol model here is that the client
+# first one by one passes us all overloaded
+# variables to be resolved, which we hold
+# unresolved in an internal list, and then
+# calls us to resolve all of them in batch
+# mode.   Consequently we need internal state
+# to track the accumulating list.
+#
+# We implement this by exporting a function
+#     make_overloaded_variable_resolver
+# which returns a pair of functions which internally
+# share a fresh, empty list reference cell in which
+# to do the required overloaded variable accumulation:
+#
+
+
+stipulate 
+    package err =  error_message;							# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package id  =  inlining_data;							# inlining_data			is from   src/lib/compiler/front/typer-stuff/basics/inlining-data.pkg
+    package syx =  symbolmapstack;							# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tdt =  type_declaration_types;						# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package vac =  variables_and_constructors;						# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+herein
+    api Resolve_Overloaded_Variables {
+	#
+	make_overloaded_variable_resolver
+	    :
+	    ( (id::Inlining_Data -> Null_Or( tdt::Typoid )),				# inlining_data_to_my_type	from   src/lib/compiler/front/semantic/modules/generics-expansion-junk-parameter.pkg
+	      Ref (Null_Or( List (Void -> Void )))					# undo support:  "undo_log"
+	    )
+	    ->
+	    {   note_overloaded_variable:
+		    ( Ref( vac::Variable ),
+		      List(tdt::Typoid),
+		      err::Plaint_Sink
+		    )
+		    ->
+		    tdt::Typoid,
+
+		resolve_all_overloaded_variables
+		    :
+		    syx::Symbolmapstack
+		    ->
+		    List(vac::Variable)							# List of variants selected.
+	    };
+    };
+end;
+
+
+stipulate 
+    package ed  =  typer_debugging;							# typer_debugging		is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+    package err =  error_message;							# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package id  =  inlining_data;							# inlining_data			is from   src/lib/compiler/front/typer-stuff/basics/inlining-data.pkg
+    package mtt =  more_type_types;							# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package pp  =  standard_prettyprint_mill;						# standard_prettyprint_mill	is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package ppt =  prettyprint_type;							# prettyprint_type		is from   src/lib/compiler/front/typer/print/prettyprint-type.pkg
+    package td  =  typer_debugging;							# typer_debugging		is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+    package tdt =  type_declaration_types;						# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package tj  =  type_junk;								# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package uj  =  unparse_junk;							# unparse_junk			is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+    package ut  =  unparse_type;							# unparse_type			is from   src/lib/compiler/front/typer/print/unparse-type.pkg
+    package uyt =  unify_typoids;							# unify_typoids			is from   src/lib/compiler/front/typer/types/unify-typoids.pkg
+    package vac =  variables_and_constructors;						# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+
+    Pp = pp::Pp;
+
+    # Only needed for debug stuff:
+    #
+#    package syx =  symbolmapstack;							# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+#    package ppv =  prettyprint_value;							# prettyprint_value		is from   src/lib/compiler/front/typer/print/prettyprint-value.pkg
+herein
+
+    package   resolve_overloaded_variables
+    : (weak)  Resolve_Overloaded_Variables
+    {
+	say = control_print::say;
+#	debugging = REF FALSE;
+debugging = log::debugging;
+	#
+	fun if_debugging_say (msg: String)
+            =
+            if *debugging
+                say msg;
+                say "\n";
+            fi;
+
+	fun bug msg
+            =
+            err::impossible ("Overload: " + msg);
+
+
+ 
+	fun maybe_note_ref_in_undo_log										# If we're maintaining the undo_log, add an entry to undo uncoming assignment to ref.
+	      (													# 
+		 undo_log:  Ref (Null_Or(List(Void -> Void))),							# When non-NULL, *undo_log accumulates a list of thunks which will undo everything done by do_declaration() call.
+		 ref:	Ref(X)											# 
+	      )
+	    =
+	    case *undo_log
+		#
+		THE log =>  {   oldval    =  *ref;
+				#
+				undo_log :=  THE ((\\ () = ref := oldval) ! log);
+			    };
+		NULL    =>  ();
+	    esac;
+
+	# We get invoked (only) from:
+	#
+	#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+	#
+	fun make_overloaded_variable_resolver
+	      (
+		(inlining_data_to_my_type:	id::Inlining_Data -> Null_Or( tdt::Typoid )),
+		undo_log:			Ref (Null_Or( List (Void -> Void )))						# undo support
+	      )
+	    =
+	    { note_overloaded_variable,
+              resolve_all_overloaded_variables
+            }
+            where
+		# Restore the pre-existing values
+		# of a set of typevar refs by
+		# applying an accumulated substitution.
+		#
+		fun undo_substitution (((typevar_ref as REF type), oldtype) ! rest)
+			=>
+			{   typevar_ref := oldtype;
+			    #
+			    undo_substitution  rest;
+			};
+
+		    undo_substitution NIL =>  ();
+		end;
+
+
+		# Attempt unification of type1 with type2.
+		#
+		# If anything goes wrong, roll back all
+		# changes made.
+		#
+		# Return TRUE if the two unified successfully,
+		# otherwise FALSE.
+		#
+		fun soft_unify													# SML/NJ uses a custom limited-milage unify implementation for this;  Mythryl switched to using the full-strength unifier on 2014-01-22.
+		    ( typoid1:	tdt::Typoid,
+		      typoid2:	tdt::Typoid
+		    )
+		    : Bool
+		    =
+		    {
+
+			undo_log2 =  REF (THE ([]: List(Void -> Void)));							# When non-NULL, undo_log accumulates a list of thunks which will undo everything done by do_declaration() call.
+
+			{   uyt::unify_typoids											# SIDE-EFFECT:   Sets tdt::TYPEVAR_REF.ref_typevar
+			      (
+				"typoid1", "typoid2",
+				typoid1, typoid2,
+				[ "soft_unify" ],
+				undo_log2
+			      );
+
+
+			    case *undo_log
+				#
+				THE log =>  undo_log :=  THE ((the *undo_log2) @ log);						# Leave unification in place but allow caller to undo it via undo_log.
+				NULL    =>  ();
+			    esac;
+
+			    TRUE;
+			}
+			except
+			    uyt::UNIFY_TYPOIDS mode
+				=
+				{
+				    apply  (\\ f = f())  (the *undo_log2);							# Execute undo thunks in last-in first-out order to restore 'declaration' to original state.
+				    FALSE;
+				};
+		    };
+
+
+	        all_overloaded_variables
+                    =
+                    REF (NIL: List( (Ref( vac::Variable ), List(tdt::Typoid), err::Plaint_Sink, tdt::Typoid)) );
+
+
+		fun note_overloaded_variable
+			( refvar        as  REF (vac::OVERLOADED_VARIABLE { alternatives, typescheme, ... } ),
+			  typescheme_args:  List(tdt::Typoid),
+			  err
+			)
+			=> 
+			{   my (typescheme, type)
+                                =
+                                copy_typescheme  typescheme
+                                where
+				    fun copy_typescheme (typescheme as tdt::TYPESCHEME { arity, ... } ):  (tdt::Typoid, tdt::Typoid)
+					=
+					{   typevars =  make_type_args arity
+                                                        where
+							    fun make_type_args  n
+								=
+								n > 0   ??   tj::make_overloaded_typevar_and_type ["copy_typescheme  from  overloader.pkg"] ! make_type_args (n - 1)
+									::   [];
+                                                        end;
+
+					    ( tj::apply_typescheme (typescheme, typevars),
+					      #
+					      arity > 1
+						  ??   mtt::tuple_typoid typevars
+						  ::   head              typevars					# We don't make length-one tuples.
+					    );
+					};
+                                end;
+
+
+			    all_overloaded_variables
+                                := 
+                                (refvar, typescheme_args, err, type)
+                                !
+                                *all_overloaded_variables;
+
+			    typescheme;
+			};
+
+		    note_overloaded_variable _
+                        =>
+                        bug "note_overloaded_variable.1";
+                end;
+
+		# We implement defaulting behavior:
+                # if more than one variant matches the
+                # context type, the first one matching
+		# (which will always be the first variant)
+                # is used as the default:
+		#
+		fun resolve_all_overloaded_variables  symbolmapstack								# symbolmapstack is needed only for debug printout etc, not for core algorithmic purposes.
+                    =
+		    {														if_debugging_say "resolve_all_overloaded_variables/AAA     --resolve-overloaded-variables.pkg";
+			result =
+			    map
+				resolve_overloaded_variable
+				*all_overloaded_variables;
+																if_debugging_say "resolve_all_overloaded_variables/ZZZ     --resolve-overloaded-variables.pkg";
+			list::reverse  result;
+		    }
+		    where
+		        fun resolve_overloaded_variable
+                                ( var_ref      as	REF (vac::OVERLOADED_VARIABLE { name, alternatives, ... } ),
+				  typescheme_args:	List(tdt::Typoid),
+                                  err:			err::Plaint_Sink,
+                                  context:		tdt::Typoid
+                                )
+				=>
+				use_first_match  *alternatives
+                                where
+				    fun use_first_match ( { variant:	vac::Variable,
+							    indicator:	tdt::Typoid						# We will use 'variant' if 'indicator' is type-compatible with the setting of 'var_ref'.
+							  }
+							  ! rest
+							)
+					    =>
+					    {
+						(tj::instantiate_if_typescheme  (indicator, symbolmapstack, [ "resolve_overloaded_variable" ]))
+                                                    ->
+                                                    (sum_type, fresh_meta_typevars);						# Ignored arg is fresh_meta_typevars.
+
+																if *debugging
+																    pp = standard_prettyprint_mill::make_standard_prettyprint_mill "/dev/stdout" [];
+																    prettyprint_typoid =  ppt::prettyprint_typoid  symbolmapstack  pp;
+
+																    pp.lit "resolve_overloaded_variable/use_first_match: variant = ";
+																    prettyprint_value::prettyprint_variable  pp (symbolmapstack, variant);
+																    pp.lit " -- use_first_match/top in [resolve-overloaded-variables.pkg]\n";
+
+																    pp.lit "resolve_overloaded_variable/use_first_match: indicator = ";
+																    prettyprint_typoid  indicator;
+																    pp.lit " -- use_first_match/top in [resolve-overloaded-variables.pkg]\n";
+
+																    len =  list::length  fresh_meta_typevars;
+
+																    pp.newline ();
+																    pp.lit (sprintf "prprinting %d fresh_meta_typevars:   -- use_first_match/top in [resolve-overloaded-variables.pkg]"  len);
+																    pp.newline ();
+
+																    apply prettyprint_typoid  fresh_meta_typevars;
+
+																    pp.newline ();
+#																    pp.lit (sprintf "prprinted  %d fresh_meta_typevars.   -- use_first_match/top in [resolve-overloaded-variables.pkg]"  len);
+																    pp.newline ();
+
+																    pp.lit "Attempting to soft-unify 'sum_type' with 'context' where\n";
+
+																    pp.lit "   sum_type = ";
+																    prettyprint_type::prettyprint_typoid  symbolmapstack  pp  sum_type;
+																    pp.newline ();
+
+																    pp.lit "   context = ";
+																    prettyprint_type::prettyprint_typoid  symbolmapstack  pp  context;
+																    pp.newline ();
+
+																    pp.flush();	
+																fi;
+						if (not (soft_unify (sum_type, context)))
+						    #
+																if *debugging    printf "soft-unify attempt FAILED  -- use_first_match in [resolve-overloaded-variables.pkg]\n";  fi;
+						    use_first_match rest;   							# This variant does not match -- try next variant.
+						else
+																prettyprint_typoid =  ppt::prettyprint_typoid  symbolmapstack;
+																if *debugging
+																    pp = standard_prettyprint_mill::make_standard_prettyprint_mill "/dev/stdout" [];
+																    pp.lit (sprintf "soft-unify attempt WORKED  -- use_first_match in [resolve-overloaded-variables.pkg]");
+																    prettyprint_typoid =  ppt::prettyprint_typoid  symbolmapstack  pp;
+																    len =  list::length  fresh_meta_typevars;
+
+																    pp.newline ();
+																    pp.lit (sprintf "prprinting %d fresh_meta_typevars:   -- use_first_match/WORKED in [resolve-overloaded-variables.pkg]"  len);
+																    pp.newline ();
+
+																    apply prettyprint_typoid  fresh_meta_typevars;
+
+																    pp.newline ();
+																    pp.lit (sprintf "prprinted  %d fresh_meta_typevars.   -- use_first_match/WORKED in [resolve-overloaded-variables.pkg]"  len);
+																    pp.newline ();
+
+																    pp.flush();	
+																fi;
+
+						    maybe_note_ref_in_undo_log (undo_log, var_ref);
+
+						    var_ref		:=  variant;						# Overload successfully resolved.
+
+
+
+
+						    variant;
+						fi;
+					    };
+
+					use_first_match  NIL
+					    =>
+					    {   err err::ERROR "overloaded variable not defined at type"
+						  (\\ (pp:Pp)
+						      =
+						      {   ut::reset_unparse_type ();
+							  #
+							  pp.newline ();
+							  pp.lit "symbol: "; 
+
+							  uj::unparse_symbol  pp name;
+							  pp.newline ();
+							  pp.lit "type: ";
+
+							  ut::unparse_typoid  symbolmapstack  pp  context;
+						      }
+						  );
+
+						vac::ERROR_VARIABLE;								# Was ()
+					    };
+				    end;											# fun use_first_match
+				end;												# where
+
+			    resolve_overloaded_variable _
+                                =>
+                                {   bug "overload.2";
+				    vac::ERROR_VARIABLE;									# Was ()
+				};
+                        end;													# fun resolve_overloaded_variable
+		    end;													# where
+	    end;														# fun resolve_all_overloaded_variables
+    };																# package overload 
+end;																# stipulate
+
+
+
+###########################################################################################
+# Note[1]
+# We had a problem in that
+#
+#     v = "abc";
+#     string::get (v,1);
+#
+# would work as expected but
+#
+#     v = "abc";
+#     overloaded my bar: ((X, Y) -> Z) =  (string::get);
+#     bar(v,1);
+#
+# would die with
+#
+#     Unexpected type for hbo::GET_VECSLOT_NUMERIC_CONTENTS -- list::length(uniqtypes) == 0, expected 2
+#     Error: Compiler bug: translate_deep_syntax_to_lambdacode: unexpected type for hbo::GET_VECSLOT_NUMERIC_CONTENTS
+#
+# This appeared to be due to ds::VARIABLE_IN_EXPRESSION.typescheme_args
+# not getting set as expected.  Specifically, in
+#
+#     src/lib/compiler/front/typer/types/type-core-language-declaration-g.pkg
+#
+# we had 
+#					case (inlining_data_to_my_type  inlining_data)						# For builtins like string::get, inlining_data was set up from   all_primops   in   src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+#					    #
+#					    THE inl_typoid =>   {   (tj::instantiate_if_typescheme  inl_typoid) ->  (inl_typoid', fresh_meta_typevars);
+#							            [...]
+#								    typescheme_args =>  REF fresh_meta_typevars
+#
+# which results in typescheme_args remembering the types to which
+# string::get (== numsubscript8cv) gets applied, but nothing like
+# that was happening in this file during overloading resolution.
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT 1996 AT&T Bell Laboratories. 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

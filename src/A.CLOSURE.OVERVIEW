@@ -1,0 +1,190 @@
+A Mythryl closure represents the state an executing function -- some function
+being applied to some argument -- as of a point right before a call to a subfunction,
+so as to be able to restore the caller's state and continue execution of it once
+the subfunction has completed execution.
+
+Background
+==========
+
+See references at bottom of file.
+
+Relevant code
+=============
+    src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg
+
+
+Closures
+========
+
+A closure corresponds (loosely!) to a C stackframe.
+It differs most obviously in that
+
+ 1) It is allocated on the heap and then garbage collected, rather than pushed and popped on a stack.
+
+ 2) It is immutable -- once created, no slot in it is modified. (But things pointed to via those slots might be.)
+
+ 3) It is based on fate-passing rather than call/return
+    semantics -- rather than thinking in terms of a caller to which
+    we will "return", we think of a fate function which we will call
+    with our result once done.
+
+To a naive first approximation, a function which calls several other
+functions in sequence
+
+    fun f() = {
+        g();
+        h();
+        i();
+    }
+
+will allot a closure before each call it makes; this closure is passed
+to the called function and preserves f's state at the point of call for
+later resumption.
+
+In practice the compiler's optimizer bends over backwards to avoid as much
+of this work as possible, allocating a closure entirely in registers if possible,
+and failing that trying to share some or all of a closure across multiple
+calls.  See reference [4] for details.
+
+A sample Mythryl closure may be seen in  src/c/machine-dependent/signal-stuff.c:
+
+    // Allocate the resumption closure:
+    //
+    set_slot_in_nascent_heapchunk(task,  0, MAKE_TAGWORD(10, PAIRS_AND_RECORDS_BTAG));
+    set_slot_in_nascent_heapchunk(task,  1, PTR_CAST( Val, resume));
+    set_slot_in_nascent_heapchunk(task,  2, task->argument);
+    set_slot_in_nascent_heapchunk(task,  3, task->fate);
+    set_slot_in_nascent_heapchunk(task,  4, task->current_closure);
+    set_slot_in_nascent_heapchunk(task,  5, task->link_register);
+    set_slot_in_nascent_heapchunk(task,  6, task->program_counter);
+    set_slot_in_nascent_heapchunk(task,  7, task->exception_fate);
+    set_slot_in_nascent_heapchunk(task,  8, task->callee_saved_registers[0]);				// John Reppy says not to do: set_slot_in_nascent_heapchunk(task,  8, task->current_thread);
+    set_slot_in_nascent_heapchunk(task,  9, task->callee_saved_registers[1]);
+    set_slot_in_nascent_heapchunk(task, 10, task->callee_saved_registers[2]);
+    //
+    return commit_nascent_heapchunk(task, 10);
+
+This closure is a ten-slot record
+
+   {
+       1) machine_address		# 
+       2) argument			# Presumably argument closure was invoked with.
+       3) fate				# Presumably fate to call when done.
+       4) current_closure		# Is this associated with the previous?  If not, what is it?
+       5) link				# This seems to be something like "current compiled image". Might contain multiple compiled fns -- maybe used to access constants or fns via offset?
+       6) program_counter		#
+       7) exception			# Must be somehow involved with exception handling.
+       8) callee-save-register 0 	# 
+       9) callee-save-register 1 	#
+      10) callee-save-register 2	#
+   }
+
+
+Datum
+=====
+In   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+we have
+
+#define SET_UP_RETURN( _task )	{							\
+	    Task* __task    = (_task);							\
+	    __task->current_closure = HEAP_VOID;					\
+	    __task->program_counter = __task->fate;					\
+	}
+
+#define SET_UP_THROW( _task, _fate, _val )	{					\
+	    Task* __task	 = (_task);						\
+	    Val	__fate	         = (_fate);						\
+	    __task->current_closure  = __fate;						\
+	    __task->fate         = HEAP_VOID;						\
+	    __task->program_counter=							\
+	    __task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE( __fate );		\
+	    __task->exception_fate = HEAP_VOID;						\
+	    __task->argument	 = (_val);						\
+	}
+
+which provides some hints as to the values of (in particular)
+the program_counter and link_register fields.
+
+
+How does machine_address differ from the program_counter?
+=========================================================
+
+Machine address seems pretty clearly to be the literal
+binary address to which to jump to resume computation;
+it gets adjusted as necessary by the heapcleaner.
+
+I'm guessing something like, one is the entrypoint to
+the function, whereas the other is where we "currently"
+are in the function.
+
+This only makes sense if we sometimes make closures while
+partway through the function.
+
+
+What is current_closure?
+========================
+
+We (allegedly?) do not update a closure once created, so one possibility
+is that where we would otherwise update a closure, we instead create a
+new one, and that 'current_closure' is a pointer to the previous closure
+for that function.
+
+
+What happens when we do a non-tail-recursive call from within a function?
+=========================================================================
+
+Since this is a continuation-passing world, the obvious guess is that we
+must pass a fate representing where to pick up when we 'return' to the
+current function, which must result in the construction of a corresponding
+closure at some point.
+
+
+What is the difference between a fate and a closure?
+====================================================
+
+One obvious point is that a 'closure' contains both the 'function' and 'argument'
+required for computation to take place, whereas a 'fate' is constructed in the
+absence of the relevant argument.  So we maybe have something like
+
+   closure = fate + arg (+ more?)
+
+
+Callee-Save Registers
+=====================
+
+Callee-save register provide a way for large functions to maintain state in
+registers across the invocation of small leaf functions.  The large function
+establishes its state in these registers.  The small function, needing few
+registers, does not touch them; on resumption the large function can pick up
+processing without any register save/restore traffic.
+
+When a large parent function calls a large child function, the child function
+will preserve the callee-save registers in its closure and then take over their
+use itself, restoring them before resuming its parent.  In this case there is
+no great win, but no particular added overhead either.
+
+
+
+References
+==========
+
+[1] Chapter 4, "Space Efficient Closure Representations"
+    of Zhong Shao's 1994 PhD thesis, which starts on page 74:
+    Compiling Standard ML for Efficient Execution on Modern Machines 
+    http://flint.cs.yale.edu/flint/publications/zsh-thesis.html
+
+[2] Space-Efficient Closure Reprentations
+    Zhong Shao, Andrew W Appel
+    1994, 12p
+    http://flint.cs.yale.edu/flint/publications/closure.ps.gz
+
+[3] Typed Closure Conversion
+    Yasuhiko Minamide, Greg Morrisett, Robert Harper
+    1996, 13p
+    http://www.eecs.harvard.edu/~greg/papers/closure-summary.ps
+
+[4] Efficient and Safe-for-Space Closure Conversion
+    Zhong Shao, Andrew Appel
+    2000, 33p
+    http://flint.cs.yale.edu/flint/publications/escc.html 
+

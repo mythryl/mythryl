@@ -1,0 +1,425 @@
+## scanf.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# C-style conversions from string representations.
+
+stipulate
+    package fil =  file__premicrothread;				# file__premicrothread	is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package ss  =  substring;						# substring		is from   src/lib/std/substring.pkg
+    package sc  =  number_string;					# number_string		is from   src/lib/std/src/number-string.pkg
+herein
+
+    package   scanf
+    : (weak)  Scanf							# Scanf			is from   src/lib/src/scanf.api
+    {
+	include printf_field;						# printf_field		is from   src/lib/src/printf-field.pkg
+
+
+	# Implement rough-and-ready char sets as 256-byte vectors
+	# with entries set to 0 or 1 for non/membership:
+	#
+	abstype Charset = CS  rw_vector_of_one_byte_unts::Rw_Vector
+	with
+
+	    fun make_char_set ()
+		=
+		CS (rw_vector_of_one_byte_unts::make_rw_vector  (char::max_ord+1, 0u0));
+
+
+	    fun add_char (CS byte_array, char)
+		=
+		rw_vector_of_one_byte_unts::set  (byte_array,  char::to_int char,  0u1);
+
+
+	    fun add_range (CS ba, c1, c2)
+		=
+		{   ord_c2 =  char::to_int c2;
+
+		    fun add i
+			=
+			if (i <= ord_c2)
+			     rw_vector_of_one_byte_unts::set (ba, i, 0u1);
+			     add (i+1);
+			fi;
+
+		    if (c1 > c2)    raise exception BAD_FORMAT "Bad char-set spec";  fi;
+
+		    add (char::to_int c1);
+		};
+
+
+	    fun in_set  (CS ba)  arg
+		=
+		rw_vector_of_one_byte_unts::get (ba, char::to_int arg)  ==  0u1;
+
+
+	    fun not_in_set  (CS ba)  arg
+		=
+		rw_vector_of_one_byte_unts::get (ba, char::to_int arg)  ==  0u0;
+
+	end;
+
+
+
+	# Scan a character-class spec
+	# like "[a-b]" or "[^abc]":
+	#
+	fun scan_char_set  fmt_string
+	    =
+	    {   cset =  make_char_set ();
+
+
+		# Check for leading '^'
+		# (negated char class like "[^a-z]"):
+
+		my (is_negated, fmt_string)
+		    =
+		    case (ss::getc  fmt_string)
+			#
+			THE ('^', ss) =>  (TRUE,  ss        );
+			_             =>  (FALSE, fmt_string);
+		    esac;
+
+
+		# Check that we -do- have a charclass spec to scan:
+		#
+		fun scan_char (THE arg) =>  scan arg;
+		    scan_char NULL      =>  raise exception BAD_FORMAT "Missing charclass spec";
+		end
+
+
+		# Here to read the next vanilla
+		# character from a character class:
+		#	
+		also
+		fun scan (next_char, char_stream)
+		    =
+		    case (ss::getc  char_stream)
+			#
+			THE ('-', char_stream)
+			    =>
+			    case (ss::getc  char_stream)
+				#
+				THE (']', char_stream)
+				    =>
+				    {   add_char (cset, next_char);
+					add_char (cset, '-'      );
+					char_stream;
+				    };
+
+				THE (c, char_stream)
+				    =>
+				    {   add_range (cset, next_char, c);
+					post_dash_scan  char_stream;
+				    };
+
+				NULL
+				    =>
+				    raise exception BAD_FORMAT "Incomplete char class";
+			    esac;
+
+			THE (']', char_stream) =>   {   add_char (cset, next_char);   char_stream;           };
+			THE (  c, char_stream) =>   {   add_char (cset, next_char);   scan (c, char_stream); };
+
+			NULL          =>   raise exception BAD_FORMAT "Incomplete char class";
+		    esac
+
+		# Here to complete a character range,
+		# say when we've seen "[a-" of "[a-z]":
+		#
+		also
+		fun post_dash_scan  char_stream
+		    =
+		    case (ss::getc  char_stream)
+			#
+			THE ('-', char_stream) =>  raise exception BAD_FORMAT "Incomplete char class";
+			THE (']', char_stream) =>  char_stream;
+			THE (c,   char_stream) =>  scan (c, char_stream);
+
+			NULL =>  raise exception BAD_FORMAT "Incomplete char class";
+		    esac;
+
+
+
+		# Scan the complete format string:
+		#
+		fmt_string
+		    =
+		    scan_char (ss::getc fmt_string);
+
+
+		# Construct and return a charset corresponding
+		# to the char-class spec we just scanned:
+		#
+		if   is_negated   (CHAR_SET (not_in_set  cset),  fmt_string);
+		else              (CHAR_SET (    in_set  cset),  fmt_string);
+		fi;
+	    };
+
+
+
+	# Accept a string like "[a-z] %g"
+	# and return a corresponding list of
+	# Printf_Field RAW/CHAR_SET/FIELD results: 
+	#
+	fun compile_scan_format  format_string
+	    =
+	    scan (ss::from_string format_string, [])
+	    where
+
+		split =  ss::split_off_prefix (char::not_contains "\n\t %[");
+
+		fun scan (ss, l)
+		    =
+		    if (ss::is_empty  ss)
+			#
+			reverse l;
+		    else
+			(split ss) -> (ss1, ss2);
+
+			case (ss::getc  ss2)
+			    #
+			    THE ('%', ss')
+				=>
+				{   (scan_field ss') ->  (field', ss3);
+
+				    scan (ss3, field' ! (RAW ss1) ! l);
+				};
+
+			    THE ('[', ss')
+				=>
+				{   (scan_char_set ss') ->  (cs, ss3);
+
+				    scan (ss3, cs ! (RAW ss1) ! l);
+				};
+
+			    THE (_, ss')
+				=>
+				scan (ss::drop_prefix char::is_space ss', (RAW ss1) ! l);
+
+			    NULL =>   reverse ((RAW ss1) ! l);
+			esac;
+		    fi;
+		end;
+
+
+	# * NOTE: for the time being, this ignores flags and field width *
+	#
+	fun fnsscanf
+		ssub			# Function which returns nth char from input string.
+		next_index			# Next char to read from input string.
+		format_string		# Format string like "%e [a-z] %g" or such.
+	    =
+	    scan (next_index, printf_fields, [])
+	    where
+		printf_fields   =  compile_scan_format  format_string;		# Convert 'format_string' from a String to a List( Printf_Field ).
+		skip_whitespace =  sc::drop_prefix  char::is_space  ssub;
+
+
+		# Peel off one Printf_Field at a time
+		# and convert a corresponding chunk of input
+		# string starting at 'next_index' into a
+		# new value for result_items:
+
+		fun scan (next_index,   [],   result_items)
+			=>
+			THE   (reverse  result_items,   next_index);
+
+		    scan (next_index,   (RAW ss) ! remaining_fields,   result_items)
+			=>
+			match (skip_whitespace next_index, ss)
+			where
+			    fun match (next_index, ss)
+				=
+				case (ssub next_index, ss::getc ss)
+				    #
+				    (THE (c', next_index'),   THE (c, ss))
+					=>
+					if  (c' == c  )  match (next_index', ss);
+						     else   NULL;               fi;
+
+				    (_, NULL)
+					=>
+					scan (next_index, remaining_fields,  result_items);
+
+				    _ => NULL;
+				esac;
+			end;
+
+		    scan (next_index,   (CHAR_SET prior) ! remaining_fields,   result_items)
+			=>
+			scan (scan_set next_index, remaining_fields,  result_items)
+			where
+			    fun scan_set next_index
+				=
+				case (ssub next_index)
+				    #
+				    THE (c, next_index')
+					=>
+					if  (prior c  )  scan_set next_index';
+						    else           next_index ;   fi;
+
+				    NULL => next_index;
+				esac;
+			end;
+
+		    scan (next_index,   FIELD (flags, wid, type) ! remaining_fields,   result_items)
+			=>
+			{   next_index =  skip_whitespace  next_index;
+			    #
+			    fun next (con, THE (x, next_index'))
+				    =>
+				    scan (next_index',   remaining_fields,   (con x) ! result_items);
+
+				next _ => NULL;
+			    end;
+
+			    fun get_int  format
+				=
+				if flags.large	next (LINT, large_int::scan  format  ssub  next_index);
+				else		next (INT,        int::scan  format  ssub  next_index);
+				fi;
+
+			    case type
+				#
+				OCTAL_FIELD   =>  get_int sc::OCTAL;
+				INT_FIELD     =>  get_int sc::DECIMAL;
+				HEX_FIELD     =>  get_int sc::HEX;
+				CAP_HEX_FIELD =>  get_int sc::HEX;
+				BINARY_FIELD  =>  get_int sc::BINARY;
+
+				CHAR_FIELD    =>  next (CHAR,                    ssub next_index);
+				BOOL_FIELD    =>  next (BOOL,         bool::scan ssub next_index);
+				FLOAT_FIELD _ =>  next (FLOAT, eight_byte_float::scan ssub next_index);
+
+				STRING_FIELD
+				    =>
+				    scan (next_index,   remaining_fields,   STRING s ! result_items)
+				    where
+
+					not_space =  not o char::is_space;
+
+					prior = case wid
+						    #
+						    NO_PAD => not_space;
+
+						    WIDTH n
+							=>
+							{   count =  REF n;
+
+							    \\ c =  case *count
+									#
+									0 => FALSE;
+									n => {   count :=  n - 1;
+										 not_space c;
+									     };
+								    esac;
+							};
+					       esac;
+
+					my (s, next_index)
+					    =
+					    sc::split_off_prefix prior ssub next_index;
+				    end;
+			      esac;
+		       };
+		end;
+
+	    end;			# fun scanf 
+
+
+
+	# Scan an input string per given format_string,
+	# return resulting list of Format_Items:
+	#
+	fun sscanf  input_string  format_string
+	    =
+	    {   max =  vector_of_chars::length  input_string;
+		#
+		fun string_subscript  index
+		    = 
+		    if (index < max)	THE (vector_of_chars::get  (input_string, index),  index+1);
+		    else		NULL;
+		    fi;
+
+		first_index =  0;
+
+		case (fnsscanf   string_subscript   first_index   format_string)
+		    #
+		    THE (x, _) =>  THE x;
+		    NULL       =>  NULL;
+		esac;
+	    };
+
+
+	# Same as above, reverse argument order.
+	# (Sometimes this order is handier for curried application.)
+	#
+	fun sscanf_by   format_string   input_string
+	    =
+	    sscanf      input_string    format_string;
+
+
+
+	# Scan from a fil::Input_Stream per given format_string,
+	# return resulting list of Format_Items:
+	#
+	fun fscanf   input_stream   format_string
+	    =
+	    {   fun getc input_stream
+		    =
+		    case (fil::read_one  input_stream)
+			#
+			THE char => THE (char, input_stream);
+			NULL     => NULL;
+		    esac;
+
+		case (fnsscanf   getc   input_stream   format_string)
+		    #
+		    THE (x, _) =>  THE x;
+		    NULL       =>  NULL;
+		esac;
+	    };
+
+
+	scanf =  fscanf  fil::stdin;
+
+    };		# package scan 
+end;
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## AUTHOR:  John Reppy
+##	    AT&T Research
+##	    jhr@research.att.com
+## COPYRIGHT (c) 1996 by AT&T Research.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

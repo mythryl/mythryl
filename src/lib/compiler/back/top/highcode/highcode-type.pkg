@@ -1,0 +1,1024 @@
+## highcode-type.pkg 
+#
+# See overview comments in:
+#
+#     src/lib/compiler/back/top/highcode/highcode-type.api
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+###            "One should expect that the expected
+###             can be prevented, but the unexpected
+###             should have been expected."
+###
+###                          -- Norman Augustine
+
+
+stipulate
+    package di  =  debruijn_index;					# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package err =  error_message;					# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package hbt =  highcode_basetypes;					# highcode_basetypes		is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+    package tmp =  highcode_codetemp;					# highcode_codetemp		is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package hut =  highcode_uniq_types;					# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+
+    fun bug msg
+	=
+	err::impossible("highcode_type: " + msg);
+
+    say =  global_controls::print::say;
+herein
+
+    # We get 'included' by:
+    #
+    #     src/lib/compiler/back/top/highcode/highcode-form.pkg	
+
+    package   highcode_type
+    : (weak)  Highcode_Type						# Highcode_Type			is from   src/lib/compiler/back/top/highcode/highcode-type.api
+    {
+
+	# highcode hut::Uniqkind is roughly equivalent to:
+	#
+	#    hut::Kind 
+	#      = TYPE 
+	#      | BOXED_TYPE
+	#      | TYPESEQ   List( hut::Kind )
+	#      | TYPEFUN  (List( hut::Kind ), hut::Kind)
+	#      ;
+	#
+	# We treat Uniqkind as an abstract type
+	# to isolate clients from the complexity of the
+	# hashconsing machinery;  this has the downside
+	# of preventing them from using pattern matching.
+
+
+	# Some hut::Uniqkind constructors: 
+	#
+	my plaintype_uniqkind:			 hut::Uniqkind    =   hut::kind_to_uniqkind  hut::kind::PLAINTYPE;
+	my boxedtype_uniqkind:			 hut::Uniqkind    =   hut::kind_to_uniqkind  hut::kind::BOXEDTYPE;
+	#
+	my make_kindseq_uniqkind:		 List(hut::Uniqkind)                 -> hut::Uniqkind    =    hut::kind_to_uniqkind  o  hut::kind::KINDSEQ;
+	my make_kindfun_uniqkind:		(List(hut::Uniqkind), hut::Uniqkind) -> hut::Uniqkind    =    hut::kind_to_uniqkind  o  hut::kind::KINDFUN;
+
+	# Matching hut::Uniqkind deconstructors: 
+	#
+	my unpack_plaintype_uniqkind:		hut::Uniqkind -> Void    =    \\ _ = ();
+	my unpack_boxedtype_uniqkind:		hut::Uniqkind -> Void    =    \\ _ = ();
+	#
+	my unpack_kindseq_uniqkind:    	 hut::Uniqkind -> List( hut::Uniqkind )
+	    =
+	    \\ tk
+		=> 
+		case (hut::uniqkind_to_kind tk)
+		    #
+		    hut::kind::KINDSEQ x   =>   x;
+		    _                      =>   bug "unexpected hut::Kind in unpack_kindseq_uniqkind";
+		esac;
+	    end;  
+
+	my unpack_kindfun_uniqkind:    hut::Uniqkind -> (List( hut::Uniqkind ), hut::Uniqkind)
+	    =
+	    \\ tk
+		=
+		case (hut::uniqkind_to_kind tk)
+		    #
+		    hut::kind::KINDFUN x   =>   x;
+		    _                              =>   bug "unexpected hut::Kind in unpack_kindfun_uniqkind";
+		esac;
+
+
+	# Some hut::Uniqkind predicates:
+        #
+	my uniqkind_is_plaintype:	hut::Uniqkind -> Bool =  \\ tk =  hut::same_uniqkind (tk, plaintype_uniqkind);
+	my uniqkind_is_boxedtype:		hut::Uniqkind -> Bool =  \\ tk =  hut::same_uniqkind (tk, boxedtype_uniqkind);
+	#
+	my uniqkind_is_kindseq:		hut::Uniqkind -> Bool =  \\ tk =  case (hut::uniqkind_to_kind  tk)    hut::kind::KINDSEQ _ => TRUE;  _ => FALSE;  esac;
+	my uniqkind_is_kindfun:		hut::Uniqkind -> Bool =  \\ tk =  case (hut::uniqkind_to_kind  tk)    hut::kind::KINDFUN _ => TRUE;  _ => FALSE;  esac;
+
+
+
+	# Some hut::Uniqkind one-arm switches:
+        #
+	fun if_uniqkind_is_plaintype (tk, f, g) =  if (hut::same_uniqkind (tk, plaintype_uniqkind))  f ();  else g tk;  fi;
+	fun if_uniqkind_is_boxedtype       (tk, f, g) =  if (hut::same_uniqkind (tk, boxedtype_uniqkind      ))  f ();  else g tk;  fi;
+	#
+	fun if_uniqkind_is_kindseq    (tk, f, g) =  case (hut::uniqkind_to_kind  tk)    hut::kind::KINDSEQ x => f x;  _ => g tk; esac;
+	fun if_uniqkind_is_kindfun         (tk, f, g) =  case (hut::uniqkind_to_kind  tk)    hut::kind::KINDFUN x => f x;  _ => g tk; esac;
+
+
+
+	# Highcode Calling_Convention and Useless_Recordflag are used to classify different kinds of typelocked 
+	# functions and records. As of now, they are roughly equivalent to:
+	#
+	#    Calling_Convention
+	#      = FIXED_CALLING_CONVENTION
+	#      | VARIABLE_CALLING_CONVENTION { arg_is_raw:  Bool,
+        #                                         body_is_raw: Bool
+        #                                       }
+	#
+	#    Useless_Recordflag = USELESS_RECORDFLAG
+	#
+	# We treat both as abstract types so pattern matching no longer applies.
+	# NOTE: VARIABLE_CALLING_CONVENTION flags are used by HIGHCODEs before we perform representation
+	# analysis while FIXED_CALLING_CONVENTION is used by HIGHCODEs after we perform representation
+	# analysis. 
+
+
+	# Calling_Convention and record_flag constructors:
+	#
+	my fixed_calling_convention:   hut::Calling_Convention	=   hut::FIXED_CALLING_CONVENTION;
+	my useless_recordflag:		hut::Useless_Recordflag	=   hut::USELESS_RECORDFLAG;
+	#
+	my make_variable_calling_convention:  { arg_is_raw: Bool, body_is_raw: Bool }   ->   hut::Calling_Convention
+            =
+            \\  arg_is_raw__body_is_raw
+		=
+		hut::VARIABLE_CALLING_CONVENTION   arg_is_raw__body_is_raw;
+
+
+
+	# Calling_Convention and Useless_Recordflag deconstructors:
+	#
+	my unpack_variable_calling_convention:     hut::Calling_Convention -> { arg_is_raw: Bool, body_is_raw: Bool }		# This function is never used.
+            =
+            \\ x =  case x
+			#
+		        hut::VARIABLE_CALLING_CONVENTION   arg_is_raw__body_is_raw
+                            =>                             arg_is_raw__body_is_raw;
+
+                        _   =>  bug "unexpected Calling_Convention in unpack_variable_calling_convention";
+                    esac;
+
+
+	my unpack_fixed_calling_convention:   hut::Calling_Convention -> Void
+            =
+            \\ x =  case x    hut::FIXED_CALLING_CONVENTION =>  ();
+                              _                             =>  bug "unexpected Calling_Convention in unpack_fixed_calling_convention";
+                    esac;
+
+
+	my unpack_useless_recordflag:     hut::Useless_Recordflag -> Void
+            =
+            \\ (hut::USELESS_RECORDFLAG) = ();
+
+
+
+	# Calling_Convention and Useless_Recordflag predicates:
+	#
+	my calling_convention_is_variable:     hut::Calling_Convention -> Bool
+            =
+            \\ x =  case x    hut::VARIABLE_CALLING_CONVENTION _ =>  TRUE;
+                              _                     =>  FALSE;
+                    esac;
+
+
+	my calling_convention_is_fixed:   hut::Calling_Convention -> Bool
+            =
+            \\ x =  case x    hut::FIXED_CALLING_CONVENTION =>  TRUE;
+                              _                 =>  FALSE;
+                    esac;
+
+
+	my useless_recordflag_is:     hut::Useless_Recordflag -> Bool
+            =
+            \\ (hut::USELESS_RECORDFLAG) =  TRUE;
+
+
+
+	# Calling_Convention and Useless_Recordflag one-arm switches: 
+	#
+	fun if_calling_convention_is_variable (calling_convention, then_fn, else_fn)
+            = 
+	    case calling_convention
+		#
+		hut::VARIABLE_CALLING_CONVENTION   arg_is_raw__body_is_raw =>  then_fn arg_is_raw__body_is_raw;
+                _                                                          =>  else_fn calling_convention;
+            esac;
+
+
+	fun if_calling_convention_is_fixed (calling_convention, then_fn, else_fn)
+	    = 
+	    case calling_convention
+		#
+		hut::FIXED_CALLING_CONVENTION =>  then_fn ();
+                _                             =>  else_fn calling_convention;
+            esac;
+
+
+	fun if_useless_recordflag_is (rf, then_fn, else_fn)		# Useless fn on a useless value. :-)
+	    =
+	    then_fn ();
+
+
+	# highcode hut::Uniqtype is roughly equivalent
+	# to the following Mythryl sumtype:
+	#
+	#    Uniqtype
+	#      = TYPEVAR        (Debruijn_Index, Int)
+	#      | NAMED_TYPEVAR   tmp::Codetemp
+	#      | BASETYPE        hut::Basetype
+	#      | TYPEFUN         (List( hut::Uniqkind ), hut::Uniqtype)
+	#      | APPLY_TYPEFUN      (hut::Uniqtype, List( hut::Uniqtype ))
+	#      | TYPESEQ   List( hut::Uniqtype )
+	#      | TYPE_PROJECTION (hut::Uniqtype, Int)
+	#      | SUM_TYPE        List( hut::Uniqtype )
+	#      | RECURSIVE_TYPE  (hut::Uniqtype, Int)
+	#      | TUPLE_TYPE      List( hut::Uniqtype )           #  record_flag hidden 
+	#      | ARROW_TYPE     (hut::Calling_Convention, List(hut::Uniqtype), List(hut::Uniqtype))
+	#      | BOXED_TYPE       hut::Uniqtype
+	#      | ABSTRACT_TYPE   hut::Uniqtype 
+	#      | EXTENSIBLE_TOKEN_TYPE  (Token, hut::Uniqtype)
+	#      | FATE_TYPE              List(hut::Uniqtype)
+	#      | INDIRECT_TYPE_THUNK   (hut::Uniqtype, hut::Uniqtypoid)
+	#      | TYPE_CLOSURE  (Uniqtype, Int, Int, Uniqtype_Dictionary)
+	#      ;	
+	#
+	# We treat Uniqtype as an abstract type
+	# to isolate clients from the complexity of the
+	# hashconsing machinery;  this has the downside
+	# of preventing them from using pattern matching.
+	# 
+	# hut::Uniqtype applications (TC_APPLY) and projections 
+	# (TC_PROJ) are automatically reduced as needed, that is, the
+	# client does not need to worry about whether a hut::Uniqtype is in the
+	# normal form or not, all functions defined here automatically 
+	# take care of this.
+
+
+	# Some hut::Uniqtype constructors 
+	#
+	my make_debruijn_typevar_uniqtype:	(di::Debruijn_Index, Int)		-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::DEBRUIJN_TYPEVAR;
+	my make_named_typevar_uniqtype:		 tmp::Codetemp				-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::NAMED_TYPEVAR;
+	my make_basetype_uniqtype:		 hbt::Basetype				-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::BASETYPE;
+	#
+	my make_typefun_uniqtype:		 ( List(hut::Uniqkind),
+						   hut::Uniqtype
+						 )					-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::TYPEFUN;
+	my make_apply_typefun_uniqtype:		 ( hut::Uniqtype,
+						   List(hut::Uniqtype)
+						 )					-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::APPLY_TYPEFUN;
+	my make_typeseq_uniqtype:		 List(hut::Uniqtype)			-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::TYPESEQ;
+	my make_ith_in_typeseq_uniqtype:		(hut::Uniqtype, Int)			-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::ITH_IN_TYPESEQ;
+	#
+	my make_sum_uniqtype:			 List(hut::Uniqtype)			-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::SUM;
+	my make_abstract_uniqtype:		 hut::Uniqtype				-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::ABSTRACT;
+	my make_boxed_uniqtype:			 hut::Uniqtype				-> hut::Uniqtype	=  hut::type_to_uniqtype o hut::type::BOXED; 
+	#
+	my make_tuple_uniqtype:			 List(hut::Uniqtype)			-> hut::Uniqtype	=  \\ ts =  hut::type_to_uniqtype (hut::type::TUPLE (useless_recordflag, ts));
+	my make_extensible_token_uniqtype:	 hut::Uniqtype				-> hut::Uniqtype	=  \\ tc =  hut::type_to_uniqtype (hut::type::EXTENSIBLE_TOKEN (hut::wrap_token, tc));
+	#
+	my make_arrow_uniqtype:			(hut::Calling_Convention, List(hut::Uniqtype), List(hut::Uniqtype))	-> hut::Uniqtype =  hut::make_arrow_uniqtype;
+	my make_recursive_uniqtype:		((Int, hut::Uniqtype,  List(hut::Uniqtype)), Int)				-> hut::Uniqtype =  hut::type_to_uniqtype o hut::type::RECURSIVE;
+
+
+
+	# hut::Uniqtype deconstructors -- these are
+	# basically inverse to the above functions:
+	#
+
+	my unpack_debruijn_typevar_uniqtype:     hut::Uniqtype -> (di::Debruijn_Index, Int)
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::DEBRUIJN_TYPEVAR x =>  x;
+			                               _                            =>  bug "unexpected type in unpack_debruijn_typevar_uniqtype";
+                     esac;
+
+
+	my unpack_named_typevar_uniqtype:    hut::Uniqtype -> tmp::Codetemp
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::NAMED_TYPEVAR x =>  x;
+			                               _                         =>  bug "unexpected type in unpack_named_typevar_uniqtype";
+                     esac;
+
+
+	my unpack_basetype_uniqtype:    hut::Uniqtype -> hbt::Basetype
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::BASETYPE x =>  x;
+			                               _                    =>  bug "unexpected type in unpack_basetype_uniqtype";
+                     esac;
+
+
+	my unpack_typefun_uniqtype:      hut::Uniqtype -> (List( hut::Uniqkind ), hut::Uniqtype)
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TYPEFUN x =>  x;
+			                               _                   =>  bug "unexpected hut::Uniqtype in unpack_typefun_uniqtype";
+                     esac;
+
+
+	my unpack_apply_typefun_uniqtype:     hut::Uniqtype -> (hut::Uniqtype, List( hut::Uniqtype ))
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::APPLY_TYPEFUN x =>  x;
+			                               _                         =>  bug "unexpected hut::Uniqtype in unpack_apply_typefun_uniqtype";
+                     esac;
+
+
+	my unpack_typeseq_uniqtype:     hut::Uniqtype -> List( hut::Uniqtype )
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TYPESEQ x =>  x;
+			                               _                   =>  bug "unexpected hut::Uniqtype in unpack_typeseq_uniqtype";
+                     esac;
+
+
+	my unpack_ith_in_typeseq_uniqtype:    hut::Uniqtype -> (hut::Uniqtype, Int)
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ITH_IN_TYPESEQ x =>  x;
+			                               _                          =>  bug "unexpected hut::Uniqtype in unpack_ith_in_typeseq_uniqtype";
+                     esac;
+
+
+	my unpack_sum_uniqtype:     hut::Uniqtype -> List( hut::Uniqtype )
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::SUM x =>  x;
+			                               _               =>  bug "unexpected hut::Uniqtype in unpack_sum_uniqtype";
+                     esac;
+
+
+	my unpack_recursive_uniqtype:     hut::Uniqtype -> (((Int, hut::Uniqtype,  List( hut::Uniqtype)) ), Int)
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::RECURSIVE x =>  x;
+			                               _                     =>  bug "unexpected hut::Uniqtype in unpack_recursive_uniqtype";
+                     esac;
+
+
+	my unpack_extensible_token_uniqtype:    hut::Uniqtype -> hut::Uniqtype
+            =
+            \\ tc =  case (hut::uniqtype_to_type tc)
+                         hut::type::EXTENSIBLE_TOKEN (tk, x)
+                             => 
+		             if (hut::same_token (tk, hut::wrap_token))  x;
+		             else                                        bug "unexpected token hut::Uniqtype in unpack_extensible_token_uniqtype";
+                             fi;
+		         _   => bug "unexpected regular hut::Uniqtype in unpack_extensible_token_uniqtype";
+                     esac;
+
+
+	my unpack_abstract_uniqtype:     hut::Uniqtype -> hut::Uniqtype
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ABSTRACT x =>  x;
+			                               _                    =>  bug "unexpected hut::Uniqtype in unpack_abstract_uniqtype";
+                     esac;
+
+
+	my unpack_boxed_uniqtype:     hut::Uniqtype -> hut::Uniqtype
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::BOXED x =>  x;
+			                               _                 =>  bug "unexpected hut::Uniqtype in unpack_boxed_uniqtype";
+                     esac;
+
+
+	my unpack_tuple_uniqtype:   hut::Uniqtype -> List( hut::Uniqtype )
+             =
+             \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TUPLE (_, x) =>  x;
+			                                _                      =>  bug "unexpected hut::Uniqtype in unpack_tuple_uniqtype";
+                      esac;
+
+
+	my unpack_arrow_uniqtype:   hut::Uniqtype -> (hut::Calling_Convention, List( hut::Uniqtype ), List( hut::Uniqtype ))
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ARROW x =>  x;
+			                               _                 =>  bug "unexpected hut::Uniqtype in unpack_arrow_uniqtype";
+                     esac;
+
+
+
+	# Some hut::Uniqtype predicates: 
+	#
+	my uniqtype_is_debruijn_typevar:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::DEBRUIJN_TYPEVAR _ =>  TRUE;
+                                                       _                            =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_named_typevar:    hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::NAMED_TYPEVAR _ =>  TRUE;
+                                                       _                         =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_basetype:    hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::BASETYPE _ =>  TRUE;
+                                                       _                    =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_typefun:      hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TYPEFUN _ =>  TRUE;
+                                                       _                   =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_apply_typefun:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::APPLY_TYPEFUN _ =>  TRUE;
+                                                       _                         =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_typeseq:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TYPESEQ _ =>  TRUE;
+                                                       _                   =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_ith_in_typeseq:    hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ITH_IN_TYPESEQ _ =>  TRUE;
+                                                       _                          =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_sum:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::SUM _ =>  TRUE;
+                                                       _               =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_recursive:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::RECURSIVE _ =>  TRUE;
+                                                       _                     =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_extensible_token:    hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::EXTENSIBLE_TOKEN (tk, _) =>  hut::same_token (tk, hut::wrap_token);
+			                               _                                  =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_abstract:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ABSTRACT _ =>  TRUE;
+                                                       _                    =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_boxed:     hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::BOXED _ =>  TRUE;
+                                                       _                 =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_tuple:   hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::TUPLE _ =>  TRUE;
+                                                       _                 =>  FALSE;
+                     esac;
+
+
+	my uniqtype_is_arrow:   hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type  tc)    hut::type::ARROW _ =>  TRUE;
+                                                       _                 =>  FALSE;
+                     esac;
+
+
+
+	# Some hut::Uniqtype one-arm switches: 
+	#
+	fun if_uniqtype_is_debruijn_typevar	(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::DEBRUIJN_TYPEVAR	  x => f x;    _ => g tc;  esac;
+	fun if_uniqtype_is_named_typevar	(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::NAMED_TYPEVAR	  x => f x;    _ => g tc;  esac;
+	fun if_uniqtype_is_basetype		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::BASETYPE	  	  x => f x;    _ => g tc;  esac;
+
+	fun if_uniqtype_is_typefun		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::TYPEFUN		  x => f x;   _ => g tc;  esac;
+	fun if_uniqtype_is_apply_typefun	(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::APPLY_TYPEFUN	  x => f x;   _ => g tc;  esac;
+	fun if_uniqtype_is_typeseq		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::TYPESEQ		  x => f x;   _ => g tc;  esac;
+
+	fun if_uniqtype_is_ith_in_typeseq	(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::ITH_IN_TYPESEQ	  x => f x;   _ => g tc;  esac; 
+	fun if_uniqtype_is_sum			(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::SUM		  x => f x;   _ => g tc;  esac;  
+	fun if_uniqtype_is_recursive		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::RECURSIVE	  x => f x;   _ => g tc;  esac;  
+
+	fun if_uniqtype_is_abstract		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::ABSTRACT		  x => f x;   _ => g tc;  esac;  
+	fun if_uniqtype_is_boxed		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::BOXED		  x => f x;   _ => g tc;  esac;  
+
+	fun if_uniqtype_is_tuple		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::TUPLE 	      (_, x)=> f x;   _ => g tc;  esac;
+	fun if_uniqtype_is_arrow		(tc, f, g)   =   case (hut::uniqtype_to_type tc)    hut::type::ARROW 		  x => f x;   _ => g tc;  esac;
+
+	fun if_uniqtype_is_extensible_token  (tc, f, g)
+            = 
+	    case (hut::uniqtype_to_type tc)
+		#
+		hut::type::EXTENSIBLE_TOKEN (rk, x)
+                    =>
+                    if (hut::same_token (rk, hut::wrap_token))   f x;
+		    else                                         g tc;
+                    fi;
+
+		  _ => g tc;
+            esac;  
+
+
+
+	# highcode hut::Uniqtypoid is roughly equivalent to:
+	#
+	#  Type
+	#      = TYPE			 hut::Uniqtype
+	#      | PACKAGE		 List(hut::Uniqtypoid)
+	#      | GENERIC_PACKAGE	(List(hut::Uniqtypoid), List(hut::Uniqtypoid))
+	#      | TYPEAGNOSTIC		(List(hut::Uniqkind), List(hut::Uniqtypoid))
+	#
+	# We treat Uniqtypoid as an abstract type
+	# to isolate clients from the complexity of the
+	# hashconsing machinery;  this has the downside
+	# of preventing them from using pattern matching.
+	# 
+	# Clients do not need to worry about whether an
+	# hut::Uniqtypoid is in normal form or not. 
+
+
+	# hut::Uniqtypoid constructors
+        #
+	my make_type_uniqtypoid:			      hut::Uniqtype			       -> hut::Uniqtypoid	=	hut::typoid_to_uniqtypoid o hut::typoid::TYPE;
+	my make_package_uniqtypoid:		 List(hut::Uniqtypoid)         		       -> hut::Uniqtypoid	=	hut::typoid_to_uniqtypoid o hut::typoid::PACKAGE;
+	my make_generic_package_uniqtypoid:	(List(hut::Uniqtypoid), List(hut::Uniqtypoid)) -> hut::Uniqtypoid	=	hut::typoid_to_uniqtypoid o hut::typoid::GENERIC_PACKAGE;
+	my make_typeagnostic_uniqtypoid:	(List(hut::Uniqkind), List(hut::Uniqtypoid))   -> hut::Uniqtypoid	=	hut::typoid_to_uniqtypoid o hut::typoid::TYPEAGNOSTIC;
+
+
+
+	# hut::Uniqtypoid deconstructors
+	#
+	my unpack_type_uniqtypoid:     hut::Uniqtypoid -> hut::Uniqtype
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt) hut::typoid::TYPE x               =>  x;
+                                                         hut::typoid::PACKAGE            _ =>  bug "hut::typoid::PACKAGE unsupported in unpack_type_uniqtypoid";
+                                                         hut::typoid::GENERIC_PACKAGE    _ =>  bug "hut::typoid::GENERIC unsupported in unpack_type_uniqtypoid";
+                                                         hut::typoid::TYPEAGNOSTIC       _ =>  bug "hut::typoid::TYPEAGNOSTIC unsupported in unpack_type_uniqtypoid";
+                                                         _                                 =>  bug "Unexpected hut::Uniqtypoid in unpack_type_uniqtypoid";
+                     esac;
+
+
+	my unpack_package_uniqtypoid:     hut::Uniqtypoid ->  List( hut::Uniqtypoid )
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::PACKAGE x =>  x;
+			 _                      =>  bug "unexpected hut::Uniqtypoid in unpack_package_uniqtypoid";
+                     esac;
+
+
+	my unpack_generic_package_uniqtypoid:     hut::Uniqtypoid ->  (List( hut::Uniqtypoid ), List( hut::Uniqtypoid ))
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::GENERIC_PACKAGE x =>  x;
+			 _                              =>  bug "unexpected hut::Uniqtypoid in unpack_generic_package_uniqtypoid";
+                     esac;
+
+
+	my unpack_typeagnostic_uniqtypoid:    hut::Uniqtypoid -> (List( hut::Uniqkind ), List( hut::Uniqtypoid ))
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::TYPEAGNOSTIC x =>  x;
+			 _                           =>  bug "unexpected hut::Uniqtypoid in unpack_typeagnostic_uniqtypoid";
+                     esac;
+
+
+
+	# hut::Uniqtypoid predicates 
+	#
+	my uniqtypoid_is_type:     hut::Uniqtypoid -> Bool
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::TYPE _ =>  TRUE;
+                         _                   =>  FALSE;
+                     esac;
+
+
+	my uniqtypoid_is_package:     hut::Uniqtypoid -> Bool
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::PACKAGE _ =>  TRUE;
+                         _                      =>  FALSE;
+                     esac;
+
+
+	my uniqtypoid_is_generic_package:     hut::Uniqtypoid -> Bool
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::GENERIC_PACKAGE _ =>  TRUE;
+                         _                              =>  FALSE;
+                     esac;
+
+
+	my uniqtypoid_is_typeagnostic:    hut::Uniqtypoid -> Bool
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)
+			 #
+			 hut::typoid::TYPEAGNOSTIC _ =>  TRUE;
+                         _                           =>  FALSE;
+                     esac;
+
+
+
+	# hut::Uniqtypoid one-arm switches.
+	# These are if-then-else constructs which may be
+	# daisy-chained to implement a complete 'case' statement:
+	#
+	fun if_uniqtypoid_is_type		(lt, f, g) =  case (hut::uniqtypoid_to_typoid lt)    hut::typoid::TYPE		   x => f x;  _ => g lt;	esac;
+	fun if_uniqtypoid_is_package 		(lt, f, g) =  case (hut::uniqtypoid_to_typoid lt)    hut::typoid::PACKAGE          x => f x;  _ => g lt;	esac;
+	fun if_uniqtypoid_is_generic_package	(lt, f, g) =  case (hut::uniqtypoid_to_typoid lt)    hut::typoid::GENERIC_PACKAGE  x => f x;  _ => g lt;	esac;
+	fun if_uniqtypoid_is_typeagnostic	(lt, f, g) =  case (hut::uniqtypoid_to_typoid lt)    hut::typoid::TYPEAGNOSTIC     x => f x;  _ => g lt;	esac;
+
+
+	# Because highcode hut::Uniqtype is embedded inside
+	# highcode hut::Uniqtypoid, we supply the the following
+	# utility functions for building types that are based
+	# on simple typelocked types.
+
+
+
+	# hut::Uniqtype-hut::Uniqtypoid constructors 
+	#
+	my make_debruijn_typevar_uniqtypoid:	(di::Debruijn_Index, Int)  -> hut::Uniqtypoid	=  make_type_uniqtypoid o make_debruijn_typevar_uniqtype;
+	my make_basetype_uniqtypoid:		 hbt::Basetype		   -> hut::Uniqtypoid	=  make_type_uniqtypoid o make_basetype_uniqtype;
+	my make_tuple_uniqtypoid:		 List(hut::Uniqtypoid)	   -> hut::Uniqtypoid	=  make_type_uniqtypoid o (make_tuple_uniqtype o (map unpack_type_uniqtypoid));
+	#
+	my make_arrow_uniqtypoid:   (hut::Calling_Convention,  List( hut::Uniqtypoid ),  List( hut::Uniqtypoid )) -> hut::Uniqtypoid
+            =
+            \\ (r, t1, t2)
+                =
+	        {   ts1 =  map  unpack_type_uniqtypoid  t1;
+	            ts2 =  map  unpack_type_uniqtypoid  t2;
+		    #
+	            make_type_uniqtypoid (make_arrow_uniqtype (r, ts1, ts2));
+	        };
+
+
+
+	# Some hut::Uniqtype-hut::Uniqtypoid deconstructors 
+	#
+	my unpack_debruijn_typevar_uniqtypoid:   hut::Uniqtypoid -> (di::Debruijn_Index, Int)	=  unpack_debruijn_typevar_uniqtype  o unpack_type_uniqtypoid;
+	my unpack_basetype_uniqtypoid:		 hut::Uniqtypoid -> hbt::Basetype		=  unpack_basetype_uniqtype          o unpack_type_uniqtypoid;
+	my unpack_tuple_uniqtypoid:		 hut::Uniqtypoid -> List( hut::Uniqtypoid )	= (map make_type_uniqtypoid)         o (unpack_tuple_uniqtype o unpack_type_uniqtypoid);
+	#
+	my unpack_arrow_uniqtypoid:		 hut::Uniqtypoid -> (hut::Calling_Convention, List(hut::Uniqtypoid),  List(hut::Uniqtypoid))
+            =
+            \\ t =  {   my (r, ts1, ts2) = unpack_arrow_uniqtype (unpack_type_uniqtypoid t);
+	                (r, map make_type_uniqtypoid ts1, map make_type_uniqtypoid ts2);
+	            };
+
+
+
+	# Some hut::Uniqtype-hut::Uniqtypoid predicates 
+
+	my uniqtypoid_is_debruijn_typevar:     hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)    hut::typoid::TYPE x =>  uniqtype_is_debruijn_typevar x;
+                                                          _                  =>  FALSE;
+                    esac;
+
+
+	my uniqtypoid_is_basetype:    hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)    hut::typoid::TYPE x =>  uniqtype_is_basetype x;
+                                                          _                  =>  FALSE;
+                    esac;
+
+
+	my uniqtypoid_is_tuple_type:   hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)  hut::typoid::TYPE x =>  uniqtype_is_tuple x;
+                                                        _                  =>  FALSE;
+                    esac;
+
+
+	my uniqtypoid_is_arrow_type:   hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)  hut::typoid::TYPE x =>  uniqtype_is_arrow x;
+                                                        _                  =>  FALSE;
+                    esac;
+
+
+
+	# Some hut::Uniqtype-hut::Uniqtypoid one-arm switches:
+ 	#
+	fun if_uniqtypoid_is_debruijn_typevar (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)
+	         hut::typoid::TYPE tc
+                     => 
+		     case (hut::uniqtype_to_type tc)    hut::type::DEBRUIJN_TYPEVAR x =>  f x;
+                                                      _                            =>  g lt;
+                     esac;
+
+		_ => g lt;
+	    esac;
+
+
+	fun if_uniqtypoid_is_basetype (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)
+	        hut::typoid::TYPE tc
+                    => 
+		    case (hut::uniqtype_to_type tc)    hut::type::BASETYPE x =>  f x;
+                                                     _                    =>  g lt;
+                    esac;
+	      _ => g lt;
+            esac;
+
+
+	fun if_uniqtypoid_is_tuple_type (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)
+	        hut::typoid::TYPE tc
+                    => 
+		    case (hut::uniqtype_to_type tc)    hut::type::TUPLE (_, x) =>  f x;
+                                                     _                           =>  g lt;
+                    esac;
+	      _ => g lt;
+            esac;
+
+
+	fun if_uniqtypoid_is_arrow_type (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)
+		#
+	        hut::typoid::TYPE tc
+                    => 
+		    case (hut::uniqtype_to_type tc)
+			#
+                        hut::type::ARROW x =>  f x;
+                        _                      =>  g lt;
+                    esac;
+
+	       _ => g lt;
+            esac;
+
+
+
+	#########################################################################3
+	# The following functions are written for nextcode only.
+        # If you are writing writing code for highcode,
+        # you should not use any of these functions. 
+        #
+	# The fate referred here is the internal
+        # fate introduced via nextcode conversion;
+        # it is different from the source-level fate 
+	# (Fate(X)) or control fate (Control_Fate(X))
+        # where are represented  hbt::primTypeCon_fate and
+        # hbt::primTypeCon_control_fate respectively. 
+
+
+	# Our fate-hut::Uniqtype-hut::Uniqtypoid constructors
+        #
+	my make_uniqtype_fate:		List( hut::Uniqtype ) -> hut::Uniqtype  	  =  hut::type_to_uniqtype       o  hut::type::FATE;
+	my make_uniqtypoid_fate:	List( hut::Uniqtypoid) -> hut::Uniqtypoid =  hut::typoid_to_uniqtypoid o  hut::typoid::FATE;
+
+
+	# Our fate-hut::Uniqtype-hut::Uniqtypoid deconstructors.
+	# These are inverse to the above two:
+	#
+	my unpack_uniqtype_fate:    hut::Uniqtype -> List( hut::Uniqtype )
+            =
+            \\ tc =  case (hut::uniqtype_to_type tc)    hut::type::FATE x =>  x;
+			                              _                =>  bug "unexpected hut::Uniqtype in unpack_uniqtype_fate";
+                     esac;
+
+
+	my unpack_uniqtypoid_fate:    hut::Uniqtypoid -> List( hut::Uniqtypoid )
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)    hut::typoid::FATE x =>  x; 
+			                                    _                   =>  bug "unexpected hut::Uniqtypoid in unpack_uniqtypoid_fate";
+                     esac;
+
+
+	# Our fate-hut::Uniqtype-hut::Uniqtypoid predicates 
+	#
+	my uniqtype_is_fate:    hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type tc)    hut::type::FATE _ =>  TRUE;
+                                                      _                =>  FALSE;
+                     esac;
+
+
+	my uniqtypoid_is_fate:    hut::Uniqtypoid -> Bool
+            =
+            \\ lt =  case (hut::uniqtypoid_to_typoid lt)  hut::typoid::FATE _ =>  TRUE;
+                                                          _                   =>  FALSE;
+                     esac;
+
+
+
+	#  Our fate-hut::Uniqtype-hut::Uniqtypoid one-arm switches 
+
+	fun if_uniqtype_is_fate (tc, f, g)
+            = 
+	    case (hut::uniqtype_to_type tc)    hut::type::FATE x =>  f x;
+                                             _                     =>  g tc;
+            esac; 
+
+
+	fun if_uniqtypoid_is_fate (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)    hut::typoid::FATE x =>  f x;
+                                                   _                   =>  g lt;
+            esac;
+
+
+
+
+
+	################################################################################################
+	# The following functions are written for lambdacode_type only. If you
+	# are writing code for highcode only, don't use any of these functions. 
+	# The idea is that in lambdacode, all (value or type) functions have single
+	# argument and single return-result. Ideally, we should define 
+	# another sets of sumtypes for types and ltys. But we want to avoid
+	# the translation from lambdacode_type to highcode types, so we let them
+	# share the same representations as much as possible. 
+	#
+	# Ultimately, highcode_type should be separated into two files: one for 
+	# highcode, another for lambdacode, but we will see if this is necessary.
+
+
+	# The implementation here is TEMPORARY; Stefan needs to take a look at     XXX BUGGO FIXME
+	# this. Note parrow could share the representation with arrow if there 
+	# is one-to-one mapping between parrow and arrow.
+
+
+	# plambda hut::Uniqtype-hut::Uniqtypoid constructors
+        #
+	my make_lambdacode_arrow_uniqtype:  (hut::Uniqtype, hut::Uniqtype) -> hut::Uniqtype
+            =    
+	    \\ (x, y) =  make_arrow_uniqtype (make_variable_calling_convention { arg_is_raw => FALSE, body_is_raw => FALSE }, [x], [y]);
+
+
+	my make_lambdacode_arrow_uniqtypoid:  (hut::Uniqtypoid, hut::Uniqtypoid) -> hut::Uniqtypoid
+            =
+	    \\ (x, y) =  make_type_uniqtypoid (make_lambdacode_arrow_uniqtype (unpack_type_uniqtypoid x, unpack_type_uniqtypoid y));
+
+
+	my make_lambdacode_typeagnostic_uniqtypoid:    (List( hut::Uniqkind ), hut::Uniqtypoid) -> hut::Uniqtypoid
+            =
+            \\ (ks, t) =  make_typeagnostic_uniqtypoid (ks, [t]);
+
+
+	my make_lambdacode_generic_package_uniqtypoid:    (hut::Uniqtypoid, hut::Uniqtypoid) -> hut::Uniqtypoid
+            =
+            \\ (x, y) =  make_generic_package_uniqtypoid ([x], [y]);
+
+
+
+	# Our* plambda hut::Uniqtype-hut::Uniqtypoid deconstructors:
+        #
+	my unpack_lambdacode_arrow_uniqtype:  hut::Uniqtype -> (hut::Uniqtype, hut::Uniqtype)
+            =
+            \\ tc = {
+																if *log::debugging	printf "unpack_lambdacode_arrow_uniqtype/AAA -- highcode-type.pkg\n";		fi;
+			case (hut::uniqtype_to_type tc)
+			    #
+			    hut::type::ARROW (_, xs, ys) => {
+																if *log::debugging	printf "unpack_lambdacode_arrow_uniqtype/BBB -- highcode-type.pkg\n";		fi;
+								( hut::uniqtype_list_to_uniqtype_tuple  xs,
+								  hut::uniqtype_list_to_uniqtype_tuple  ys
+							        );
+							    };
+
+			    _ => bug "unexpected hut::Uniqtype in unpack_lambdacode_arrow_uniqtype";
+			esac;
+		    };
+
+	my unpack_lambdacode_arrow_uniqtypoid:  hut::Uniqtypoid -> (hut::Uniqtypoid, hut::Uniqtypoid)
+            =
+            \\ t =  {
+																if *log::debugging	printf "unpack_lambdacode_arrow_uniqtypoid/AAA -- highcode-type.pkg\n";		fi;
+			my (t1, t2)
+                            =
+                            unpack_lambdacode_arrow_uniqtype (unpack_type_uniqtypoid t);
+
+																if *log::debugging	printf "unpack_lambdacode_arrow_uniqtypoid/ZZZ -- highcode-type.pkg\n";		fi;
+	                ( make_type_uniqtypoid t1,
+                          make_type_uniqtypoid t2
+                        );
+	            };
+
+
+	my unpack_lambdacode_typeagnostic_uniqtypoid:   hut::Uniqtypoid ->  (List( hut::Uniqkind ), hut::Uniqtypoid)
+            =
+            \\ t =  {   my (ks, ts)
+                            =
+                            unpack_typeagnostic_uniqtypoid t;
+
+	                case ts    [x] =>  (ks, x);
+		                    _  =>  bug "unexpected case in unpack_lambdacode_typeagnostic_uniqtypoid";
+                        esac;
+	             };
+
+
+	my unpack_lambdacode_generic_package_uniqtypoid:    hut::Uniqtypoid -> (hut::Uniqtypoid, hut::Uniqtypoid)
+            =
+            \\ t =  {   my (ts1, ts2)
+                            =
+                            unpack_generic_package_uniqtypoid t;
+
+	                case (ts1, ts2)    ([x], [y]) =>  (x, y);
+			                   _          =>  bug "unexpected case in unpack_lambdacode_generic_package_uniqtypoid";
+                        esac;
+	            };
+
+
+
+	# Our plambda hut::Uniqtype-hut::Uniqtypoid predicates 
+	#
+	my uniqtype_is_lambdacode_arrow:  hut::Uniqtype -> Bool
+            =
+            \\ tc =  case (hut::uniqtype_to_type tc)    hut::type::ARROW (_, [x], [y]) =>  TRUE;
+                                                      _                                  =>  FALSE;
+                     esac;
+
+
+	my uniqtypoid_is_lambdacode_arrow:  hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)    hut::typoid::TYPE x =>  uniqtype_is_lambdacode_arrow x;
+                                                          _                  =>  FALSE;
+                    esac;
+
+
+	my uniqtypoid_is_lambdacode_typeagnostic:   hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)    hut::typoid::TYPEAGNOSTIC (_, [x]) =>  TRUE;
+                                                          _                                  =>  FALSE;
+                    esac;
+
+
+	my uniqtypoid_is_lambdacode_generic_package:    hut::Uniqtypoid -> Bool
+            =
+            \\ t =  case (hut::uniqtypoid_to_typoid t)  hut::typoid::GENERIC_PACKAGE ([x], [y]) =>  TRUE;
+                                                        _                                       =>  FALSE;
+                    esac;
+
+
+
+	# Our plambda hut::Uniqtype-hut::Uniqtypoid one-arm switches 
+	#
+	fun if_uniqtype_is_lambdacode_arrow (tc, f, g)
+	    =
+	    case (hut::uniqtype_to_type tc)    hut::type::ARROW (_,[x],[y]) =>  f (x, y);
+                                             _                                =>  g tc;
+            esac;
+
+
+	fun if_uniqtypoid_is_lambdacode_arrow (lt, f, g)
+            = 
+	    case (hut::uniqtypoid_to_typoid lt)
+		#
+		hut::typoid::TYPE tc
+		    => 
+		    case (hut::uniqtype_to_type tc)    hut::type::ARROW (_,[x],[y]) =>  f (x, y);
+						     _                                =>  g lt;
+		    esac;
+
+		_ => g lt;
+            esac;
+
+
+	fun if_uniqtypoid_is_lambdacode_typeagnostic (lt, f, g)
+            =
+	    case (hut::uniqtypoid_to_typoid lt)    hut::typoid::TYPEAGNOSTIC (ks,[x]) =>  f (ks, x);
+                                                   _                                  =>  g lt;
+            esac;
+
+
+	fun if_uniqtypoid_is_lambdacode_generic_package (lt, f, g)
+            =
+	    case (hut::uniqtypoid_to_typoid lt)
+		#
+		hut::typoid::GENERIC_PACKAGE ([x],[y]) =>  f (x, y);
+		 _                                     =>  g lt;
+            esac;
+
+    };													#  package highcode_type 
+end;													#  top-level stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,357 @@
+## make-core-utils-g.pkg
+#  Mythryl-Yacc Parser Generator (c) 1989 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/mythryl-yacc.lib
+
+###          "There is music in everything,
+###           if you know how to find it."
+###
+###                -- Terry Pratchett,  Soul Music
+
+
+
+generic package make_core_utils (package core:  Core;)		# Core		is from   src/app/yacc/src/core.api
+: (weak)
+Core_Stuff						# Core_Stuff	is from   src/app/yacc/src/core-stuff.api
+{
+    include rw_vector;
+    include list;
+
+    infix my 9 sub;
+    debug = TRUE;
+
+    package core = core;
+
+    package internal_grammar =   core::internal_grammar;
+    package     grammar =   internal_grammar::grammar;
+
+    include grammar;
+    include internal_grammar;
+    include core;
+
+    package assoc = symbol_assoc;
+
+    package nt_list
+        =
+        list_ord_set_g (
+	    package {
+		 Element = Nonterminal;
+		eq = eq_nonterm;
+		gt = gt_nonterm;
+	    }
+        );
+
+    fun make_funcs (GRAMMAR { rules, terms, nonterms, ... } )
+        =
+        { produces, shifts, rules, eps_prods }
+        where 
+
+	    derives  = make_rw_vector (nonterms, NIL:  List( Rule ));
+
+	    # Sort rules by their lhs nonterminal
+	    # by placing them in an rw_vector indexed
+	    # in their lhs nonterminal:
+
+	    {   fun f { lhs as (NONTERM n), rhs, precedence, rulenum }
+                    =
+		    {   rule = RULE { lhs, rhs, precedence, rulenum, num=>0 };
+		        rw_vector::set (derives, n, rule ! derives[n]);
+		    };
+
+		apply f rules;
+	    };
+
+
+	    # Renumber rules so that rule numbers increase monotonically with
+	    # the number of their lhs nonterminal, and so that rules are numbered
+	    # sequentially.  **Functions below assume that this number is TRUE**, 
+	    # i.e. productions for nonterm i are numbered from j to k, 
+	    # productions for nonterm i+1 are numbered from k+1 to m, and
+	    # productions for nonterm 0 start at 0
+	    #
+	    {
+		fun f (RULE { lhs, rhs, precedence, rulenum, num }, (l, i))
+		    =
+		    (RULE { lhs, rhs, precedence, rulenum, num=>i } ! l, i+1);
+
+		fun g (i, num)
+                    =
+		    if   (i < nonterms)
+                        
+			 my (l, n)
+                             =
+			     list::fold_backward f ([], num) derives[i];
+
+			 rw_vector::set (derives, i, reverse l); g (i+1, n);
+		    fi;
+
+		g (0, 0);
+	    };
+
+            #  list of rules - sorted by rule number. 
+
+	    rules
+                = 
+		g 0
+                where 
+
+		    fun g i
+                        =
+			if   (i < nonterms)
+                            
+                             derives[i] @ (g (i+1));
+			else
+                             NIL;
+                        fi;
+		end;
+
+		# produces: set of productions with nonterminal n as the lhs.  The set
+		# of productions *must* be sorted by rule number, because functions
+		# below assume that this list is sorted
+
+		fun produces (NONTERM n)
+		    =
+		    if   (debug and (n<0 or n>=nonterms))
+                        
+		         exception PRODUCES  Int;
+                         raise exception (PRODUCES n);
+		    else
+                         derives[n];
+                    fi;
+
+		fun memoize f
+		    =
+		    {   fun loop i
+                            =
+                            if   (i == nonterms)
+                                
+                                 NIL;
+			    else
+                                 f (NONTERM i) ! (loop (i+1));
+                            fi;
+
+			data =   rw_vector::from_list (loop 0);
+
+		        \\ (NONTERM i) =   data[i];
+		    };
+
+		# compute nonterminals which must be added to a closure when a given
+		# nonterminal is added, i.e. all nonterminals 'c' for each nonterminal 'a' such
+		# that 'a' =*=> 'c'x
+
+		nonterm_closure
+                    =
+		    {   collect_nonterms
+                            =
+                            \\ n
+                                =
+				list::fold_backward
+
+				    (\\ (r, l)
+					=
+					case r
+					  
+					     RULE { rhs=>NONTERMINAL n ! _, ... }
+						 =>
+						 nt_list::set (n, l);
+					     _   => l;
+					esac
+				    )
+
+				    nt_list::empty
+
+				    (produces n);
+
+			closure_nonterm
+			    =
+			    \\ n
+				=
+				nt_list::closure (nt_list::singleton n, collect_nonterms);
+
+			 memoize closure_nonterm;
+		    };
+
+		# ntShifts: Take the items produced by a nonterminal, and sort them
+		# by their first symbol.  For each first symbol, make sure the item
+		# list associated with the symbol is sorted also.   ** This function
+		# assumes that the item list returned by produces is sorted **
+		#
+		# Create a table of item lists keyed by symbols.  Scan the list
+		# of items produced by a nonterminal, and insert those with a first
+		# symbol on to the beginning of the item list for that symbol, creating
+		# a list if necessary.  Since produces returns an item list that is
+		# already in order, the list for each symbol will also end up in order.
+		#
+		fun sort_items nt
+		    =
+		    {   fun add_item (a as RULE { rhs=>symbol ! rest, ... }, r)
+                                =>
+				{   item = ITEM { rule=>a, dot=>1, rhs_after=>rest };
+
+				    assoc::set(
+                                        (   symbol,
+
+                                            case (assoc::find (symbol, r))
+					      
+					         THE l => item ! l;
+						 NULL => [item];
+                                            esac
+                                        ),
+                                        r
+                                    );
+				};
+
+			    add_item (_, r)
+                                =>
+                                r;
+                        end;
+
+		        list::fold_backward add_item assoc::empty (produces nt);
+		    };
+
+		 nt_shifts = memoize sort_items;
+
+		# getNonterms: get the nonterminals with a !  before them in a core.
+		# Returns a list of nonterminals in ascending order
+
+		fun get_nonterms l
+                    =
+		    list::fold_backward
+			\\ (ITEM { rhs_after=>NONTERMINAL symbol ! _, ... }, r)
+			       =>
+			       nt_list::set (symbol, r);
+			   (_, r)
+			       =>
+			       r;
+			end 
+                        []
+                        l;
+
+		# closureNonterms: compute the nonterminals that would have a ! before them
+		# in the closure of the core.  Returns a list of nonterminals in ascending
+		# order
+
+		fun closure_nonterms a
+                    =
+		    {   nonterms = get_nonterms a;
+
+		 	list::fold_backward
+                            (\\ (nt, r) => nt_list::union (nonterm_closure nt, r); end )
+			    nonterms
+                            nonterms;
+		    };
+
+		#   shifts: compute the core sets that result from shift/gotoing on 
+		#   the closure of a kernel set.  The items in core sets are sorted, of
+		#   course.
+		#
+		#   (1) compute the core sets that result just from items added
+		#       through the closure operation.
+		#   (2) then add the shift/gotos on kernel items.
+		#
+		#    We can do (1) the following way.  Keep a table  which for each shift/goto
+		#  symbol gives the list of items that result from shifting or gotoing on the
+		#  symbol.  Compute the nonterminals that would have dots before them in the
+		#  closure of the kernel set.  For each of these nonterminals, we already have an
+		#  item list in sorted order for each possible shift symbol.  Scan the nonterminal
+		#  list from back to front.  For each nonterminal, prepend the shift/goto list
+		#  for each shift symbol to the list already in the table.
+		#
+		#    We end up with the list of items in correct order for each shift/goto
+		#  symbol.  We have kept the item lists in order, scanned the nonterminals from
+		#  back to front (=> that the items end up in ascending order), and never had any
+		#  duplicate items (each item is derived from only one nonterminal).
+
+		fun shifts (CORE (item_list, _))
+		    =
+		    {   #  mergeShiftItems: add an item list for a shift/goto symbol to the table 
+
+	                fun merge_shift_items (args as ((k, l), r))
+			    =
+			    case (assoc::find (k, r))
+			      
+			         THE old =>  assoc::set ((k, l@old), r);
+			         NULL    =>  assoc::set args;
+                            esac;
+
+			#   mergeItems: add all items derived from a nonterminal to the table.
+			#   We've  kept these items sorted by their shift/goto symbol
+			#   (the first symbol on their rhs)
+
+			fun merge_items (n, r)
+                            =
+			    assoc::fold merge_shift_items (nt_shifts n) r;
+
+			#   nonterms: a list of nonterminals that are in a core after the
+			#   closure operation
+
+			nonterms = closure_nonterms item_list;
+
+			#   now create a table which for each shift/goto symbol gives the sorted list
+			#   of closure items which would result from first taking all the closure items
+			#   and then sorting them by the shift/goto symbols
+
+			newsets = list::fold_backward merge_items assoc::empty nonterms;
+
+	                #  finally prepare to insert the kernel items of a core 
+
+			fun insert_item ((k, i), r)
+                            =
+			    case (assoc::find (k, r))
+			      
+			         THE l =>  assoc::set((k, core::set (i, l)), r);
+			         NULL  =>  assoc::set((k,[i]), r);
+                            esac;
+
+			fun shift_cores (ITEM { rule, dot, rhs_after=>symbol ! rest }, r)
+				=>
+				insert_item((symbol,
+					   ITEM { rule, dot=>dot+1, rhs_after=>rest } ), r);
+
+			    shift_cores(_, r)
+                                =>
+                                r;
+                        end;
+
+	                # Insert the kernel items of a core 
+
+			newsets = list::fold_backward shift_cores newsets item_list;
+
+		        assoc::make_list newsets;
+		   };
+
+		#   nontermEpsProds: returns a list of epsilon productions produced by a
+		#   nonterminal sorted by rule number. ** Depends on produces returning
+		#   an ordered list **.  It does not alter the order in which the rules
+		#   were returned by produces; it only removes non-epsilon productions
+		#
+	        nonterm_eps_prods
+                    =
+	            memoize f
+                    where 
+
+	                fun f nt
+                            =
+			    list::fold_backward
+				\\ (rule as RULE { rhs=>NIL, ... }, results) => rule ! results;
+				   (_,                              results) =>        results;
+				end
+			        []
+                                (produces nt);
+		    end; 
+
+	#   epsProds: take a core and compute a list of epsilon productions for it
+	#   sorted by rule number.  ** Depends on closureNonterms returning a list
+	#   of nonterminals sorted by nonterminal #, rule numbers increasing
+	#   monotonically with their lhs production #, and nontermEpsProds returning
+	#   an ordered item list for each production 
+	#
+	fun eps_prods (CORE (item_list, state))
+	    =
+	    {   prods = map nonterm_eps_prods (closure_nonterms item_list);
+	        list::cat prods;
+	    };
+
+     end;				# fun make_funcs 
+};

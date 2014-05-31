@@ -1,0 +1,653 @@
+## core.pkg
+
+# Compiled by:
+#     src/lib/core/init/init.cmi
+
+
+# 'core' assumes that the following
+# are already in the symbol table: 
+#
+#   1. Built-in packages, defined in base_types, from src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+#        base_types inline
+#   
+#   2. Built-in type constructors, defined in base_types, from src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+#        Int String Bool Void Float List Rw_Vector Ref Exception
+#
+#   3. Built-in data constructors, also from base_types, from src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+#        . NIL REF TRUE FALSE
+#
+#   4. Built-in primitive operators, defined in inline, from src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops.pkg
+#      The inline package is not typed (all values have type alpha, this
+#      will change in the future though !). 
+#       
+#   5. The 'assembly' package, which for typechecking purposes is declared
+#      in the file src/lib/core/init/runtime.pkg
+#      and whose implementation is provided by the runtime system.
+#
+# In addition, all matches in this file should be exhaustive; the match and 
+# bind exceptions are not defined at this stage of bootup, so any uncaught 
+# match will cause an unpredictable error. 
+
+
+
+###                     "I am no lazier now than I was forty years ago,
+###                      but that is because I reached the limit forty years ago.
+###                      You can't go beyond possibility."
+###
+###                                        -- Mark Twain in Eruption
+
+
+
+package core {
+
+    # Our 'runtime' package comes from the hand-crafted (pseudo-) package
+    #
+    #     runtime_package__global
+    #
+    # generated in
+    #
+    #     src/c/main/construct-runtime-package.c
+    #
+    # and made available at the Mythryl level by
+    #
+    #     src/c/main/load-compiledfiles.c
+    #
+    #     "The coercions are implemented via inline::cast, 
+    #      a primitive operator hardwired inside the compiler.
+    #      In the future, the linkage should be done safely
+    #      without using cast."   -- ZHONG
+    #
+    #     "In the future, the runtime::asm subpackage will be
+    #      replaced by a dynamic run vector."  -- John H Reppy
+    #
+    # Our core::runtime package gets published as just "runtime" in:
+    #
+    #     src/lib/core/init/built-in.pkg
+    #  
+
+    package   runtime
+    : (weak)  Runtime						# Runtime	is from   src/lib/core/init/runtime.api
+    {
+	include runtime;					# runtime	is from   src/lib/core/init/runtime.pkg
+
+	cast =  inline::cast:  X -> Y;  			# inline	is from   x
+
+        Pair (X, Y) = PAIR  (X, Y);
+
+        package asm {
+	    #
+	    # This package makes available at the Mythryl level
+	    # the assembly-language functions exported by the
+	    # platform-specific files
+	    #
+	    #	src/c/machine-dependent/prim.intel32.asm
+	    #	src/c/machine-dependent/prim.sparc32.asm
+	    #	src/c/machine-dependent/prim.pwrpc32.asm
+	    #	src/c/machine-dependent/prim.intel32.masm
+	    #
+	    Cfunction         =  runtime::asm::Cfunction;
+	    Unt8_Rw_Vector    =  runtime::asm::Unt8_Rw_Vector;
+	    Float64_Rw_Vector =  runtime::asm::Float64_Rw_Vector;
+	    Spin_Lock         =  runtime::asm::Spin_Lock;
+
+            my array_p:                     Pair( Int, X ) -> Rw_Vector(X)	=   cast runtime::asm::make_typeagnostic_rw_vector;
+	    my make_typeagnostic_rw_vector: (Int, X) -> Rw_Vector(X)		=   \\ x =  array_p (PAIR x);
+            my find_cfun_p:                 Pair( String, String ) -> Cfunction =   cast runtime::asm::find_cfun;
+	    my find_cfun:                  (String, String) -> Cfunction	=   \\ x =  find_cfun_p (PAIR x);
+            my call_cfun_p:                 Pair( Cfunction, X ) -> Z		=   cast runtime::asm::call_cfun;
+	    my call_cfun:                  (Cfunction, X) -> Z			=   \\ x =  call_cfun_p (PAIR x);
+
+	    my make_unt8_rw_vector:         Int -> Unt8_Rw_Vector		=   cast runtime::asm::make_unt8_rw_vector;
+	    my make_float64_rw_vector:      Int -> Float64_Rw_Vector		=   cast runtime::asm::make_float64_rw_vector;
+	    my make_string:  		    Int -> String			=   cast runtime::asm::make_string;
+            my create_v_p:                  Pair( Int, List(X) ) -> Vector(X)	=   cast runtime::asm::make_typeagnostic_ro_vector;	# ??? What's going on here? 2010-11-21 CrT
+	    my make_typeagnostic_ro_vector: (Int, List(X)) -> Vector(X)		=   \\ x =  create_v_p (PAIR x);			# ???
+
+
+
+	    my floor:    Float -> Int                 =  cast  runtime::asm::floor;
+	    my logb:     Float -> Int                 =  cast  runtime::asm::logb;
+            my scalb_p:  Pair( Float, Int ) -> Float  =  cast  runtime::asm::scalb;
+
+	    my scalb:  (Float, Int) -> Float
+                    =  \\ x =  scalb_p (PAIR x);
+
+	    my try_lock:  Spin_Lock -> Bool   =   cast  runtime::asm::try_lock;
+	    my unlock:    Spin_Lock -> Void   =   cast  runtime::asm::unlock;
+	};
+
+	my zero_length_vector__global:   Vector(X) =   cast  zero_length_vector__global;
+    };
+
+    infix  my 80  * / % quot mod rem div;
+    infix  my 70 $ ^ + - ;
+    infixr my 60 ! . @ ;
+    infix  my 50 > < >= <= ;
+    infix  my 40 := o;
+    infix  my 10 then;
+
+    exception BIND;
+    exception MATCH;
+
+    exception RANGE;      		#  for Unt8_Rw_Vector update 
+    exception INDEX_OUT_OF_BOUNDS;  	#  for all bounds checking 
+    exception SIZE; 
+
+    stipulate
+        exception NO_PROFILER;
+    herein
+        register_package_for_time_profiling										# This gets set to a useful value in   src/lib/std/src/nj/runtime-profiling-control.pkg
+	    =
+	    REF (\\ s: String = (raise exception NO_PROFILER): (Int, Rw_Vector( Int ), Ref( Int )) );
+    end;
+
+    stipulate
+	#
+	my ieql:  (Int, Int) -> Bool			= inline::ti1_eq;
+	my peql:  (X, X) -> Bool			= inline::ptreql;
+	my ineq:  (Int, Int) -> Bool			= inline::ti1_ne;
+	my i32eq:  (Int1, Int1) -> Bool			= inline::i1_eq;
+	#
+	my boxed:  X -> Bool				= inline::boxed;
+	#
+	my (+) : (Int, Int) -> Int			= inline::ti1_add;
+	my (-) : (Int, Int) -> Int			= inline::ti1_subtract;
+	my (*) : (Int, Int) -> Int			= inline::ti1_mul;
+	#
+	my (:=): (Ref(X), X) -> Void			= (inline::(:=));
+	#
+	my ro_int8_vec_get:  (String, Int) -> Int	= inline::ro_int8_vector_get;
+	my cast:  X -> Y				= inline::cast;
+	#
+	my get_chunk_tag:  X -> Int			= inline::gettag;
+	my get_chunk_len:  X -> Int			= inline::chunklength;
+	my get_data:  X -> Y				= inline::get_vector_datachunk;
+	#
+	my rec_get:  ((X, Int)) -> Y			= inline::record_get;
+	my vec_len:  X -> Int				= inline::length;
+	my vec_get:  (Vector(X), Int) -> X		= inline::ro_vector_get;
+	#
+	my bitwise_and:  (Int, Int) -> Int		= inline::ti1_bitwise_and;
+
+	width_tags = 0u7;  #  5 tag bits plus "10" 
+
+	# "The type annotation is just to work around an bug."
+        #                         -- sm 
+	#
+	my ltu:  (Int, Int) -> Bool
+            =
+            inline::ti1_ltu;
+
+    herein 
+
+	# Limit of vector, string, etc. element count is
+	# one greater than the maximum length field value.
+	# (Sign bit must be zero).
+	#	
+	maximum_vector_length
+	    =
+	    {   (-) =   inline::tu1_subtract;
+		#
+		infix my << ;
+
+		(<<) =   inline::tu1_lshift;
+
+		int =   inline::copy_31_31_ui;
+
+		int ((0u1 << (0u31 - width_tags)) - 0u1);
+	    };
+
+
+	# WARNING: This function is referenced indirectly in
+	#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+	# via the code
+	#     core_get "make_vector"
+	#
+	fun make_vector (n, init)					# Renaming?  See note [1].
+	    = 
+	    if (ieql (n, 0))
+		#               
+		inline::make_zero_length_vector ();
+	    else
+		if (ltu (maximum_vector_length, n))   raise exception SIZE; 	fi;
+		#
+		runtime::asm::make_typeagnostic_rw_vector (n, init);
+	    fi;
+
+
+	stipulate
+	    make_float_vector_prim
+		=
+		inline::cast  runtime::asm::make_float64_rw_vector
+		:
+		Int -> Rw_Vector(Float);
+	herein
+
+	    # WARNING: This function is referenced indirectly in
+	    #     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+	    # via the code
+	    #     core_get "make_float_vector"
+	    #
+	    fun make_float_vector (n:  Int, v:  Float) : Rw_Vector( Float )					# Renaming?  See note [1].
+		=
+		if (ieql (n, 0))
+		    #               
+		    inline::make_zero_length_vector ();
+		else
+		    if (ltu (maximum_vector_length, n))		raise exception SIZE; 	fi;
+		    #
+		    x =  make_float_vector_prim  n;
+
+		    init 0
+		    where
+			fun init i
+			    = 
+			    if (ieql (i, n))
+				#
+				x;
+			    else 
+				inline::rw_f64_vector_set (x, i, v); 
+				init ((+) (i, 1));
+			    fi;
+		    end;
+		fi;
+	end;
+
+	zero_length_vector__global =   runtime::zero_length_vector__global;			# Needed to compile ``#[]''.
+
+
+	# LAZY: The following definitions are essentially stolen from
+	#  lib7::Suspension.  Unfortunately, they had to be copied here in
+	#  order to implement laziness (in particular, in order to be
+	#  able to compute picklehashes for them.)
+
+	stipulate
+	    package suspension
+	    :
+	    api {
+		 Suspension(X);
+		 delay:  (Void -> X) -> Suspension(X);
+		 force:  Suspension(X) -> X;
+	    }
+	    =
+	    package {
+
+		# WARNING! The following is hard-wired
+		# and should track the
+                #     src/c/h/heap-tags.h
+		# definitions
+		#     #define UNEVALUATED_LAZY_SUSPENSION_CTAG	0	// Unevaluated suspension.
+		#     #define   EVALUATED_LAZY_SUSPENSION_CTAG	1	//   Evaluated suspension.
+                # and the
+                #     src/lib/compiler/back/low/main/main/heap-tags.pkg
+                # definitions
+		#     unevaluated_lazy_suspension_ctag = 0;
+		#     evaluated_lazy_suspension_ctag   = 1;
+		#
+		unevaluated_lazy_suspension_ctag =  0;
+		  evaluated_lazy_suspension_ctag =  1;
+
+
+		Suspension X	       #  Just a hack for bootstrapping: 
+		    =
+		    SOMETHING  X;
+
+		# WARNING: This function is invoked indirectly in
+		#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+		# by doing
+		#     core_get "delay"
+		#
+		fun delay (f:  Void -> X)										# Renaming?  See note [1].
+		    =
+		    inline::make_special (unevaluated_lazy_suspension_ctag, f): Suspension(X);
+
+
+		# WARNING: This function is invoked indirectly in
+		#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+		# by doing
+		#     core_get "force"
+		#
+		fun force (x:  Suspension(X))										# Renaming?  See note [1].
+		    =
+		    if (inline::ti1_eq((inline::getspecial x), unevaluated_lazy_suspension_ctag))			# NB: 'not' is not defined yet!
+			#
+			my y:  X = rec_get (inline::cast x, 0) ();
+			inline::cast x := y;
+			inline::setspecial (inline::cast x, evaluated_lazy_suspension_ctag);
+			y;
+		    else
+			rec_get (inline::cast x, 0);
+		    fi;
+	    };
+       herein
+           include suspension;
+       end;
+
+       #  Equality primitives 
+
+	# WARNING: This function is referenced in
+	#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+	# via the code
+	#     core_get "string_equal"
+	#
+	fun string_equal (a:  String, b:  String)									# Renaming?  See note [1].
+	    =
+	    if (peql (a, b))
+		#
+		TRUE;
+	    else
+		len =   vec_len  a;
+
+		if (ieql  (len,  vec_len b))
+		    #
+		    f len
+		    where
+			fun f 0 =>  TRUE;
+			    #
+			    f i =>  {   j = i - 1;
+					ieql (ro_int8_vec_get (a, j), ro_int8_vec_get (b, j)) and f j;
+				    };
+			end;
+		    end;	            
+		else
+		    FALSE;
+		fi;
+	    fi;
+
+	# WARNING: This function is referenced in
+	#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+	# via the code
+	#     core_get "poly_equal"
+	#
+	fun poly_equal
+	      ( a:  X,
+		b:  X
+	      )
+	    =
+	    peql (a, b)
+	    or
+	    (   boxed a
+		and
+		boxed b
+		and
+		{
+		    # NOTE: Since the heapcleaner may strip
+		    # the header from the pair in question,
+		    # we must fetch the length before getting
+		    # the tag, whenever we might be dealing
+		    # with a pair.
+
+		    a_len = get_chunk_len a;
+		    a_tag = get_chunk_tag a;
+
+		    fun pair_eq ()
+			=
+			{
+			    b_len = get_chunk_len b;
+			    b_tag = get_chunk_tag b;
+
+			    ((ieql (b_tag, 0x02) and ieql (b_len, 2))
+			      or ineq (bitwise_and (b_tag, 0x3), 0x2))
+			    and poly_equal (rec_get (a, 0), rec_get (b, 0))
+			    and poly_equal (rec_get (a, 1), rec_get (b, 1));
+			  };
+
+		    fun eq_vec_data (len, a, b)
+			=
+			f 0
+			where
+			    fun f i
+				=
+				ieql (i, len)
+				or (poly_equal (rec_get (a, i), rec_get (b, i))
+				  and f (i+1));
+
+			end;
+
+		    case a_tag
+			#
+			0x02	# pairs_and_records_btag	from    src/lib/compiler/back/low/main/main/heap-tags.pkg
+			    =>
+			    (ieql (a_len, 2) and pair_eq())
+			    or (
+			     ieql (get_chunk_tag b, 0x02) and ieql (get_chunk_len b, a_len)
+			     and eq_vec_data (a_len, a, b));
+			#
+			0x06	# ro_vector_header_btag	from    src/lib/compiler/back/low/main/main/heap-tags.pkg
+			    =>
+			    # Length encodes element type:
+			    #
+			    case (get_chunk_len a)
+				#
+				0	# typeagnostic_vector_ctag	see   src/lib/compiler/back/low/main/main/heap-tags.pkg
+				    =>
+				    {   a_len = vec_len a;
+					b_len = vec_len b;
+
+					ieql (a_len, b_len)
+					and eq_vec_data (a_len, get_data a, get_data b);
+				    };
+				#
+				1 # vector_of_one_byte_unts_ctag
+				    =>
+				    string_equal (cast a, cast b);
+				#
+				_   => raise exception MATCH;				# Shut up compiler.
+			    esac;
+			#
+			0x0a /* rw_vector_header_btag */              =>  peql (get_data a, get_data b);			# rw_vector_header_btag		def in    src/lib/compiler/back/low/main/main/heap-tags.pkg
+			0x0e /* rw_vector_data_btag and refcell_btag */ =>  FALSE;						# rw_vector_data_btag and refcell_btag def in    src/lib/compiler/back/low/main/main/heap-tags.pkg
+			0x12 /* four_byte_aligned_nonpointer_data_btag */                =>  i32eq (cast a, cast b);		# four_byte_aligned_nonpointer_data_btag	def in    src/lib/compiler/back/low/main/main/heap-tags.pkg
+			_    /* tagless pair */             =>  pair_eq();
+		    esac;
+		}
+	     );
+
+	#  trace/debug/profile generation hooks:
+	#
+	Tdp_Plugin
+	  =
+	  { name:      String,				# Name identifying plugin.
+	    save:      Void -> Void -> Void,
+	    push:      (Int, Int) -> Void -> Void,
+	    nopush:    (Int, Int) -> Void,
+	    enter:     (Int, Int) -> Void,
+	    register:  (Int, Int, Int, String) -> Void
+	  };
+
+	stipulate
+
+	    next = REF 0;
+	    hook = REF [] :   Ref( List(Tdp_Plugin) );
+
+	    my ( *) = inline::deref;
+
+	    infix my := ;
+
+	    my (:=)   =   inline::(:=);
+
+	    fun runwith a f
+		=
+		f a;
+
+	    fun map f
+		=
+		loop
+		where
+		    fun loop []      =>  [];
+			loop (h ! t) =>  f h ! loop t;
+		    end;
+		end;
+
+
+	    fun apply f
+		=
+		loop
+		where
+		    fun loop []      =>   ();
+			loop (h ! t) =>   { f h;  loop t;};
+		    end;
+		end;
+
+
+	    fun revmap f l
+		=
+		loop (l, [])
+		where
+		    fun loop ([],    a) =>  a;
+			loop (h ! t, a) =>  loop (t, f h ! a);
+		    end;
+		end;
+
+
+	    fun onestage sel ()
+		=
+		{   fns = map sel *hook;
+
+		    \\ arg =  apply  (runwith arg)  fns;
+		};
+
+	    fun twostage sel ()
+		=
+		{   stage1_fns = map sel *hook;
+
+		    \\ arg
+			=
+			{   stage2_fns = revmap (runwith arg) stage1_fns;
+
+			    \\ () =  apply (runwith ()) stage2_fns;
+			};
+		};
+
+	herein
+
+	    fun tdp_reserve n
+		=
+		{   r = *next;
+		    next := r + n;
+		    r;
+		};
+
+	    fun tdp_reset ()
+		=
+		next := 0;
+
+
+
+	    #  pre-defined kinds of IDs (to be passed to "register") 
+
+	    tdp_idk_entry_point   = 0;							# "idk" == "id_kind".
+	    tdp_idk_non_tail_call = 1;
+	    tdp_idk_tail_call     = 2;
+
+	    tdp_save     =  twostage .save;
+	    tdp_push     =  twostage .push;
+
+	    tdp_nopush   =  onestage .nopush;
+	    tdp_enter    =  onestage .enter;
+	    tdp_register =  onestage .register;
+
+	    tdp_active_plugins = hook;							# This is referenced (only) in  src/lib/std/src/nj/runtime-internals.pkg
+	end;
+
+	assign      = inline::(:=);
+	deref       = inline::deref;
+
+	unboxed_set = inline::unboxed_set;
+	get         = inline::rw_vector_get;
+	iadd        = inline::ti1_add;
+
+	# WARNING: All of the following definitions are referenced in
+	#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+	# via core_get -- for example
+	#     core_get "make_neg_inf"
+	#
+	test_inf           = core_multiword_int::test_inf;					# Renaming?  See note [1].
+	trunc_inf          = core_multiword_int::trunc_inf;					# Renaming?  See note [1].
+	fin_to_inf         = core_multiword_int::fin_to_inf;					# Renaming?  See note [1].
+	#
+	make_neg_inf       = core_multiword_int::make_neg_inf;				# Renaming?  See note [1].
+	make_pos_inf       = core_multiword_int::make_pos_inf;				# Renaming?  See note [1].
+	#
+	make_small_neg_inf = core_multiword_int::make_small_neg_inf;				# Renaming?  See note [1].
+	make_small_pos_inf = core_multiword_int::make_small_pos_inf;				# Renaming?  See note [1].
+	#
+	inf_low_value      = core_multiword_int::low_value;					# Renaming?  See note [1].
+
+    end;										# stipulate
+
+    space_profiling_register
+        =
+        REF (\\ (x: runtime::Chunk,  s: String)  =  x);
+
+};											# package core
+
+###############################################################################################
+#                                  Notes
+#
+# Note [1]:   The names
+#
+#                 make_vector
+#                 mk_real_array
+#                 delay
+#                 force
+#                 string_equal
+#                 poly_equal
+#                 make_neg_inf
+#                 make_pos_inf
+#                 make_small_neg_inf
+#                 make_small_pos_inf
+#                 inf_low_value
+#                 test_inf
+#                 trunc_inf
+#                 fin_to_inf
+#
+#	      are hardwired into
+# 
+#                 src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+#
+#             so a straightforward attempt to rename will crash you with a message like
+#
+#                 FATAL:  Unable to fetch 'make_vector' from core.pkg! -- translate-deep-syntax-to-lambdacode.pkg
+#
+#             One workaround is to rename in three steps:
+#
+#                 1)  Create a synonym "make_normal_vector" or whatever
+#                     with the desired new name and do a full
+#                         make compiler
+#                         make rest
+#                         sudo make install; make check
+#                         make tart
+#                     compile cycle to establish it.
+#
+#                 2)  Replace all "make_vector" references
+#                     with "make_normal_vector" references and do a
+#                     full compile cycle.
+#
+#                 3)  Remove the now-unneeded "make_vector" and do a
+#		      full compile cycle.
+#
+#             (You may be able to collapse 2) and 3) into one cycle.)
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT 1989 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

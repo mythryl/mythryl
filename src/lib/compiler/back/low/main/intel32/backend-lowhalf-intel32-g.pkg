@@ -1,0 +1,939 @@
+# backend-lowhalf-intel32-g.pkg
+#
+# Backend for intel32 (== x86).  This one uses the new RA8 scheme.
+#
+# This file supplies the rest of the compiler with
+# intel32-platform "low-level" (machine-dependent)
+# code optimizations and transformations.
+#
+# We are invoked from
+#
+#     src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+#
+# which wraps us up together with the "high-level"
+# (machine-independent) code optimizations and
+# transformations to provide a complete native-code
+# generation facility to the frontend of the compiler.
+#
+# Our generic parameters serve to encapsulate the
+# differences between the Linux / *bsd / ... and the Win32
+# fn-call conventions and related platform-specific issues.
+
+# Compiled by:
+#     src/lib/compiler/mythryl-compiler-support-for-intel32.lib
+
+
+
+###                     "There are two means of refuge from
+###                      the miseries of life: music and cats."
+###
+###                                 -- Albert Schweitzer
+
+
+# First we assemble all the little parts we need:
+#
+stipulate
+    package err =  error_message;								# error_message					is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package rgn =  nextcode_ramregions;								# nextcode_ramregions				is from   src/lib/compiler/back/low/main/nextcode/nextcode-ramregions.pkg
+    package iht =  int_hashtable;								# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;							# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhc =  lowhalf_control;								# lowhalf_control				is from   src/lib/compiler/back/low/control/lowhalf-control.pkg
+    package cig =  codetemp_interference_graph;							# codetemp_interference_graph			is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    package rnt =  runtime_intel32;								# runtime_intel32				is from   src/lib/compiler/back/low/main/intel32/runtime-intel32.pkg
+    package uvf =  use_virtual_framepointer_in_cccomponent;					# use_virtual_framepointer_in_cccomponent	is from   src/lib/compiler/back/low/main/main/use-virtual-framepointer-in-cccomponent.pkg
+
+    #  Treecode specialization 
+
+    # To the stock treecode code representation we add a
+    # few intel-specific int and float stack operations:
+    #     PUSHL, POP
+    #     FSTPS, FSTPL, FSTPT
+    #     LEAVE RET
+    #     LOCK_CMPXCHGL
+    #
+    package treecode_form_intel32
+	  = treecode_form_g (									# treecode_form_g				is from   src/lib/compiler/back/low/treecode/treecode-form-g.pkg
+		#
+		package lac =  late_constant;							# late_constant					is from   src/lib/compiler/back/low/main/nextcode/late-constant.pkg
+		package rgn =  rgn;
+		package trx =  treecode_extension_intel32;					# treecode_extension_intel32			is from   src/lib/compiler/back/low/main/intel32/treecode-extension-intel32.pkg
+	    );
+
+    # Evaluating and comparing treecode_form_intel32 expressions:
+    # 
+    package treecode_eval_intel32
+	  = treecode_eval_g (									# treecode_eval_g				is from   src/lib/compiler/back/low/treecode/treecode-eval-g.pkg
+		#
+		package tcf =  treecode_form_intel32;
+		#
+		fun eq _ _ =  FALSE;
+		#
+		eq_rext  = eq;
+		eq_fext  = eq;
+		eq_ccext = eq;
+		eq_sext  = eq;
+	   );
+
+    # Hashing treecode_form_intel32 expressions:
+    #
+    package treecode_hash_intel32
+	  = treecode_hash_g (									# treecode_hash_g				is from   src/lib/compiler/back/low/treecode/treecode-hash-g.pkg
+		#
+		package tcf =  treecode_form_intel32;
+		#
+		fun h _ _ = 0u0;
+		#
+		hash_sext  = h;
+		hash_rext  = h;
+		hash_fext  = h;
+		hash_ccext = h;
+	    );
+
+    # Standard assembly-language pseudo-ops like
+    # ALIGN: representing them internally,
+    # printing them, updating them during
+    # a compile:
+    # 
+    package gas_pseudo_ops_intel32
+	  = gas_pseudo_ops_intel32_g (								# gas_pseudo_ops_intel32_g			is from   src/lib/compiler/back/low/intel32/mcg/gas-pseudo-ops-intel32-g.pkg
+		#
+		package tcf =  treecode_form_intel32;
+		package tce =  treecode_eval_intel32;
+	    );
+
+    # Add to the standard pseudo-ops any which
+    # are specific to this platform. (I think.)
+    #
+    package client_pseudo_ops_intel32
+	  = client_pseudo_ops_mythryl_g (							# client_pseudo_ops_mythryl_g			is from   src/lib/compiler/back/low/main/nextcode/client-pseudo-ops-mythryl-g.pkg
+		#
+		package bpo =  gas_pseudo_ops_intel32;						# "bpo" == "base_pseudo_ops".
+	    );
+
+    # This basically just completes merging the previous two:
+    #
+    package pseudo_ops_intel32
+	  = pseudo_op_g (									# pseudo_op_g					is from   src/lib/compiler/back/low/mcg/pseudo-op-g.pkg
+		#
+		package cpo =   client_pseudo_ops_intel32;
+	    );	      
+
+    # Note 'pseudo_ops_intel32' and
+    # publish the Codebuffer record type:
+    #
+    package code_buffer_intel32
+	  = codebuffer_g (									# codebuffer_g					is from   src/lib/compiler/back/low/code/codebuffer-g.pkg
+		#
+		pseudo_ops_intel32
+	    );
+
+
+    # Note 'treecode_form_intel32', specialize Codebuffer
+    # to List(tcf::Note), and define the Reducer record type:
+    #
+    package treecode_buffer_intel32
+	  = treecode_codebuffer_g (								# treecode_codebuffer_g				is from   src/lib/compiler/back/low/treecode/treecode-codebuffer-g.pkg
+		#
+		package tcf =  treecode_form_intel32;
+		package cst =  code_buffer_intel32;
+	    );
+
+
+    # Note 'treecode_form_intel32' and 'registerkinds_intel32',
+    # define the (abstract) x86 machine instruction set:
+    #
+    package machcode_intel32
+	  = machcode_intel32_g (								# machcode_intel32_g				is from   src/lib/compiler/back/low/intel32/code/machcode-intel32-g.codemade.pkg
+		#
+		treecode_form_intel32
+	    );
+
+
+    # intel32 (x86) is so register-starved that we implement
+    # additional "registers" in ram.  We put them on the C
+    # stack, presumably for some sort of re-entrancy.  Here
+    # we define compiler synthesis of code addressing them:
+    #
+    package machcode_address_of_ramreg_intel32
+	  = machcode_address_of_ramreg_intel32_g (						# machcode_address_of_ramreg_intel32_g		is from   src/lib/compiler/back/low/main/intel32/machcode-address-of-ramreg-intel32-g.pkg
+		#
+		machcode_intel32
+	    );
+
+
+    # In Machcode_Universals we define a cross-platform set of					# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+    # operations we support on machine-instructions for all
+    # architectures;  this lets some machine-instruction manipulation
+    # packages be archetecture-agnostic.
+    #
+    # Here we implement that API for intel32 (x86):
+    #
+    package machcode_universals_intel32
+	  = machcode_universals_intel32_g (							# machcode_universals_intel32_g			is from   src/lib/compiler/back/low/intel32/code/machcode-universals-intel32-g.pkg
+		#
+		package mcf =  machcode_intel32;
+		package tch =  treecode_hash_intel32;
+		package tce =  treecode_eval_intel32;
+	    );
+
+
+    # During most of code generation, when we need to
+    # move stuff around in registers we abstract the
+    # procedure to a "parallel copy" consisting of
+    # (in essence) a list of source-reg/dest-reg pairs.
+    # Eventually we do have to compile these down into
+    # actual sequences of move instructions. This does that:
+    #
+    package compile_register_moves_intel32
+	  = compile_register_moves_intel32_g (							# compile_register_moves_intel32_g		is from   src/lib/compiler/back/low/intel32/code/compile-register-moves-intel32-g.pkg
+		#
+		machcode_intel32
+	    );
+
+
+
+    # A little autogenerated pkg to generate text assembly
+    # language for an instruction from its abstract internal
+    # representation. We use this mostly for error messages,
+    # since we compile to binary without using the gnu assembler:
+    #
+    package translate_machcode_to_asmcode_intel32						# Assembly code emitter 
+	  = translate_machcode_to_asmcode_intel32_g (						# translate_machcode_to_asmcode_intel32_g	is from   src/lib/compiler/back/low/intel32/emit/translate-machcode-to-asmcode-intel32-g.codemade.pkg
+		#
+		package mcf =  machcode_intel32;
+		package crm =  compile_register_moves_intel32;
+		package tce =  treecode_eval_intel32;
+		package cst =  code_buffer_intel32;
+		#
+		package ramregs	=  machcode_address_of_ramreg_intel32;
+		#
+		ramreg_base=THE (machcode_intel32::rgk::esp);
+	    );
+
+    # A handcoded pkg to generate absolute binary for an instruction
+    # from its abstract internal representation:
+    #
+    package execode_emitter_intel32
+	  = translate_machcode_to_execode_intel32_g (						# translate_machcode_to_execode_intel32_g	is from   src/lib/compiler/back/low/intel32/translate-machcode-to-execode-intel32-g.pkg
+		#
+		package mcf =  machcode_intel32;
+		package crm =  compile_register_moves_intel32;
+		package ae  =  translate_machcode_to_asmcode_intel32;
+		package mem =  machcode_address_of_ramreg_intel32;
+		package tce =  treecode_eval_intel32;
+		#
+		ramreg_base =   THE mcf::rgk::esp;
+	    );
+
+
+    # Here we mainly specialize   digraph_by_adjacency_list
+    # to serve as a controlflow-graph of basic blocks --
+    # i.e., lists of machcode instructions.
+    #
+    # We also implement a few convenience functions for updating
+    # the jumps/branches at the end of basic block appropriately
+    # when we add/remove/etc edges in the controlflow graph:
+    #	
+    package machcode_controlflow_graph_intel32							#  Flowgraph data package specialized to Intel32 instructions 
+	  = machcode_controlflow_graph_g (							# machcode_controlflow_graph_g			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+		#
+		package mcf =  machcode_intel32;
+		package meg =  digraph_by_adjacency_list;					# digraph_by_adjacency_list			is from   src/lib/graph/digraph-by-adjacency-list.pkg
+		package mu  =  machcode_universals_intel32;
+		package ae  =  translate_machcode_to_asmcode_intel32;
+	    );
+
+    fast_floating_point
+        =
+	lhc::make_bool
+          (
+            "fast_floating_point",
+	    "whether to use the fast-fp backend (intel32)"
+          );
+
+    api Stack_Spills_Intel32 {
+	#
+	package mcf:  Machcode_Intel32;								# Machcode_Intel32	is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+	init:  Void -> Void;
+
+	set_available_offsets:    List( mcf::Operand ) -> Void;
+	set_available_fpoffsets:  List( mcf::Operand ) -> Void;
+
+	get_reg_loc:   Int -> mcf::Operand;
+	get_freg_loc:  Int -> mcf::Operand;
+    };
+
+
+    # Tracking/allocating register spill space on stack:
+    #
+    package   stack_spills_intel32								# 
+    : (weak)  Stack_Spills_Intel32								# 
+    {    									# See also:	# spill_table_g		is from   src/lib/compiler/back/low/main/main/spill-table-g.pkg
+	exception REGISTER_SPILLS; 
+
+	package mcf = machcode_intel32;
+
+	fun error msg
+	    =
+	    err::impossible ("stack-spills-intel32.pkg " + msg);
+
+	initial_spill_offset = rnt::spill_start;
+
+	spill_offset  =  REF initial_spill_offset;						# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+	spill_area_size =  rnt::spill_area_size;
+
+	available_offsets   = REF []:  Ref( List( mcf::Operand ) );				# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+	available_fpoffsets = REF []:  Ref( List( mcf::Operand ) );				# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+
+	# Indicate that some memory registers are not
+	# used and can be used for spilling.
+	#
+	fun set_available_offsets   offsets =  available_offsets   := offsets;
+	fun set_available_fpoffsets offsets =  available_fpoffsets := offsets;
+
+	fun new_offset n
+	    =
+	    if (n > spill_area_size)  error "new_offset - spill area is too small";
+	    else                      spill_offset := n;
+	    fi;
+
+	stipulate
+	    spill_table	=  iht::make_hashtable  { size_hint => 0,  not_found_exception => REGISTER_SPILLS }			# More icky thread-hostile mutable global state. XXX SUCKO FIXME;
+			:  iht::Hashtable( mcf::Operand );
+	herein
+	    spilltable_get =  iht::get  spill_table;
+	    spilltable_set =  iht::set  spill_table;
+
+	    fun init ()
+		= 
+		{   spill_offset         := initial_spill_offset; 
+		    available_offsets    := [];
+		    available_fpoffsets :=  [];
+		    iht::clear spill_table;
+		};
+	end;
+
+	to_int1 = one_word_int::from_int;
+
+	fun get_reg_loc  reg
+	    = 
+	    spilltable_get  reg
+	    except
+		_ = operand
+		    where
+			operand
+			    = 
+			    case *available_offsets   
+				#
+				[] => {   offset = *spill_offset;
+					  i32    = to_int1 offset;
+					  new_offset (offset+4);
+					  mcf::IMMED i32;
+				      };
+
+				off ! offs
+				    =>
+				    {   available_offsets := offs;
+					off;
+				    };
+			    esac; 
+
+			spilltable_set (reg, operand);
+		    end;
+
+	fun get_freg_loc freg
+	    = 
+	    spilltable_get freg
+	    except
+		_ = operand
+		    where
+			operand
+			    =
+			    case *available_fpoffsets   
+				#
+				[] =>
+				    {   offset   =  *spill_offset;
+					from_int =  unt::from_int;
+					aligned  =  unt::to_int_x (unt::bitwise_and (from_int offset+0u7, from_int -8));
+					new_offset (aligned+8); mcf::IMMED (to_int1 aligned);
+				    };
+
+				off ! offs
+				    =>
+				    {   available_fpoffsets := offs;
+					off;
+				    };
+			    esac;
+
+			spilltable_set (freg, operand);
+		    end;
+    };											# package   stack_spills_intel32
+
+
+
+    # Define numbers and uses of registers.  This info is
+    # used mainly in nextcode-related logic, specifically:
+    #
+    #    src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+    #    src/lib/compiler/back/low/main/nextcode/check-heapcleaner-calls-g.pkg
+    #    src/lib/compiler/back/low/main/nextcode/nextcode-ccalls-g.pkg
+    #    src/lib/compiler/back/low/main/nextcode/convert-nextcode-fun-args-to-treecode-g.pkg
+    #    src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+    #
+    # This information is broadly similar to that supplied via the
+    # Registerkinds api; the separation is for historical rather			# Registerkinds				is from   src/lib/compiler/back/low/code/registerkinds.api
+    # than technical reasons. 
+    #
+    stipulate
+	package rkj =  registerkinds_junk;						# registerkinds_junk			is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    herein
+
+	package   platform_register_info_intel32
+	: (weak)  Platform_Register_Info						# Platform_Register_Info		is from   src/lib/compiler/back/low/main/nextcode/platform-register-info.api
+	{
+	    # Export to client packages:
+	    #
+	    package tcf =  treecode_form_intel32;
+	    package rgk =  registerkinds_intel32;					# registerkinds_intel32			is from   src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+
+
+	    fun upto (from, to)								# Compare with '..' 			def in    src/lib/core/init/pervasive.pkg
+		=
+		from > to   ??   []
+			    ::   from ! (upto (from+1, to));
+
+	    infix my  upto ; 
+
+	    eax = tcf::CODETEMP_INFO (32, rgk::eax);					# 64-bit issue. (Obviously, all these would change in 64 bits.)
+	    ecx = tcf::CODETEMP_INFO (32, rgk::ecx);	
+	    edx = tcf::CODETEMP_INFO (32, rgk::edx);	
+	    ebx = tcf::CODETEMP_INFO (32, rgk::ebx);	
+	    esp = tcf::CODETEMP_INFO (32, rgk::esp);
+	    ebp = tcf::CODETEMP_INFO (32, rgk::ebp);
+	    esi = tcf::CODETEMP_INFO (32, rgk::esi);
+	    edi = tcf::CODETEMP_INFO (32, rgk::edi);
+
+	    virtual_framepointer							# For more info on this see			  src/lib/compiler/back/low/omit-framepointer/free-up-framepointer-in-machcode.api
+		=
+		rgk::make_global_codetemp_info_of_kind  rkj::INT_REGISTER  ();		# make_global_codetemp_of_kind		def in    src/lib/compiler/back/low/code/registerkinds-g.pkg
+
+	    vfptr = tcf::CODETEMP_INFO (32, virtual_framepointer);
+
+	    fun framepointer  use_virtual_framepointer					# Holds current C stackframe, which holds pointers to runtime resources like the heapcleaner ("garbage collector"), which is written in C.
+		=
+		if (use_virtual_framepointer)    vfptr;
+		else                             esp;
+		fi;
+
+
+	    fun reg_in_mem (which, i)							# framepointer[ i ]
+		=
+		tcf::LOAD
+		  ( 32,
+		    tcf::ADD
+		      ( 32,
+			framepointer  which,
+			tcf::LITERAL (tcf::mi::from_int (32, i))
+		      ),
+		    rgn::memory
+		  ); 
+
+
+	    # These two are our only globally
+	    # dedicated registers on Intel32 --
+	    # they are dedicated to these functions
+	    # throughout execution of Mythryl code:
+	    #
+	    heap_allocation_pointer	= edi;						# We allot ram just by advancing this pointer.  We use this very heavily -- every 10 instructions or so.
+											# This definition needs to match   heap_allocation_pointer   in   src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   heap_allocation_pointer   in   src/c/machine-dependent/prim.intel32.masm
+
+	    stackptr			= esp;						# We use the stackpointer very lightly -- mainly to call C functions.
+											# This definition needs to match   stackptr		     in   src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   stackptr                  in   src/c/machine-dependent/prim.intel32.masm
+
+	    # These four registers are used transitionally
+	    # during invocation of the heapcleaner -- see
+	    #
+	    #     src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	    #
+	    # but are otherwise free for general use.
+	    # 
+	    # I'm guessing that they are vestiges of the original
+	    # compiler fun-invocation protocol, since superceded
+	    # by more sophisticated mechanisms.  The general idea
+	    # seems to be something like:
+	    #
+	    #     stdclos:      Currently executing closure (function).
+	    #     stdarg:       Argument to stdclos.
+	    #     stdfate:      Closure (function) to call when stdclos completes.
+	    #     stdlink:      Unclear; seems to be actual code entrypoint stdclos or possibly stdfate.
+	    #
+	    fun stdarg _		= ebp;						# This definition needs to match   stdarg			in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   stdarg			in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun stdfate _		= esi;						# This definition needs to match   stdfate			in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   stdfate			in      src/c/machine-dependent/prim.intel32.masm
+
+
+	    fun stdlink  _	= tcf::CODETEMP_INFO (32, rgk::get_ith_int_hardware_register 8); 	#  vreg 0 	# The '32' here is a 64-bit issue, although this file shouldn't be used on a 64-bit backend.
+	    fun stdclos  _	= tcf::CODETEMP_INFO (32, rgk::get_ith_int_hardware_register 9); 	#  vreg 1  	# The '32' here is a 64-bit issue, although this file shouldn't be used on a 64-bit backend.
+
+
+
+
+	    fun base_pointer			vfp	= reg_in_mem (vfp, 4);		# This definition needs to match   base_pointer			in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   base_pointer			in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun exception_handler_register	vfp	= reg_in_mem (vfp, 8);		# This definition needs to match   exnfate			in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   exnfate			in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun heap_allocation_limit		vfp 	= reg_in_mem (vfp, 12);		# heapcleaner gets run when heap_allocation_pointer reaches this point.
+											# This definition needs to match   heap_allocation_limit	in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   heap_allocation_limit	in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun heapcleaner_link   		vfp	= reg_in_mem (vfp, 16);		# This definition needs?to match   pc				in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs?to match   pc				in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun heap_changelog_pointer  	vfp 	= reg_in_mem (vfp, 24);		# Every (pointer) update to the heap gets logged to this cons-cell list.
+											# (The heapcleaner scans this list to detect intergenerational pointers.)
+											# This definition needs to match   heap_changelog_ptr		in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   heap_changelog_ptr		in      src/c/machine-dependent/prim.intel32.masm
+
+	    fun current_thread_ptr 		vfp 	= reg_in_mem (vfp, 28);		# This definition needs to match   current_thread_ptr		in      src/c/machine-dependent/prim.intel32.asm
+											# This definition needs to match   current_thread_ptr		in      src/c/machine-dependent/prim.intel32.masm
+
+
+	    fun make_vreg_list (n, 0    ) =>  [];
+		make_vreg_list (n, count) =>  tcf::CODETEMP_INFO (32, rgk::get_ith_int_hardware_register n) ! make_vreg_list (n+1, count - 1);
+	    end;
+
+	    #  miscregs = { ebx, ecx, edx, r10, r11, ... r31 } 
+	    #
+	    miscregs
+		=
+		ebx ! ecx ! edx ! make_vreg_list (10, rnt::num_vregs - 2);
+
+	    calleesave  = rw_vector::from_list  miscregs;
+
+	    heap_is_exhausted__test
+		=
+		NULL;									# No platform-specific test for   (heap_allocation_pointer > heap_allocation_limit)  ;
+											# the vanilla code will be used in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+											# and                                src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	    floatregs   = map
+                              (\\ f = tcf::CODETEMP_INFO_FLOAT
+                                        ( 64,
+                                          rgk::get_ith_float_hardware_register f
+                                        )
+                              )
+                              (8 upto 31);
+	    savedfpregs = [];
+
+	    stipulate
+		fun un_reg (tcf::CODETEMP_INFO (_, r)) =>  r;								# "un_reg" == "unwrap a (REG reg) value".
+		    un_reg _                 =>  raise exception FAIL "intel32-nextcode-registers: unREG";
+		end;
+	    herein
+
+		available_int_registers =  map un_reg [ebp, esi, ebx, ecx, edx, eax];
+		global_int_registers    =  map un_reg [edi, esp, vfptr];
+		#
+		available_float_registers =  map rgk::get_ith_float_hardware_register (8 upto 31);
+		global_float_registers    =  [];								#  map rgk::get_ith_float_hardware_register [0, 1, 2, 3, 4, 5, 6, 7] 
+		#
+		use_signed_heaplimit_check =  FALSE;
+		#
+		address_width =  32;
+
+		ccall_caller_save_r =  [un_reg edi];
+		ccall_caller_save_f =  [];
+	    end;
+	};
+    end;
+herein
+
+    # This generic is compiletime-invoked by:
+    #
+    #    src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+    #
+    generic package  backend_lowhalf_intel32_g   (
+	#            =========================
+	#
+        package cp									# "cp" == "ccall_parameters"
+            :
+            api {
+                frame_alignment:		Int;
+		#
+	        return_small_structs_in_registers:	Bool;				# OSX (i.e., Darwin) returns structs <= 8 bytes in eax/edx. FALSE on other platforms.
+	    };
+
+	 abi_variant:  Null_Or( String );
+    )
+    : Backend_Lowhalf									# Backend_Lowhalf				is from   src/lib/compiler/back/low/main/main/backend-lowhalf.api
+    =
+    backend_lowhalf_g (									# backend_lowhalf_g				is from   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	#
+        package mcf =  machcode_intel32;
+	package rgk =  mcf::rgk;							# "rgk" == "registerkinds".
+#	package mcg =  machcode_controlflow_graph_intel32;				# Not a generic argument.
+
+#	package coc =  global_controls::compiler;					# global_controls				is from   src/lib/compiler/toplevel/main/global-controls.pkg
+	package mp  =  machine_properties_intel32;					# machine_properties_intel32			is from   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+
+	package cpo =  client_pseudo_ops_intel32;
+	package pop =  pseudo_ops_intel32;
+	package trx =  treecode_extension_intel32;					# treecode_extension_intel32			is from   src/lib/compiler/back/low/main/intel32/treecode-extension-intel32.pkg
+
+	package pri =  platform_register_info_intel32;
+	package mu  =  machcode_universals_intel32;
+	package ae  =  translate_machcode_to_asmcode_intel32;
+
+	package crm =  compile_register_moves_intel32;
+
+	my abi_variant
+         = abi_variant;
+
+	my fast_floating_point
+         = fast_floating_point;
+
+
+	package cal									# "cal" == "ccalls" (native C calls).
+            =
+            ccalls_intel32_per_unix_system_v_abi_g (					# ccalls_intel32_per_unix_system_v_abi_g	is from   src/lib/compiler/back/low/intel32/ccalls/ccalls-intel32-per-unix-system-v-abi-g.pkg
+		#
+		package tcf =   treecode_form_intel32;
+
+		fun ix x =   x;
+
+		fast_floating_point =   fast_floating_point;
+
+
+
+		#  NOTE: the following need to be changed for MacOSX on Intel  XXX BUGGO FIXME
+		#
+		frame_alignment =   cp::frame_alignment;
+		#
+		return_small_structs_in_registers					# OSX (i.e., Darwin) returns structs <= 8 bytes in eax/edx. FALSE on other platforms.
+		    =
+		    cp::return_small_structs_in_registers;
+	    );
+
+
+	package fuf									# "fuf" == "free_up_framepointer".
+	      = free_up_framepointer_in_machcode_intel32_g (				# free_up_framepointer_in_machcode_intel32_g	is from   src/lib/compiler/back/low/intel32/omit-framepointer/free-up-framepointer-in-machcode-intel32-g.pkg
+		    #
+		    package mcf	=  machcode_intel32;
+		    package mem	=  machcode_address_of_ramreg_intel32;
+		    package mcg	=  machcode_controlflow_graph_intel32;
+		    #
+		    ramreg_base = THE (pri::virtual_framepointer);
+		);
+
+
+
+	fun error msg
+            =
+            lem::error("backend_lowhalf_intel32_g", msg);
+
+
+
+	fun stack_basepointer ()  #  XXXX 
+            =
+	    if *uvf::use_virtual_framepointer    pri::virtual_framepointer;
+            else				 mcf::rgk::esp;
+            fi; 
+
+
+	package t2m									# "t2m" == "translate_treecode_to_machcode".
+	    =
+	    translate_treecode_to_machcode_intel32_g (					# translate_treecode_to_machcode_intel32_g	is from   src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+		#
+                package mcf =  machcode_intel32;
+		package tcs = treecode_buffer_intel32;
+
+		package txc
+                      = treecode_extension_compiler_intel32_g (				# treecode_extension_compiler_intel32_g		is from   src/lib/compiler/back/low/main/intel32/treecode-extension-compiler-intel32-g.pkg
+			    #
+			    package mcf =  machcode_intel32;
+			    package tcf	=  treecode_form_intel32;
+			    package mcg =  machcode_controlflow_graph_intel32;
+			    package tcs	=  treecode_buffer_intel32;
+			    #
+			    fast_fp =  fast_floating_point;
+			); 
+
+		package tcj
+                      = treecode_hashing_equality_and_display_g (			# treecode_hashing_equality_and_display_g	is from   src/lib/compiler/back/low/treecode/treecode-hashing-equality-and-display-g.pkg
+			    #
+			    package tcf = treecode_form_intel32;
+			    #
+			    fun hash_sext  _ _ = 0u0; 
+			    fun hash_rext  _ _ = 0u0;
+			    fun hash_fext  _ _ = 0u0; 
+			    fun hash_ccext _ _ = 0u0;
+			    #
+			    #  Equality extensions 
+			    fun eq_sext  _ _ = FALSE;
+			    fun eq_rext  _ _ = FALSE;
+			    fun eq_fext  _ _ = FALSE;
+			    fun eq_ccext _ _ = FALSE;
+			    #
+			    #  Pretty printing extensions 
+			    fun show_sext  _ _ = "";
+			    fun show_rext  _ _ = "";
+			    fun show_fext  _ _ = "";
+			    fun show_ccext _ _ = "";
+			);
+
+
+
+
+		Architecture
+                    =
+                    PENTIUM | PENTIUM_PRO | PENTIUM_II | PENTIUM_III;
+
+
+		architecture										# More icky thread-hostile global mutable state. XXX BUGGO FIXME.
+                    =
+                    REF PENTIUM;	#  Lowest common denominator. (Means we can't use movcc instructions.)
+
+
+		fun convert_int_to_float_in_registers { src, type, ref_notes }				#  'type' is always 32 for 32-bitMythryl 	# possible 64-bit issue
+                    =
+                    {   temp_mem
+                            =
+                            mcf::DISPLACE
+			      { base      =>  stack_basepointer (),
+				disp      =>  mcf::IMMED 304,						# Where the hell does this 304 number come from?  XXX BUGGO FIXME -- 2011-06-02 CrT
+				ramregion =>  rgn::stack				# 2011-08-02 CrT:  (Re above): Possible resource: 'Stack frame' section in   src/c/machine-dependent/prim.intel32.asm
+			      };
+	
+			{ ops      =>  [mcf::move { mv_op=>mcf::MOVL, src, dst=>temp_mem } ],
+			  temp_mem,
+			  cleanup  =>  []
+			};
+		    };
+
+
+		fast_floating_point
+                    =
+                    fast_floating_point;
+	    );										# translate_treecode_to_machcode_intel32_g
+
+	# Code to get the size range of span-dependent
+	# ops (in practice, pc-relative branches and jumps)
+	# and to set the size of a given one:
+	# 
+	package jmp
+	    = 
+	    jump_size_ranges_intel32_g (						# jump_size_ranges_intel32_g		is from   src/lib/compiler/back/low/intel32/jmp/jump-size-ranges-intel32-g.pkg
+		#
+                package mcf =  machcode_intel32;
+		package xe  =  execode_emitter_intel32;
+		package tce =  treecode_eval_intel32; 
+	    );
+
+
+	package sja									# "sja" == "squash_jumps_and_...".
+	= # squash_jumps_and_make_machinecode_bytevector_intel32_g	is from   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+	    squash_jumps_and_make_machinecode_bytevector_intel32_g (
+		#
+                package jmp =  jmp;
+		package xe  =  execode_emitter_intel32;
+		package mu  =  mu;							# "mu"  == "machcode_universals". 
+		package mcg =  machcode_controlflow_graph_intel32;
+		package csb =  code_segment_buffer;
+	    );
+
+	package ra									# "ra"  == "register_allocation".
+	    = 
+	    stipulate
+		package rkj =  registerkinds_junk;					# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+	    herein
+		regor_intel32_g (							# regor_intel32_g				is from   src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+		    #
+		    package mcf =  machcode_intel32;
+		    package mu	=  mu;							# "mu"  == "machcode_universals".
+		    package ae	=  translate_machcode_to_asmcode_intel32;
+		    package mcg	=  machcode_controlflow_graph_intel32;
+		    package rsp =  register_spilling_per_chow_hennessy_heuristic;	# register_spilling_per_chow_hennessy_heuristic	is from   src/lib/compiler/back/low/regor/register-spilling-per-chow-hennessy-heuristic.pkg
+
+		    package spl
+			=
+			register_spilling_g (						# register_spilling_g				is from   src/lib/compiler/back/low/regor/register-spilling-g.pkg
+			    #
+			    package mu  =  mu;						# "mu"  == "machcode_universals".
+			    package ae  =  translate_machcode_to_asmcode_intel32;	# "ae"  == "asmcode_emitter".
+			);
+
+		    Spill_Info =  Void;
+
+		    fun before_ra _
+			=
+			stack_spills_intel32::init ();
+
+		    fast_floating_point = fast_floating_point;
+
+		    to_int1 = one_word_int::from_int;
+
+		    fun cache_offset r
+			=
+			mcf::IMMED (to_int1 (rnt::vreg_start
+			+ 
+			unt::to_int_x (unt::(<<) (unt::from_int (r - 8), 0u2))));
+
+
+		    fun cache_fpoffset f
+			=
+			mcf::IMMED (to_int1 (rnt::v_fp_start
+			+ 
+			unt::to_int_x (unt::(<<) (unt::from_int (f - 40), 0u3))));
+
+		    Ra_Phase
+			=
+			SPILL_PROPAGATION | SPILL_COLORING;
+
+
+		    Spill_Operand_Kind
+			=
+			SPILL_LOC | CONST_VAL;
+
+
+		    package rap {							# "rap" == "register allocation parameters".
+			#
+			locally_allocated_hardware_registers =  pri::available_int_registers;
+			globally_allocated_hardware_registers =  pri::global_int_registers;
+			#
+			ramregs  = rgk::get_hardware_registers_of_kind rkj::INT_REGISTER { from=>8, to=>31, step=>1 };
+			#
+			phases    = [SPILL_PROPAGATION, SPILL_COLORING];
+
+			# We try to make unused memregs available for spilling 
+			# This is necessary because the stupid code generator
+			# doesn't keep track of which are being used. XXX BUGGO FIXME
+
+			fun spill_init (cig::CODETEMP_INTERFERENCE_GRAPH { node_hashtable, ... } )
+			    = 
+			    {   get_node = iht::get  node_hashtable;
+
+				fun find (r, free)
+				    =
+				    if (r >= 10)	#  note, %8 and %9 are reserved! 
+					#
+					free
+					    = 
+					    case (get_node r)
+						#
+						cig::NODE { uses=>REF [], defs=>REF [], ... }
+						    => 
+						    cache_offset r ! free;
+
+						_   => free;
+					    esac;
+
+					find (r - 1, free);
+				    else 
+				       free;
+				    fi;
+
+				free = find (31 /* rnt::numVregs+8-1 */, []);
+
+				stack_spills_intel32::set_available_offsets  free;
+			    }; 
+
+			get_reg_loc'
+			    =
+			    stack_spills_intel32::get_reg_loc;
+
+
+			fun spill_loc { info, ref_notes, register, id }
+			    =
+			    { kind    =>    SPILL_LOC,
+			      operand =>    mcf::DISPLACE
+                                              { base =>  stack_basepointer(),
+						disp =>  get_reg_loc' id,
+						ramregion => rgn::spill
+					      }
+			    };
+
+		    };			# package int
+
+
+		    package fap {							# "fap" == "floating point register allocation parameters".
+			#
+			locally_allocated_hardware_registers =  pri::available_float_registers;
+			globally_allocated_hardware_registers =  pri::global_float_registers;
+
+			ramregs   =  [];
+			phases    =  [SPILL_PROPAGATION];
+
+
+			fun spill_init (cig::CODETEMP_INTERFERENCE_GRAPH { node_hashtable, ... } )
+			    = 
+			    if *fast_floating_point
+				#
+				get_node = iht::get  node_hashtable;
+
+				fun find (r, free)
+				    =
+				    if (r >= 32+8)
+					#
+					free =  case (get_node r)
+						    #
+						    cig::NODE { uses=>REF [], defs=>REF [], ... }
+							=>
+							cache_fpoffset r ! free;
+
+						    _   =>   free;
+						esac;
+
+					find (r - 1, free);
+				    else 
+				        free;
+				    fi;
+
+				free =  find (63, []);
+
+				stack_spills_intel32::set_available_fpoffsets  free;
+			    fi;
+
+			fun spill_loc (s, an, loc)
+			    =
+			    mcf::DISPLACE
+			      { base      =>  stack_basepointer (),
+				disp      =>  stack_spills_intel32::get_freg_loc loc,
+				ramregion =>  rgn::spill
+			      };
+
+			fast_ramregs =  rgk::get_hardware_registers_of_kind  rkj::FLOAT_REGISTER  { from=>8, to=>31, step=>1 };
+			fast_phases  =  [SPILL_PROPAGATION, SPILL_COLORING];
+
+		    };
+		)						# regor_intel32_g
+	    end; 
+      );							# backend_lowhalf_intel32_g 
+end;
+
+##  COPYRIGHT (c) 1999 Lucent Technologies, Bell Labs. 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

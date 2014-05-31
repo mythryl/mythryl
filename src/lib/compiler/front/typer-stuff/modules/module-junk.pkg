@@ -1,0 +1,1088 @@
+## module-junk.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+#
+# This file contains support functions used mainly
+# during typechecking of module-language stuff.
+#
+# In particular, we implement looking up things
+# in nested packages:
+#     Source code like "a.b.c" accessing stuff
+# in such nested packages parses into a list
+# of symbols [a, b, c] called a "symbol_path".
+#     To actually turn a symbol_path into something
+# useful, we must look up 'a' in the symbol table,
+# look up 'b' in the value of 'a', look up 'c' in
+# the value of 'b', etc to the end of the path.
+#    In this file, we implement the busywork of
+# actually doing so.
+#    To keep things nicely typed, we need one
+# getXXXViaPath function for each type of
+# thing XXX that we want to fetch.  To keep
+# the redundancy level down, we implement one
+# generic routine and then one wrapper per
+# result type.
+
+
+stipulate
+    package cp  =  control_print;		# control_print			is from   src/lib/compiler/front/basics/print/control-print.pkg
+    package cst =  compile_statistics;		# compile_statistics		is from   src/lib/compiler/front/basics/stats/compile-statistics.pkg
+    package cvp =  invert_path;			# invert_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package ep  =  stamppath;			# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package err =  error_message;		# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package id  =  inlining_data;		# inlining_data			is from   src/lib/compiler/front/typer-stuff/basics/inlining-data.pkg
+    package ip  =  inverse_path;		# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lms =  list_mergesort;		# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package mld =  module_level_declarations;	# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package spc =  stamppath_context;		# stamppath_context		is from   src/lib/compiler/front/typer-stuff/modules/stamppath-context.pkg
+    package sta =  stamp;			# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package str =  string;			# string			is from   src/lib/std/string.pkg
+    package stx =  stampmapstack;		# stampmapstack			is from   src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+    package sxe =  symbolmapstack_entry;	# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package sy  =  symbol;			# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;			# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;		# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package td  =  typerstore;			# typerstore			is from   src/lib/compiler/front/typer-stuff/modules/typerstore.pkg
+    package tdc =  typer_data_controls;		# typer_data_controls		is from   src/lib/compiler/front/typer-stuff/main/typer-data-controls.pkg
+    package ts  =  type_junk;			# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package tdt =  type_declaration_types;	# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package vac =  variables_and_constructors;	# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;			# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+    #
+#    include module_level_declarations;
+herein
+
+    package   module_junk
+    : (weak)  Module_Junk			# Module_Junk	is from   src/lib/compiler/front/typer-stuff/modules/module-junk.api
+    {
+	#  Debugging hooks 
+
+	say = cp::say;
+
+	debugging = tdc::module_junk_debugging;		# eval:  set_control "ed::module_junk_debugging" "TRUE";
+
+	fun if_debugging_say (msg: String)
+            =
+	    if *debugging   say msg;  say "\n";   fi;
+
+	fun bug s
+            =
+            err::impossible ("module_junk: " + s);
+
+	# Look up the entity corresponding to a given symbol in the `elements'
+	# of a api and the corresponding `entities' from a package
+	# typechecked_package.  The (dynamic) access fields of packages and
+	# generics are adjusted before they are returned.  The static accesses
+	# of types, packages, and generics are just returned.
+	#
+	# Used by the (package and generic package) matching functions.
+
+	exception UNBOUND  sy::Symbol;
+
+	fun get_api_element (elements, symbol)
+            = 
+            search  elements
+            where
+	        fun search []
+                        =>
+                        {   if_debugging_say("@@@get_api_element " + sy::name symbol);
+                            raise exception (UNBOUND symbol);
+                        };
+
+		    search ((s, sp) ! remaining_elements)
+                        =>
+                        if (sy::eq (s, symbol))   sp;
+                        else                     search remaining_elements;
+                        fi;
+                end;
+	    end;
+
+	# The following might be used to
+        # speed up the api lookup process: 
+	#
+	# fun get_api_element (elements, symbol)
+        #     = 
+	#     dictionary::get (elements, symbol)
+	#     except
+        #         dictionary::UNBOUND
+        #         =
+        #         raise exception (UNBOUND symbol);
+	#
+	# We'll use more efficient representations for elements in the future.
+        # XXX BUGGO FIXME  
+
+	# Return the typechecked_package stamp
+        # of a particular api element:
+	#
+	fun get_api_element_variable  (mld::PACKAGE_IN_API { module_stamp, ... } ) =>  THE module_stamp;
+	    get_api_element_variable  (mld::TYPE_IN_API    { module_stamp, ... } ) =>  THE module_stamp;
+	    get_api_element_variable  (mld::GENERIC_IN_API { module_stamp, ... } ) =>  THE module_stamp;
+	    get_api_element_variable  _                                            =>  NULL;
+        end;
+
+
+
+	# This one is used only in
+        #     src/lib/compiler/front/typer/modules/api-match-g.pkg
+        #
+	fun get_type (elements, typerstore, symbol)
+            =
+	    case (get_api_element (elements, symbol))
+		#
+		mld::TYPE_IN_API { module_stamp, ... }
+		    =>
+		    (   td::find_type_by_module_stamp (typerstore, module_stamp),
+			module_stamp
+		    );
+
+		_ => bug "get_type: wrong spec";
+            esac;
+
+
+
+	# The function get_package is used in
+        #     src/lib/compiler/front/semantic/modules/api-match.pkg
+	#
+	fun get_package (elements, typerstore, symbol, dacc, dinfo)
+            =
+	    case (get_api_element (elements, symbol))
+		#	      
+		mld::PACKAGE_IN_API { an_api, slot, definition, module_stamp }
+		    => 
+		    case (td::find_entry_by_module_stamp (typerstore, module_stamp))
+			#		       
+			mld::PACKAGE_ENTRY entity
+			    => 
+			    ( mld::A_PACKAGE
+                                { an_api,
+				  typechecked_package  => entity,
+				  varhome       => vh::select_varhome (dacc, slot),
+				  inlining_data   => id::select (dinfo, slot)
+				},
+			      module_stamp
+			    );
+
+			 _ => bug "get_package: bad entity";
+		    esac;
+
+		_ => bug "get_package: wrong spec";
+            esac;
+
+
+        #
+	fun get_generic (elements, typerstore, symbol, dacc, dinfo)				# get_generic() is used only in    src/lib/compiler/front/semantic/modules/api-match.pkg
+            =
+	    case (get_api_element (elements, symbol))
+		#	      
+		mld::GENERIC_IN_API { a_generic_api, slot, module_stamp }
+		    => 
+		    case (td::find_entry_by_module_stamp (typerstore, module_stamp))
+			#		       
+			mld::GENERIC_ENTRY entity
+			    => 
+			    ( mld::GENERIC
+                                {
+                                  a_generic_api,
+				  typechecked_generic =>  entity,
+				  varhome             =>  vh::select_varhome (dacc, slot),
+				  inlining_data       =>  id::select (dinfo, slot)
+				},
+			      module_stamp
+			    );
+
+			_ => bug "getGeneric: bad entity";
+		    esac;
+
+		_ => bug "get_generic: wrong spec";
+            esac;
+
+	error_package_stamp   =   sta::make_static_stamp "ERRONEOUS_PACKAGE";
+
+	error_package_name   =   ip::INVERSE_PATH [ sy::make_package_symbol "ERRONEOUS_PACKAGE" ];
+
+	fun get_package_stamp (mld::A_PACKAGE { typechecked_package => { stamp, ... }, ... } ) =>   stamp;
+	    get_package_stamp  mld::ERRONEOUS_PACKAGE                                          =>   error_package_stamp;
+	    get_package_stamp _                                                                =>   bug "get_package_stamp";
+        end;
+
+	fun get_package_name (mld::A_PACKAGE { typechecked_package => { inverse_path, ... }, ... } ) =>   inverse_path;
+	    get_package_name  mld::ERRONEOUS_PACKAGE                                                 =>   error_package_name;
+	    get_package_name _                                                                       =>   bug "get_package_name";
+        end;
+
+	fun get_packages (mld::A_PACKAGE { an_api              =>  mld::API api_record,
+                                           typechecked_package =>  { typerstore, ... },
+                                           varhome,
+                                           inlining_data       =>  info, ...
+                                         }
+                         )
+		=>
+		list::map_partial_fn
+		    #
+		    \\ (symbol, mld::PACKAGE_IN_API { an_api, slot, definition, module_stamp } )
+			    =>
+			    THE (
+				mld::A_PACKAGE
+                                  {
+				    an_api,
+				    typechecked_package =>  td::find_package_by_module_stamp (typerstore, module_stamp),
+				    varhome             =>  vh::select_varhome (varhome, slot), 
+				    inlining_data       =>  id::select (info, slot)
+				  }
+			    );
+			#
+			_   =>  NULL;
+		    end 
+		    #
+		    api_record.api_elements;
+
+
+	    get_packages mld::ERRONEOUS_PACKAGE =>   NIL;
+	    get_packages _                      =>   bug "get_packages";
+        end;
+
+	fun get_types (mld::A_PACKAGE {  an_api              =>  mld::API api_record,
+                                           typechecked_package =>  { typerstore, ... },
+                                           ...
+                                        }
+                        )
+		=>
+		{   tycvars
+			=
+			list::map_partial_fn
+			    #
+			    \\ (symbol, mld::TYPE_IN_API { module_stamp, ... } ) =>   THE  module_stamp;
+				_                                                =>   NULL;
+                            end
+			    #
+			    api_record.api_elements;
+
+		    list::map
+                       (\\  tyc_variable =   td::find_type_by_module_stamp (typerstore, tyc_variable))
+                        tycvars;
+		};
+
+	    get_types mld::ERRONEOUS_PACKAGE =>   NIL;
+	    get_types _                      =>   bug "get_types (2)";
+        end;
+
+	fun get_api_symbols (mld::API { symbols, ... } )   =>   symbols;
+	    get_api_symbols _                              =>   NIL;
+        end;
+
+	fun get_package_symbols (mld::A_PACKAGE { an_api, ... } ) =>   get_api_symbols an_api;
+	    get_package_symbols _                                 =>   NIL;
+        end;
+
+
+
+	# Translate a type per
+        # a given Typerstore:
+	#
+	fun translate_type
+                typerstore
+                (tdt::TYPE_BY_STAMPPATH { stamppath, namepath, ... })
+
+		=>
+		td::find_type_via_stamppath (typerstore, stamppath)
+		except
+		    td::UNBOUND
+		    =
+		    {   if_debugging_say (str::cat [ "trapped td::UNBOUND from td::find_type_via_stamppath:  where path == '",
+							ip::to_string  namepath,
+                                                        "' and stamppath == '",
+							ep::stamppath_to_string  stamppath,
+                                                        "':  translate_type  in  src/lib/compiler/front/typer-stuff/modules/module-junk.pkg"
+						      ]
+					 );
+		       raise exception td::UNBOUND;
+		    };
+
+
+	    translate_type _ type
+		=>
+		type;
+        end;      
+
+
+
+	# Translate a type in a given Typerstore 
+	#
+	# We should never need to recurse inside each
+        # NAMED_TYPE's body because
+	# a DEFtypes is either rigid or has been
+        # relativized as a whole into an
+        # TYPE_BY_STAMPPATH with an
+        # stamppath somewhere before.
+	#
+	fun translate_typoid
+                typerstore
+                type
+            =
+	    ts::map_constructor_typoid_dot_type
+                (translate_type  typerstore)
+                type
+	    except
+                td::UNBOUND
+                =
+                {   if_debugging_say "trapped td::UNBOUND:    translate_typoid in   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg";
+                    raise exception td::UNBOUND;
+                };
+
+
+
+#	transTypePhase = (cst::make_phase "Compiler 033 4-translateTypeConstructor") 
+#	translate_type = 
+#	  \\ x = \\ y = (cst::do_phase transTypePhase (translate_type x) y)
+#
+#	transTypePhase = (cst::make_phase "Compiler 033 5-translateType") 
+#	translate_typoid = 
+#	  \\ x = \\ y = (cst::do_phase transTypePhase (translate_typoid x) y)
+
+
+	fun package_definition_to_package (mld::CONSTANT_PACKAGE_DEFINITION a_package, _)
+		=>
+		a_package;
+
+	    package_definition_to_package (mld::VARIABLE_PACKAGE_DEFINITION( an_api, stamppath), typerstore)
+		=>
+		mld::A_PACKAGE
+                  {
+                    typechecked_package =>  td::find_package_via_stamppath (typerstore, stamppath),
+                    an_api, 
+		    #
+		    varhome             =>  vh::null_varhome,
+		    inlining_data       =>  id::NIL
+		  };
+        end;
+
+	# Two pieces of essential package information
+	# are gathered during the dictionary lookup.
+        # API_INFO is returned if the package being
+	# searched is a PACKAGE_API; otherwise
+        # we return PACKAGE_INFO.
+	#
+	Package_Info
+	  #
+          = API_INFO  ep::Stamppath					# Kept in reverse order! 
+	  #
+	  | PACKAGE_INFO  ( mld::Typechecked_Package,
+			    vh::Varhome,
+			    id::Inlining_Data
+                          );
+
+	bogus_info =    PACKAGE_INFO
+			  (
+			    mld::bogus_typechecked_package,
+			    vh::null_varhome,
+			    id::NIL
+			  );
+
+	fun get_package_element (symbol, an_api as mld::API { api_elements, ... }, s_info)
+	        => 
+		case (get_api_element (api_elements, symbol))
+		    #                  
+		    mld::PACKAGE_IN_API {   an_api => subsig,   slot,   definition,   module_stamp   }
+			=>
+			(   {   new_info
+				    = 
+				    case s_info
+					#
+					API_INFO ep
+					    =>
+					    API_INFO (module_stamp ! ep);
+
+					PACKAGE_INFO ( { typerstore, ... }, dacc, dinfo)
+					    =>
+					    PACKAGE_INFO (
+						td::find_package_by_module_stamp (typerstore, module_stamp), 
+						vh::select_varhome (dacc, slot),
+						id::select (dinfo, slot)
+					    );
+				    esac;
+
+				(subsig, new_info);
+			    }
+			);
+
+		     _ => bug "get_package_element: wrong spec case";
+                esac;
+
+	    get_package_element (symbol, an_api, _)
+		=>
+		( an_api,
+		  bogus_info
+		);
+        end;
+
+	fun get_generic_element
+	      (
+		symbol,
+		#
+		an_api as mld::API { api_elements, ... },
+		#
+		sinfo
+		    as
+		    PACKAGE_INFO
+			(
+			  typechecked_package as { typerstore, ... },
+			  dacc,
+			  dinfo
+			)
+	      )
+		    => 
+		    case (get_api_element (api_elements, symbol))
+			#
+			mld::GENERIC_IN_API { a_generic_api, module_stamp, slot }
+			    =>
+			    mld::GENERIC
+                              {
+				a_generic_api,
+				typechecked_generic =>  td::find_generic_by_module_stamp (typerstore, module_stamp),
+				varhome             =>  vh::select_varhome (dacc, slot),
+				inlining_data       =>  id::select (dinfo, slot)
+			      };
+
+		       _ => bug "get_generic_element - bad spec";
+                   esac;
+
+	    get_generic_element _
+                =>
+                mld::ERRONEOUS_GENERIC;
+        end;
+
+
+
+	fun make_type  (symbol,  sp,  mld::API { api_elements, ... },  s_info)
+	        =>
+	        case (get_api_element (api_elements, symbol))
+		    #
+		    mld::TYPE_IN_API { type, module_stamp=>ev, is_a_replica, scope }
+			=> 
+			case s_info
+			    #
+			    API_INFO ep
+				=> 
+				tdt::TYPE_BY_STAMPPATH    { arity     =>  ts::arity_of_type  type,
+							    stamppath =>  reverse  (ev ! ep),
+							    namepath  =>  cvp::invert_spath  sp
+							  };
+
+			    PACKAGE_INFO ( { typerstore, ... }, _, _)
+				=>
+				td::find_type_by_module_stamp (typerstore, ev);
+			esac;
+
+		    _ => bug "makeTypeConstructor: wrong spec case";
+                esac;
+
+	    make_type _
+                =>
+                tdt::ERRONEOUS_TYPE;
+        end;
+
+
+
+	fun make_value
+		(
+		  symbol,
+		  symbol_path,
+		  an_api as mld::API { api_elements, ... },
+		  s_info as PACKAGE_INFO ( { typerstore, ... }, dacc, dinfo )
+		)
+		: vac::Variable_Or_Constructor
+		=>
+		case (get_api_element (api_elements, symbol))
+		    #
+		    mld::VALUE_IN_API { typoid, slot }
+			=>
+			vac::VARIABLE (
+			    vac::PLAIN_VARIABLE
+			      {
+				varhome       =>  vh::select_varhome (dacc, slot), 
+				inlining_data =>  id::select (dinfo, slot),
+				#
+				path          =>  symbol_path,
+				vartypoid_ref      =>  REF (translate_typoid typerstore typoid)
+			      }
+			);
+
+		    mld::VALCON_IN_API
+			{
+			  sumtype => tdt::VALCON { name, is_constant, typoid, form, signature, is_lazy },
+			  slot
+			}
+			=>
+			{   new_form
+			        =
+				case (form, slot)
+				    #
+				    (vh::EXCEPTION _, THE i)
+					=>
+					vh::EXCEPTION (vh::select_varhome (dacc, i));
+
+				    _ => form;
+				esac;
+
+
+			    vac::CONSTRUCTOR (
+			       tdt::VALCON
+				 {
+				   form   =>  new_form,
+				   typoid =>  translate_typoid  typerstore  typoid, 
+				   #
+				   name,
+				   is_constant,
+				   signature,
+				   is_lazy
+				 }
+			    );
+			};
+
+		    _ => bug "make_value: wrong spec";
+	        esac;
+
+
+	    make_value _
+                =>
+                vac::VARIABLE (vac::ERROR_VARIABLE);
+        end;
+
+
+
+	fun make_package_base (symbol, an_api, s_info)
+            = 
+	    {   my (new_api, new_info)
+                    =
+                    get_package_element (symbol, an_api, s_info);
+	    
+                case new_api
+		    #
+		    mld::ERRONEOUS_API
+			=>
+			mld::ERRONEOUS_PACKAGE;
+
+		    _   =>
+			case new_info
+			    #
+			    PACKAGE_INFO (new_typechecked_package, make_varhome, newinfo)
+				=> 
+				mld::A_PACKAGE {
+				    an_api              => new_api,
+				    typechecked_package => new_typechecked_package,
+				    varhome              => make_varhome,
+				    inlining_data       => newinfo
+				};
+
+			    API_INFO stamppath
+				=>
+				mld::PACKAGE_API {
+				    an_api => new_api,
+				    stamppath   => reverse stamppath
+				};
+                         esac;
+		esac;
+	    };
+
+	fun make_package (symbol, _, an_api, s_info)
+            =
+            make_package_base (symbol, an_api, s_info);
+
+	fun make_package_definition (symbol, _, an_api, s_info)
+            = 
+	    {   (get_package_element (symbol, an_api, s_info))
+		    ->
+		    (an_api, new_info);
+
+	    
+                case an_api
+		    #
+		    mld::ERRONEOUS_API =>   mld::CONSTANT_PACKAGE_DEFINITION   mld::ERRONEOUS_PACKAGE;
+		    #
+		    _  =>
+		        case new_info
+			    #
+			    PACKAGE_INFO (typechecked_package, varhome, inlining_data)
+				=> 
+				mld::CONSTANT_PACKAGE_DEFINITION (
+				    #
+				    mld::A_PACKAGE {
+					an_api,
+					typechecked_package,
+					varhome,
+					inlining_data
+				    }
+				);
+
+			    API_INFO stamppath
+				=>
+				mld::VARIABLE_PACKAGE_DEFINITION (an_api, reverse stamppath);
+                         esac;
+                esac;
+	    };
+
+	fun make_generic (symbol, sp, an_api, s_info)
+            =
+            get_generic_element (symbol, an_api, s_info);
+
+
+	fun get_x_via_path  make_it  (a_package, syp::SYMBOL_PATH spath, fullsp)
+            =
+	    case a_package
+		#
+		mld::A_PACKAGE { an_api, typechecked_package, varhome, inlining_data=>info }
+		    =>
+		    loop (spath, an_api, PACKAGE_INFO (typechecked_package, varhome, info));
+
+		mld::PACKAGE_API { an_api, stamppath }
+		    => 
+		    loop (spath, an_api, API_INFO (reverse stamppath));
+
+		_ => loop (spath, mld::ERRONEOUS_API, bogus_info);
+	    esac
+	    where
+	        fun loop ( [symbol], an_api, s_info)
+			 =>
+			 make_it (symbol, fullsp, an_api, s_info);
+
+		    loop (symbol ! rest, an_api, s_info)
+			=> 
+			{   (get_package_element (symbol, an_api, s_info))
+				->
+				(new_api, new_s_info);
+
+			    loop  (rest,  new_api,  new_s_info);
+			};
+
+		    loop _ => bug "get_x_via_path::loop";
+                end;
+	    end;
+
+
+
+	my get_type_via_path
+            :
+            (mld::Package, syp::Symbol_Path, syp::Symbol_Path) -> tdt::Type
+            =
+	    get_x_via_path  make_type;
+
+	my get_value_via_path
+            :
+            (mld::Package, syp::Symbol_Path, syp::Symbol_Path) -> vac::Variable_Or_Constructor
+            =
+	    get_x_via_path  make_value;
+
+	my get_package_via_path
+            :
+            (mld::Package, syp::Symbol_Path, syp::Symbol_Path) -> mld::Package
+            =
+	    get_x_via_path  make_package;
+
+	my get_generic_via_path
+            :
+            (mld::Package, syp::Symbol_Path, syp::Symbol_Path) -> mld::Generic
+            =
+	    get_x_via_path  make_generic;
+
+	my get_package_definition_via_path
+            :
+            (mld::Package, syp::Symbol_Path, syp::Symbol_Path) -> mld::Package_Definition
+            =
+	    get_x_via_path  make_package_definition;
+
+
+
+	fun check_path_sig (an_api: mld::Api, spath: syp::Symbol_Path)   :  Null_Or( sy::Symbol )
+            =
+	    {   a_package = mld::PACKAGE_API
+			      {
+				an_api,
+				stamppath =>   []: ep::Stamppath
+			      };
+
+		fun check_last _ (symbol, _, mld::API { api_elements, ... }, _)
+			=>
+			{   get_api_element (api_elements, symbol);
+			    ();
+			};
+
+		    check_last _ (symbol, _, mld::ERRONEOUS_API, _)
+                        =>
+                        ();
+                end;
+	    
+                get_x_via_path check_last (a_package, spath, syp::empty);
+		NULL;
+	    }
+	    except
+                UNBOUND symbol =   THE symbol;
+
+	fun err_naming symbol
+            =
+	    case (sy::name_space symbol)
+		#	      
+		sy::VALUE_NAMESPACE   =>   sxe::NAMED_VARIABLE vac::ERROR_VARIABLE;
+		sy::TYPE_NAMESPACE    =>   sxe::NAMED_TYPE     tdt::ERRONEOUS_TYPE;
+		sy::PACKAGE_NAMESPACE =>   sxe::NAMED_PACKAGE  mld::ERRONEOUS_PACKAGE;
+		sy::GENERIC_NAMESPACE =>   sxe::NAMED_GENERIC  mld::ERRONEOUS_GENERIC;
+		_                     =>   raise exception (UNBOUND symbol);
+            esac;
+
+	fun apis_equal
+                ( mld::API { stamp => s1, closed => TRUE, ... },
+		  mld::API { stamp => s2, closed => TRUE, ... }
+                )
+		=>
+		sta::same_stamp (s1, s2);
+
+	    apis_equal _
+                =>
+                FALSE;
+        end;
+
+	fun eq_origin ( mld::A_PACKAGE  s1,
+                        mld::A_PACKAGE  s2
+                      )
+		=>
+		sta::same_stamp (s1.typechecked_package.stamp, s2.typechecked_package.stamp);
+
+	    eq_origin _
+                =>
+                FALSE;
+        end;
+
+
+
+	# The following functions are used in CMSymbolmapstack and module elaboration
+	# for building MacroExpansionPathContexts.  They extract module ids from modules. 
+	#
+
+	typestamp_of   =   stx::typestamp_of';
+
+	fun packagestamp_of (mld::A_PACKAGE sa) =>   stx::packagestamp_of sa;
+	    packagestamp_of _                   =>   bug "package_stamp";
+        end;
+
+	fun make_packagestamp (mld::API sa, typechecked_package:  mld::Typechecked_Package)
+		=>
+		stx::make_packagestamp (sa, typechecked_package);
+
+	    make_packagestamp _
+                =>
+                bug "make_packagestamp";
+        end;
+
+	fun genericstamp_of (mld::GENERIC fa)				# A stamp for a generic, not a stamp which is generic.
+		=>
+		stx::genericstamp_of fa;
+	
+	    genericstamp_of _
+                =>
+                bug "genericstamp_of";
+        end;
+
+	fun make_genericstamp (an_api, typechecked_package:  mld::Typechecked_Generic)
+            =
+            stx::make_genericstamp (an_api, typechecked_package);
+
+	# The reason that relativize_type does not need to get inside 
+	# NAMED_TYPE is because of our assumptions
+        #  that the body in NAMED_TYPE has already
+        #  been relativized, when NAMED_TYPE is elaborated; 
+	# otherwise, this NAMED_TYPE must be a rigid type.
+	#
+	fun relativize_type  stamppath_context:      tdt::Type -> (tdt::Type, Bool)
+            = 
+	    {   fun stamped type
+                    =
+                    {   typestamp_of = stx::typestamp_of' type;
+		    
+			#  if_debugging_say ("type_map: " + stampmapstack::idToString stamp_of_type); 
+
+			case (spc::find_stamppath_for_type (stamppath_context, typestamp_of))
+			    #	
+			    NULL => {   if_debugging_say "type not mapped 1";
+                                        (type, FALSE);
+                                    };
+
+			    THE stamppath
+				=>
+				{   type' =  tdt::TYPE_BY_STAMPPATH   { arity       =>  ts::arity_of_type type,
+									stamppath,
+									namepath    =>  ts::namepath_of_type type
+								      };
+
+				    if_debugging_say (   "type mapped: "
+						   +   symbol::name (type_junk::name_of_type type')
+						   );
+				    (type', TRUE);
+				};
+                        esac;
+		    };
+
+		fun type_map (type as (tdt::SUM_TYPE _ | tdt::NAMED_TYPE _))
+			=>
+			stamped type;
+
+		    type_map (type as tdt::TYPE_BY_STAMPPATH _)
+			=>
+			#  Assume this is a local type within the current api: 
+			{   if_debugging_say "type not mapped 2";
+			    (type, TRUE);
+			};
+
+		    type_map type
+			=>
+			{   if_debugging_say "type not mapped 3";
+			    (type, FALSE);
+			};
+                end;
+
+		fun type_map' type
+                    = 
+		    {   if_debugging_say (   "type_map': "
+                                       +   (symbol::name (type_junk::name_of_type  type))
+                                       );
+
+		        type_map type;
+                    };
+
+	    
+                type_map';
+	    };
+
+	fun relativize_typoid  stamppath_context  typoid:      (tdt::Typoid, Bool)
+            =
+	    ( ts::map_constructor_typoid_dot_type  viz_type  typoid,
+	      *relative
+	    )
+            where
+	        relative = REF FALSE;
+
+		fun viz_type  type
+                    = 
+		    {   (relativize_type stamppath_context type)
+			    ->
+			    (type', rel);
+		    
+                        relative := (*relative or rel);
+
+			type';
+		    };
+	    end;
+
+
+
+#	relativizeTypePhase = (cst::make_phase "Compiler 033 2-vizType") 
+#	relativizeType = 
+#	  \\ x => \\ y =>
+#	   (cst::do_phase relativizeTypePhase (relativizeType x) y)
+
+
+
+	# get_naming (symbol, pkg): return naming for element symbol of package pkg
+	#  - used only inside the function open_package
+	#  - raises module_junk::UNBOUND if symbol not found in api 
+	#
+	fun get_naming (symbol, pkg as mld::A_PACKAGE st)
+		=>
+		case st
+		    #		  
+		    {   an_api as mld::API _,
+			typechecked_package,
+			#
+			varhome       =>  dacc,
+			inlining_data =>  dinfo
+		    }
+			=>
+			{   sinfo        = PACKAGE_INFO (typechecked_package, dacc, dinfo);
+
+			    typerstore = typechecked_package.typerstore;
+
+			    case (sy::name_space symbol)
+				#
+				sy::VALUE_NAMESPACE
+				    => 
+				    case (make_value (symbol, syp::SYMBOL_PATH [symbol], an_api, sinfo))
+					#				        	
+					vac::VARIABLE    v =>   sxe::NAMED_VARIABLE v;
+					vac::CONSTRUCTOR d =>   sxe::NAMED_CONSTRUCTOR d;
+				    esac;
+
+				sy::TYPE_NAMESPACE
+				    =>
+				    sxe::NAMED_TYPE (
+					make_type (symbol, syp::SYMBOL_PATH [symbol], an_api, sinfo)
+				    );
+
+			       sy::PACKAGE_NAMESPACE => sxe::NAMED_PACKAGE (make_package_base (symbol, an_api, sinfo));
+			       sy::GENERIC_NAMESPACE => sxe::NAMED_GENERIC   (get_generic_element (symbol, an_api, sinfo));
+
+			       sp => {   if_debugging_say ("getNaming: " + sy::symbol_to_string symbol);
+					  raise exception (UNBOUND symbol);
+				     };
+			    esac;
+			};
+
+		    { an_api => mld::ERRONEOUS_API, ... }
+			=>
+			err_naming symbol;
+		esac;
+
+
+	    get_naming   (symbol,   mld::PACKAGE_API   {   an_api as mld::API _,   stamppath => ep   } )
+		=> 
+		{   sinfo = API_INFO (reverse ep);
+
+		    case (sy::name_space symbol)
+			#
+			sy::TYPE_NAMESPACE
+			    =>
+			    sxe::NAMED_TYPE (make_type (symbol, syp::SYMBOL_PATH [symbol], an_api, sinfo));
+
+			sy::PACKAGE_NAMESPACE
+			    =>
+			    sxe::NAMED_PACKAGE (make_package_base (symbol, an_api, sinfo));
+
+		       _ => {   if_debugging_say ("get_naming: " + sy::symbol_to_string symbol);
+				#
+				raise exception (UNBOUND symbol);
+			    };
+                    esac;
+		}; 
+
+	    get_naming (symbol, mld::ERRONEOUS_PACKAGE)
+		=>
+		err_naming symbol;
+
+	    get_naming _
+                =>
+                bug "get_naming - bad arg";
+        end;
+
+
+
+	fun include_package
+                (
+                  symbolmapstack: syx::Symbolmapstack,
+                  a_package
+                )
+            =
+	    {   fun get symbol
+                    =
+		    get_naming (symbol, a_package)
+                    except
+                        UNBOUND _
+                        =
+                        raise exception syx::UNBOUND;
+
+		symbols  =   get_package_symbols a_package;
+		gen_syms =   \\ () = symbols;
+
+		new_symbolmapstack = syx::special (get, gen_syms);
+	    
+                syx::atop (new_symbolmapstack, symbolmapstack);
+	    };
+
+
+
+	# Extract inlining_data from a Symbolmapstack_Entry:
+	#
+	fun extract_inlining_data (sxe::NAMED_PACKAGE     (mld::A_PACKAGE         { inlining_data, ... } )) =>  inlining_data;
+	    extract_inlining_data (sxe::NAMED_GENERIC     (mld::GENERIC           { inlining_data, ... } )) =>  inlining_data;
+	    extract_inlining_data (sxe::NAMED_VARIABLE    (vac::PLAIN_VARIABLE { inlining_data, ... } )) =>  inlining_data;
+	    extract_inlining_data (sxe::NAMED_CONSTRUCTOR _                                               ) =>  id::NIL;
+	    #
+	    extract_inlining_data _                                                                         =>  bug "unexpected naming in extract_inlining_data";
+        end;
+
+
+
+	# Extract all api names from a package --
+	# doesn't look into generic components:
+        #
+	fun get_api_names a_package
+            =
+            {   fun from_api an_api
+                    =
+                    {   fun api_names (mld::API { name, api_elements, ... }, names)
+				=>
+				fold_forward
+				    \\  ((_, mld::PACKAGE_IN_API { an_api, ... } ), ns) =>   api_names (an_api, ns);
+					(_, ns)                                         =>   ns;
+				    end 
+
+
+				    case name
+					THE n  =>  n ! names;
+					NULL   =>  names;
+				    esac
+
+				    api_elements;
+
+			    api_names (mld::ERRONEOUS_API, names)
+				=>
+				names;
+                        end;
+
+			fun drop_duplicates (x ! (rest as y ! _), z)
+				=> 
+				if   (sy::eq (x, y))   drop_duplicates (rest,     z);
+				else                   drop_duplicates (rest, x ! z);
+                                fi;
+
+			    drop_duplicates (x ! NIL, z) =>   x ! z;
+			    drop_duplicates (    NIL, z) =>       z;
+                        end;
+
+		    
+                        drop_duplicates
+			  (
+                            lms::sort_list   sy::symbol_gt (api_names (an_api, NIL)),		# Could we use lms::sort_list_and_drop_duplicates here?
+                            NIL
+                          );
+		    };
+	    
+		case a_package
+		    #
+		    mld::A_PACKAGE   { an_api, ... } =>   from_api  an_api;
+		    mld::PACKAGE_API { an_api, ... } =>   from_api  an_api;
+		    #
+		    mld::ERRONEOUS_PACKAGE 	     =>   NIL;
+                esac;
+	    };
+    };										# package module_junk 
+end;										# stipulate
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories. 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

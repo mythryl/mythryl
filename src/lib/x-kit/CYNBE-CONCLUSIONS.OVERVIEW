@@ -1,0 +1,242 @@
+2010-08-02 by Cynbe:
+
+I've been digging through this library for about half a year now,
+commenting and cleaning, and am thinking of suspending operations,
+so I'm summarizing my thoughts before I move on and forget:
+
+Widget set observations:
+
+  o I think this codebase provides something of a counter-example
+    to the thesis that ML doesn't need OOP.  In particular, constantly
+    having to up-cast by hand via "widget_of" calls is quite irritating.
+
+  o The idea of expressing most of the mutable state as parameters in
+    thread_loop functions is interesting, but one needs to have a provision
+    to start and stop the GUI when doing stuff like interactive GUI editing.
+    Calls to save and restore state from exceptions might be the answer,
+    as usual using exception as an extensible sumtype.
+
+  o I was intending to evolve this codebase into the widget-set I
+    really want, but at this point I'm inclined to think that I've
+    learned what I can from this codebase and that writing a new
+    widget library from scratch would be considerably faster than
+    evolving the existing codebase into what I want.
+
+  o I feel strongly that it is a mistake (for my purposes at least)
+    to have the widget tree be constructed only implicitly via
+    make-widget calls, with all widgettree state hidden.
+
+    The Mythryl compiler derives great power from having the intermediate
+    code representations be explicit recursive sumtypes, with treecodes
+    thus constituting an expressive blackboard language shared among many
+    code modules, allowing clean factoring of functionality via multiple
+    recursive dagwalks.
+
+    I would like to see the widget set harness similar power by making the
+    GUI as much as possible a recursively sumtype recursively rewritable
+    by various modules.
+
+  o The current widget set is based on the 2D int-based pixel-oriented X rendering model.
+    I'd prefer a widget set based on the 3D float-based pixel-agnostic OpenGL rendering model.
+
+    The structural focus moves from rewriting individual parts of the window
+    asynchronously to rewriting the complete window once per frame.  Many
+    ancient X hacks like XOR rubberbanding become irrelevant.  Even the coordinate
+    system has to change since X has the origin in the upper-left while GL has the
+    origin in the lower-left.
+
+    The extensive changes required are one of the primary reasons I think simply
+    recoding from scratch is likely to be faster.
+
+  o The current widget set IMHO lets far too much of the underlying X weirdness
+    propagate all the way into the widget layer, in particular the widget
+    "realization" stuff.
+
+  o The current widget set is an interesting experiment in pushing decentralization
+    and concurrency to the limit, which I think serves to starkly illustrate some
+    of the pitfalls of this approach.
+
+    In particular there is no place in the code which can see the forest: each
+    widget sees only its own tree.
+
+    This makes difficult global operations like starting and stopping the GUI.
+
+    It also makes difficult global optimization of the way X events are delivered.
+    Trickling events down the widget tree is unsatisfying complex and inefficient.
+    It would be nice to make a global datastructure allowing each event to be
+    delivered directly to its destination widget, but currently no part of the
+    code has a global enough view of operations to do this.
+
+  o For the most part, the extreme concurrency is not buying us much except
+    deadlocks;  most widgets just sit waiting for an X event and then respond
+    to it, and might just as well just be activated via conventional callbacks.
+
+    I think that to really shine, concurrency needs something like a highly
+    dynamic OpenGL GUI updating at 100 frames per second, where the GUI
+    display list functions as a shared blackboard asychronously updated by
+    many concurrent threads on their own natural schedules but drawn on a
+    fixed schedule by a dedicated window-refresh thread.  This is really a
+    radically different architecture from the current one.
+
+  o The idea of delivering user events to widgets in two separate streams (keyboard
+    and mouse) is intended to ease the task of the widget writer but in fact
+    makes it harder because it means that keyboard and mouse events can arrive
+    out of chronological order.  The only way for a widget to assure correct
+    operation is for it to buffer events internally to see if out-of-order
+    events arrive.  This adds complexity and (worse) increases GUI latency,
+    making the GUI feel sluggish -- and no matter how long a widget waits, it
+    cannot be sure that an out-of-order event is not still on the way.
+
+    Out-of-order GUI event delivery is a BROKEN IDEA;  the widget set should
+    guarantee that GUI events are always delivered in chronological order to
+    a given widget.
+
+  o In sum, the replacement GUI design I'm now envisioning centers on:
+
+      * Favoring flexibility and simplicity of programming over extreme performance.
+
+      * Using the OpenGL rendering model, albeit probably for the most part
+	a clean, simple subset.
+
+      * Favoring explicit over implicit representations.  In particular this
+	means having widgets collectively contribute to the construction of
+	a display list describing the GUI rather than doing direct rendering,
+	because an explicit display list can be analysed and rewritten, but
+	direct rendering is utterly opaque to the rest of the system.
+
+      * Having central thread(s) responsible for updating the display list
+	in response to requests and updating the user display by drawing
+	the display list once per frametime.
+
+      * The public widgettree sumtype should define just a few very generic
+	widget types; customization should be done in general by providing
+	a start-thread function implementing the generic-widget-specific
+	protocol.
+
+	Each public widgettree node type will in general have a public part
+	serving as shared blackboard and a private part used internally by
+	the display list management thread(s).
+	    One intent here is that it should be possible for an application
+	function to rewrite the widgettree using only the public information
+	and submit the rewritten widgettree to the widgettree imp for execution.
+
+        I'm currently presuming the widgettree will be rewritten once per frame,
+        but it should be made available via a widget-imp function call to allow
+        switching to a rewrite-on-request implementation for performance if that
+        becomes desirable.  Either way, the returned widgettree should be static
+        so that application code can process a complete self-consistent frame-image
+        of the GUI without having it change out from under it.
+       
+        One design goal is that application code should be able to traverse the
+        widgettree while having only limited knowledge of the full range of widgettree
+        type nodes.  E.g., it can find and interact with all sliders of a particular
+        type knowing only the universal 'kids' field and the slider-specific record type.
+
+	The widgettree node for (say) a slider will include:
+	    Widget-universal record controlled by theme:
+		Text               color. (Texture?)
+		Normal  background color. (Texture?)
+		Highlit background color. (Texture?)
+		Border             color. (Texture?)
+		(Storing this per-widget allows using different themes
+		in different parts of the GUI window if desired.)
+	    Widget-universal record controlled by parent:
+		Site in window space.
+	    Widget-universal record controlled by widget:
+		Widget-universal request functions wrapping that queue.	
+		Boolean recording whether keyboard events are desired.
+		Boolean recording whether mouse    events are desired.
+		Site in widget space.
+		Scrolled-viewport info:
+		    NULL or full-widgetspace site + currently-visible portion.
+		Displaylist.
+		List of children.
+	    Widget-specific record controlled by widget:
+		Widget-specific request functions wrapping that queue.	
+		Min     value.
+		Current value.
+		Max     value.
+	    Widget-flavor-specific record controlled by widget:
+		Flavor-specific request functions wrapping that queue.	
+		Flavor-specific state variables.
+		    E.g., a given slider might allow the values to be displayed
+		    in Roman or Arabic numerals.
+		Flavor-specific request functions.
+		    E.g., a function to select between Roman and Arabic numerals.
+		The widget-flavor-specific re/start function.
+		    This effectively specifies the complete widget implementation.
+		    We publish this as an opaque type to ensure that only the widgettree
+		    imp can invoke it.  New widget implementations can register their
+		    startup functions with the imp and get back the opaque version.
+			One argument to the re/start function will be NULL or
+		    an exception potentially containing saved state;  the re/start
+		    function will ignore it if the exception is not of the correct
+		    type for it.  This allows changing the flavor of a widget at the
+		    cost of lost private state.
+	    Widget-universal opaque record controlled by widget-tree imp:
+		Widget-universal         request mailqueue.
+		Widget-specific          request mailqueue.
+		Flavor-specific          request mailqueue.
+		Widgettree-imp to widget request mailqueue.
+		Mailcaster for public watchers.
+		REF containing NULL or exception with saved state.
+		REF containing pending theme- controlled state.
+		REF containing pending parent-controlled state.
+		REF containing pending widget-controlled widget-universal state.
+		REF containing pending widget-controlled widget-specific  state.
+		REF containing pending widget-controlled flavor-specific  state.
+
+
+Threadkit observations:
+
+  o We need a way of (e.g.) collapsing sequences of pending REDRAW
+    commands into a single one, so that a slow redraw doesn't wind
+    up lagging the system.  Maybe a command to collect and deliver
+    from a mailqueue all pending events of a given kind, as a list.
+    To make it type agnostic, it could be driven by an X -> Bool
+    filter function over the mailqueue contents.
+
+  o The idea of delivering events primarily via synchronous mail rendevous
+    clearly leads to far too many deadlock problems.  Erlang uses queues
+    instead with great success.  Mailqueues should be regarded as the
+    standard interthread communication mechanism;  mailslots should be
+    used seldom if ever.
+
+  o There is currently no way to stop and then restart a set of threads
+    consistuting a logical task.  Supporting thread groups would be a
+    simple extension to threadkit, well worth doing.
+
+  o There needs to be much more instrumentation of threadkit state and
+    operation to support graphic display of both normal operation and
+    problem conditions such as deadlock or queue bloat.  For example
+    mailqueues should track the ID of the sending thread so that both
+    threads participating in a mailqueue mediated message delivery are
+    known at the moment of delivery, allowing accurate graphical display.
+
+  o Mailqueues should be tweaked to delay the sending process when the
+    queue gets long.  TCP/IP uses exponential backoff with considerable
+    success, so a delay exponential in queue length seems a reasonable try.
+    [ LATER: ] Switching context seems to be a viable alternative. Anything
+    that avoids artificial delays is attractive.
+
+  o Having a thread stop dead in the water waiting for the reply to an
+    RPC is just begging for deadlock, not to mention poor GUI response.
+    To reduce danger of deadlock, support should be provided for structuring
+    each thread to have a single select[] statement, where instead of doing an
+    RPC and waiting, the thread just registers a continuation to be executed
+    by the select[] statement upon receipt of reply to an outstanding request
+    and then returns to its (sole) select[].
+
+    This means that hiding RPC waits inside innocuous-looking function calls
+    is fundamentally ill-considered.  RPC interface functions should accept
+    an argument tuple and a continuation and return Void.
+
+  o Threadkit uses a linear list of sleeping threads;  it should be changed
+    to use some sort of tree -- maybe a redblack tree because they are well
+    tested, maybe a more specialized priority queue for better(?) performance.
+
+
+
+
+
+    

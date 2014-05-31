@@ -1,0 +1,595 @@
+## dummy-nextcode-inlining-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the nextcode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+#    This may be the spot where cross-module inlining
+#    is currently not implemented.  If so, the original
+#    paper on this code is:
+#
+#        Lambda-Splitting: A higher-order approach to cross-module optimizations.
+#        Matthias Blume and Andrew W Appel
+#        1997, 12p
+#        http://citeseer.ist.psu.edu/288704.html
+#            Stefan Monnier in his thesis says this was never integrated into SML/NJ.
+
+
+
+
+#                  "I don't believe in mathematics."
+# 
+#                                --Albert Einstein 
+
+
+stipulate
+    package ncf =  nextcode_form;						# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+herein
+
+    api Nextcode_Inlining {
+	#
+	nextcode_inlining:  ncf::Function ->  List( ncf::Function );
+    };
+end;
+
+#  A dummy implementation for now.   XXX BUGGO FIXME 
+#
+										# Machine_Properties	is from   src/lib/compiler/back/low/main/main/machine-properties.api
+generic package   nextcode_inlining_g (
+    #             ===================
+    #
+    machine_properties:  Machine_Properties					# Typically 			  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+)
+: (weak)  Nextcode_Inlining							# Nextcode_Inlining	is from   src/lib/compiler/back/top/closures/dummy-nextcode-inlining-g.pkg
+{
+    fun nextcode_inlining f = [f];
+
+};
+
+
+/*
+generic package nextcode_inlining_g (machine_properties: Machine_Properties): NEXTCODE_INLINING = pkg
+
+    exception IMPOSSIBLE
+
+    # Currently we don't deal with floating point stuff.
+    # It is probably not worth the trouble here anyway.
+    #
+    numRegs = machine_properties::numRegs
+    numCalleeSaves = machine_properties::numCalleeSaves
+
+    maxEscapeArgs = numRegs - 1 - numCalleeSaves - 2
+    maxContArgs = numRegs - 1 - 2
+
+    package ncf = nextcode_form
+    package sl = sorted_list
+    package a = lambda_variable
+    package m = int_red_black_map
+
+    add = sl::enter
+    del = sl::rmv
+    join = sl::merge
+    xcl = sl::remove
+    mkset = sl::uniq
+    inset = sl::member
+    intersect = sl::intersect
+
+    fun lv_x (ncf::CODETEMP v, l) = add (v, l)
+      | lv_x (ncf::LABEL v, l) = add (v, l)
+      | lv_x (_, l) = l
+
+    infix @@@
+    fun (f @@@ g) (x, y) = f (g x, y)
+    fun fst (x, _) = x
+
+    fun lv_record (l, v, elv) = fold_forward (lv_x @@@ fst) (del (v, elv)) l
+
+    fun lv_xv (x, v, elv) = lv_x (x, del (v, elv))
+
+    fun lv_app (x, l) = fold_forward lv_x (lv_x (x, [])) l
+
+    fun lv_setter (l, elv) = fold_forward lv_x elv l
+
+    fun lv_calc (l, v, elv) = fold_forward lv_x (del (v, elv)) l
+
+    fun lv_branch (l, v, elv1, elv2) =
+	fold_forward lv_x (del (v, join (elv1, elv2))) l
+
+    fun lv'switch (x, v, el) =
+	lv_x (x, del (v, fold_forward (join @@@ live) [] el))
+
+    and lv'branch (l, v, e1, e2) = lv_branch (l, v, live e1, live e2)
+
+    and lv'_fix (l, elv) = let
+	fun f ((_, v, vl, _, e), (lv, bv)) =
+	    (join (xcl (mkset vl, live e), lv), add (v, bv))
+	my (lv, bv) = fold_forward f (elv, []) l
+    in
+	xcl (bv, lv)
+    end
+
+    and live (ncf::RECORD (_, l, v, e)) = lv_record (l, v, live e)
+      | live (ncf::GET_FIELD (_, x, v, _, e)) = lv_xv (x, v, live e)
+      | live (ncf::OFFSET (_, x, v, e)) = lv_xv (x, v, live e)
+      | live (ncf::APPLY (x, l)) = lv_app (x, l)
+      | live (ncf::FIX (l, e)) = lv'_fix (l, live e)
+      | live (ncf::SWITCH (x, v, el)) = lv'switch (x, v, el)
+      | live (ncf::BRANCH (_, l, v, e1, e2)) = lv'branch (l, v, e1, e2)
+      | live (ncf::SETTER (_, l, e)) = lv_setter (l, live e)
+      | live (ncf::LOOKER (_, l, v, _, e)) = lv_calc (l, v, live e)
+      | live (ncf::ARITH (_, l, v, _, e)) = lv_calc (l, v, live e)
+      | live (ncf::PURE (_, l, v, _, e)) = lv_calc (l, v, live e)
+
+    package m = int_red_black_map
+
+    #  scc stuff 
+
+    enum node = N of { id: Int,
+			   function: Null_Or( ncf::function ),
+			   edges: REF(  List(  node ) ),
+			   fv: List( a::Lambda_Variable ) }
+
+    package scc_node = pkg
+        type Key = node
+        fun compare (N n1, N n2) = int::compare (n1.id, n2.id)
+    end
+
+    package scc = graph_strongly_connected_components_g (scc_node)
+
+    fun scc (l, fv, e) = let
+	root = N { id = -1, function = NULL, edges = REF [], fv = fv }
+	fun mkn (f as (_, v, vl, _, b)) =
+	    N { id = v, function = THE f, edges = REF [],
+	        fv = xcl (mkset vl, live b) }
+	nodes = root . map mkn l
+	fun addif n n' = let
+	    my N { edges, fv, ... } = n'
+	    my N { edges = bedges, ... } = n
+	in
+	    case n of
+		N { function = THE (k, f, _, _, _), ... } =>
+		    if inset fv f then
+			(edges := n . *edges;
+			 # Add back edge for known functions. This forces
+			 # the two nodes to be in the same scc, which is
+			 # necessary because calls to known functions
+			 # cannot go accross code segments
+			 case k of
+			     ncf::ESCAPE => ()
+			   | ncf::CONT => ()
+			   | _ => bedges := n' . *bedges)
+		    else ()
+	      | _ => ()
+	end
+	#  enter all edges 
+	apply (\\ n => (apply (addif n) nodes)) nodes
+	#  outgoing edges 
+	fun out (N { edges = REF e, ... } ) = e
+	/* calculate sccs of this graph;
+	 * the top scc must contain the original root node (f = NULL)! */
+	my top . sccs =
+	    scfcf::sccTop { root = root, outgoingEdgesOf = out }
+
+	fun component l = let
+	    fun xtr (N { function = THE f, fv, ... }, (fl, lv, bv)) =
+		(f . fl, join (fv, lv), add (#2 f, bv))
+	      | xtr (N { function = NULL, ... }, x) = x
+	in
+	    fold_forward xtr ([], [], []) l
+	end
+
+	top' =
+	    case top of
+		[N { function = NULL, ... } ] => NULL
+	      | _ => THE (component top)
+    in
+	{ components = map component sccs, top = top' }
+    end
+
+    # Don't keep type info about known functions,
+    # because they cannot be passed to other codeunits anyway:
+    enum tyinfo =
+	NORMALTY of ncf::cty		#  ordinary ncf::cty 
+      | KNOWNTY				#  known function 
+      | CONTTY of List( ncf::cty )	#  Argument types of fate. function 
+
+    type tymap = m::intmap( tyinfo )
+
+    fun rectyn 0 = ncf::INTt
+      | rectyn n = ncf::PTRt (ncf::RPT n)
+
+    fun recty lv = rectyn (length lv)
+
+    fun madd (v, t, m) = m::add (m, v, NORMALTY t)
+
+    fun maddf ((ncf::ESCAPE, v, _, _, _), m) = m::add (m, v, NORMALTY ncf::FUNt)
+      | maddf ((ncf::CONT, v, _, tl, _), m) = m::add (m, v, CONTTY tl)
+      | maddf ((_, v, _, _, _), m) = m::add (m, v, KNOWNTY)
+
+    fun maddal ([], [], m) = m
+      | maddal (v . vl, t . tl, m) = maddal (vl, tl, madd (v, t, m))
+      | maddal _ = raise exception IMPOSSIBLE
+
+    fun reconst (expression, tymap, units) =
+	case expression of
+	    ncf::RECORD (k, l, v, e) => let
+		tymap' = madd (v, recty l, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_record (l, v, lv)
+	    in
+		(ncf::RECORD (k, l, v, e'), units', lv')
+	    end
+	  | ncf::GET_FIELD (i, x, v, t, e) => let
+		tymap' = madd (v, t, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_xv (x, v, lv)
+	    in
+		(ncf::GET_FIELD (i, x, v, t, e'), units', lv')
+	    end
+	  | ncf::OFFSET (i, x, v, e) => let
+		tymap' = madd (v, ncf::bogt, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_xv (x, v, lv)
+	    in
+		(ncf::OFFSET (i, x, v, e'), units', lv')
+	    end
+	  | ncf::APPLY (x, l) => (expression, units, lv_app (x, l))
+	  | ncf::FIX (fl, e) => reconst_fix (fl, e, tymap, units)
+	  | ncf::SWITCH (x, v, el) => let
+		fun r (e, (u, lv, el)) = let
+		    my (e', u', lv') = reconst (e, tymap, u)
+		in
+		    (u', join (lv, lv'), e' . el)
+		end
+		my (units', lv, el') = fold_backward r (units, [], []) el
+	    in
+		(ncf::SWITCH (x, v, el'), units', lv)
+	    end
+	  | ncf::BRANCH (b, l, v, e1, e2) => let
+		tymap' = madd (v, ncf::INTt, tymap)
+		my (e1', units', lv1) = reconst (e1, tymap', units)
+		my (e2', units'', lv2) = reconst (e2, tymap', units')
+		lv = lv_branch (l, v, lv1, lv2)
+	    in
+		(ncf::BRANCH (b, l, v, e1', e2'), units'', lv)
+	    end
+	  | ncf::SETTER (s, l, e) => let
+		my (e', units', lv) = reconst (e, tymap, units)
+		lv' = lv_setter (l, lv)
+	    in
+		(ncf::SETTER (s, l, e), units', lv')
+	    end
+	  | ncf::LOOKER (p, l, v, t, e) => let
+		tymap' = madd (v, t, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_calc (l, v, lv)
+	    in
+		(ncf::LOOKER (p, l, v, t, e'), units', lv')
+	    end
+	  | ncf::ARITH (p, l, v, t, e) => let
+		tymap' = madd (v, t, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_calc (l, v, lv)
+	    in
+		(ncf::ARITH (p, l, v, t, e'), units', lv')
+	    end
+	  | ncf::PURE (p, l, v, t, e) => let
+		tymap' = madd (v, t, tymap)
+		my (e', units', lv) = reconst (e, tymap', units)
+		lv' = lv_calc (l, v, lv)
+	    in
+		(ncf::PURE (p, l, v, t, e'), units', lv')
+	    end
+
+    also reconst_fix (fl, e, tymap, units) = let
+	tymap = fold_forward maddf tymap fl
+	my (e, units, lv) = reconst (e, tymap, units)
+	my { components, top } = scc (fl, lv, e)
+
+	#  recursively apply reconstruction to fates 
+	fun reconst_cont ((ncf::CONT, v, vl, tl, e), (u, fl)) = let
+	        tymap = maddal (vl, tl, tymap)
+		my (e, u, _) = reconst (e, tymap, u)
+	    in
+		(u, (ncf::CONT, v, vl, tl, e) . fl)
+	    end
+	  | reconst_cont (f, (u, fl)) = (u, f . fl)
+	fun reconst_comp (c, u) = fold_forward reconst_cont (u, []) c
+
+	#  incorporate top component 
+	my (e, lv, units) =
+	    case top of
+		NULL => (e, lv, units)
+	      | THE (bfl, blv, bbv) => let
+		    my (u, c) = reconst_comp (bfl, units)
+		in
+		    (ncf::FIX (c, e), xcl (bbv, join (blv, lv)), u)
+		end
+
+	# a component is eligible to be put into its own unit if
+	#  - it doesn't contain ncf::CONT members
+	#  - none of its free variables refers to a known function
+	fun stays (fl, fv) = let
+	    fun isCont (ncf::CONT, _, _, _, _) = TRUE | isCont _ = FALSE
+	    fun impossibleArg v =
+		case m::lookup tymap v of
+		    KNOWNTY => TRUE
+		  | NORMALTY ncf::CNTt => TRUE
+		  | _ => FALSE
+	in
+	    list::exists isCont fl or list::exists impossibleArg fv
+	end
+
+	#  move a component into its own code unit 
+	fun movecomponent (fl, lv, xl, yl, e, units) = let
+
+	    # code for the new unit:
+	    # (ncf::ESCAPE, void_var,
+	    #  [cont_var, arg_var], [ncf::CNTt, ncf::bogt],
+	    #  FIX ((ESCAPE, fun_var,
+	    #        [cont_var, exl...], [ncf::CNTt, extl...],
+	    #        DECODESEND (exl..., xl...,
+	    #                    FIX (fl,
+	    #                         ENCODERCV (yl, eyl,
+	    #                                    APPLY (cont_var, eyl)))))
+	    #       RECORD ([arg_var, fun_var], res_var,
+	    #               APPLY (cont_var, [res_var]))))
+	    #
+	    # code that replaces the original occurence of the component:
+	    #  FIX ((CONT, cont_var, eyl, [FUNt...],
+	    #        DECODERCV (eyl, yl, e)),
+	    #       ENCODESEND (xl, exl,
+	    #                   APPLY (fun_var, [cont_var, exl...])))
+
+
+	    void_var = a::make_lambda_variable ()
+	    cont_var = a::make_lambda_variable ()		# "cont" == "fate"
+	    arg_var = a::make_lambda_variable ()
+	    fun_var = a::make_lambda_variable ()
+	    cont_var = a::make_lambda_variable ()
+	    res_var = a::make_lambda_variable ()		# "res" == "result"
+
+	    fun firstN (0, l) = ([], l)
+	      | firstN (n, h . t) = let
+		    my (f, r) = firstN (n - 1, t)
+		in
+		    (h . f, r)
+		end
+	      | firstN _ = raise exception IMPOSSIBLE
+
+	    fun selectall (base, vl, tl, e) = let
+		base = ncf::CODETEMP base
+		fun s ([], [], _, e) = e
+		  | s (h . t, th . tt, i, e) =
+		    s (t, tt, i + 1, ncf::GET_FIELD (i, base, h, th, e))
+	    in
+		s (vl, tl, 0, e)
+	    end
+
+	    fun funty _ = ncf::FUNt
+	    fun recvar v = (ncf::CODETEMP v, ncf::OFFp 0)
+
+	    #  Deal with received values (all of them are functions) 
+	    ny = length yl
+	    my (ysend, mk_yrcv) =
+		if ny <= maxContArgs then
+		    (ncf::APPLY (ncf::CODETEMP cont_var, map ncf::CODETEMP yl),
+		     \\ body =>
+		     ncf::FIX ([(ncf::CONT, cont_var, yl, map funty yl, e)], body))
+		else let
+		    npy = ny + 1 - maxContArgs
+		    my (pyl, ryl) = firstN (npy, yl)
+		    v = a::make_lambda_variable ()
+		in
+		    (ncf::RECORD (a::RK_RECORD, map recvar pyl, v,
+			       ncf::APPLY (ncf::CODETEMP cont_var,
+				      (ncf::CODETEMP v) . map ncf::CODETEMP ryl)),
+		     \\ body =>
+		     ncf::FIX ([(ncf::CONT, cont_var, v . ryl,
+			      (recty pyl) . map funty ryl,
+			      selectall (v, pyl, map funty pyl, e))],
+			    body))
+		end
+
+	    #  put the component in 
+	    fix'n'ysend = ncf::FIX (fl, ysend)
+
+	    /* Wrap a CNTt so it can be passed as a FUNt.
+	     * tl lists argument types */
+	    fun wrapcnt (xvar, x'var, tl, e) = let
+		vl = map (\\ _ => a::make_lambda_variable ()) tl
+		ikvar = a::make_lambda_variable ()
+	    in
+		ncf::FIX ([(ncf::ESCAPE, x'var, ikvar . vl, ncf::CNTt . tl,
+			 ncf::APPLY (ncf::CODETEMP xvar, map ncf::CODETEMP vl))],
+		       e)
+	    end
+
+	    /* unwrap FUNt so it can be used as a CNTt.
+	     * Even though it ignores it our escaping version of the
+	     * fate expects a fate of its own.  We have
+	     * to pull one out of the air... cont_var */
+	    fun unwrapcnt (x'var, xvar, tl, e) = let
+		vl = map (\\ _ => a::make_lambda_variable ()) tl
+	    in
+		ncf::FIX ([(ncf::CONT, xvar, vl, tl,
+			 ncf::APPLY (ncf::CODETEMP x'var, map ncf::CODETEMP (cont_var . vl)))],
+		       e)
+	    end
+
+	    fun wrap'gen other (v, (evl, etl, mkwE, mkuwE)) =
+		case m::lookup tymap v of
+		    KNOWNTY => raise exception IMPOSSIBLE
+		  | CONTTY tl => let
+			ev = a::make_lambda_variable ()
+		    in
+			(ev . evl,
+			 ncf::FUNt . etl,
+			 \\ e => wrapcnt (v, ev, tl, mkwE e),
+			 \\ e => unwrapcnt (ev, v, tl, mkuwE e))
+		    end
+		  | NORMALTY ncf::CNTt => raise exception IMPOSSIBLE
+		  | NORMALTY ct => other (v, ct, evl, etl, mkwE, mkuwE)
+
+	    #  wrap a variable, so I can stick it into a record 
+	    wrap'rec = let
+		fun other (v, ct, evl, etl, mkwE, mkuwE) = let
+		    fun w (wrap, unwrap) = let
+			ev = a::make_lambda_variable ()
+		    in
+			(ev . evl,
+			 ncf::bogt . etl,
+			 \\ e => ncf::PURE (wrap, [ncf::CODETEMP v], ev, ncf::bogt, mkwE e),
+			 \\ e => ncf::PURE (unwrap, [ncf::CODETEMP ev], v, ct, mkuwE e))
+		    end
+		in
+		    case ct of
+			ncf::INT1t => w (ncf::P.i32wrap, ncf::P.i32unwrap)
+		      | ncf::FLTt => w (ncf::P.fwrap, ncf::P.funwrap)
+		      | _ => (v . evl, ct . etl, mkwE, mkuwE)
+		end
+	    in
+		wrap'gen other
+	    end
+
+	    #  wrap fates only (for argument passing) 
+	    wrap'count = let
+		fun other (v, ct, evl, etl, mkwE, mkuwE) =
+		    (v . evl, ct . etl, mkwE, mkuwE)
+	    in
+		wrap'gen other
+	    end
+
+	    nx = length xl
+	    unitresult =
+		ncf::RECORD (a::RK_RECORD,
+			  [recvar arg_var, recvar fun_var],
+			  res_var,
+			  ncf::APPLY (ncf::CODETEMP cont_var, [ncf::CODETEMP res_var]))
+	    my (xsend, xrcv) =
+		if nx == 0 then
+		    (ncf::APPLY (ncf::CODETEMP fun_var, [ncf::CODETEMP cont_var, ncf::INT 0]),
+		     ncf::FIX ([(ncf::ESCAPE, fun_var,
+			      [cont_var, a::make_lambda_variable ()],
+			      [ncf::CNTt, ncf::INTt],
+			      fix'n'ysend)],
+			    unitresult))
+		else if nx <= maxEscapeArgs then let
+		    my (exl, etl, wrapper, unwrapper) =
+			fold_backward wrap'count ([], [], \\ e => e, \\ e => e) xl
+		in
+		    (wrapper
+		     (ncf::APPLY (ncf::CODETEMP fun_var,
+			     (ncf::CODETEMP cont_var) . map ncf::CODETEMP exl)),
+		     ncf::FIX ([(ncf::ESCAPE, fun_var,
+			      cont_var . exl, ncf::CNTt . etl,
+			      unwrapper fix'n'ysend)],
+			    unitresult))
+		end
+		else let
+		    /* we need two rregisters for:
+		     * 1. the fate, 2. the record holding extra args */
+		    npx = nx + 1 - maxEscapeArgs
+		    my (pxl, rxl) = firstN (npx, xl)
+		    v = a::make_lambda_variable ()
+		    my (epxl, eptl, pwrapper, punwrapper) =
+			fold_backward wrap'rec ([], [], \\ e => e, \\ e => e) pxl
+		    my (erxl, ertl, rwrapper, runwrapper) =
+			fold_backward wrap'count ([], [], \\ e => e, \\ e => e) rxl
+		in
+		    (pwrapper
+		     (rwrapper
+		      (ncf::RECORD (a::RK_RECORD, map recvar epxl, v,
+				 ncf::APPLY (ncf::CODETEMP fun_var,
+					(ncf::CODETEMP cont_var) . (ncf::CODETEMP v) .
+					map ncf::CODETEMP erxl)))),
+		     ncf::FIX ([(ncf::ESCAPE, fun_var,
+			      cont_var . v . erxl,
+			      ncf::CNTt . (recty epxl) . ertl,
+			      selectall (v, epxl, eptl,
+					 runwrapper
+					  (punwrapper fix'n'ysend)))],
+			    unitresult))
+		end
+
+	    newunit =
+		(ncf::ESCAPE, void_var, [cont_var, arg_var], [ncf::CNTt, ncf::bogt],
+		 xrcv)
+	    replacedcode = mk_yrcv xsend
+
+	    my { uheader, curargvar, ul } = units
+	    newargvar = a::make_lambda_variable ()
+	    fun uheader' e =
+		ncf::GET_FIELD (0, ncf::CODETEMP newargvar, curargvar, ncf::bogt,
+			  ncf::GET_FIELD (1, ncf::CODETEMP newargvar, fun_var, ncf::FUNt,
+				    uheader e))
+	    units' = { uheader = uheader', curargvar = newargvar,
+			   ul = newunit . ul }
+	in
+	    (units', replacedcode)
+	end
+
+	#  Deal with one component at a time 
+	fun docomponent ((fl, lv, bv), (e, units, lv_rest)) = let
+	    fv = xcl (bv, lv)
+	    lv' = join (fv, xcl (bv, lv_rest))
+	    xl = fv
+	    yl = intersect (bv, lv_rest)
+	in
+	    case yl of
+		[] => (e, units, lv_rest)
+	      | _ =>
+		    if stays (fl, fv) then let
+			my (units, fl) = reconst_comp (fl, units)
+		    in
+			(ncf::FIX (fl, e), units, lv')
+		    end
+		    else let
+			my (u, e) = movecomponent (fl, lv, xl, yl, e, units)
+		    in
+			(e, u, lv')
+		    end
+	end
+
+    in
+        #  now do them all 
+	fold_forward docomponent (e, units, lv) components
+    end
+
+    fun split (ncf::ESCAPE, name,
+	       [cont_var, arg_var],  [ncf::CNTt, argty], body) = let
+	units = { uheader = \\ e => e,
+		      curargvar = arg_var,
+		      ul = [] }
+	tymap = m::add (madd (arg_var, ncf::bogt, m::empty),
+			   cont_var, CONTTY [ncf::bogt])
+	my (e, u, _) = reconst (body, tymap, units)
+	my { uheader, curargvar, ul } = u
+	lastunit = (ncf::ESCAPE, name, [cont_var, curargvar], [ncf::CNTt, ncf::bogt],
+			uheader e)
+    in
+	fold_forward (op . ) [lastunit] ul
+    end
+
+    fun nextcode_inlining f
+        =
+	case (split f)
+	    #
+	    [_, _] => [f];  #  found only one extra piece... don't bother 
+	    l      =>  l;
+        esac;
+end
+*/
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

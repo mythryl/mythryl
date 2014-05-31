@@ -1,0 +1,255 @@
+## image-imp.pkg
+#
+# This provides a name to x-kit image imp.  
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.sublib
+
+
+
+
+
+
+###                 "Programming is one of the most difficult branches of applied mathematics;
+###                  the poorer mathematicians had better remain pure mathematicians."
+###
+###                                                      -- E.J. Dijkstra
+
+
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package qk  =  quark;				# quark			is from   src/lib/x-kit/style/quark.pkg
+    package xc  =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    package ip  =  image;				# image			is from   src/lib/x-kit/widget/lib/image.pkg
+    package cpm =  cs_pixmap;				# cs_pixmap		is from   src/lib/x-kit/xclient/src/window/cs-pixmap.pkg
+#   package x2s =  xclient_to_sequencer;		# xclient_to_sequencer	is from   src/lib/x-kit/xclient/src/wire/xclient-to-sequencer.pkg
+herein
+
+    package   image_ximp
+    : (weak)  Image_Ximp				# Image_Ximp		is from   src/lib/x-kit/widget/lib/image-ximp.api
+    {
+	package qht
+	    =
+	    typelocked_hashtable_g (
+		Hash_Key   =   qk::Quark;
+		same_key   =   qk::same;
+		hash_value =   qk::hash;
+	    );
+
+	Image_Table =   qht::Hashtable( cpm::Cs_Pixmap );
+
+	Exports	  = {										# Ports we export for use by other imps.
+		      image:			ip::Image					# Requests from widget/application code.
+		    };
+
+	Imports   = {										# Ports we use which are exported by other imps.
+		    };
+
+	Option = MICROTHREAD_NAME String;							# 
+
+	Image_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
+
+	Image_Ximp_State									# Holds all mutable state maintained by ximp.
+	  =
+	  {
+	    image_table:  Image_Table
+	  };
+
+	Me_Slot = Mailslot( {  imports:	Imports,
+				   me:		Image_Ximp_State,
+				   run_gun':	Run_Gun,
+				   end_gun':	End_Gun
+				 }
+			      );
+
+	exception BAD_NAME;
+
+							    # typelocked_hashtable_g	is from   src/lib/src/typelocked-hashtable-g.pkg
+
+	exception NOT_FOUND;
+
+	Runstate =  {													# These values will be statically globally visible throughout the code body for the imp.
+		      me:				Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		      imports:				Imports,							# Ximps to which we send requests.
+		      to:				Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		      end_gun':				End_Gun								# We shut down the microthread when this fires.
+		    };
+
+	Client_Q    = Mailqueue( Runstate -> Void  );
+
+	fun run ( client_q:				Client_Q,							# Requests from x-widgets and such via draw_imp, pen_imp or font_imp.
+		  #
+		  runstate as
+		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    me:					Image_Ximp_State,						# State which is preserved across imp shutdown/restart cycles.
+		    imports:				Imports,							# Ximps to which we send requests.
+		    to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		    end_gun':				End_Gun								# We shut down the microthread when this fires.
+		  }
+		)
+	    =
+	    loop ()
+	    where
+
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    end_gun'                       ==>  shut_down_image_ximp',
+			    take_from_mailqueue' client_q  ==>  do_client_plea
+			];
+
+			loop ();
+		    }	
+		    where
+			fun do_client_plea thunk
+			    =
+			    thunk runstate;
+
+			fun shut_down_image_ximp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot     =  make_mailslot  ()	:  Me_Slot;
+		#
+		image  = {
+				add_image,
+				get_image
+			      };
+
+		to             =  make_replyqueue();
+
+		put_in_oneshot (reply_oneshot, (me_slot, { image }));							# Return value from image_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from image_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		run (client_q, { me, imports, to, end_gun' });								# Will not return.
+	    }
+	    where
+		client_q  =  make_mailqueue (get_current_microthread())	:  Client_Q;
+
+		fun add_image  (name: qk::Quark,  image: cpm::Cs_Pixmap)
+		    =
+		    put_in_mailqueue (client_q,
+			#
+			\\ ({ me, ... }: Runstate)
+			    =
+			    case (qht::find  me.image_table  name)
+				#
+				NULL  =>    {   qht::set   me.image_table   (name, image);   };
+				#
+				THE _ =>    {   msg = "Attempt to register already-present image -- image-ximp.pkg";
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+			    esac
+		    );
+
+		fun get_image  (name: qk::Quark)
+		    =
+		    {   reply_1shot =  make_oneshot_maildrop ():  Oneshot_Maildrop( cpm::Cs_Pixmap );
+			#
+			put_in_mailqueue (client_q,
+			#
+			\\ ({ me, ... }: Runstate)
+			    =
+			    case (qht::find  me.image_table  name)
+				#
+				THE i =>    put_in_oneshot (reply_1shot, i);
+				#
+				NULL  =>    {   msg = "Failed to find required pixmap! -- GET_IMAGE in image-ximp.pkg";
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+			    esac
+			);
+
+			get_from_oneshot  reply_1shot;
+		    };
+	    end;
+
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_image_egg (options: List(Option))									# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =
+	    {   (process_options (options, { name => "image" }))
+		    ->
+		    { name };
+	
+		me = 	{
+			  image_table =>    qht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_FOUND }
+			};
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories.  See SMLNJ-COPYRIGHT file for details
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

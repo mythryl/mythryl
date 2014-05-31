@@ -1,0 +1,604 @@
+## do-crossmodule-anormcode-inlining.pkg		"fsplit" in SML/NJ.
+## monnier@cs.yale.edu 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This is one of the A-Normal Form compiler passes --
+# for context see the comments in
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+
+
+
+#    "Split top-level functions corresponding to SML generics
+#     into a small inlinable component and a large component
+#     containing the rest.  The inlinable component is then
+#     added to the compilation units that refer to the current
+#     one, for cross-module inlining.  This phase does not
+#     correspond to any optimization performed by the nextcode
+#     optimizer, but corresponds instead ot the 'lsplit'
+#     phase that had been implemented in an earlier untyped
+#     incarnation of Lambda[1]."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+# [1]     Lambda-Splitting: A higher-order approach to cross-module optimizations.
+#         Matthias Blume and Andrew W Appel
+#         1997, 12p
+#         http://citeseer.ist.psu.edu/288704.html
+#
+# See also Chapter 3 of Stefan's dissertation and
+#
+#     Typed Cross-Module Compilation
+#     Zhong Shao (Yale)
+#     1998, 31p
+#     http://flint.cs.yale.edu/flint/publications/tcc-tr.ps.gz
+#
+#     Inlining as Staged Computation
+#     Stefan Monnier and Zhong Shao (Yale)
+#     1999, 29p
+#     http://flint.cs.yale.edu/flint/publications/isc.ps.gz
+#         (This is probably obsoleted by Stefan's 2003 dissertation, above.)
+
+
+
+
+# Here we implement "lambda-splitting", a technique
+# to allow cross-package inlining.
+
+
+###      "Crash programs fail because they are based
+###       on the theory that, with nine women pregnant,
+###       you can get a baby in a month."
+###
+###                        -- Wernher von Braun
+
+
+
+stipulate
+    package acf  = anormcode_form;			# anormcode_form			is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Do_Crossmodule_Anormcode_Inlining {
+	#
+	do_crossmodule_anormcode_inlining
+	    :
+	    ( acf::Function,
+              Null_Or(Int)				# 'crossmodule_inlining'
+            )
+            ->
+            ( acf::Function,
+              Null_Or( acf::Function )
+            );
+    };
+
+end;    
+
+stipulate
+    package acf  =  anormcode_form;			# anormcode_form			is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package acj  =  anormcode_junk;			# anormcode_junk			is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package hbo  =  highcode_baseops;			# highcode_baseops			is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf  =  highcode_form;			# highcode_form				is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package iht  =  int_hashtable;			# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+    package is   =  int_red_black_set;			# int_red_black_set			is from   src/lib/src/int-red-black-set.pkg
+    package him  =  highcodeint_map;			# highcodeint_map			is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+#   package no   =  null_or;				# null_or				is from   src/lib/std/src/null-or.pkg
+    package ou   =  opt_utils;				# opt_utils				is from   src/lib/compiler/back/top/improve/optutils.pkg
+    package pp   =  prettyprint_anormcode;		# prettyprint_anormcode			is from   src/lib/compiler/back/top/anormcode/prettyprint-anormcode.pkg
+    package rat  =  recover_anormcode_type_info;	# recover_anormcode_type_info		is from   src/lib/compiler/back/top/improve/recover-anormcode-type-info.pkg
+herein
+
+    package   do_crossmodule_anormcode_inlining
+    :         Do_Crossmodule_Anormcode_Inlining			# Do_Crossmodule_Anormcode_Inlining		is from   src/lib/compiler/back/top/improve/do-crossmodule-anormcode-inlining.pkg
+    {
+	say = control_print::say;
+	fun bug msg = error_message::impossible ("do_crossmodule_anormcode_inlining: " + msg);
+	fun buglexp (msg, le) = { say "\n"; pp::print_lexp le; say " "; bug msg;};
+	fun bugval (msg, v) = { say "\n"; pp::print_sval v; say " "; bug msg;};
+	fun assert p = if p  (); else bug ("assertion failed");fi;
+
+	mklv = highcode_codetemp::issue_highcode_codetemp;
+	cplv = highcode_codetemp::clone_highcode_codetemp;
+
+	fun s_rmv (x, s)
+	    =
+	    is::drop (s, x);
+
+	fun addv (s, acf::VAR lv) =>  is::add (s, lv);
+	    addv (s, _          ) =>           s;
+        end;
+
+	fun addvs (s, vs) =  fold_forward (\\ (v, s) = addv  (s, v))  s   vs;
+	fun rmvs (s, lvs) =  fold_forward (\\ (l, s) = s_rmv (l, s))  s  lvs;
+
+	exception UNKNOWN;
+
+	# We're invoked (only) from:
+	#
+	#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	#
+	fun do_crossmodule_anormcode_inlining (fdec, NULL)
+                =>
+                (fdec, NULL);
+
+	    do_crossmodule_anormcode_inlining (fdec as (fk, f, args, body), THE aggressiveness)
+                =>
+                {
+		    (rat::recover_anormcode_type_info (fdec, FALSE))
+			->
+			{ get_uniqtypoid_for_anormcode_value, add_lty, ... };
+                        
+
+		    m =  iht::make_hashtable  { size_hint => 64,  not_found_exception => UNKNOWN };
+
+		    fun addpurefun f
+			=
+			iht::set m (f, FALSE);
+
+		    fun funeffect f
+			=
+			(iht::get  m  f)
+			except
+			    uknown = TRUE;
+
+
+
+		    # sexp: dictionary -> Lambda_Expression -> (leE, leI, fvI, leRet)
+		    # - dictionary: IntSetF::set	current dictionary
+		    # - lambda_expression: Lambda_Expression		expression to split
+		    # - leRet: Lambda_Expression	the core return expression of lambda_expression
+		    # - leE: Lambda_Expression -> Lambda_Expression	recursively split Lambda_Expression:  leE leRet == Lambda_Expression
+		    # - leI: Lambda_Expression Null_Or	inlinable part of Lambda_Expression (if any)
+		    # - fvI: IntSetF::set	free variables of leI:   acj::freevars leI == fvI
+		    #
+		    # sexp splits the Lambda_Expression into an expansive part and an inlinable part.
+		    # The inlinable part is guaranteed to be side-effect free.
+		    # The expansive part doesn't bother to eliminate unused copies of
+		    #   elements copied to the inlinable part.
+		    # If the inlinable part cannot be constructed, leI is set to acf::RET[].
+		    #   This implies that fvI == is::empty, which in turn prevents us from
+		    #   mistakenly adding anything to leI.
+
+
+
+		    fun sexp dictionary lambda_expression			#  fixindent 
+			=
+			{ 
+			    # Non-side effecting binds are copied to leI if exported 
+			    #
+			    fun let1 (le, lewrap, lv, vs, effect)
+				=
+				{   my (le_e, le_i, fv_i, le_ret) = sexp (is::add (dictionary, lv)) le;
+
+				    le_e = lewrap o le_e;
+
+				    if (effect or not (is::member (fv_i, lv)))
+					 (le_e, le_i, fv_i, le_ret);
+				    else (le_e, lewrap le_i, addvs (s_rmv (lv, fv_i), vs), le_ret);
+                                    fi;
+				};
+
+			 case lambda_expression
+			     #
+			     # We can completely move both RET and APPLY_TYPEFUN to the I part 
+
+			     acf::RECORD (rk, vs, lv, le as acf::RET [acf::VAR lv'])
+				 =>
+				 if (lv' == lv)
+				      (\\ e = e, lambda_expression, addvs (is::empty, vs), lambda_expression);
+				 else (\\ e = e, le, is::singleton lv', le);
+                                 fi;
+
+			      acf::RET vs
+				  =>
+				  (\\ e = e, lambda_expression, addvs (is::empty, vs), lambda_expression);
+
+			      acf::APPLY_TYPEFUN (acf::VAR tf, types)
+				  =>
+				  (\\ e = e, lambda_expression, is::singleton tf, lambda_expression);
+
+			      # Recursive splittable lexps:
+			      #
+			      acf::MUTUALLY_RECURSIVE_FNS     (fdecs, le) =>   sfix dictionary (fdecs, le);
+			      acf::TYPEFUN (tfdec, le) =>   stfn dictionary (tfdec, le);
+
+			      #  Naming-lexps 
+			      #
+			      acf::CONSTRUCTOR (dc, types, v, lv, le)
+				  =>
+				  let1 (le, \\ e =  acf::CONSTRUCTOR (dc, types, v, lv, e), lv, [v], FALSE);
+
+			      acf::RECORD (rk, vs, lv, le)
+				  =>
+				  let1 (le, \\ e =  acf::RECORD (rk, vs, lv, e), lv, vs, FALSE);
+
+			      acf::GET_FIELD (v, i, lv, le)
+				  =>
+				  let1 (le, \\ e =  acf::GET_FIELD (v, i, lv, e), lv, [v], FALSE);
+
+			      acf::BASEOP (po, vs, lv, le)
+				  =>
+				  let1 (le, \\ e =  acf::BASEOP (po, vs, lv, e), lv, vs, hbo::might_have_side_effects(#2 po));
+
+			      #  XXX BUGGO IMPROVEME: lvs should not be restricted to [lv] 
+
+			      acf::LET (lvs as [lv], body as acf::APPLY_TYPEFUN (v, types), le)
+				  =>
+				  let1 (le, \\ e =  acf::LET (lvs, body, e), lv, [v], FALSE);
+
+			      acf::LET (lvs as [lv], body as acf::APPLY (v as acf::VAR f, vs), le)
+				  =>
+				  let1 (le, \\ e =  acf::LET (lvs, body, e), lv, v ! vs, funeffect f);
+
+			      acf::SWITCH (v, ac,[(dc as acf::VAL_CASETAG(_, _, lv), le)], NULL)
+				  =>
+				  let1 (le, \\ e =  acf::SWITCH (v, ac, [(dc, e)], NULL), lv, [v], FALSE);
+
+			      acf::LET (lvs, body, le)
+				  =>
+				  {   my (le_e, le_i, fv_i, le_ret)
+					  =
+					  sexp (is::union (is::add_list (is::empty, lvs), dictionary)) le;
+
+				      (\\ e =  acf::LET (lvs, body, le_e e),  le_i,  fv_i,  le_ret);
+				  };
+
+			      #  useless sophistication 
+			      acf::APPLY (acf::VAR f, args)
+				  =>
+				  if   (funeffect f)
+				       (\\ e = e, acf::RET [], is::empty, lambda_expression);
+				  else (\\ e = e, lambda_expression, addvs (is::singleton f, args), lambda_expression);fi;
+
+			      # Other non-naming lexps result in unsplittable functions 
+
+			      (acf::APPLY _ | acf::APPLY_TYPEFUN _)
+				  =>
+				  bug "strange (T)APPLY";
+
+			      (acf::SWITCH _ | acf::RAISE _ | acf::BRANCH _ | acf::EXCEPT _)
+				  =>
+				  (\\ e = e, acf::RET [], is::empty, lambda_expression);
+
+			    esac;
+			}
+
+
+
+		    # Functions definitions fall into the following categories:
+		    # - inlinable:  if exported, copy to leI
+		    # - (mutually) recursive:  don't bother
+		    # - non-inlinable non-recursive:  split recursively
+
+		    also
+		    fun sfix dictionary (fdecs, le)
+			=
+			{   nenv = is::union (is::add_list (is::empty, map #2 fdecs), dictionary);
+
+			    (sexp nenv le) ->   (le_e,  le_i,  fv_i,  le_ret);
+
+			    nle_e =   \\ e =  acf::MUTUALLY_RECURSIVE_FNS (fdecs, le_e e);
+
+			    case fdecs
+				#
+				[( { inlining_hint=>inl as (acf::INLINE_WHENEVER_POSSIBLE | acf::INLINE_MAYBE _), ... }, f, args, body)]
+				    =>
+				    {   min =   case inl
+						    #
+						    acf::INLINE_MAYBE (n, _) =>   n;
+						    _                        =>   0;
+					        esac;
+
+					if (not (is::member (fv_i, f)) or min > aggressiveness)		#  *asc::split_threshold
+					    #
+					    ( nle_e,
+					      le_i,
+					      fv_i,
+					      le_ret
+					    );
+					else
+					    ( nle_e,
+					      acf::MUTUALLY_RECURSIVE_FNS (fdecs, le_i),
+					      rmvs (is::union (fv_i, acj::freevars body), f ! (map #1 args)),
+					      le_ret
+					    );
+					fi;
+				    };
+
+				[fdec as (fk as { call_as=>acf::CALL_AS_GENERIC_PACKAGE, ... }, _, _, _)]
+				    =>
+				    sfdec dictionary (le_e, le_i, fv_i, le_ret) fdec;
+
+				_ => (nle_e, le_i, fv_i, le_ret);
+			    esac;
+			}
+
+		    also
+		    fun sfdec dictionary (le_e, le_i, fv_i, le_ret) (fk, f, args, body)
+			=
+			{   benv = is::union (is::add_list (is::empty, map #1 args), dictionary);
+
+			    (sexp benv body) ->   (body_e,  body_i,  fvb_i,  body_ret);
+
+			    case body_i
+				#
+				acf::RET []
+				    =>
+				    (\\ e = acf::MUTUALLY_RECURSIVE_FNS([(fk, f, args, body_e body_ret)], e),
+				     le_i, fv_i, le_ret);
+
+				_   =>
+				    {
+					fvb_is = is::vals_list (is::difference (fvb_i, benv));
+					my (nfk, fk_e) = ou::fk_wrap (fk, NULL);
+
+					#  fdecE 
+					f_e = cplv f;
+					f_erets = (map acf::VAR fvb_is);
+					body_e = body_e (acf::RET f_erets);
+					/* tmp = mklv()
+					bodyE = bodyE (acf::RECORD (acf::RK_PACKAGE, map acf::VAR fvbIs,
+								   tmp, acf::RET [acf::VAR tmp])) */
+					fdec_e = (fk_e, f_e, args, body_e);
+					f_elty = hcf::make_generic_package_uniqtypoid (map #2 args, map get_uniqtypoid_for_anormcode_value f_erets);
+					add_lty (f_e, f_elty);
+
+					#  fdecI 
+					#	
+					fk_i =  { inlining_hint     =>  acf::INLINE_WHENEVER_POSSIBLE,
+						  call_as           =>  acf::CALL_AS_GENERIC_PACKAGE,
+						  private =>  TRUE,
+						  loop_info         =>  NULL
+						};
+
+					args_i
+					    =
+					    (map (\\ lv => (lv, get_uniqtypoid_for_anormcode_value (acf::VAR lv)); end ) fvb_is) @ args;
+
+					/* argI = mklv()
+					argsI = (argI, hcf::make_package_uniqtypoid (map (getLty o acf::VAR) fvbIs)) ! args
+
+					my (_, bodyI) = fold_forward (\\ (lv, (n, le)) =>
+							       (n+1, acf::GET_FIELD (acf::VAR argI, n, lv, le)))
+							      (0, bodyI) fvbIs */
+					my fdec_i as (_, f_i, _, _) = acj::copyfdec (fk_i, f, args_i, body_i);
+					addpurefun f_i;
+
+					#  nfdec 
+					nargs = map (\\ (v, t) => (cplv v, t); end ) args;
+					argsv = map (\\ (v, t) => acf::VAR v; end ) nargs;
+					nbody
+					    =
+					    {   lvs = map cplv fvb_is;
+
+						acf::LET (lvs, acf::APPLY (acf::VAR f_e, argsv),
+						     acf::APPLY (acf::VAR f_i, (map acf::VAR lvs)@argsv));
+					    };
+					    /* let lv = mklv()
+					    in acf::LET([lv], acf::APPLY (acf::VAR fE, argsv),
+						     acf::APPLY (acf::VAR fI, (acf::VAR lv) ! argsv))
+					    end */
+
+					nfdec = (nfk, f, nargs, nbody);
+
+					# And now, for the whole acf::MUTUALLY_RECURSIVE_FNS 
+					#	
+					fun nle_e e
+					    =
+					    acf::MUTUALLY_RECURSIVE_FNS
+					      (
+						[fdec_e],
+						acf::MUTUALLY_RECURSIVE_FNS
+						  (
+						    [fdec_i],
+						    acf::MUTUALLY_RECURSIVE_FNS
+						      ( [nfdec], le_e e )
+					      )   );
+
+				     if (not (is::member (fv_i, f)) )
+
+					 (nle_e, le_i, fv_i, le_ret);
+
+				     else
+					 ( nle_e,
+					   acf::MUTUALLY_RECURSIVE_FNS([fdec_i], acf::MUTUALLY_RECURSIVE_FNS([nfdec], le_i)),
+					   is::add (is::union (s_rmv (f, fv_i), is::intersection (dictionary, fvb_i)), f_e),
+					   le_ret
+					 );
+				     fi;
+				 };
+			    esac;
+			}
+
+		    # TYPEFUNs are kinda like MUTUALLY_RECURSIVE_FNS except there's no recursion 
+		    #
+		    also
+		    fun stfn dictionary (tfdec as (tfk, tf, args, body), le)
+			=
+			{   my (body_e, body_i, fvb_i, body_ret)
+				=
+				if (tfk.inlining_hint == acf::INLINE_WHENEVER_POSSIBLE)
+				    #
+				    (\\ e = body,  body, acj::freevars body,  body);
+				else
+				    sexp dictionary body;
+				fi;
+
+			    nenv = is::add (dictionary, tf);
+
+			    (sexp nenv le) ->   (le_e, le_i, fv_i, le_ret);
+
+			    case (body_i, is::vals_list (is::difference (fvb_i, dictionary)))
+
+				 (_,[])
+				     =>
+				     # Everything was split out:
+				     #	 
+				     {   ntfdec = ( { inlining_hint=>acf::INLINE_WHENEVER_POSSIBLE }, tf, args, body_e body_ret);
+
+					 nl_e = \\ e = acf::TYPEFUN (ntfdec, le_e e);
+
+				         if (not (is::member (fv_i, tf)) )
+
+                                              (nl_e, le_i, fv_i, le_ret);
+					 else (nl_e, acf::TYPEFUN (ntfdec, le_i),
+					      s_rmv (tf, is::union (fv_i, fvb_i)), le_ret);
+                                         fi;
+				     };
+
+				 ((acf::RET _ | acf::RECORD(_, _, _, acf::RET _)), _)
+				     =>
+				     # Split failed:
+				     #
+				     ( \\ e = acf::TYPEFUN((tfk, tf, args, body_e body_ret), le_e e),
+				       le_i,
+                                       fv_i,
+                                       le_ret
+                                     );
+
+				 (_, fvb_is)
+				     =>
+				     {   # tfdecE 
+					 #
+					 tf_e = cplv tf;
+					 tf_evs = map acf::VAR fvb_is;
+					 body_e = body_e (acf::RET tf_evs);
+					 tf_elty = hcf::lt_nvpoly (args, map get_uniqtypoid_for_anormcode_value tf_evs);
+					 add_lty (tf_e, tf_elty);
+
+					 # tfdecI 
+					 #
+					 tfk_i = { inlining_hint=>acf::INLINE_WHENEVER_POSSIBLE };
+
+					 args_i = map (\\ (v, k) = (cplv v, k))
+                                                      args;
+
+					 stamptable
+                                             =
+                                             paired_lists::map
+                                                 (\\ (a1, a2)
+                                                     =
+						     (#1 a1, hcf::make_named_typevar_uniqtype(#1 a2))
+                                                 )
+						 (args, args_i);
+
+					 body_i = acj::copy  stamptable  him::empty
+							     (acf::LET (fvb_is, acf::APPLY_TYPEFUN (acf::VAR tf_e, map #2 stamptable),
+								    body_i));
+					 # acf::TYPEFUN 
+					 #
+					 fun nle_e e
+					     =
+					     acf::TYPEFUN((tfk, tf_e, args, body_e),
+						   acf::TYPEFUN((tfk_i, tf, args_i, body_i), le_e e));
+
+					if (not (is::member (fv_i, tf)) )
+					    #
+                                            (nle_e, le_i, fv_i, le_ret);
+					else
+					    (nle_e,
+					      acf::TYPEFUN((tfk_i, tf, args_i, body_i), le_i),
+					      is::add (is::union (s_rmv (tf, fv_i), is::intersection (dictionary, fvb_i)), tf_e),
+					      le_ret);
+					fi;
+				     };
+			    esac;
+			};
+
+
+		    (sexp is::empty  body)											# We use B-decomposition here, so the args should not be considered as being in scope.
+			->
+			(body_e, body_i, fvb_i, body_ret);
+
+		     case (body_i, body_ret)
+
+			  (acf::RET _, _)
+                              =>
+                              ((fk, f, args, body_e body_ret), NULL);
+
+			  (_, acf::RECORD (rk, vs, lv, acf::RET [lv']))
+                              =>
+			      {   fvb_is = is::vals_list fvb_i;
+
+				  # fdecE 
+				  #
+				  body_e = body_e (acf::RECORD (rk, vs@(map acf::VAR fvb_is), lv, acf::RET [lv']));
+
+				  my fdec_e as (_, f_e, _, _)
+                                      =
+                                      (fk, cplv f, args, body_e);
+
+				  # fdecI 
+				  #
+				  arg_i = mklv();
+
+				  arg_ltys = (map get_uniqtypoid_for_anormcode_value vs)
+                                             @
+                                             (map (get_uniqtypoid_for_anormcode_value o acf::VAR) fvb_is);
+
+				  args_i = [(arg_i, hcf::make_package_uniqtypoid arg_ltys)];
+
+				  my (_, body_i)
+                                      =
+                                      fold_forward
+                                          (\\ (lv, (n, le))
+                                              =
+					      (n+1, acf::GET_FIELD (acf::VAR arg_i, n, lv, le))
+                                          )
+					  (length vs, body_i)
+                                          fvb_is;
+
+				  my fdec_i as (_, f_i, _, _)
+                                      =
+                                      acj::copyfdec (fk, f, args_i, body_i);
+
+				  nargs = map  (\\ (v, t) =  (cplv v, t))
+                                               args;
+
+				  (fdec_e, THE fdec_i);
+				  /* ((fk, f, nargs,
+				    acf::MUTUALLY_RECURSIVE_FNS([fdecE],
+					  acf::MUTUALLY_RECURSIVE_FNS([fdecI],
+						acf::LET([argI],
+						      acf::APPLY (acf::VAR fE, map (acf::VAR o #1) nargs),
+						      acf::APPLY (acf::VAR fI, [acf::VAR argI]))))),
+				   NULL) */
+			      };
+
+			  _ => (fdec, NULL);		#  sorry, can't do that 
+			 #  (prettyprint_anormcode::printLexp bodyRet; bug "couldn't find the returned record") 
+		     esac;
+
+		};
+        end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## copyright 1999 YALE FLINT project 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

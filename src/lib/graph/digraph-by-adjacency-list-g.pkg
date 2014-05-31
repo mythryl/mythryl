@@ -1,0 +1,338 @@
+## digraph-by-adjacency-list-g.pkg
+#
+# Directed graph in adjacency list format.
+#
+# This is the backbone datastructure for the
+# Mythryl compiler backend lowhalf, in particular
+# machcode_controlflow_graph.								# machcode_controlflow_graph_g	is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg    
+#
+# For additional background see:
+#
+#     src/lib/compiler/back/low/doc/latex/graphs.tex
+# 
+# See also:
+#
+#     src/lib/graph/undirected-graph-g.pkg
+#
+# We maintain three main dynamic vectors:
+#
+#     'next',   indexed by Node_Id, returning the list of edges exiting  that node, as (Node_Id, Node_Id, E) triples.
+#     'prior',  indexed by Node_Id, returning the list of edges entering that node, as (Node_Id, Node_Id, E) triples.
+#     'nodes',  indexed by Node_Id, returning the client-supplied info for the given node.
+
+# Compiled by:
+#     src/lib/graph/graphs.lib
+
+
+
+
+###             "D'you think, " asked Mr Shaughessy, "th' colliges ha' much t' do with th' progress of the wurld?"
+###             "D'you think, " replied Mr O'Banion, "'tis th' mills as make th' rivers run?"
+###
+###                                -- ?? (Quoted from dim memory: Corrections and attribution solicited.)
+
+
+stipulate
+    package odg =  oop_digraph;								# oop_digraph		is from   src/lib/graph/oop-digraph.pkg
+herein
+
+    # This generic is invoked in:
+    #
+    #     src/lib/graph/johnsons-all-pairs-shortest-paths-g.pkg
+    #     src/lib/graph/digraph-by-adjacency-list.pkg
+    #
+    # which latter is in turn used in
+    #
+    #     src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+    #     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+    #     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+    #
+    generic package   digraph_by_adjacency_list_g   (
+	#             ===========================
+	#										# "dv" == "dynamic_rw_vector".
+	dv:  Rw_Vector									# Rw_Vector			is from   src/lib/std/src/rw-vector.api
+    )											# dynamic_rw_vector		is from   src/lib/src/dynamic-rw-vector.pkg
+
+    : (weak) api {
+
+	include Make_Empty_Graph; 							# Make_Empty_Graph		is from   src/lib/graph/make-empty-graph.api
+
+	Adjlist(E)   =  dv::Rw_Vector( List( odg::Edge(E) ) );
+	Nodetable(N) =  dv::Rw_Vector( Null_Or(N) );
+
+	# This function exposes the internal representation! 
+	# Also, no external code currently calls it anyhow.
+	# Should we eliminate it? -- 2011-06-11 CrT XXX SUCKO FIXME
+	#
+	make_empty_graph'
+	    :  
+	    { graph_name:   String,
+	      graph_info:   G,								# G represents the type for client-package-specified info associated with the entire graph.
+	      nodes:	    Nodetable(N),						# N represents the type for client-package-specified info associated with a particular node.
+	      next:	    Adjlist(E),							# E represents the type for client-package-specified info associated with a particular edge.
+	      prior:	    Adjlist(E)
+	    }
+	    ->
+	    odg::Digraph(N,E,G);
+    }
+
+    {
+	Adjlist(E)   =  dv::Rw_Vector( List( odg::Edge( E ) ) );
+	Nodetable(N) =  dv::Rw_Vector( Null_Or( N ) );
+
+	fun make_empty_graph' { graph_name, graph_info, next, prior, nodes }
+	    =
+	    {   node_count    = REF 0;
+		edge_count    = REF 0;
+		entries       = REF [];
+		exits         = REF [];
+		new_nodes     = REF [];
+		garbage_nodes = REF [];
+
+		fun allot_node_id ()
+		    =
+		    case *new_nodes    []    =>  dv::length nodes;
+				       h ! t =>  { new_nodes := t;   h; };
+		    esac;
+
+		fun garbage_collect ()
+		    =
+		    {   new_nodes :=  *new_nodes @ *garbage_nodes;
+			garbage_nodes := [];
+		    };
+
+		fun get_nodes()
+		    =
+		    dv::keyed_fold_backward
+			\\ (i, THE n, l) =>  (i, n) ! l;
+			   (_,     _, l) =>           l;
+			end
+			[]
+			nodes;
+
+		fun get_edges() =   list::cat (dv::fold_backward (!) [] next);
+
+		fun order() = *node_count;
+		fun size()  = *edge_count;
+
+		fun capacity() = dv::length nodes;
+
+		fun add_node (i, n)
+		    =
+		    {   case (dv::get (nodes, i))
+			    #
+			    NULL => node_count := 1 + *node_count;
+			    _    => ();
+			esac; 
+			#
+			dv::set (nodes, i, THE n);
+		    };
+
+		fun add_edge (e as (i, j, info))
+		    = 
+		    {   dv::set (next,  i, e ! dv::get (next,  i));
+			dv::set (prior, j, e ! dv::get (prior, j));
+			edge_count := 1 + *edge_count;
+		    };
+
+		fun set_out_edges (i, edges)
+		    =
+		    {   fun remove_pred ([], j, es')
+				=>
+				dv::set (prior, j, es');
+
+			    remove_pred ((e as (i', _, _)) ! es, j, es')
+				=>
+				remove_pred
+				  (
+				    es,
+				    j,
+
+				    if (i' == i)     es';
+				    else         e ! es';
+                                    fi
+                                 );
+			end;
+
+			fun remove_edge (i', j, _)
+			    =
+			    {   if (i != i' ) raise exception odg::BAD_GRAPH "set_out_edges"; fi;
+				remove_pred (dv::get (prior, j), j,[]);
+			    };
+
+			fun add_pred (e as (_, j, _))
+			    =
+			    dv::set (prior, j, e ! dv::get (prior, j));
+
+			old_edges = dv::get (next, i);
+			apply remove_edge old_edges;
+			dv::set (next, i, edges);
+			apply add_pred edges;
+			edge_count := *edge_count + length edges - length old_edges;
+		    };
+
+		fun set_in_edges (j, edges)
+		    =
+		    {   fun remove_succ([], i, es')
+				=>
+				dv::set (next, i, es');
+
+			    remove_succ((e as (_, j', _)) ! es, i, es')
+				=> 
+				remove_succ
+				  (
+				    es,
+				    i,
+
+				    if (j' == j)      es';
+				    else          e ! es';
+				    fi
+				  );
+			end;
+
+			fun remove_edge (i, j', _)
+			    =
+			    {   if (j != j')   raise exception odg::BAD_GRAPH "set_in_edges"; fi;
+				#
+				remove_succ (dv::get (next, i), i,[]);
+			    };
+
+			fun add_succ (e as (i, _, _))
+			    =
+			    dv::set (next, i, e ! dv::get (next, i));
+
+			old_edges = dv::get (prior, j);
+			apply remove_edge old_edges;
+			dv::set (prior, j, edges);
+			apply add_succ edges;
+			edge_count := *edge_count + length edges - length old_edges;
+		    };
+
+		fun remove_node i
+		    =
+		    case (dv::get (nodes, i))
+			#
+			NULL => ();
+			THE _ => {  set_out_edges (i,[]);
+				    set_in_edges (i,[]);
+				    dv::set (nodes, i, NULL);
+				    node_count := *node_count - 1;
+				    garbage_nodes := i ! *garbage_nodes;
+				 };
+		    esac;
+
+		fun remove_nodes ns = apply remove_node ns;
+		fun set_entries ns = entries := ns;
+		fun set_exits ns   = exits := ns;
+		fun get_entries()  = *entries;
+		fun get_exits()    = *exits;
+		fun out_edges n = dv::get (next, n);
+		fun in_edges n = dv::get (prior, n);
+		fun get_succ n = map #2 (dv::get (next, n));
+		fun get_pred n = map #1 (dv::get (prior, n));
+		fun has_edge (i, j) = list::exists (\\ (_, k, _) =  j == k) (dv::get (next, i));
+
+		fun has_node n
+		    =
+		    case (dv::get (nodes, n))
+			#
+			THE _ =>  TRUE;
+			NULL  =>  FALSE;
+		    esac;
+
+		fun node_info n
+		    =
+		    case (dv::get (nodes, n))
+			#                 
+			THE x => x; 
+			NULL  => raise exception odg::NOT_FOUND;
+		    esac;
+
+		fun forall_nodes f
+		    = 
+		    dv::keyed_apply
+
+			\\ (i, THE x) =>  f (i, x);
+			  _           =>  ();
+			end
+
+			nodes;
+
+		fun forall_edges f
+		    =
+		    dv::apply
+			(list::apply f)
+			next;
+
+	      odg::DIGRAPH {
+		   name		    => graph_name,
+		   graph_info,
+		   allot_node_id,
+		   add_node,
+		   add_edge,
+		   remove_node,
+		   set_in_edges,
+		   set_out_edges,
+		   set_entries,
+		   set_exits,
+		   garbage_collect,
+		   nodes           => get_nodes,
+		   edges           => get_edges,
+		   order,
+		   size,
+		   capacity,
+		   out_edges,
+		   in_edges,
+		   next            => get_succ,
+		   prior           => get_pred,
+		   has_edge,
+		   has_node,
+		   node_info,
+		   entries         => get_entries,
+		   exits           => get_exits,
+		   entry_edges     => \\ _ = [],
+		   exit_edges      => \\ _ = [],
+		   forall_nodes,
+		   forall_edges
+		};
+	    }; 
+
+	fun make_empty_graph
+	      {
+		graph_name,				# Arbitrary client name for graph, for human-display purposes.
+		graph_info,				# Arbitrary client value to associate with graph.
+		expected_node_count			# Hint for initial sizing of internal graph vectors.  This is not a hard limit.
+	      }
+	    = 
+	    {   next   = dv::make_rw_vector (expected_node_count, []);
+		prior  = dv::make_rw_vector (expected_node_count, []);
+		nodes  = dv::make_rw_vector (expected_node_count, NULL);
+		#	
+		make_empty_graph' { graph_name, graph_info, nodes, next, prior };
+	    };
+    };
+end;
+
+
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,461 @@
+## treecode-form.api -- derived from   ~/src/sml/nj/smlnj-110.58/new/new/src/MLRISC/mltree/mltree.sig 
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# This derives from MLRISC; the original MLTREE overview is:
+#
+#     http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mlrisc-ir-rep.html
+#
+#    "[treecode] [...] serves two important purposes:
+#         1) As an intermediate representation for a compiler frontend to talk to the [backend].
+#         2) As specifications for instruction semantics."
+#     [treecode] is a low-level typed language: each operation is typed by its width or precision.
+#     Operations on floating point, integer, and condition code are also segregated,
+#     to prevent accidental misuse. [treecode] is also tree-oriented so that it is possible
+#     to write efficient transformation routines that use pattern matching."
+#
+#    "All operators on [treecode] are typed by the number of bits that they work on.
+#     For example, 32-bit addition between a and b is written as ADD(32,a,b),
+#     while 64-bit addition between the same is written as ADD(64,a,b).
+#     Floating point operations are denoted in the same manner.
+#     For example, IEEE single-precision floating point add is written as FADD(32,a,b),
+#     while the same in double-precision is written as FADD(64,a,b)
+#         Note that these types are low level. Higher level distinctions such as
+#     signed and unsigned integer value, are not distinguished by the type.
+#     Instead, operators are usually partitioned into signed and unsigned versions,
+#     and it is legal (and often useful!) to mix signed and unsigned operators in an expression."
+#
+#                 -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+###          "[The IBM Stretch computer] is immensely ingenious,
+###           immensely complicated, and extremely effective but
+###           somehow at the same time crude, wasteful and inelegant;
+###           and one feels that there must be a better way of doing things."
+###
+###                           -- Christopher Strachey, 1962 
+
+
+stipulate
+    package lbl =  codelabel;							# codelabel		is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk	is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package tcp =  treecode_pith;						# treecode_pith		is from   src/lib/compiler/back/low/treecode/treecode-pith.pkg
+herein
+
+    api Treecode_Form {
+	#
+	package lac:			Late_Constant;				# Late_Constant		is from   src/lib/compiler/back/low/code/late-constant.api
+	package rgn:       		Ramregion;				# Ramregion		is from   src/lib/compiler/back/low/code/ramregion.api
+    #   package stream:    	   	Codebuffer				# Codebuffer		is from   src/lib/compiler/back/low/code/codebuffer.api
+	package trx:			Treecode_Extension;			# Treecode_Extension	is from   src/lib/compiler/back/low/treecode/treecode-extension.api
+	package mi:	  		Machine_Int;				# Machine_Int		is from   src/lib/compiler/back/low/treecode/machine-int.api
+
+	Int_Bitsize   = tcp::Int_Bitsize;					# Called  "ty" in SML/NJ. Used in treecode nodes to distinguish 32-bit   int ops from 64-bit   int ops etc.
+	Float_Bitsize = tcp::Float_Bitsize;					# Called "fty" in SML/NJ. Used in treecode nodes to distinguish 32-bit float ops from 64-bit float ops etc.
+
+	Src_Reg  = rkj::Codetemp_Info;		# Synonym for readability, used when the codetemp is known to correspond to a physical register.
+	Dst_Reg  = rkj::Codetemp_Info;		# Synonym for readability, used when the codetemp is known to correspond to a physical register.
+	Register = rkj::Codetemp_Info;		# Synonym for readability, used when the codetemp is known to correspond to a physical register.
+
+	Note = note::Note;
+
+	#     "The most important of these are the types Cond and Fcond,
+	#      which represent the set of integer and floating point comparisions.
+	#      These types can be combined with the comparison constructors
+	#      CMP and FCMP to form integer and floating point comparisions."
+	#
+	#                             -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+	#  
+	Cond  == tcp::Cond;
+	Fcond == tcp::Fcond;
+
+	Rounding_Mode     == tcp::Rounding_Mode;
+
+	package d: api {
+	    #
+	    Div_Rounding_Mode == tcp::d::Div_Rounding_Mode;				# Wrapped in private package 'd' to keep this TO_ZERO and TO_NEGINF from conflicting with preceding ones.
+	};
+
+	Ext == tcp::Ext;
+
+	#     "Statements are evaluated for their effects,
+	#      while expressions are evaluated for their value.
+	#      Some expressions could also have trapping effects.
+	#      The semantics of traps are unspecified."
+	#
+	#              -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+	#
+	# We call a statements a Void_Expression
+        # for symmetry with       Int_Expression
+        #                       Float_Expression
+        #                Flag_Expression
+        # These types are parameterized by the statement extension type.
+        # Unfortunately, this has to be made typeagnostic to make
+	# it possible for mutually recursive extension type definitions to work.
+	#
+	Void_Expression
+	  #
+	  #     "Assignments are segregated among the integer, floating point
+	  #      and conditional code types. In addition, all assignments are
+	  #      typed by the precision of destination register."
+	  #                        -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html 
+	  #
+	  = LOAD_INT_REGISTER				(Int_Bitsize,   Dst_Reg,       Int_Expression)
+	  | LOAD_INT_REGISTER_FROM_FLAGS_REGISTER	(		Dst_Reg,      Flag_Expression)
+	  | LOAD_FLOAT_REGISTER				(Float_Bitsize, Dst_Reg,     Float_Expression)
+
+	  #     "Special forms are provided for parallel copies
+	  #      for integer and floating point registers. It is
+	  #      important to emphasize that the semantics is that
+	  #      all assignments are performed in parallel."
+	  #                        --  http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+	  #  
+	  | MOVE_INT_REGISTERS   (Int_Bitsize,    List(Dst_Reg), List(Src_Reg))
+	  | MOVE_FLOAT_REGISTERS (Float_Bitsize,  List(Dst_Reg), List(Src_Reg))
+
+	  #  Control flow 
+	  | GOTO      (Int_Expression, Mightbranchto_Labels)			# (address, label_set)		 label_set is often empty, otherwise the set of labels we might be jumping to.
+
+#         | SWITCH  of
+#             { tableLab: lbl::Codelabel,				# label associated with table 
+#		base:     Null_Or( int_expression ),			# Base pointer -- if any 
+#		table:    lbl::Codelabel( fn ) -> int_expression,	# get table address 
+#		index:    int_expression,				# index into table  
+#		targets:  controlflow					# targets of switch 
+#            }
+
+	  | IF_GOTO      (Flag_Expression, lbl::Codelabel)		# "Branch" -- conditional jump.
+
+	  | CALL     { funct:   Int_Expression,				# Fn to call.
+		       targets: Mightbranchto_Labels,				# Potential call targets -- info for optimizer. "Currently ignored."
+		       defs:    List( Expression ),			# Potential definitions during call.
+		       uses:    List( Expression ),			# Potential uses        during call.
+		       region:  rgn::Ramregion,				# Summarizes set of potential memory references during call.
+		       pops:    one_word_int::Int
+		     }
+
+	  | FLOW_TO  (Void_Expression, Mightbranchto_Labels)
+	  | RET      Mightbranchto_Labels
+	  | IF       (Flag_Expression, Void_Expression, Void_Expression)
+		#
+		#    "IF(c,x,y,z) is identical to
+		#
+		#         IF_GOTO(c,x, L1) 
+		#         z
+		#         JUMP([], L2)
+		#         DEFINE L1
+		#         y
+		#         DEFINE L2"
+		#                            -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html  
+
+	  | STORE_INT      (Int_Bitsize, Int_Expression,   Int_Expression, rgn::Ramregion)		# Store int   register to ram.
+	  | STORE_FLOAT  (Float_Bitsize, Int_Expression, Float_Expression, rgn::Ramregion)		# Store float register to ram.
+		#         bitwidth       address         data              region
+		#
+		# "Memory updates -- int and float stores.
+		#  Condition codes stores for  are not provided."    -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+
+	    #  Control dependence 
+	  | REGION  (Void_Expression, Ctrl)
+
+	  | SEQ     List( Void_Expression )				# Sequencing 
+	  | DEFINE  lbl::Codelabel					# Define local label -- a possible target for a JUMP or IF_GOTO.
+
+	  | NOTE (Void_Expression, Note)				# Statement annotation            -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/annotations.html
+	  | EXT  Sext							# For machine-specific extensions -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree-ext.html
+
+	  # Synthetic instructions to indicate
+	  # that the regs are live or dead at
+	  # this program point.
+	  #
+	  # The spilled list must always
+	  # start out as the empty list.
+	  #
+	  | LIVE  List( Expression )
+	  | DEAD  List( Expression )
+
+	  # RTL operators:						# "RTL" == "Register Transfer Language" (most likely)
+	  # The following are used internally
+	  # for describing instruction semantics.
+	  # The frontend must not use these.
+
+	  | PHI     {   preds: List(Int),   block: Int   }		# Presumably the Phi operator from SSA ("Static Single Assignment") form.
+	  | ASSIGN  (Int_Bitsize, Int_Expression, Int_Expression)
+	  | SOURCE
+	  | SINK
+	  | RTL     {   hash:		Unt,
+			attributes:	Ref( tcp::Attributes ),
+			e:		Void_Expression
+		    }
+
+	also
+	Int_Expression
+	  = CODETEMP_INFO      (Int_Bitsize, rkj::Codetemp_Info)					# Value of given codetemp (which with luck will get assigned a hardware register).
+
+	  # Sizes of constants are inferred by context:
+	  #	
+	  | LITERAL		mi::Machine_Int
+	  | LABEL		lbl::Codelabel								# Stuff we can jump/branch to.
+	  | LATE_CONSTANT	lac::Late_Constant							# Constants whose actual values are known only quite late (e.g., after register allocation).
+	  | LABEL_EXPRESSION	Int_Expression
+
+	  | NEG			(Int_Bitsize, Int_Expression)						# Negation.
+	  | ADD			(Int_Bitsize, Int_Expression, Int_Expression)				# Two's complement addition.
+	  | SUB			(Int_Bitsize, Int_Expression, Int_Expression)				# Two's complement subtraciton.
+
+	  # Signed multiplication etc. 
+	  #	
+	  | MULS		(Int_Bitsize, Int_Expression, Int_Expression)				# Signed multiplication
+	  | DIVS		(d::Div_Rounding_Mode, Int_Bitsize, Int_Expression, Int_Expression)	# Signed division, round to zero (nontrapping)
+	  | REMS		(d::Div_Rounding_Mode, Int_Bitsize, Int_Expression, Int_Expression)	# Signed remainder (???)
+
+	  # Unsigned mul/div ops:
+	  # 
+	  | MULU		(Int_Bitsize, Int_Expression, Int_Expression)				# Unsigned multiplication.
+	  | DIVU		(Int_Bitsize, Int_Expression, Int_Expression)				# Unsigned division.
+	  | REMU		(Int_Bitsize, Int_Expression, Int_Expression)				# Unsigned remainder.
+
+	  # Overflow-trapping versions of above.
+	  # These are all signed: 
+	  #
+	  | NEG_OR_TRAP		(Int_Bitsize, Int_Expression)						# Signed negation,                trap on overflow.
+	  | ADD_OR_TRAP		(Int_Bitsize, Int_Expression, Int_Expression)				# Signed addition,                trap on overflow.
+	  | SUB_OR_TRAP		(Int_Bitsize, Int_Expression, Int_Expression)				# Signed subtraction,             trap on overflow.
+	  | MULS_OR_TRAP	(Int_Bitsize, Int_Expression, Int_Expression)				# Signed multiplication,          trap on overflow.
+	  | DIVS_OR_TRAP	(d::Div_Rounding_Mode, Int_Bitsize, Int_Expression, Int_Expression)	# Signed division, round to zero, trap on overflow or divide-by-zero.
+	  #  there is no REMT because remainder never overflows 
+
+	  # Bitwise operations:
+	  #
+	  | BITWISE_AND	(Int_Bitsize, Int_Expression, Int_Expression)
+	  | BITWISE_OR	(Int_Bitsize, Int_Expression, Int_Expression)
+	  | BITWISE_XOR	(Int_Bitsize, Int_Expression, Int_Expression)
+	  | BITWISE_EQV	(Int_Bitsize, Int_Expression, Int_Expression)
+	  | BITWISE_NOT	(Int_Bitsize, Int_Expression)
+
+	  | RIGHT_SHIFT	(Int_Bitsize, Int_Expression, Int_Expression)					# value, shift 
+	  | RIGHT_SHIFT_U	(Int_Bitsize, Int_Expression, Int_Expression)
+	  | LEFT_SHIFT	(Int_Bitsize, Int_Expression, Int_Expression)
+
+	  # Type promotion/conversion:
+	  #
+	  | SIGN_EXTEND	 (Int_Bitsize, Int_Bitsize, Int_Expression)					# toType, fromType 
+	  | ZERO_EXTEND	 (Int_Bitsize, Int_Bitsize, Int_Expression)					# toType, fromType 
+	  | FLOAT_TO_INT (Int_Bitsize, Rounding_Mode, Float_Bitsize, Float_Expression)
+
+
+
+	  | CONDITIONAL_LOAD (Int_Bitsize, Flag_Expression, Int_Expression, Int_Expression)
+		#                          cc                    a               b
+		#
+		# If cc evaluates to TRUE then
+		# the value of the entire expression is a; otherwise
+		# the value is b. A and b may be eagerly evaluated.
+		#
+		#   "Most new superscalar architectures incorporate conditional move instructions.
+		#    Since branching (especially with data dependent branches) can introduce extra
+		#    latencies in highly pipelined architectures, conditional moves should be used
+		#    in place of short branch sequences. COND makes it possible to directly express
+		#    conditional moves without using branches."
+		#                                       -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+
+	  | LOAD  (Int_Bitsize, Int_Expression, rgn::Ramregion)
+		#  size-in-bits dest-register
+		# Load integer register.
+		# 'region' serves as aliasing information for the load. 
+
+	  | PRED  (Int_Expression, Ctrl)
+	      #
+	      # Control dependence predication -- limits optimizer code motions.
+
+	  | LET  (Void_Expression, Int_Expression)
+		#
+		# Evaluate 'Void_Expression' for its effect,
+		# then return the value of Int_Expression.
+		#
+		#    "Since the order of evaluation of MLTree operators are unspecified, the use
+		#     of this operator should be severely restricted to only side-effect-free forms."
+		#                 -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+
+	  | REXT	(Int_Bitsize, Rext)								# For machine-specific extensions -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree-ext.html
+	  | RNOTE	(Int_Expression, Note)								# Integer-expression annotation   -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/annotations.html
+
+	  | OP		(Int_Bitsize, Operator, List(Int_Expression))
+	  | ARG		(Int_Bitsize, Ref(Rep), String)
+	  | ATATAT	(Int_Bitsize, rkj::Registerkind, Int_Expression)				# This constructor was called '$' in SML/NJ (i.e., MLRISC).
+	  | PARAM	Int
+	  | BITSLICE	(Int_Bitsize, List ((Int, Int)), Int_Expression)
+	  | QQQ												# This constructor was called '???' in SML/NJ (i.e., MLRISC).
+
+	also
+	Operator = OPERATOR  tcp::Misc_Op								# Never used; support for the RTL system that was never completed.
+
+	also
+	Rep  = REPX  String										# Never used; support for the RTL system that was never completed.
+													# See (in particular) src/lib/compiler/back/low/tools/arch/lowhalf-types-g.pkg
+	also
+	Float_Expression
+	  = CODETEMP_INFO_FLOAT   (Float_Bitsize, Src_Reg)						# Value of given float codetemp (which with luck will get assigned a hardware register).
+	  | FLOAD   (Float_Bitsize, Int_Expression, rgn::Ramregion)					# Load float register.
+		#    size-in-bits   dest-register
+
+	  | FADD		(Float_Bitsize, Float_Expression, Float_Expression)
+	  | FMUL		(Float_Bitsize, Float_Expression, Float_Expression)
+	  | FSUB		(Float_Bitsize, Float_Expression, Float_Expression)
+	  | FDIV		(Float_Bitsize, Float_Expression, Float_Expression)
+	  | FABS		(Float_Bitsize, Float_Expression)
+	  | FNEG		(Float_Bitsize, Float_Expression)
+	  | FSQRT		(Float_Bitsize, Float_Expression)
+	  | FCONDITIONAL_LOAD	(Float_Bitsize, Flag_Expression, Float_Expression, Float_Expression)
+
+	  | COPY_FLOAT_SIGN  (Float_Bitsize, Float_Expression, Float_Expression)
+		#                            a                 b
+		# Result has sign of 'a' and magnitude of 'b'.
+
+	  | INT_TO_FLOAT    (Float_Bitsize, Int_Bitsize, Int_Expression)				# From signed integer.
+	  | FLOAT_TO_FLOAT  (Float_Bitsize, Float_Bitsize, Float_Expression)				# Float-to-float conversion.
+
+	  | FPRED  (Float_Expression, Ctrl)
+
+	  | FEXT  (Float_Bitsize, Fext)									# For machine-specific extensions -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree-ext.html
+	  | FNOTE (Float_Expression, Note)								# Float-expression annotation      -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/annotations.html
+
+
+	# Unlike C, we distinguish flag (condition code) expressions from int expressions,
+	# so as to explicitly express operations on condition code registers.
+	#
+	#    "A conditional code register bit can be referenced using the constructors CC and FCC.
+	#     Note that the condition must be specified together with the condition code register."
+	#                            -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+	also
+	Flag_Expression											# Controlcode expressions (zero/parity/overflow flags etc) vary wildly from machine to machine so we strictly segregate them.
+	  = CC      (tcp::Cond,  Src_Reg)								# Integer zero/parity/overflow/etc flags.
+	  | FCC     (tcp::Fcond, Src_Reg)								# Floating-point unit zero/etc flags.
+	  | TRUE
+	  | FALSE
+	  | NOT     Flag_Expression
+	  #
+	  | AND     (Flag_Expression, Flag_Expression)
+	  | OR      (Flag_Expression, Flag_Expression)
+	  | XOR     (Flag_Expression, Flag_Expression)
+	  | EQV     (Flag_Expression, Flag_Expression)
+	  #
+	  | CMP     (Int_Bitsize,   tcp::Cond,    Int_Expression,   Int_Expression)			# Comparison of   int values for equality, <= etc.
+	  | FCMP    (Float_Bitsize, tcp::Fcond, Float_Expression, Float_Expression)			# Comparison of float values for equality, <= etc.
+	  #
+	  | CCNOTE  (Flag_Expression, Note)								# Controlcode-expression annotation  -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/annotations.html
+	  | CCEXT   (Int_Bitsize, Ccext)								# For machine-specific extensions -- see http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree-ext.html
+
+	also
+	Expression
+	  = FLAG_EXPRESSION	Flag_Expression
+	  | INT_EXPRESSION	 Int_Expression
+	  | FLOAT_EXPRESSION   Float_Expression
+
+	#    "Jumps and conditional branches in [treecode] take two
+	#     additional set of annotations. The first represents
+	#     the control flow and is denoted by the type Mightbranchto_Labels.
+	#     The second represent control-dependence and
+	#     anti-control-dependence and is denoted by the type ctrl.
+	#
+	#     Mightbranchto_Labels annotation is simply a list of labels, which
+	#     represents the set of possible targets of the associated jump.
+	#     Control dependence annotations attached to a branch or jump
+	#     instruction represent the new definition of pseudo control
+	#     dependence predicates. These predicates have no associated
+	#     dynamic semantics; rather they are used to constrain the
+	#     set of potential code motion in an optimizer."
+	#
+	#                    http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree.html
+	#
+	withtype
+	Mightbranchto_Labels = List( lbl::Codelabel )				# Control flow info       -- possible branch targets.
+	also Ctrl   = rkj::Codetemp_Info       					# Control dependence info -- dependent may not be hoisted above what it is dependent on.
+	also Ctrls  = List( Ctrl )
+
+	also Label_Expression = Int_Expression
+
+	also Sext   = trx::Sx  (Void_Expression, Int_Expression, Float_Expression, Flag_Expression)
+	also Rext   = trx::Rx  (Void_Expression, Int_Expression, Float_Expression, Flag_Expression)
+	also Fext   = trx::Fx  (Void_Expression, Int_Expression, Float_Expression, Flag_Expression)
+	also Ccext  = trx::Ccx (Void_Expression, Int_Expression, Float_Expression, Flag_Expression);
+	    #
+	    # Support for machine-specific treecode extensions.
+	    # Nomenclature:  S/R/F/CC are respectively Statement/Int/Float/Condition_Code.
+	    # See EXT/REXT/FEXT/CCEXT above.
+	    # See   http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/mltree-ext.html
+
+	# Useful type abbreviations for working for Treecode.
+
+	Rewrite_Fns           #  rewriting functions 
+	  =
+	  { void_expression:	Void_Expression	 -> Void_Expression,
+	    int_expression:	Int_Expression	 -> Int_Expression,
+	    float_expression:	Float_Expression -> Float_Expression,
+	    flag_expression:	Flag_Expression  -> Flag_Expression		# flag expressions handle zero/parity/overflow/... flag stuff.
+	  };
+
+	Fold_Fns(X)        #  Aggregation functions 
+	  =
+	  { void_expression:	(Void_Expression,	X) -> X,
+	    int_expression:	(Int_Expression,	X) -> X,
+	    float_expression:	(Float_Expression,	X) -> X,
+	    flag_expression:	(Flag_Expression,	X) -> X
+	  };
+
+	Hash_Fns    #  hashing functions 
+	  =
+	  { void_expression:	Void_Expression	 -> Unt,
+	    int_expression:	Int_Expression	 -> Unt,
+	    float_expression:	Float_Expression -> Unt,
+	    flag_expression:	Flag_Expression	 -> Unt
+	  };
+
+	Eq_Fns   # Equality functions 
+	  =
+	  { void_expression:	(Void_Expression,	Void_Expression	) -> Bool,
+	    int_expression:	(Int_Expression,	Int_Expression	) -> Bool,
+	    float_expression:	(Float_Expression,	Float_Expression) -> Bool,
+	    flag_expression:	(Flag_Expression,	Flag_Expression ) -> Bool
+	  };
+
+	Prettyprint_Fns    #  pretty printing functions 
+	  =
+	  { void_expression:	Void_Expression		-> String,
+	    int_expression:	Int_Expression		-> String,
+	    float_expression:	Float_Expression	-> String,
+	    flag_expression:	Flag_Expression		-> String,
+	    #
+	    dst_reg:		(Int_Bitsize, Dst_Reg)	-> String,
+	    src_reg:		(Int_Bitsize, Src_Reg)	-> String
+	  };
+    };							# api Treecode 
+end;
+
+## COPYRIGHT (c) 1994 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

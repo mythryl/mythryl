@@ -1,0 +1,262 @@
+## winix-file.pkg
+#
+# The Posix implementation of the portable
+# (cross-platform) file system interface.
+#
+# This is a subpackage of winix_guts:
+#
+#     src/lib/std/src/posix/winix-guts.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+
+
+
+stipulate
+    package hu  =  host_unt_guts;					# host_unt_guts				is from   src/lib/std/src/bind-sysword-32.pkg
+    package unt =  unt_guts;						# unt_guts				is from   src/lib/std/src/bind-unt-guts.pkg
+    #
+    package pfs =  posixlib;						# posixlib				is from   src/lib/std/src/psx/posixlib.pkg
+    package wp  =  winix_path;						# winix_path				is from   src/lib/std/src/posix/winix-path.pkg
+    package xg  =  exceptions_guts;					# exceptions_guts			is from   src/lib/std/src/exceptions-guts.pkg
+    #
+    package ci  =  mythryl_callable_c_library_interface;		# mythryl_callable_c_library_interface	is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+    #
+    fun cfun  fun_name
+	=
+	ci::find_c_function'' { lib_name => "posix_os", fun_name };	# "posix_os"	is from    src/c/lib/posix-os/cfun-list.h
+herein
+
+    package   winix_file
+    : (weak)  Winix_File						# Winix_File				is from   src/lib/std/src/winix/winix-file.api
+    {
+	sys_unt_to_unt
+            =
+            unt::from_large_unt  o  hu::to_large_unt;
+
+	Directory_Stream
+            =
+            pfs::Directory_Stream;
+
+	open_directory_stream   =  pfs::open_directory_stream;
+	read_directory_entry    =  pfs::read_directory_entry;
+	rewind_directory_stream =  pfs::rewind_directory_stream;
+	close_directory_stream  =  pfs::close_directory_stream;
+
+	change_directory	=  pfs::change_directory;
+	current_directory       =  pfs::current_directory;
+
+	stipulate
+	    package s =  pfs::s;
+
+	    mode777 =  s::flags [ s::irwxu, s::irwxg, s::irwxo ];
+	herein
+	    fun make_directory path
+		=
+		pfs::mkdir (path, mode777);
+	end;
+
+	remove_directory   =  pfs::rmdir;
+	is_directory       =  pfs::stat::is_directory  o  pfs::stat;
+
+	is_symlink   =  pfs::stat::is_symlink  o  pfs::lstat;
+	read_symlink =  pfs::readlink;
+
+	max_links = 64;							# The maximum number of links allowed.
+
+
+	# A Unix-specific implementation of full_path:
+	#
+	fun full_path p
+	    =
+	    {   old_cwd =  current_directory ();
+		#
+		fun make_path  path_from_root
+		    =
+		    wp::to_string {
+                      is_absolute =>  TRUE,
+                      disk_volume =>  "",
+                      arcs        =>  reverse  path_from_root
+                    };
+
+		fun walk_path (0, _, _                     ) =>   raise exception runtime::RUNTIME_EXCEPTION("too many links", NULL);
+		    walk_path (n, path_from_root, []       ) =>   make_path path_from_root;
+		    walk_path (n, path_from_root, ""  ! al ) =>   walk_path (n, path_from_root, al);
+		    walk_path (n, path_from_root, "." ! al ) =>   walk_path (n, path_from_root, al);
+		    walk_path (n, [], ".." ! al            ) =>   walk_path (n, [], al);
+		    walk_path (n, _ ! r, ".." ! al         ) =>   { change_directory "..";   walk_path (n, r, al); };	# XXX BUGGO FIXME Find a way to do this without frigging with the cwd!  (This is DISTINCTLY multi-thread hostile.)
+
+		    walk_path (n, path_from_root, [arc])
+			=>
+			if (is_symlink arc)
+			    #
+			    expand_link (n, path_from_root, arc, []);
+			else
+			    make_path (arc ! path_from_root);
+			fi;
+
+		    walk_path (n, path_from_root, arc ! al)
+			=>
+			if (is_symlink arc)
+			    #
+			    expand_link (n, path_from_root, arc, al);
+			else
+			    change_directory arc;
+			    walk_path (n, arc ! path_from_root, al);
+			fi;
+		end 
+
+		also
+		fun expand_link (n, path_from_root, link, rest)
+		    =
+		    case (wp::from_string (read_symlink link))
+			#                       
+			{   is_absolute => FALSE, arcs, ... }
+				=>
+				walk_path (n - 1, path_from_root,  arcs @ rest);
+
+			{   is_absolute => TRUE,  arcs, ... }
+				=>
+				goto_root (n - 1,  arcs @ rest);
+		    esac
+
+		also
+		fun goto_root (n, arcs)
+		    =
+		    {   change_directory "/";
+		        #
+			walk_path (n, [], arcs);
+		    };
+
+		fun compute_full_path  arcs
+		    =
+		    (   goto_root (max_links, arcs)
+			then
+			    change_directory old_cwd
+		    )
+		    except
+			x = {   change_directory  old_cwd;
+				#
+				raise exception x;
+			    };
+
+		case (wp::from_string p)
+		    #		  
+		    { is_absolute=>FALSE, arcs, ... }
+			=>
+			{   (wp::from_string  (old_cwd))
+				->
+				{ arcs=>arcs', ... };
+
+			    compute_full_path (arcs' @ arcs);
+			};
+
+		    { is_absolute=>TRUE, arcs, ... }
+			=>
+			compute_full_path  arcs;
+		esac;
+	    };
+
+	fun real_path p
+	    =
+	    if (wp::is_absolute p)   full_path p;
+	    else		     wp::make_relative { path=>full_path p, relative_to=>full_path (current_directory()) };
+	    fi;
+
+	file_size
+	    =
+	    pfs::stat::size  o  pfs::stat;
+
+	last_file_modification_time
+	    =
+	    pfs::stat::mtime  o  pfs::stat;
+
+#	fun set_last_file_modification_time (path, NULL)  =>  pfs::utime (path, NULL);
+#	    set_last_file_modification_time (path, THE t) =>  pfs::utime (path, THE { actime=>t, modtime=>t } );
+#	end;
+
+	fun set_last_file_modification_time (path, NULL)
+                =>
+                pfs::utime (path, NULL);
+
+	    set_last_file_modification_time (path, THE t)
+                =>
+                {
+                    pfs::utime (path, THE { actime=>t, modtime=>t } );
+                };
+	end;
+
+	remove_file =  pfs::unlink;
+	rename_file =  pfs::rename;
+
+	package a: (weak)   api {
+				Access_Mode = MAY_READ | MAY_WRITE | MAY_EXECUTE;
+			    }
+	    =
+	    posixlib;					# posixlib		is from   src/lib/std/src/psx/posixlib.pkg
+
+	include a;
+
+	fun access (path, al)
+	    =
+	    pfs::access  (path,  map convert al)
+	    where
+		fun convert MAY_READ    =>  pfs::MAY_READ;
+		    convert MAY_WRITE   =>  pfs::MAY_WRITE;
+		    convert MAY_EXECUTE =>  pfs::MAY_EXECUTE;
+		end;
+	    end;
+
+	(cfun "tmpname")							# tmpname	is from    src/c/lib/posix-os/tmpname.c
+	    ->
+	    (      tmp_name__syscall:    Void -> String,
+	           tmp_name__ref,
+	      set__tmp_name__ref
+	    );
+
+	fun tmp_name ()
+	    =
+	    *tmp_name__ref ();
+
+	File_Id =   FILE_ID   { device:	Int,					# "dev" == "device"
+				inode:	Int
+			      };
+
+	fun file_id fname
+	    =
+	    {   stat =  pfs::stat  fname;
+		#
+		FILE_ID {
+		    device =>  pfs::stat::dev   stat,
+		    inode  =>  pfs::stat::inode stat
+		  };
+	    };
+
+
+	fun hash (FILE_ID { device, inode } )
+	    =
+	    sys_unt_to_unt (
+	        hu::(+)   (hu::(<<) (hu::from_int device, 0u16),   hu::from_int inode)
+            );
+
+
+	fun compare ( FILE_ID { device => d1,  inode => i1 },
+                      FILE_ID { device => d2,  inode => i2 }
+                    )
+	    =
+	    if   (d1 < d2)   xg::LESS;
+	    elif (d1 > d2)   xg::GREATER;
+	    elif (i1 < i2)   xg::LESS;
+	    elif (i1 > i2)   xg::GREATER;
+	    else             xg::EQUAL;
+            fi;
+
+    };		# package winix_file
+end;		# stipulate
+
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

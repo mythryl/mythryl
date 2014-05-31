@@ -1,0 +1,243 @@
+local
+
+   DEBUG = FALSE
+
+in
+
+package FSA :> FSA {
+
+
+   package s        = int_red_black_set
+   package h        = int_hashtable
+   package m        = int_red_black_map
+   package a        = rw_vector
+   package int_set   = S
+
+   type Symbol  = Int
+   type ruleno  = Int
+   type groupid = Int
+
+   exception FSA
+
+   enum node = NODE of { id: Int, kind: Ref( kind ) }
+   and      kind = Accept of ruleno
+                 | Epsilon of node 
+                 | Or of node List
+                 | Delta of Symbol * node 
+                 | BeginGroup of groupid * node
+                 | EndGroup of groupid * node
+                 | Undef
+                 | ERROR
+
+   enum nfa = 
+      NFA of
+      {  min_char:   Symbol,
+         max_char:   Symbol,
+         nextid:    Ref( Int ),
+         nodes:     h::Hashtable( node ),
+         closure:   h::Hashtable( s::set )
+      }
+
+
+
+   i2s = int::to_string
+
+   fun intsetToString s
+       = 
+        "{ "$s::fold_backward (\\ (i, "") => i2s i | (i, s) => i2s i$", "$s) "" s$"}"
+
+   s2s = intsetToString
+
+   fun nid (NODE { id, ... } ) = "<"$i2s id$">"
+
+   fun n2s (node as NODE { kind=REF kind, ... } )
+       =
+       nid node $
+       (case kind of
+          Accept r  => " accept "$i2s r$"\n"
+        | Epsilon x => " --> "$nid x$"\n"
+        | Or xs => " --> "$fold_backward (\\ (x, "") => nid x | 
+                                     (x, s) => nid x$", "$s) "" xs$"\n"
+        | Delta (c, x) => " -- "$char::to_string (chr c)$" --> "$nid x$"\n"
+        | BeginGroup (i, x) => " ("$i2s i$" --> "$nid x$"\n"
+        | EndGroup (i, x) => " )"$i2s i$" --> "$nid x$"\n"
+        | Undef => " undef\n"
+        | ERROR => " error\n"
+       )
+
+   fun nfa { min, max } = NFA { min_char=min, max_char=max, 
+                           nodes=h::makeTable (32, FSA), 
+                           closure=h::makeTable (32, FSA),
+                           nextid=REF 0 }
+
+   fun newNode (NFA { nodes, nextid, ... } ) = 
+   let id = *nextid
+       nextid := id + 1
+       node = NODE { id=id, kind=REF Undef }
+   in  h::set nodes (id, node); node
+   end
+
+   fun setAccept (n as NODE { kind, ... }, r) = (kind := Accept r; n)
+   fun setEpsilon (n as NODE { kind, ... }, x) = (kind := Epsilon x; n)
+   fun setOr (n as NODE { kind, ... }, ns) = (kind := Or ns; n)
+   fun setDelta (n as NODE { kind, ... }, c, x) = (kind := Delta (c, x); n)
+   fun setBeginGroup (n as NODE { kind, ... }, i, x) = (kind := BeginGroup (i, x); n)
+   fun setEndGroup (n as NODE { kind, ... }, i, x) = (kind := EndGroup (i, x); n)
+   fun setError (n as NODE { kind, ... } ) = (kind := ERROR; n)
+  
+   fun computeClosure (NFA { nodes, closure, nextid, ... } ) =
+   let 
+       insert = h::set closure
+       find   = h::find closure
+       fun lookup n = the_else (find n, s::empty)
+
+       #  A table of nodes to is dependents 
+       dependents = h::makeTable (16, FSA)
+       findDep    = h::find dependents
+       insertDep  = h::set dependents
+       fun lookupDep n = the_else (findDep n,[]) 
+
+       onWorkList = a::rw_vector (*nextid, FALSE)
+
+       fun insertWL (x, WL) =
+           if a::sub (onWorkList, x) then WL
+           else (a::update (onWorkList, x, TRUE); x . WL)
+
+           #  x depends on y; i.e. there is an epsilon edge x --> y
+       fun addEdge (x, y) = 
+            (if DEBUG then print (i2s x$" --> "$i2s y$"\n") 
+             insertDep (y, x . lookupDep y)
+            )
+
+       #  Iterate until fix point; dumb 
+       fun iter [] = ()
+         | iter (x . WL) = 
+           let ys = lookupDep x
+               Sx = lookup x
+               fun propagate ([], WL) = iter WL
+                 | propagate (y . ys, WL) = 
+                   if x == y then propagate (ys, WL)
+                   else let Sy = lookup y
+                            ny = s::vals_count Sy
+                            Sy = s::union (Sx, Sy)
+                        in  if s::vals_count Sy > ny then 
+                               (insert (y, Sy);
+                                if DEBUG then
+                                   print("Closure "$i2s y$"="$s2s Sy$"\n")
+                                
+                                propagate (ys, insertWL (y, WL))
+                               )
+                            else propagate (ys, WL)
+                        end
+           in  a::update (onWorkList, x, FALSE);
+               propagate (ys, WL)
+           end
+
+       fun id (NODE { id, ... } ) = id
+       fun add (x, y, WL) = 
+       let x = id x
+           y = id y
+       in  addEdge (x, y);
+           insertWL (y, WL)
+       end
+                        
+       fun collect (NODE { kind=REF Undef, ... }, _) = raise exception FSA
+         | collect (x as NODE { kind=REF (Epsilon y), ... }, WL) = add (x, y, WL) 
+         | collect (x as NODE { kind=REF (BeginGroup(_, y)), id, ... }, WL) = 
+              singleton (id, add (x, y, WL))
+         | collect (x as NODE { kind=REF (EndGroup(_, y)), id, ... }, WL) = 
+              singleton (id, add (x, y, WL))
+         | collect (x as NODE { kind=REF (Or ys), ... }, WL) = 
+             fold_backward (\\ (y, WL) => add (x, y, WL)) WL ys
+         | collect (NODE { kind=REF (Accept _), id, ... }, WL) = singleton (id, WL)
+         | collect (NODE { kind=REF (Delta _), id, ... }, WL) = singleton (id, WL)
+         | collect (NODE { kind=REF (ERROR), id, ... }, WL) = empty (id, WL)
+       and singleton (id, WL)  = (insert (id, s::add (s::empty, id)); WL)
+       and empty (id, WL) = (insert (id, s::empty); WL)
+
+       WL = h::fold collect [] nodes
+   in  if DEBUG then print("Closure begin\n")  
+       if DEBUG then apply print (map n2s (h::vals_list nodes)) 
+       if DEBUG then print ("|worklist|="$i2s (length WL)$"\n") 
+       iter WL; 
+       if DEBUG then print("Closure end\n") 
+       ()
+   end
+
+   fun closure (NFA { closure, ... } ) =
+   let lookup = h::lookup closure
+   in  \\ NODE { id, ... } => lookup id 
+   end
+
+   fun id (NODE { id, ... } ) = id
+
+   fun move (NFA { nodes, closure, ... } ) =
+   let closure = h::lookup closure
+       lookup  = h::lookup nodes
+       fun add (n, delta) = add'(lookup n, delta)
+       and add'(NODE { kind=REF (Delta (c, s)), ... }, delta) =
+           let S'  = closure (id s)
+               S'' = the_else (m::find (delta, c), s::empty)
+           in  m::set (delta, c, s::union (S', S''))
+           end
+         | add'(_, delta) = delta
+   in  \\ S => m::keyvals_list(
+                 s::fold_backward (\\ (n, m) => s::fold_backward add m (closure n)) m::empty S)
+   end
+
+   fun acceptingAll (NFA { nodes, closure, ... } ) =
+   let closure = h::lookup closure
+       lookup  = h::lookup nodes
+       fun add (n, rules) = add'(lookup n, rules)
+       and add'(NODE { kind=REF (Accept r), ... }, rules) = s::add (rules, r)
+         | add'(_, delta) = delta
+   in  s::fold_backward (\\ (n, m) => s::fold_backward add m (closure n)) s::empty
+   end
+
+   fun accepting (NFA { nodes, closure, ... } ) =
+   let closure = h::lookup closure
+       lookup  = h::lookup nodes
+       fun add (n, r) = add'(lookup n, r)
+       and add'(NODE { kind=REF (Accept r), ... }, NULL) = THE r
+         | add'(NODE { kind=REF (Accept r), ... }, THE r') = THE (int::min (r, r'))
+         | add'(_, r) = r
+   in  s::fold_backward (\\ (n, m) => s::fold_backward add m (closure n)) NULL 
+   end
+
+   fun groupings (NFA { nodes, closure, ... } ) =
+   let closure = h::lookup closure
+       lookup  = h::lookup nodes
+       fun add (n, g) = add'(lookup n, g)
+       and add'(NODE { kind=REF (BeginGroup (g, _)), ... }, (x, y)) = (s::add (x, g), y)
+         | add'(NODE { kind=REF (EndGroup (g, _)), ... }, (x, y)) = (x, s::add (y, g))
+         | add'(_, g) = g
+       fun get S = 
+       let my (start, stop) = 
+           s::fold_backward (\\ (n, m) => s::fold_backward add m (closure n)) (s::empty, s::empty) S
+       in  (s::vals_list start, s::vals_list stop) 
+       end
+   in  get
+   end
+
+}
+
+end
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

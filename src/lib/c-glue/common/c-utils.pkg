@@ -1,0 +1,221 @@
+
+# Common operations on C objects.
+
+local
+   sizeof_ptr = 4
+in
+package c_utils :> Cutils {
+
+   use C mlrep
+   package a = rw_vector
+   package v = vector
+
+   itow = unt::from_int 
+   itomi = signed::from_int
+   mitoi = signed::toInt
+
+   #  C array -> ML List/Rw_Vector/vector 
+   type ml_cvt' (T,U,A_ml,C)
+       = 
+        (c::obj' (T,C) -> U) * c::S.size(T)
+        ->
+        c::ptr' c::obj  (T,C) * mlrep::signed::Int
+        ->
+        A_ml
+
+   fun ml_list' (get, size) (arr, n)
+       =
+       (   sub = Ptr::sub' size;
+	   n   = signed::toInt n;
+	   fun f (i, l) = if i < n then f (i+1, get (sub (arr, i)) . l) else reverse l;
+           f (0, [])
+       )
+
+   fun ml_array' f x = a::from_list (ml_list' f x)
+   fun ml_vector' f x = v::from_list (ml_list' f x)
+
+   type c_cvt' (T,U,A_ml,C)
+        = 
+        ( c::obj' (T, c::rw) * U -> Void) * c::S.size T
+        ->
+        A_ml -> c::ptr' c::obj (T,C) * mlrep::signed::Int 
+
+   fun c_array' (set, size) a
+       = 
+       {   n   = a::length a;
+	   arr = allot' size (itow n);
+	   sub = Ptr::sub' size;
+
+	   fun init -1 = ()
+	     | init i
+                   =
+                   {   set (sub (arr, i), a::sub (a, i));
+                       init (i - 1);
+                   };
+
+           init (n - 1);
+
+           (Ptr::rw' arr, itomi n);
+       }
+
+   fun c_vector' (set, size) a
+       = 
+       {   n   = v::length a;
+	   arr = allot' size (itow n);
+	   sub = Ptr::sub' size;
+
+	   fun init -1 = ()
+	     | init i
+                   =
+                   {   set (sub (arr, i), v::sub (a, i));
+                       init (i - 1);
+                   };
+
+           init (n - 1);
+
+           (Ptr::rw' arr, itomi n);
+       }
+
+   fun c_list' (set, size) l
+       =
+       {   n   = length l;
+	   arr = allot' size (itow n);
+	   sub = Ptr::sub' size;
+
+	   fun init ([], i) = ()
+
+	     | init (x . xs, i)
+                   =
+                   {   set (sub (arr, i), x);
+                       init (xs, i+1);
+                   }
+
+           init (l, 0);
+
+           (Ptr::rw' arr, itomi n);
+        }
+
+
+   fun memcpy' (dst, src, n)
+       =
+       copy' (C_Int::make_su_size (unt::from_int (signed::toInt n))) 
+             { from= ptr::deref' (Ptr::cast'(Ptr::inject' src)),
+              to= ptr::deref' (Ptr::cast'(Ptr::inject' dst)) } 
+
+   fun memcpy (dst, src, n)
+       =
+       memcpy'(Light::ptr dst, Light::ptr src, n);
+
+   package new {
+
+      fun ptr' p
+	  =
+	  {   obj =   new' s::ptr;
+
+	      set::ptr'(obj, p);
+
+              rw' obj;
+	  }
+  
+      fun sint' i
+	  =
+	  {   obj =   new' s::sint;
+	      set::sint'(obj, i);
+              rw' obj;
+	  }
+
+      fun uint' i
+	  =
+	  {   obj =   new' s::uint;
+	      set::uint'(obj, i);
+              rw' obj;
+	  }
+   }
+
+   package shared {
+
+      package cm = c_memory
+      my addrOf:  X -> cm::address = unsafe::cast 
+
+      my ++ = CM.++
+      my -- = CM.--
+      infix ++ --
+
+      # Take a light pointer and treats it as an array-like object 
+
+      fun makeArr (obj, ptr:   ptr'( obj( X, Z ) ), len: signed::int)
+	  = 
+	  {   objP =   addrOf (REF obj);	#  get its address 
+	      ptrP =   addrOf ptr;
+	      n    = cm::wrap_sint (len+len+1);
+			   #  ML tagging scheme 
+	      cm::store_addr (objP, ptrP);             #  update the object ptr 
+	      cm::store_sint (objP ++ sizeof_ptr, n); #  update its len 
+	      obj;
+	  }
+
+      fun bytearray'(p, len)
+          = 
+          if Ptr::isNull' p or len == 0
+          then rw_vector_of_one_byte_unts::rw_vector (0, 0w0)
+          else makeArr (unsafe::rw_vector_of_one_byte_unts::create 1, p, len)
+
+      fun bytevector'(p, len)
+          = 
+          if Ptr::isNull' p or len == 0
+          then vector_of_one_byte_unts::from_list []
+          else makeArr (unsafe::vector_of_one_byte_unts::create 1, p, len)
+
+      fun string' (s, len)
+          = 
+          if Ptr::isNull' s or len == 0
+          then ""
+          else byte::bytes_to_string makeArr (unsafe::vector_of_one_byte_unts::create 1, s, len))
+
+      fun zstring' s
+          = 
+          if Ptr::isNull' s
+          then ""
+          else unsafe::cast
+              (makeArr (unsafe::vector_of_one_byte_unts::create 1, s, itomi (ZString::length' s)))
+
+      fun chararray'(p, len)
+          = 
+          if Ptr::isNull' p or len == 0
+          then rw_vector_of_chars::rw_vector (0, ' ')
+          else makeArr (unsafe::rw_vector_of_chars::create 1, p, len)
+
+      fun ptr_array'(p, len)
+          = 
+          if Ptr::isNull' p or len == 0
+          then rw_vector::from_list []
+          else makeArr (rw_vector::rw_vector (1, get::ptr'(ptr::deref' p)), p, len)
+
+      fun bytearray (p, len) = bytearray'(Light::ptr p, len)
+      fun bytevector (p, len) = bytevector'(Light::ptr p, len)
+      fun chararray (p, len) = chararray'(Light::ptr p, len)
+      fun string (p, len) = string'(Light::ptr p, len)
+      fun zstring s = zstring'(Light::ptr s)
+      fun ptr_array (p, len) = ptr_array'(Light::ptr p, len)
+   }
+}
+
+end #  local 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

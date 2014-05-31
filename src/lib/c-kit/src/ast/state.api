@@ -1,0 +1,186 @@
+## state.api
+
+# Compiled by:
+#     src/lib/c-kit/src/ast/ast.sublib
+
+# --------------------------------------------------------------------
+# State: a local package for operating on context state during the build-ast
+# (elaboration) phase.
+# State includes:
+#   - a global symbol table envContext.global_dictionary
+#   - a stack of local symbol tables  envContext.local_dictionary
+#   - a stack of locations for error reporting locContext.locStack
+#   - a table of named type identifiers (uidTables::ttab)
+#   - a table of adornment types (uidTables::atab) giving the type for each expression
+#   - a table of adornment types (uidTables::implicits)
+#        giving implicit coercions for each expression (if any)
+#   - a list of type identifiers (defined in the current "context")
+#      (tidsContext::newTids)
+#   - a stack of tables of switch statement labels (switchContext::switchLabels)
+# --------------------------------------------------------------------
+
+      
+api State {
+
+    # Finite map packages:
+
+    package st:  Map		# Map	is from   src/lib/src/map.api
+                 where
+                     key::Key == symbol::Symbol;
+
+    package it:  Map		# Map	is from   src/lib/src/map.api
+                 where
+                     key::Key == large_int::Int;
+
+
+    #  Dictionaries 
+
+    Symtab = st::Map( namings::Sym_Naming );
+    Dictionary = List( Symtab ); #  local dictionary stack 
+
+
+    #  global context types 
+
+    Uid_Tables =
+      { ttab:  tables::Tidtab,     #  type name table 
+       atab:  tables::Aidtab,     #  Adornment table 
+       implicits:  tables::Aidtab };   #  "optional" adornment table -- for special casts 
+
+    Env_Context =
+      { global_dictionary:  Ref( Symtab ),   #  the global symbol table 
+       local_dictionary:  Ref( Dictionary ) };       #  the local dictionary stack 
+
+
+    #  local context types:  temporary information used during elaboration 
+
+    #  tidsContext: sequence of tids of types created while processing a phrase 
+    Tids_Context =
+      { new_tids:  Ref(  List(  tid::Uid ) ) };
+
+    #  tmpVariables: sequence of (pid, type) pairs created while processing a phrase 
+       #  used when inserting explicit coercions in the case of ++, --, += 
+     Tmp_Variables =
+      { new_variables:  Ref(  List(  raw_syntax::Id ) ) };
+
+    #  for use in D 
+     Type_Context =
+      { type_cxts:   Ref( List( Null_Or( raw_syntax::Ctype ) ) ) };
+
+    #  funContext: information for the current function def 
+     Fun_Context =
+      { label_tab:   Ref( st::Map( (raw_syntax::Label, Bool)) ),
+       gotos:  Ref(  List(  symbol::Symbol ) ),
+       return_type:  Ref(  Null_Or(  raw_syntax::Ctype ) ) };
+
+    #  table for collecting switch labels while processing switch statements 
+     Switch_Context =
+      { switch_labels:   Ref( List { switch_tab:  it::Map( Void ), default:  Bool } ) };
+
+     Loc_Context = #  location context 
+      { loc_stack:  Ref(  List(  line_number_db::Location ) ) };
+
+    #  global state components 
+     Global_State =
+      { uid_tables:  Uid_Tables,
+       env_context:  Env_Context,  #  Contains some local working state in local_dictionary 
+       error_state:  error::Error_State };
+
+    #  local, "working", state components, holding temporary information 
+     Local_State =
+      { loc_context: Loc_Context,
+       tids_context:  Tids_Context,
+       tmp_variables:  Tmp_Variables,
+       fun_context: Fun_Context,
+       switch_context: Switch_Context,
+       type_context: Type_Context };
+
+    #  initial information for calling makeRawSyntaxTree 
+     State_Info
+      = STATE  (Uid_Tables, Symtab)  #  state carried over from previous translation unit 
+      | INITIAL;  #  no previous state 
+
+
+  #  packages of functions to manipulate state implicitly 
+
+     State_Funs =
+      { global_state:  Global_State,
+       local_state:  Local_State,
+	 # the state records, included in case direct access to the
+	 # state is required (probably shouldn't be) *)
+
+       loc_funs :
+	{ push_loc:  line_number_db::Location -> Void,        	#  push location onto location stack 
+	 pop_loc:  Void -> Void,			      	#  pop location stack 
+	 get_loc:  Void -> line_number_db::Location,         	#  get top location from location stack 
+	 error:  String -> Void,                        	#  report an error and its location 
+	 warn:  String -> Void                          	#  (if warnings are on) report a warning and its location 
+       },
+
+       tids_funs :
+	{ push_tids:  tid::Uid -> Void,         		# records tids from new structs/unions/typdefs
+							  # introduced in declarations, casts, etc.
+	 reset_tids:  Void -> List( tid::Uid ) },          #  returns list of recently generated tids (since last resetTids call) 
+
+       tmp_vars_funs :
+	{ push_tmp_vars:  raw_syntax::Id -> Void,            #  records pids for temporary introduced in decompilation of ++, --, +=, and their friends 
+	 reset_tmp_vars:  Void -> List( raw_syntax::Id ) }, #  returns list of recently generated pids (since last resetTmpVars call) 
+
+       env_funs :
+	{ top_level:  Void -> Bool,		        #  Are we at top level? 
+	 push_local_dictionary:  Void -> Void,                    #  push a fresh symbol table onto the stack 
+	 pop_local_dictionary:  Void -> Void,                     #  pop symbol table stack 
+	 get_sym:  symbol::Symbol -> Null_Or( namings::Sym_Naming ),         #  lookup type of a symbol in symbol table stack 
+	 bind_sym:  (symbol::Symbol, namings::Sym_Naming) -> Void,               #  insert (i.e. bind) a symbol in the top (most local) symbol table 
+	 get_sym__global:  symbol::Symbol -> Null_Or( namings::Sym_Naming ),   #  lookup type of a symbol in the global symbol table 
+	 bind_sym__global:  (symbol::Symbol, namings::Sym_Naming) -> Void,         #  insert (i.e. bind) a symbol in the global symbol table 
+	 get_local_scope:  symbol::Symbol -> Null_Or( namings::Sym_Naming ),  #  get for a naming in the most local symbol table 
+	 get_global_dictionary:  Void -> Symtab },                                       #  return the global symbol table 
+
+       uid_tab_funs :
+	{ bind_aid:  raw_syntax::Ctype -> aid::Uid,
+	   #  generate a new adornment identifier and bind it to the type 
+	 get_aid:  aid::Uid -> Null_Or( raw_syntax::Ctype ),
+	   #  lookup adornment identifier in state aidtab 
+	 bind_tid:  (tid::Uid, namings::Tid_Naming) -> Void,
+	   #  insert a type identifier into the type symbol table 
+	 get_tid:  tid::Uid -> Null_Or( namings::Tid_Naming ) },
+	   #  lookup a type identifier in the type symbol table 
+
+       fun_funs:   #  manipulate current function context 
+	{ new_function:  raw_syntax::Ctype -> Void,
+	   #  enter a new function context with the given return type 
+	 get_return_type:  Void -> Null_Or( raw_syntax::Ctype ),
+	   #  get the return type of the current function context 
+	 check_labels:  Void ->  Null_Or( (symbol::Symbol, line_number_db::Location) ),
+	   #  verify that all goto targets are defined as labels 
+	 add_label:  (symbol::Symbol, line_number_db::Location) -> raw_syntax::Label,
+	   #  Define a label, returning an error flag if multiple defs 
+	 add_goto:  (symbol::Symbol, line_number_db::Location) -> raw_syntax::Label },
+	   #  record a label as a goto target 
+
+       switch_funs:  #  manipulate current switch context 
+	{ push_switch_labels:  Void -> Void, #  enter a switch statement 
+	 pop_switch_labels:  Void -> Void,  #  leave a switch statement 
+
+	 add_switch_label:  large_int::Int -> Null_Or( String ),
+	   # record a new switch label; returns THE errormsg if duplicate
+	   # or not within a switch
+
+	 add_default_label:  Void -> Null_Or( String ) } };
+	   # record a default label; returns THE errormsg if multiple defaults,
+	   # or not within a switch
+
+    #  state initialization functions 
+     init_global:  ((State_Info, error::Error_State)) -> Global_State;
+     init_local:  Void -> Local_State;
+
+     state_funs:  (Global_State, Local_State) -> State_Funs;
+	# Returns a collection of state functions specialized to
+	# operate on the state passed as argument
+
+}; #  sigature STATE 
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

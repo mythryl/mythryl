@@ -1,0 +1,296 @@
+## decode-xpackets-ximp.pkg
+#
+# For the big picture see the imp dataflow diagram in
+#
+#     src/lib/x-kit/xclient/src/window/xclient-ximps.pkg
+#
+# X event buffer imp.
+#
+# We are a filter on the stream of X events flowing
+# from the X-server to our widgets and client code.
+# This stream is composed of keystrokes, mouseclicks,
+# mouse-motions etc.
+#
+# We perform two transforms on the X event stream:
+#
+#  1) We decode it from raw off-the-wire bytevector
+#     form into event_types::x::Event form.
+#
+#  2) We collapse Expose event trains into single
+#     Expose events.
+#
+# 2) is needed because when a window is exposed
+# the X server sends us a train of numbered EXPOSE
+# events describing just which parts of the window
+# were exposed and thus need to be redrawn.
+# Client code often ignores this structure and
+# simply redraws the window.  Even when it does not,
+# it is usually more convenient to have a single
+# EXPOSE event with a list of boxes (areas) to be
+# redrawn, rather than a train of separate events.
+# 
+# 
+# We communicate via two mailslots as follows:
+# 
+#   from_sequencer_mailslot      --  raw messages from the sequencer_imp
+#   to_widget_mailslot           --  decoded events headed for the appropriate widget.
+#
+# X events that we send to 'to_widget_mailslot' get routed by
+#     xsocket_to_topwindow
+# from
+#     src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router-old.pkg
+#
+# to the correct topwindow, where they get routed on down that window's widget-tree by
+#     topwindow_to_widget_router
+# from
+#     src/lib/x-kit/xclient/src/window/topwindow-to-widget-router-old.pkg
+#
+# This machinery mostly gets wired up in display and xsession from (respectively)
+#
+#     src/lib/x-kit/xclient/src/wire/display-old.pkg
+#     src/lib/x-kit/xclient/src/window/xsession-old.pkg
+# 
+# -- see the dataflow diagram in top-of-file comments there.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+
+
+stipulate
+    include threadkit;					# threadkit				is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    #
+    package et  =  event_types;				# event_types				is from   src/lib/x-kit/xclient/src/wire/event-types.pkg
+    package un  =  unt;					# unt					is from   src/lib/std/unt.pkg
+    package v1u =  vector_of_one_byte_unts;		# vector_of_one_byte_unts		is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package w2v =  wire_to_value;			# wire_to_value				is from   src/lib/x-kit/xclient/src/wire/wire-to-value.pkg
+    package xg  =  xgeometry;				# xgeometry				is from   src/lib/std/2d/xgeometry.pkg
+    package xes =  xevent_sink;				# xevent_sink				is from   src/lib/x-kit/xclient/src/wire/xevent-sink.pkg
+    package xps =  xpacket_sink;			# xpacket_sink				is from   src/lib/x-kit/xclient/src/wire/xpacket-sink.pkg
+    package xtr =  xlogger;				# xlogger				is from   src/lib/x-kit/xclient/src/stuff/xlogger.pkg
+    #
+    trace =  xtr::log_if  xtr::io_logging  0;		# Conditionally write strings to tracing.log or whatever.
+herein
+
+
+    package   decode_xpackets_ximp
+    : (weak)  Decode_Xpackets_Ximp			# Decode_Xpackets_Ximp			is from   src/lib/x-kit/xclient/src/wire/decode-xpackets-ximp.api
+    {
+	Decode_Xpackets_Ximp_State			# Holds all nonephemeral mutable state maintained by ximp.
+	    =
+	    Void;					# State which we need to preserve across ximpgraph kill/rebuild cycles.
+
+	Imports = {													# Ports we need that are supplied by other imps.
+		    xevent_sink:	xes::Xevent_Sink								# To forward Xpackets toward the widget tree.
+		  };
+
+	Me_Slot = Mailslot(   { imports:	Imports,
+				    me:		Decode_Xpackets_Ximp_State,
+				    run_gun':	Run_Gun,
+				    end_gun':	End_Gun
+				  }
+			       );
+
+	Xpacket_Q     = Mailqueue( xps::Xpacket );
+
+
+	Exports	= {													# Ports we provide for other imps to use.
+		    xpacket_sink:		xps::Xpacket_Sink							# We get our xpackets from xserver via the inbuf and sequencer imps.
+		  };
+
+	
+	Decode_Xpackets_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);				# PUBLIC.
+
+	Option = MICROTHREAD_NAME String;										# PUBLIC.
+
+	fun run {													# These values will be statically globally visible throughout the code body for the imp.
+		  me:					Decode_Xpackets_Ximp_State,					# State which is preserved across imp shutdown/restart cycles.
+		  imports:				Imports,							# Ximps to which we send requests.
+		  to:					Replyqueue,							# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+		  end_gun':				End_Gun,							# We shut down the microthread when this fires.
+		  xpacket_q:				Xpacket_Q,							# 
+		  expose_event_accumulator:		Ref (Null_Or( et::x::Expose_Record -> Void ) )			# Extra state for handling sequences of x::EXPOSE events.
+		}
+	    =
+	    loop ()
+	    where
+		fun loop ()												# Outer loop for the imp.
+		    =
+		    {   do_one_mailop' to [
+			    #
+			    (end_gun'                         ==>  shut_down_decode_xpackets_imp'),
+			    (take_from_mailqueue' xpacket_q   ==>  do_xpacket)
+			];
+
+			loop ();
+		    }	
+		    where
+			fun shut_down_decode_xpackets_imp' ()
+			    =
+			    thread_exit { success => TRUE };								# Will not return.	
+
+			#
+			fun do_xpacket (xpacket as { code: v1u::Element,  packet: v1u::Vector })
+			    =
+			    {   fun decode { code, packet }
+				    =
+				    {   (w2v::decode_xpacket (code, packet))
+					    ->
+					    (not_via_sendevent, event);
+# log::note_on_stderr {. sprintf "do_xpacket/docode not_via_sendevent b=%B  event=%s\n" not_via_sendevent (xevent_to_string::xevent_name event); };
+											# trace  {.  sprintf "%s <=== (fun decode(): opcode x=%x%s)" (xevent_to_string::xevent_name  event) (one_byte_unt::to_int opcode) (not_via_sendevent ?? "" :: " -- EVENT GENERATED VIA SendEvent") ;  };
+					event;
+				    };
+# log::note_on_stderr {. "do_xpacket/AAA    -- decode-xpackets-ximp.pkg\n"; };
+
+				case (decode xpacket)
+				    #
+				    (et::x::EXPOSE  expose_record)
+					=>
+{
+# log::note_on_stderr {. "do_xpacket: EXPOSE event    -- decode-xpackets-ximp.pkg\n"; };
+
+					case *expose_event_accumulator
+					    #
+					    NULL	    =>      accumulate_expose_events  []   expose_record;						# Start    accumulating EXPOSE events in a fresh  sequence.
+					    THE accumulator =>      accumulator                    expose_record;						# Continue accumulating EXPOSE events in existing sequence.
+					esac
+					where
+					    # The X server sends numbered trains of EXPOSE events.
+					    # We use our 'expose_event_accumulator' refcell to accumulate
+					    # a train of expose events, then handle it when complete:
+					    #
+
+					    fun handle_expose_event_train  (boxes, exposed_window_id)								# Sequence complete -- pass boxes to client code.
+						=
+						imports.xevent_sink.put_value  (et::x::EXPOSE  { exposed_window_id,  boxes,  count => 0 });
+
+					    fun accumulate_expose_events   boxes'   ({ boxes, count=>0, exposed_window_id }:  et::x::Expose_Record)		# Note currying.
+						    =>
+						    {   handle_expose_event_train  (boxes @ boxes', exposed_window_id);						# Sequence complete -- pass boxes to client code.
+							#
+							expose_event_accumulator :=   NULL;									# Done with this expose event sequence.
+						    };
+
+						accumulate_expose_events   boxes'   ({ boxes, ... }:  et::x::Expose_Record)					# Sequence not complete -- continue accumulation.
+						    =>
+						    {
+							expose_event_accumulator :=   THE (accumulate_expose_events (boxes @ boxes'));				# Note partial application of curried fn.
+						    };
+					    end;
+					end;
+};
+
+				    other_xevent => {
+# log::note_on_stderr {. "do_xpacket: non-EXPOSE event: passing to xevent_sink    -- decode-xpackets-ximp.pkg\n"; };
+							imports.xevent_sink.put_value  other_xevent;
+						    };
+				esac;
+			    };
+		    end;												# fun loop
+	    end;													# fun run
+	
+	fun startup   (reply_oneshot:  Oneshot_Maildrop( (Me_Slot, Exports) ))   ()					# Root fn of imp microthread.  Note currying.
+	    =
+	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
+		to           =  make_replyqueue();
+
+		xpacket_sink =  { put_value };
+
+		put_in_oneshot (reply_oneshot, (me_slot, { xpacket_sink }));						# Return value from decode_xpackets_egg'().
+
+		(take_from_mailslot  me_slot)										# Imports from decode_xpackets_egg'().
+		    ->
+		    { me, imports, run_gun', end_gun' };
+
+		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
+
+		expose_event_accumulator = REF NULL;
+
+		run { me, xpacket_q, imports, to, end_gun', expose_event_accumulator };					# Will not return.
+	    }
+	    where
+		xpacket_q =  make_mailqueue (get_current_microthread())	:  Xpacket_Q;
+
+		#
+		fun put_value (xpacket: xps::Xpacket)									# PUBLIC. sequencer-ximp calls this to pass us xpackets from X-server via inbuf-ximp.
+		    =	
+{
+# log::note_on_stderr {. "put_value accepting xpacket    -- decode-xpackets-ximp.pkg\n"; };
+		    put_in_mailqueue  (xpacket_q, xpacket);
+};
+	    end;
+
+	fun process_options (options: List(Option), { name })
+	    =
+	    {   my_name   = REF name;
+		#
+		apply  do_option  options
+		where
+		    fun do_option (MICROTHREAD_NAME n)  =   my_name := n;
+		end;
+
+		{ name => *my_name };
+	    };
+
+        ##########################################################################################
+	# PUBLIC.
+	#
+	fun make_decode_xpackets_egg (options: List(Option))								# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	    =	
+	    {   (process_options (options, { name => "decode_xpackets" }))
+		    ->
+		    { name };
+	
+		me = ();												# We need no persistent state; we do each xpacket in isolation except for collapsing Expose sequences.
+
+		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
+			    #
+			    xlogger::make_thread  name  (startup  reply_oneshot);					# Note that startup() is curried.
+
+			    (get_from_oneshot  reply_oneshot) -> (me_slot, exports);
+
+			    fun phase3											# PUBLIC. PHASE 3: Accept our Imports, then wait for Run_Gun to fire.
+				(
+				  imports:	Imports,
+				  run_gun':	Run_Gun,	
+				  end_gun':	End_Gun
+				)
+				=
+				{
+				    put_in_mailslot  (me_slot, { me, imports, run_gun', end_gun' });
+				};
+
+			    (exports, phase3);
+			};
+	    };
+    };															# package decode_xpackets_ximp
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

@@ -1,0 +1,1848 @@
+## improve-anormcode.pkg			"fcontract.pkg" in SML/NJ
+## monnier@cs.yale.edu 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This is one of the A-Normal Form compiler passes --
+# for context see the comments in
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+
+
+
+#    "The 'fcontract' phase is really the workhorse of the optimizer.
+#     The reason is that most other optimizations limit themselves to
+#     detecting and enabling optimization opportunities while leaving
+#     the actual work to 'fcontract'.  So it needs to do a thorough
+#     job when performing those optimizations and experience shows
+#     that it is easy to write a contraction phase that leaves a lot
+#     of optimization opportunities in its output, requiring repeated
+#     execution to get a good result.
+#
+#    "A contraction phase is generally structured as a first phase
+#     which collects info to determine liveness of variables as well
+#     as to figure out which functions are only called once, and a
+#     second phase that performs the contractions.  The problem is
+#     that contractions tend to cascade such that after having
+#     performed one contraction, others become possible, but the
+#     counters might not reflect it.  For example, when eliminating
+#     a dead function, some other function might become dead or might
+#     have its call-count reach one, but unless the counters are
+#     properly updated, the optimization will be missed.
+#
+#    "To minimize this problem, 'fcontract' uses the same approach
+#     as was used in 'contract'[1]:  counters are updated as
+#     optimizations are performed.  Actually, 'fcontract' is a bit
+#     more aggressive in that the counters of the variables referred
+#     to by a term are decremented as soon as the term becomes dead,
+#     whereas in 'contract' the decrement was only taking place on
+#     the way up the recursion.
+#
+#    "An important difference between the old 'contract' and the
+#     new 'fcontract' is the fact that 'fcontract' performs general
+#     inlining rather than only inlining called-once functions. As
+#     mentioned, this allows cascading inlining.  A typical example
+#     of cascading inlining is when 'map' is passed an inlinable
+#     function:  Only after inlining 'map' can the function argument
+#     be inlined'.  But this also runs the risk of inlining indefinitely.
+#
+#    "Preventing infinite inlining is a classical problem and it is
+#     solved very straightforwardly in fcontract by keeping track of
+#     the stack of functions we are currently inlining so as to
+#     detect and break inlining cycles.  The first attempt at solving
+#     the problem was to decide that recursive functions could not be
+#     inlined, but it had two disadvantages:  first, it is not enough
+#     because you can use a recursive sumtype to create a loop without
+#     any recursive function, and second it is two restrictive because
+#     many wrappers such as uncurry wrappers can be recursive yet should
+#     be inlined."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+# [1] Shrinking Lambda Expressions in Linear Time
+#     Andrew W Appel, Trevor Jim
+#     1993, 26p, J. Functional Programming
+#     http://akpublic.research.att.com/~trevor/papers/shrinking.ps.gz
+
+
+
+
+###     "The understanding that underlies the right decision grows
+###      out of the clash and conflict of opinions and out of the
+###      serious consideration of competing alternatives."
+###
+###                                    -- Peter Drucker
+
+
+stipulate
+    package acf =  anormcode_form;						# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Improve_Anormcode {
+
+	Options = { eta_split:  Bool,
+		    tfn_inline:  Bool
+		  };
+
+	#  needs Collect to be set up properly 
+
+	improve_anormcode:  Options  ->  acf::Function  ->  acf::Function;
+    };
+end;
+
+# All kinds of beta-reductions.  In order to do as much work per pass as
+# possible, the usage count of each variable (maintained by the Collect
+# module) is kept as up to date as possible.  For instance as soon as a
+# variable becomes dead, all the variables that were referenced have their
+# usage counts decremented correspondingly.  This means that we have to
+# be careful to make sure that a dead variable will indeed not appear
+# in the output Expression since it might else reference other dead variables
+
+# Things that fcontract does:
+# - several things not mentioned
+# - elimination of CON (DECON x)
+# - update counts when selecting a SWITCH alternative
+# - contracting RECORD (R.1, R.2) => R  (only if the type is easily available)
+# - dropping of dead arguments
+
+
+# things that improve-anormcode-quickly.pkg does that fcontract doesn't do (yet):
+# - inline across DeBruijn depths (will be solved by named-tvar)
+# - elimination of let [dead-vs] = pure in body
+
+
+# things that improve-nextcode/inline-nextcode-buckpass-calls.pkg did that fcontract doesn't do:
+# - let f vs = select (v, i, g, g vs)
+
+
+# things that improve-nextcode/contract.pkg did that fcontract doesn't do:
+# - IF-idiom (I still don't know what it is)
+# - unifying branches
+# - Handler operations
+# - primops expressions
+# - branch expressions
+
+
+# things that could also be added:
+# - elimination of dead vars in let
+# - elimination of constant arguments
+
+
+# things that would require some type info:
+# - dropping foo in LET vs = RAISE v IN foo
+
+
+# eta-reduction is tricky:
+# - recognition of eta-redexes and introduction of the corresponding
+#   substitution in the table has to be done at the very beginning of
+#   the processing of the MUTUALLY_RECURSIVE_FNS
+# - eta-reduction can turn a known function into an escaping function
+# - fun f (g, v2, v3) = g (g, v2, v3) looks tremendously like an eta-redex
+
+
+# order of contraction is important:
+# - the body of a MUTUALLY_RECURSIVE_FNS is contracted before the functions because the
+#   functions might end up being inlined in the body in which case they
+#   could be contracted twice.
+
+
+# When creating substitution f->g (as happens with eta redexes or with
+# code like `LET [f] = RET[g]'), we need to make sure that the usage cout
+# of f gets properly transfered to g.  One way to do that is to make the
+# transfer incremental:  each time we apply the substitution, we decrement
+# f's count and increment g's count.  But this can be tricky since the
+# elimination of the eta-redex (or the trivial naming) eliminates one of the
+# references to g and if this is the only one, we might trigger the killing
+# of g even though its count would be later incremented.  Similarly, inlining
+# of g would be dangerous as long as some references to f exist.
+# So instead we do the transfer once and for all when we see the eta-redex,
+# which frees us from those two problems but forces us to make sure that
+# every existing reference to f will be substituted with g.
+# Also, the transfer of counts from f to g is not quite straightforward
+# since some of the references to f might be from inside g and without doing
+# the transfer incrementally, we can't easily know which of the usage counts
+# of f should be transfered to the internal counts of g and which to the
+# external counts.
+
+
+# Preventing infinite inlining:
+# - inlining a function in its own body amounts to unrolling which has
+#   to be controlled (you only want to unroll some number of times).
+#   It's currently simply not allowed.
+# - inlining a recursive function outside of tis body amounts to `peeling'
+#   one iteration. Here also, since the inlined body will have yet another
+#   call, the inlining risks non-termination.  It's hence also
+#   not allowed.
+# - inlining a mutually recursive function is just a more general form
+#   of the problem above although it can be safe and desirable in some cases.
+#   To be safe, you simply need that one of the functions forming the
+#   mutual-recursion loop cannot be inlined (to break the loop).  This cannot
+#   be trivially checked.  So we (foolishly?) trust the `inline' bit in
+#   those cases.  This is mostly used to inline wrappers inside the
+#   function they wrap.
+# - even if one only allows inlining of functions showing no sign of
+#   recursion, we can be bitten by a program creating its own Y combinator:
+#       enum dt = F of dt -> Int -> Int
+#       let fun f (F g) x = g (F g) x in f (F f) end
+#   To solve this problem, `cexp' has an `ifs' parameter containing the set
+#   of funtions that we are inlining in order to detect (and break) cycles.
+# - Oddly enough, if we allow inlining recursive functions the cycle
+#   detection will ensure that the unrolling (or peeling) will only be done
+#   once.  In the future, maybe.
+
+
+# Dropping useless arguments.
+# Arguments whose value is constant (i.e. the function is known and each
+# call site provides the same value for that argument (or the argument
+# itself in the case of recursive calls) can be safely removed and replaced
+# inside the body by a simple let naming.  The only problem is that the
+# constant argument might be out of scope at the function definition site.
+# It is obviously always possible to move the function to bring the argument
+# in scope, but since we don't do any code motion here, we're stuck.
+# If it wasn't for this little problem, we could do the cst-arg removal in
+# collect (we don't gain anything from doing it here).
+# The removal of dead arguments (args not used in the body) on the other
+# hand can quite well be done in collect, the only problem being that it
+# is convenient to do it after the cst-arg removal so that we can rely
+# on deadarg to do the actual removal of the cst-arg.
+
+
+# Simple inlining (inlining called-once functions, which doesn't require
+# alpha-renaming) seems inoffensive enough but is not always desirable.
+# The typical example is wrapper functions introduced by eta-expand: they
+# usually (until inlined) contain the only call to the main function,
+# but inlining the main function in the wrapper defeats the purpose of the
+# wrapper.
+# optional_nextcode_improvers dealt with this problem by adding a `NO_INLINE_INTO' hint to the
+# wrapper function.  In this file, the idea is the following:
+# If you have a function declaration like `let f x = body in expression', first
+# contract `expression' and only contract `body' afterwards.  This ensures that
+# the eta-wrapper gets a chance to be inlined before it is (potentially)
+# eta-reduced away.  Interesting details:
+# - all functions (even the ones that would have a `NO_INLINE_INTO') are
+#   contracted, because the "aggressive usage count maintenance" makes any
+#   alternative painful (the collect phase has already assumed that dead code
+#   will be eliminated, which means that fcontract should at the very least
+#   do the dead-code elimination, so you can only avoid fcontracting a
+#   a function if you can be sure that the body doesn't contain any dead-code,
+#   which is generally  not known).
+# - once a function is fcontracted, its inlinable status is re-examined.
+#   More specifically, if no inlining occured during its fcontraction, then
+#   we assume that the code has just become smaller and should hence
+#   still be considered inlinable.  On another hand, if inlining took place,
+#   then we have to reset the inline-bit because the new body might
+#   be completely different (i.e. much bigger) and inlining it might be
+#   undesirable.
+#   This means that in the case of
+#       let fwrap x = body1 and f y = body2 in expression
+#   if fwrap is fcontracted before f and something gets inlined into it,
+#   then fwrap cannot be inlined in f.
+#   To minimize the impact of this problem, we make sure that we fcontract
+#   inlinable functions only after fcontracting other mutually recursive
+#   functions.  One way to solve the problem more thoroughly would be
+#   to keep the uncontracted fwrap around until f has been contracted.
+#   Such a trick hasn't seemed necessary yet.
+# - at the very end of the optimization phase, optional_nextcode_improvers had a special pass
+#   that ignored the `NO_INLINE_INTO' hint (since at this stage, inlining
+#   into it doesn't have any undesirable side effects any more).  The present
+#   code doesn't need such a thing.  On another hand, the optional_nextcode_improvers approach
+#   had the advantage of keeping the `inline' bit from one contract phase to
+#   the next.  If this ends up being important, one could add a global
+#   "noinline" flag that could be set to TRUE whenever fcontracting an
+#   inlinable function (this would ensure that fcontracting such an inlinable
+#   function can only reduce its size, which would allow keeping the `inline'
+#   bit set after fcontracting).
+
+
+
+stipulate
+    package acf =  anormcode_form;				# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package acj =  anormcode_junk;				# anormcode_junk				is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package asc =  anormcode_sequencer_controls;		# anormcode_sequencer_controls			is from   src/lib/compiler/back/top/main/anormcode-sequencer-controls.pkg
+    package di  =  debruijn_index;				# debruijn_index				is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package dua =  def_use_analysis_of_anormcode;		# def_use_analysis_of_anormcode			is from   src/lib/compiler/back/top/improve/def-use-analysis-of-anormcode.pkg
+    package hbo =  highcode_baseops;				# highcode_baseops				is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;				# highcode_form					is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hct =  highcode_type;				# highcode_type					is from   src/lib/compiler/back/top/highcode/highcode-type.pkg
+    package tmp =  highcode_codetemp;				# highcode_codetemp				is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package hut =  highcode_uniq_types;				# highcode_uniq_types				is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package him =  highcodeint_map;				# highcodeint_map				is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package is  =  int_red_black_set;				# int_red_black_set				is from   src/lib/src/int-red-black-set.pkg
+    package l2  =  paired_lists;				# paired_lists					is from   src/lib/std/src/paired-lists.pkg
+    package lgt =  specialize_anormcode_to_least_general_type;	# specialize_anormcode_to_least_general_type	is from   src/lib/compiler/back/top/improve/specialize-anormcode-to-least-general-type.pkg
+    package no  =  null_or;					# null_or					is from   src/lib/std/src/null-or.pkg
+    package ou  =  opt_utils;					# opt_utils					is from   src/lib/compiler/back/top/improve/optutils.pkg
+    package pp  =  prettyprint_anormcode;			# prettyprint_anormcode				is from   src/lib/compiler/back/top/anormcode/prettyprint-anormcode.pkg
+    package tmp =  highcode_codetemp;				# highcode_codetemp				is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+herein
+
+    package   improve_anormcode
+    :         Improve_Anormcode					# Improve_Anormcode				is from   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+    {
+	fun say s   =  { control_print::say s; control_print::flush();};
+	fun bug msg =  error_message::impossible ("FContract: " + msg);
+
+	fun buglexp (msg, le) =   { say "\n";   pp::print_lexp le;   bug msg; };
+	fun bugval  (msg, v)  =   { say "\n";   pp::print_sval v;    bug msg; };
+
+	#  fun sayexn e = apply say (map (\\ s => s$" <- ") (lib7::exnHistory e)) 
+
+	cplv =   tmp::clone_highcode_codetemp;
+
+	Options = { eta_split:  Bool, tfn_inline:  Bool };
+
+	Sval
+	  = VAL          acf::Value			#  acf::value should never be acf::VAR lv 
+	  | FUN         (tmp::Codetemp, acf::Expression,  List ((tmp::Codetemp, hut::Uniqtypoid)),   acf::Function_Notes, Ref(List(List(Sval))))
+	  | TYPEFUN     (tmp::Codetemp, acf::Expression,  List ((tmp::Codetemp, hut::Uniqkind)  ), acf::Typefun_Notes)
+	  | RECORD      (tmp::Codetemp, List( Sval ))
+	  | CONSTRUCTOR (tmp::Codetemp, Sval, acf::Valcon, List( hut::Uniqtype ))
+	  | DECON       (tmp::Codetemp, Sval, acf::Valcon, List( hut::Uniqtype ))
+	  | GET_FIELD   (tmp::Codetemp, Sval, Int)
+	  | VARIABLE    (tmp::Codetemp, Null_Or( hut::Uniqtypoid ))		#  Cop out case 
+	  ;
+
+	fun sval2lambda_type (VARIABLE(_, x))
+                =>
+                x;
+
+	    sval2lambda_type (DECON(_, _, (_, _, lambda_type), types))
+                =>
+	        THE (head (#2 (hcf::unpack_arrow_uniqtypoid (head (hcf::apply_typeagnostic_type_to_arglist (lambda_type, types))))));
+
+	    sval2lambda_type (GET_FIELD(_, sv, i))
+                =>
+	        case ( sval2lambda_type sv)
+		    #                  
+                    THE lambda_type =>   THE (hcf::lt_get_field (lambda_type, i));
+                    _               =>   NULL;
+                esac;
+
+	    sval2lambda_type _
+                =>
+                NULL;
+        end;
+
+	fun types_eq ([],[])
+                =>
+                TRUE;
+
+	    types_eq (type1 ! types1, type2 ! types2)
+                =>
+	        hcf::same_uniqtype (type1, type2) and types_eq (types1, types2);
+
+	    types_eq _
+                => FALSE;
+        end;
+
+	# calls `code' to append an Expression to each leaf of `le'.
+	# Typically used to transform `let lvs = le in code' so that
+	# `code' is now copied at the end of each branch of `le'.
+	# `lvs' is a list of highcode_variables that should be used
+	# if the result of `le' needs to be bound before calling `code'.
+	#
+	fun append lvs code le
+            =
+	    l le
+	    where 
+
+                fun l (acf::RET vs)
+                        =>
+                        code vs;
+
+		    l (le as (acf::APPLY _ | acf::APPLY_TYPEFUN _ | acf::RAISE _ | acf::EXCEPT _))
+			=>
+			{   lvs = map (\\ lv = { nlv = cplv lv;
+						 dua::new NULL nlv;
+                                                 nlv;
+                                               }
+                                      )
+				      lvs;
+		            acf::LET (lvs, le, code (map acf::VAR lvs));
+		        };
+
+		   l (acf::SWITCH (v, ac, arms, def))
+                       =>
+		       {   fun larm (con, le) = (con, l le);
+		           acf::SWITCH (v, ac, map larm arms, no::map l def);
+		       };
+
+		   l (acf::MUTUALLY_RECURSIVE_FNS (fdecs, le))
+                       =>
+                       acf::MUTUALLY_RECURSIVE_FNS (fdecs, l le);
+
+		   l (acf::CONSTRUCTOR (dc, types, v, lv, le))
+                       =>
+                       acf::CONSTRUCTOR (dc, types, v, lv, l le);
+
+		   l (acf::LET (lvs, body, le))       => acf::LET (lvs, body, l le);
+		   l (acf::TYPEFUN (tfdec, le))       => acf::TYPEFUN (tfdec, l le);
+		   l (acf::RECORD (rk, vs, lv, le))   => acf::RECORD (rk, vs, lv, l le);
+
+		   l (acf::GET_FIELD (v, i, lv, le))  => acf::GET_FIELD (v, i, lv, l le);
+		   l (acf::BRANCH (po, vs, le1, le2)) => acf::BRANCH (po, vs, l le1, l le2);
+		   l (acf::BASEOP (po, vs, lv, le))   => acf::BASEOP (po, vs, lv, l le);
+                end;
+	    end;
+
+	# `extract' extracts the code of a switch arm into a function
+	# and replaces it with a call to that function
+	#
+	fun extract (con, le)
+            =
+	    {   f  =  tmp::issue_highcode_codetemp ();
+
+		fk =  { loop_info         =>  NULL,
+                        private =>  TRUE,
+                        inlining_hint     =>  acf::INLINE_IF_SIZE_SAFE,
+			call_as           =>  acf::CALL_AS_FUNCTION  hut::FIXED_CALLING_CONVENTION
+                      };
+
+	        case con
+		    #                  
+		    acf::VAL_CASETAG (dc as (_, _, lambda_type), types, lv)
+			=>
+			{   nlv = cplv lv;
+			    dua::new (THE [lv]) f;
+			    dua::use NULL (dua::new NULL nlv);
+
+			    my (lambda_type, _)
+				=
+				hcf::unpack_lambdacode_arrow_uniqtypoid (head (hcf::apply_typeagnostic_type_to_arglist (lambda_type, types)));
+
+			    ((acf::VAL_CASETAG (dc, types, nlv),
+			      acf::APPLY (acf::VAR f, [acf::VAR nlv])),
+			      (fk, f, [(lv, lambda_type)], le));
+			};
+
+		    con =>
+			{   dua::new (THE []) f;
+			    ((con, acf::APPLY (acf::VAR f, [])),
+			      (fk, f, [], le));
+			};
+                esac;
+	    };
+
+	fun in_scope m lv
+            =
+            null_or::not_null (him::get (m, lv));
+
+	fun click s c
+            =
+            {   if (*asc::misc == 1)   say s;   fi;
+		#
+		c := *c + 1 /* compile_statistics::addCounter c 1 */ ;
+            };
+
+	fun improve_anormcode { eta_split, tfn_inline } (fdec as (_, f, _, _))
+            =
+            {   c_dummy =  REF 0;	#  Compile_statistics::newCounter[] 
+		c_miss  =  REF 0;	#  Compile_statistics::newCounter[] 
+
+		counter = c_dummy;
+
+		fun click_deadval  () = (click "d" counter);
+		fun click_deadlexp () = (click "D" counter);
+		fun click_select   () = (click "s" counter);
+		fun click_record   () = (click "r" counter);
+		fun click_con      () = (click "c" counter);
+		fun click_switch   () = (click "s" counter);
+		fun click_eta      () = (click "e" counter);
+		fun click_etasplit () = (click "E" counter);
+		fun click_branch   () = (click "b" counter);
+		fun click_dropargs () = (click "a" counter);
+
+		fun click_lacktype () = (click "t" c_miss);
+
+
+		# This counter is actually *used* by fcontract.
+		# It's  not used just for statistics:
+
+		c_inline	 = REF 0;	#  Compile_statistics::newCounter[counter] 
+
+		fun click_simpleinline () = (click "i" c_inline);
+		fun click_copyinline   () = (click "I" c_inline);
+		fun click_unroll       () = (click "u" c_inline);
+
+		fun inline_count () /* compile_statistics::getCounter */
+		    =
+                    *c_inline;
+
+		fun used lv
+		    =
+		    (dua::usenb (dua::get lv) > 0);
+				  /* except x =>
+				  (say("while in FContract::used "$(dua::LVarString lv)$"\n");
+				   raise exception x) */
+
+		fun eq_con_v (acf::INT_CASETAG i1,	acf::INT     i2)	=>   i1 == i2;
+		    eq_con_v (acf::INT1_CASETAG i1,	acf::INT1   i2)	=>   i1 == i2;
+		    eq_con_v (acf::UNT_CASETAG i1,	acf::UNT     i2)	=>   i1 == i2;
+		    eq_con_v (acf::UNT1_CASETAG i1,     acf::UNT1   i2)	=>   i1 == i2;
+		    eq_con_v (acf::FLOAT64_CASETAG r1,	acf::FLOAT64 r2)	=>   r1 == r2;
+		    eq_con_v (acf::STRING_CASETAG s1,    acf::STRING  s2)	=>   s1 == s2;
+		    #
+		    eq_con_v (con, v) =>   bugval("unexpected comparison with val", v);
+		end;
+
+		exception LOOKUP;
+
+		fun lookup m lv
+		    = 
+		    case (him::get (m, lv) )
+		      
+			 NULL => 
+			     {   say "\nlooking up unbound ";
+				 say (*pp::lvar_string lv);
+				 raise exception LOOKUP;
+			     };
+
+			 THE x
+			     =>
+			     x;
+		    esac;
+
+		fun sval2val sv
+		    =
+		    case sv
+		        #
+			( FUN         { 1=>lv, ... }
+                        | TYPEFUN     { 1=>lv, ... }
+                        | RECORD      { 1=>lv, ... }
+                        | DECON       { 1=>lv, ... }
+			| CONSTRUCTOR { 1=>lv, ... }
+                        | GET_FIELD   { 1=>lv, ... }
+                        | VARIABLE    { 1=>lv, ... }
+                        )
+			    =>
+			    acf::VAR lv;
+
+			VAL v
+			    =>
+			    v;
+		    esac;
+
+		fun val2sval m (acf::VAR ov)
+			=> 
+			((lookup m ov) /* except x =>
+			 (say("val2sval "$(dua::LVarString ov)$"\n"); raise exception x) */ );
+
+		   val2sval m v
+		       =>
+		       VAL v;
+		end;
+
+		fun bugsv (msg, sv)
+		    =
+		    bugval (msg, sval2val sv);
+
+		fun subst m ov =  sval2val (lookup m ov);
+		fun substval m =  sval2val o (val2sval m);
+
+		fun substvar m lv
+		    =
+		    case (substval m (acf::VAR lv))
+		      
+			 acf::VAR lv
+			     =>
+			     lv;
+
+			 v   =>
+			     bugval ("unexpected my", v);
+		    esac;
+
+
+
+		# Called when a variable becomes dead.
+		# It simply adjusts the use-counts:
+
+		fun undertake m lv
+		    =
+		    {   undertake = undertake m;
+
+			case (lookup m lv)
+			    #
+			    VARIABLE { 1=>nlv, ... }
+				=>
+				();
+
+			    VAL v
+				=>
+				();
+
+			    FUN (lv, le, args, _, _)
+				=>
+				dua::unuselexp undertake
+				      (acf::LET (map #1 args,
+					     acf::RET (map (\\ _ => acf::INT 0; end ) args),
+					     le));
+			    TYPEFUN { 1=>lv, 2=>le, ... }
+				=>
+				dua::unuselexp undertake le;
+
+			    (GET_FIELD { 2=>sv, ... } | CONSTRUCTOR { 2=>sv, ... } )
+				=>
+				unusesval m sv;
+
+			    RECORD { 2=>svs, ... }
+				=>
+				apply (unusesval m) svs;
+
+			    #  DECON's are implicit so we can't get rid of them 
+			    DECON _
+				=>
+				();
+			esac;
+		    }
+		    except 
+			LOOKUP
+			    =>
+			    say("Unable to undertake " + (dua::lvar_string lv) + "\n");
+
+			x   =>
+			    {   say("while undertaking " + (dua::lvar_string lv) + "\n"); 
+				raise exception x;
+			    };
+		   end 
+
+		also
+		fun unusesval m sv
+		    =
+		    unuseval m (sval2val sv)
+
+		also
+		fun unuseval m (acf::VAR lv)
+			=>
+			if   (dua::unuse FALSE (dua::get lv)   )   undertake m lv;   fi;
+
+		    unuseval f _
+			=>
+			();
+		end;
+
+		fun unusecall m lv
+		    = 
+		    if (dua::unuse TRUE (dua::get lv))   undertake  m  lv;   fi;
+
+
+		fun addbind (m, lv, sv)
+		    =
+		    him::set (m, lv, sv);
+
+
+		# Substitute a value sv for
+		# a variable lv and unuse value v. 
+		#
+		fun substitute (m, lv1, sv, v)
+		    =
+		    {   case (sval2val sv)
+			    #
+			    acf::VAR lv2 =>   dua::transfer (lv1, lv2);
+			    v2           =>   ();
+			esac;
+
+			unuseval m v;
+
+			addbind (m, lv1, sv);
+		    };
+	    #       except
+	    #	    x = {   say ("while substituting " +
+	    #		        (dua::LVarString lv1) +
+	    #		        " -> ");
+	    #	            pp::printSval (sval2val sv);
+	    #	            raise exception x;
+	    #	        };
+
+
+		#  Common code for primops                         "cpo" == "code for prim ops"...?
+		fun cpo m (THE { default, table }, po, lambda_type, types)
+			=>
+			(THE { default=>substvar m default,
+			  table=>map (\\ (types, lv) => (types, substvar m lv); end ) table },
+			 po, lambda_type, types);
+
+		    cpo _ po =>   po;
+		end;
+
+		fun cdcon m (s, varhome::EXCEPTION (varhome::HIGHCODE_VARIABLE lv), lambda_type)
+			=>
+			(s, varhome::EXCEPTION (varhome::HIGHCODE_VARIABLE (substvar m lv)), lambda_type);
+
+		    cdcon _ dc =>   dc;
+		end;
+
+
+		# ifs (inlined functions): records which functions we're currently inlining
+		#     in order to detect loops
+		# m: is a map lvars to their defining expressions (svals)
+
+		fun fcexp ifs m le fate
+		    =
+		    {   loop =  fcexp ifs;
+
+			substval =  substval m;
+
+			cdcon =  cdcon m;
+			cpo   =  cpo m;
+
+			fun fc_let (lvs, le, body)
+			    =
+			    {   fun fcbody (nm, nle)
+				    =
+				    {   fun cbody ()
+					    =
+					    {   nm =  fold_forward
+                                                          (\\ (lv, m) = addbind (m, lv, VARIABLE (lv, NULL)))
+							  nm
+                                                          lvs;
+
+						case (loop nm body fate)
+						    #
+						     acf::RET vs
+							 =>
+							 if (vs == (map acf::VAR lvs))   nle;
+							 else			         acf::LET (lvs, nle, acf::RET vs);
+							 fi;
+
+						     nbody
+							 =>
+							 acf::LET (lvs, nle, nbody);
+						esac;
+					    };
+
+					case nle
+					    #					  
+					    acf::RET vs
+						=>
+						{   fun simplesubst (lv, v, m)
+							=
+							{   sv =  val2sval  m  v;
+							    #
+							    substitute (m, lv, sv, sval2val sv);
+							};
+
+						    nm = (l2::fold_forward simplesubst nm (lvs, vs));
+
+						    loop nm body fate;
+						};
+
+					    acf::APPLY_TYPEFUN _
+						=>
+						if   (list::all (dua::dead o dua::get) lvs)
+
+						     loop nm body fate;
+						else
+						     cbody();
+						fi;
+
+					    _   =>   cbody ();
+					esac;
+				    };
+
+
+				# This is a hack originally meant to clean up the BRANCH
+				# mess introduced in highcodenm (where each branch returns
+				# just TRUE or FALSE which is generally only used as
+				# input to a SWITCH).
+				# The present code does more than clean up this case.
+				#
+				fun cassoc (lv, acf::SWITCH (acf::VAR v, ac, arms, NULL), wrap)
+					=>
+					if (lv != v   or   dua::usenb (dua::get lv) > 1)
+					    #					    
+					    loop m le fcbody;
+					else
+					    (l2::unzip (map extract arms))
+						->
+					        (narms, fdecs);
+						
+
+					    fun addswitch [v]
+						    =>
+						    dua::copylexp
+							him::empty
+							(acf::SWITCH (v, ac, narms, NULL));
+
+						addswitch _ =>   bug "prob in addswitch";
+					    end;
+
+
+					    # Replace each leaf `ret' with
+					    # a copy of the switch:
+					    #	
+					    nle = append [lv] addswitch le;
+
+
+					    # Decorate with the functions extracted
+					    # from the switch arms
+					    #
+					    nle = fold_forward
+						      (\\ (f, le) =  acf::MUTUALLY_RECURSIVE_FNS([f], le))
+						      (wrap nle)
+						      fdecs;
+
+					    click_branch();
+
+					    loop m nle fate;
+					fi;
+
+				    cassoc _
+					=>
+					loop m le fcbody;
+				end;
+
+
+				case (lvs, le, body)
+				    #
+				    ([lv], (acf::BRANCH _ | acf::SWITCH _), acf::SWITCH _)
+					=>
+					cassoc (lv, body, \\ x =  x);
+
+				    ([lv], (acf::BRANCH _ | acf::SWITCH _), acf::LET (lvs, body as acf::SWITCH _, rest))
+					=>
+					cassoc (lv, body, \\ le =  acf::LET (lvs, le, rest));
+
+				    _   =>   loop m le fcbody;
+				esac;
+			    };
+
+			fun fc_fix (fs, le)
+			    =
+			    {   # Merge actual arguments to extract the constant subpart 
+
+				fun merge_actuals ((lv, lambda_type),[], m)
+					=>
+					addbind (m, lv, VARIABLE (lv, THE lambda_type));
+
+				    merge_actuals ((lv, lambda_type), a ! bs, m)
+					=>
+					addbind (m, lv, VARIABLE (lv, THE lambda_type));
+				end;
+
+#			FIXME:  there's a bug here, but it's not caught by chkhighcode XXX BUGGO FIXME
+#				   let fun f (b ! bs) =
+#					if sval2val a == sval2val b then f bs
+#					else addbind (m, lv, VARIABLE (lv, THE lambdaType))
+#				      | f [] =
+#					(click "C" c_cstarg;
+#					 case sval2val a
+#					  of v as acf::VAR lv' =>
+#					     # XXX BUGGO FIXME: this inScope check is wrong for non-recursive
+#					     # functions.  But it only matters if the function is
+#					     # passed itself as a parameter which cannot happen
+#					     # with the current type system I believe.
+#					     if inScope m lv' then
+#						 let sv =
+#							 case a of VARIABLE (v, NULL) => VARIABLE (v, THE lambdaType)
+#								 | _ => a
+#						 in substitute (m, lv, sv, v)
+#						 end
+#					     else (click "O" c_outofscope;
+#
+#						   addbind (m, lv, VARIABLE (lv, THE lambdaType)))
+#					   | v => substitute (m, lv, a, v))
+#				in f bs
+#				end
+
+				# The actual function contraction:
+				#
+				fun fc_fun ((f, body, args,
+					     fk as { inlining_hint, call_as, private, loop_info }, actuals),
+					     (m, fs))
+				    =
+				    {   fifi = dua::get f;
+
+					if (dua::dead fifi)
+					    #
+					    (m, fs);
+
+					elif (dua::iusenb fifi == dua::usenb fifi)
+
+					    # We need to be careful that undertake
+					    # not be called recursively:
+					    #  
+					    dua::use NULL fifi;
+					    undertake m f;
+					    (m, fs);
+					else
+
+					    #  say ("\nEntering " + (dua::LVarString f) + "\n") 
+
+					    saved_ic = inline_count();
+
+					    # Make up the namings for args inside the body 
+					    #
+					    actuals = if ( not_null loop_info    or
+							       dua::escaping fifi     or
+							       null *actuals
+						      )
+							  map (\\ _ = []) args;
+						      else
+							  ou::transpose *actuals;
+						      fi;
+
+					    nm =    l2::fold_forward
+						        merge_actuals
+							m
+							(args, actuals);
+
+					    # Contract the body and create the resulting
+					    # Function_Declaration.
+					    # Temporarily remove f's definition from the
+					    # dictionary while we're rebuilding it to avoid
+					    # nasty problems.
+					    #	
+					    nbody = fcexp (is::add (ifs, f))
+							      (addbind (nm, f, VARIABLE (f, NULL)))
+							      body #2;
+
+					    # If inlining took place, the body might be completely
+					    # changed (read: bigger), so we have to reset the
+					    # `inline' bit
+					    #
+					    nfk = { loop_info,
+						    call_as,
+
+						    private       =>    private or not (dua::escaping fifi),
+
+						    inlining_hint =>    inline_count() == saved_ic
+									    ??   inlining_hint
+									    ::   acf::INLINE_IF_SIZE_SAFE
+						  };
+
+					    # Update the naming in the map.  This step is
+					    # not just a mere optimization but is necessary
+					    # because if we don't do it and the function
+					    # gets inlined afterwards, the counts will reflect the
+					    # new contracted code while we'll be working on the
+					    # the old uncontracted code
+					    #
+					    nm = addbind (m, f, FUN (f, nbody, args, nfk, REF []));
+
+					    ( nm,
+					      (nfk, f, args, nbody)   !   fs
+					    );
+
+					    #  Before say ("Exiting " + (dua::LVarString f) + "\n") 
+
+					fi;
+				    };
+
+
+				# Check for eta redex:
+				#
+				fun fc_eta (fdec as (f, acf::APPLY (acf::VAR g, vs), args, _, _), (m, fs, hs))
+					=>
+					if ( list::length args == list::length vs and
+					    ou::paired_lists_all (\\ (v, (lv, t))
+                                                                  =
+								  case v
+                                                                      acf::VAR v =>   v == lv and lv != g;
+								      _        =>   FALSE;
+                                                                  esac
+                                                               )
+							    (vs, args)
+					)
+					    svg = lookup m g;
+
+					    g   = case (sval2val svg)
+
+						       acf::VAR g =>  g;
+						       v        =>  bugval("not a variable", v);
+						  esac;
+
+					    # NOTE: We don't want to turn a known function
+					    # into an escaping one.  It's dangerous for
+					    # optimisations based on known functions
+					    # (elimination of dead args, acf::ex)
+					    # and could generate cases where call>use in def_use_analysis_of_anormcode.
+					    #
+					    # Of course, if g is not a locally defined function
+					    # (it's bound by a LET or as an argument), then
+					    # knownness is irrelevant.
+					    #
+					    if ( f == g
+						 or
+						 ( (dua::escaping (dua::get f))
+						   and
+						   not (dua::escaping (dua::get g))
+						   and
+						   case svg   FUN _ => TRUE;
+						              _     => FALSE;
+						   esac
+						 )
+					       )
+
+						# The default case could ensure the inline 
+						(m, fdec ! fs, hs);
+					    else 
+						# If an earlier function h has been eta-reduced
+						# to f, we have to be careful to update its
+						# naming to not refer to f any more since f
+						# will disappear
+						#
+						m = fold_forward
+							(\\ (h, m)
+							    =
+							    if (sval2val (lookup m h) == acf::VAR f)
+								 addbind (m, h, svg);
+							    else m;
+							    fi
+							)
+							m
+							hs;
+
+						# I could almost reuse `substitute' but the
+						# unuse in substitute assumes the my is escaping
+						#
+						click_eta();
+						dua::transfer (f, g);
+						unusecall m g;
+						(addbind (m, f, svg), fs, f ! hs);
+					    fi;
+
+					else
+                                            (m, fdec ! fs, hs);
+                                        fi;
+
+				    fc_eta (fdec, (m, fs, hs))
+                                        =>
+                                        (m, fdec ! fs, hs);
+				end;
+
+				# Add wrapper for various purposes:
+				#
+				fun wrap (f as (fk as { loop_info, inlining_hint, ... }, g, args, body):acf::Function, fs)
+				    =
+				    {   gi = dua::get g;
+
+					fun dropargs filter
+					    =
+					    {   (ou::fk_wrap (fk, no::map #1 loop_info))
+						    ->
+						    (nfk, nfk');
+
+						args' = filter args;
+						ng    = cplv g;
+
+						nargs   = map  (\\ (v, t) = (cplv v, t))  args;
+						nargs'  = map  #1  (filter nargs);
+						appargs = map  acf::VAR  nargs';
+
+						nf = (nfk, g, nargs, acf::APPLY (acf::VAR ng, appargs));
+						nf' = (nfk', ng, args', body);
+
+						ngi = dua::new (THE (map #1 args')) ng;
+
+						dua::ireset gi;
+
+						apply  (ignore o (dua::new NULL) o #1)  nargs;
+
+						dua::use (THE appargs) ngi;
+
+						apply (dua::use NULL o dua::get) nargs';
+
+						nf' ! nf ! fs;
+					    };
+
+					# Don't introduce wrappers for escaping-only functions.
+					# This is debatable since although wrappers are useless
+					# on escaping-only functions, some of the escaping uses
+					# might turn into calls in the course of fcontract, so
+					# by not introducing wrappers here, we avoid useless work
+					# but we also postpone useful work to later invocations.
+					#
+					if (dua::dead gi)
+					    fs;
+					elif (inlining_hint==acf::INLINE_WHENEVER_POSSIBLE)
+
+					    f ! fs;
+					else
+					    used =  map (used o #1) args;
+
+					    if (dua::called gi)
+						#
+						# If some args are not used, let's drop them 
+						#
+						if (not (list::all (\\ x = x) used))
+						    #
+						    click_dropargs();
+						    dropargs (\\ xs =  ou::filter used xs);
+						else
+						    #  eta-split: add a wrapper for escaping uses 
+
+						    if (eta_split and dua::escaping gi)
+							#
+							#  like dropargs but keeping all args 
+
+							click_etasplit ();
+							dropargs (\\ x = x);
+
+						    else
+							f ! fs;
+						    fi;
+						fi;
+					    else
+						f ! fs;
+					    fi;
+					fi;
+				    };					# fun wrap
+
+				# Add various wrappers 
+				#
+				fs = fold_forward wrap [] fs;
+
+				# Register the new namings (uncontracted for now) 
+
+				my (nm, fs)
+				    =
+				    fold_forward
+					(\\ (fdec as (fk, f, args, body), (m, fs))
+                                            =
+					    {   nf = (f, body, args, fk, REF []);
+						(addbind (m, f, FUN nf), nf ! fs);
+                                            }
+                                        )
+					(m,[])
+					fs;
+
+
+				#  Check for eta redexes 
+
+				(fold_forward  fc_eta  (nm,[],[])  fs)
+				    ->
+				    (nm, fs, _);
+
+
+				my (wrappers, funs)
+				   =
+				   list::partition
+				       \\ (_, _, _,{ inlining_hint=>acf::INLINE_WHENEVER_POSSIBLE, ... }, _) => TRUE;
+					    _ => FALSE;
+				       end
+				       fs;
+
+				my (maybes, funs)
+				    =
+				    list::partition
+					\\ (_, _, _,{ inlining_hint=>acf::INLINE_MAYBE _, ... }, _) => TRUE;
+					     _ => FALSE;
+					end
+					funs;
+
+				# First contract the big inlinable functions.
+                                # This might make them non-inlinable and we'd
+                                # rather know that before we inline them.
+				#
+				# Then we inline the body (so that we won't
+                                # go through the inline-once functions twice),
+                                # then the normal functions and finally the wrappersk
+				# which need to come last to make sure that
+                                # they get inlined if at all possible:
+				#
+				fs = [];
+
+				my (nm, fs) = fold_forward fc_fun (nm, fs) maybes;
+
+				nle = loop nm le fate;
+
+				my (nm, fs) =  fold_forward fc_fun (nm, fs) funs;
+				my (nm, fs) =  fold_forward fc_fun (nm, fs) wrappers;
+
+				#  junk newly unused funs 
+
+				fs = list::filter (used o #2) fs;
+
+				case fs
+				    #
+				    [] => nle;
+
+				    [f1 as ( { loop_info=>NULL, ... }, _, _, _), f2]
+					=>
+					# Gross hack: `wrap' might have added
+					# a second non-recursive function.
+					# We need to split them into two
+					# MUTUALLY_RECURSIVE_FNSes.
+					# This is _very_ ad-hoc:
+					#
+					acf::MUTUALLY_RECURSIVE_FNS([f2], acf::MUTUALLY_RECURSIVE_FNS([f1], nle));
+
+				     _ => acf::MUTUALLY_RECURSIVE_FNS (fs, nle);
+				esac;
+		            };			# fun fc_fix
+
+			fun fc_app (f, vs)
+			    =
+			    {   svs =  map (val2sval m) vs;
+				svf =  val2sval m f;
+
+				#  acf::APPLY inlining (if any) 
+
+				case svf
+				    #
+				    FUN (g, body, args,{ inlining_hint, ... }, actuals)
+					=>
+					{   gi = dua::get g;
+
+					    fun noinline ()
+						=
+						{  actuals := svs ! *actuals;
+						   fate (m, acf::APPLY (sval2val svf, map sval2val svs));
+						};
+
+					    fun simpleinline ()
+						=
+						# Simple inlining:  We should copy the body and then
+						# kill the function, but instead we just move the body
+						# and kill only the function name.
+						# This inlining strategy looks inoffensive enough,
+						# but still requires some care: see comments at the
+						# begining of this file and in cfun
+						#
+						{   click_simpleinline();
+						    #   say("simpleinline " + (dua::LVarString g) + "\n"); 
+						    ignore (dua::unuse TRUE gi);
+						    loop m (acf::LET (map #1 args, acf::RET vs, body)) fate;
+						};
+
+					    fun copyinline ()
+						=
+						# Aggressive inlining.  We allow pretty much
+						# any inlinling, but we detect and reject inlining
+						# recursively which would else lead to infinite loop
+						#
+						# Unrolling is not as straightforward as it seems:
+						# if you inline the function you're currently
+						# fcontracting, you're asking for trouble: there is a
+						# hidden assumption in the counting that the old code
+						# will be replaced by the new code (and is hence dead).
+						# If the function to be unrolled has the only call to
+						# function f, then f might get simpleinlined before
+						# unrolling, which means that unrolling will introduce
+						# a second occurence of the `only call' but at that point
+						# f has already been killed.
+						#
+						{   nle = (acf::LET (map #1 args, acf::RET vs, body));
+						    nle = dua::copylexp him::empty nle;
+
+						    click_copyinline();
+						    #   say("copyinline " + (dua::LVarString g) + "\n"); 
+						    (apply (unuseval m) vs);
+						    unusecall m g;
+						    fcexp (is::add (ifs, g)) m nle fate;
+						};
+
+					    if (dua::usenb gi == 1  and  not (is::member (ifs, g)))
+						#
+						simpleinline();
+					    else
+						case inlining_hint
+						    #
+						    acf::INLINE_IF_SIZE_SAFE
+							=>
+							noinline();
+
+						    acf::INLINE_ONCE_WITHIN_ITSELF
+							=>
+							noinline();
+
+						    acf::INLINE_WHENEVER_POSSIBLE
+							=>
+							if (is::member (ifs, g) ) noinline(); else copyinline();fi;
+
+						    acf::INLINE_MAYBE (min, ws)
+							=>
+							if (is::member (ifs, g))
+							    #
+							    noinline();
+							else
+							    fun value w _ (VAL _ | CONSTRUCTOR _ | RECORD _)
+								    =>
+								    w;
+
+								value w v (FUN (f, _, args, _, _))
+								    =>
+								    if (dua::usenb (dua::get v) == 1)   w * 2;
+								    else				w;
+								    fi;
+
+								value w _ _
+								    =>
+								    0;
+							    end;
+
+							    s = (ou::foldl3
+								    (\\ (sv, w, (v, t), s) = value w v sv + s)
+								    0
+								    (svs, ws, args)
+								)
+								except ou::UNBALANCED = 0;
+
+							   s > min   ??   copyinline ()
+								     ::   noinline   ();
+
+							fi;
+						esac;
+					    fi;
+					};
+
+				    sv =>   fate (m, acf::APPLY (sval2val svf, map sval2val svs));
+                                esac;
+			    };
+
+			fun fc_tfn ((tfk, f, args, body), le)
+			    =
+			    {   fifi = dua::get f;
+
+				if (dua::dead fifi)
+				    #
+				    click_deadlexp ();
+				    loop m le fate;
+				else
+				    saved_ic =  inline_count();
+				    nbody    = fcexp ifs m body #2;
+
+				    ntfk = if (inline_count () == saved_ic)
+
+						tfk;
+					   else
+						{ inlining_hint => acf::INLINE_IF_SIZE_SAFE };
+					   fi;
+
+				    nm  =  addbind (m, f, TYPEFUN (f, nbody, args, tfk));
+				    nle =  loop nm le fate;
+
+				    dua::dead fifi
+					??  nle
+					::  acf::TYPEFUN((tfk, f, args, nbody), nle);
+				fi;
+			    };
+
+			fun fc_tapp (f, types)
+			    =
+			    {   svf = val2sval m f;
+			    #  acf::APPLY_TYPEFUN inlining (if any) 
+
+				fun noinline ()
+				    =
+				    (fate (m, acf::APPLY_TYPEFUN (sval2val svf, types)));
+
+				fun specialize (g, tfk, args, body, types)
+				    =
+				    {   program
+                                            =
+					    ( { call_as           =>  acf::CALL_AS_GENERIC_PACKAGE,
+                                                inlining_hint     =>  acf::INLINE_IF_SIZE_SAFE,
+                                                loop_info         =>  NULL,
+                                                private =>  FALSE
+                                              },
+					      tmp::issue_highcode_codetemp (),
+                                              [],
+					      acf::TYPEFUN
+                                                (
+                                                  (tfk, g, args, body),
+                                                  acf::APPLY_TYPEFUN (acf::VAR g, types)
+                                                )
+                                            );
+
+					case (#4 (lgt::specialize_anormcode_to_least_general_type  program))	#  #4 is insanely opaque!  XXX BUGGO FIXME
+					    #
+					    acf::LET(_, nprog, acf::RET _)
+						=>
+						{   pp::print_lexp nprog;
+						    nprog;
+						};
+
+					    _ => bug "specialize_anormcode_to_least_general_type";
+					esac;
+				    };
+
+				case (tfn_inline, svf)
+				    #				  
+				    (TRUE, TYPEFUN (g, body, args, tfk as { inlining_hint, ... } ))
+					=>
+					{   gi = dua::get g;
+
+					    fun simpleinline ()
+						=
+						# Simple inlining:  We should copy the body and then
+						# kill the function, but instead we just move the body
+						# and kill only the function name.
+						# This inlining strategy looks inoffensive enough,
+						# but still requires some care: see comments at the
+						# begining of this file and in cfun
+						#
+						{   click_simpleinline();
+						    #   say("simpleinline " + (dua::LVarString g) + "\n"); 
+						    ignore (dua::unuse TRUE gi);
+						    loop m (specialize (g, tfk, args, body, types)) fate;
+						};
+
+					    fun copyinline ()
+						=
+						# Aggressive inlining.  We allow pretty much
+						# any inlinling, but we detect and reject inlining
+						# recursively which would else lead to infinite loop
+						#
+						{   nle = (acf::TYPEFUN((tfk, g, args, body),
+								     acf::APPLY_TYPEFUN (acf::VAR g, types)));
+						    nle = dua::copylexp him::empty nle;
+
+						    click_copyinline();
+						    #   say("copyinline " + (dua::LVarString g) + "\n"); 
+						    unusecall m g;
+						    fcexp (is::add (ifs, g)) m nle fate;
+						};
+
+					    if (     dua::usenb gi == 1
+					       and   not (is::member (ifs, g)))
+						#					         
+						noinline(); #  simpleinline() 
+					    else
+						case inlining_hint
+						    #
+						     acf::INLINE_WHENEVER_POSSIBLE
+							 =>
+							 is::member (ifs, g)
+							     ??   noinline   ()
+							     ::   copyinline ();
+
+						     _   => noinline ();
+						esac;
+					    fi;
+					};
+
+				    sv => noinline ();
+				esac;
+			    };
+
+
+
+			fun fc_switch (v, ac, arms, def)
+			    =
+			    {   fun fcs_con (lvc, svc, dc1: acf::Valcon, types1)
+				    =
+				    {   fun killle le
+					    =
+					    dua::unuselexp (undertake m) le;
+
+					fun kill lv le
+					    =
+					    dua::unuselexp (undertake (addbind (m, lv, VARIABLE (lv, NULL)))) le;
+
+
+					fun killarm (acf::VAL_CASETAG(_, _, lv), le)
+						=>
+						kill lv le;
+
+					    killarm _ =>   buglexp("bad arm in switch (con)", le);
+					end;
+
+
+					fun carm ((acf::VAL_CASETAG (dc2, types2, lv), le) ! tl)
+						=>
+						# sometimes lambdaType1 != lambdaType2 :-/ so this doesn't work:
+						#  acj::valcon_eq (dc1, dc2) and types_eq (types1, types2)
+						#
+						if (#2 dc1 == #2 (cdcon dc2))
+						    #
+						    map killarm tl;		# Kill the rest.
+						    no::map killle def;		# And the default case.
+						    loop (substitute (m, lv, svc, acf::VAR lvc))
+						    le fate;
+						else
+						    # Kill this arm and
+						    # continue with the rest:
+						    # 
+						    kill lv le;
+						    carm tl;
+						fi;
+
+					    carm [] =>  loop m (no::the def) fate;
+					    carm _  =>  buglexp("unexpected arm in switch (con, ...)", le);
+					end;
+
+					click_switch();
+					carm arms;
+				    };
+
+				fun fcs_val v
+				    =
+				    {   fun kill le
+					    =
+					    dua::unuselexp  (undertake m)  le;
+
+					fun carm ((con, le) ! tl)
+						=>
+						if (eq_con_v (con, v))
+						    #
+						    map (kill o #2) tl;
+						    no::map kill def;
+						    loop m le fate;
+						else 
+						    kill le;
+						    carm tl;
+						fi;
+
+					   carm []
+					       =>
+					       loop  m  (no::the def)  fate;
+					end;
+
+					click_switch ();
+					carm arms;
+				    };
+
+				fun fcs_default (sv, lvc)
+				    =
+				    case (arms, def)
+					#
+					( [(acf::VAL_CASETAG (dc, types, lv), le)],   NULL )
+					    =>
+					    # This is a mere DECON, so we can
+					    # push the let naming (hidden in
+					    # fate) inside and maybe
+					    # even drop the DECON:
+					    #	 
+					    {   ndc = cdcon dc;
+						slv = DECON (lv, sv, ndc, types);
+						nm = addbind (m, lv, slv);
+
+						#  see below 
+						#  nm = addbind (nm, lvc, CONSTRUCTOR (lvc, slv, ndc, types)) 
+
+						nle = loop nm le fate;
+						nv = sval2val sv;
+
+						if (used lv)
+						    #
+						    acf::SWITCH (nv, ac,[(acf::VAL_CASETAG (ndc, types, lv), nle)], NULL);
+						else
+						    unuseval m nv;
+						    nle;
+						fi;
+					    };
+
+					(([(_, le)], NULL) | ([], THE le))
+					    =>
+					    #  This should never happen, but we can optimize it away 
+					    { unuseval m (sval2val sv); loop m le fate;}; 
+
+					_ =>
+					    {   fun carm (acf::VAL_CASETAG (dc, types, lv), le)
+							=>
+							{   ndc =  cdcon dc;
+							    slv =  DECON (lv, sv, ndc, types);
+							    nm  =  addbind (m, lv, slv);
+
+							    # we can rebind lv to a more precise value
+							    # !!BEWARE!!  This renaming is misleading:
+							    # - it gives the impression that `lvc' is built
+							    #   from`lv' although the reverse is TRUE:
+							    #   if `lvc' is undertaken, `lv's count should
+							    #   *not* be updated!
+							    #   Luckily, `lvc' will not become dead while
+							    #   rebound to CONSTRUCTOR (lv) because it's used by the
+							    #   SWITCH. All in all, it works fine, but it's
+							    #   not as straightforward as it seems.
+							    # - it seems to be a good idea, but it can hide
+							    #   other opt-opportunities since it hides the
+							    #   previous naming.
+							    #  nm = addbind (nm, lvc, CONSTRUCTOR (lvc, slv, ndc, types)) 
+
+							    (acf::VAL_CASETAG (ndc, types, lv), loop nm le #2);
+							};
+
+						    carm (con, le)
+							=>
+							(con, loop m le #2);
+						end;
+
+						narms =  map carm arms;
+						ndef  =  null_or::map  (\\ le = loop m le #2)  def;
+
+						fate (m, acf::SWITCH (sval2val sv, ac, narms, ndef));
+					    };
+				    esac;
+
+				case (val2sval m v)
+				    #
+				    sv as CONSTRUCTOR x =>  fcs_con x;
+				    sv as VAL         v =>  fcs_val v;
+
+				    sv as (VARIABLE { 1=>lvc, ... } | GET_FIELD { 1=>lvc, ... } | DECON { 1=>lvc, ... }
+					   | /* will probably never happen */ RECORD { 1=>lvc, ... } )
+					=>
+					fcs_default (sv, lvc);
+
+				    sv as (FUN _ | TYPEFUN _)
+					=>
+					bugval("unexpected switch arg", sval2val sv);
+				esac;
+			    };
+
+			fun fc_con (dc1, types1, v, lv, le)
+			    =
+			    {   lvi = dua::get lv;
+
+				if (dua::dead lvi)
+				    #
+				    click_deadval();
+				    loop m le fate;
+				else
+				    ndc = cdcon dc1;
+
+				    fun ccon sv
+					=
+					{   nm = addbind (m, lv, CONSTRUCTOR (lv, sv, ndc, types1));
+					    nle = loop nm le fate;
+
+					    if (dua::dead lvi)   nle;
+					    else		 acf::CONSTRUCTOR (ndc, types1, sval2val sv, lv, nle);
+					    fi;
+				       };
+
+				    case (val2sval m v)
+
+					 sv as (DECON (lvd, sv', dc2, types2))
+					     =>
+					     if (acj::valcon_eq (dc1, dc2) and types_eq (types1, types2))
+						 #
+						 click_con();
+						 loop (substitute (m, lv, sv', acf::VAR lvd)) le fate;
+					     else
+						 ccon sv;
+					     fi;
+
+					 sv  =>   ccon sv;
+				    esac;
+				fi;
+			    };
+
+			fun fc_record (rk, vs, lv, le)
+			    =
+			    #  g: check whether the record already exists 
+			    #
+			    {   lvi = dua::get lv;
+
+				if (dua::dead  lvi)
+				    #
+				    click_deadval ();
+
+				    loop m le fate;
+				else
+				    fun g (GET_FIELD(_, sv, 0) ! ss)
+					    =>
+					    g'(1, ss)
+					    where
+						fun g' (n, GET_FIELD(_, sv', i) ! ss)
+							=>
+							if (n == i and (sval2val sv) == (sval2val sv'))   g' (n+1, ss);
+							else                                              NULL;
+							fi;
+
+						    g' (n,[])
+							=>
+							case (sval2lambda_type sv)
+							    #
+							    THE lambda_type
+								=>
+								{   ltd = case (rk, hcf::uniqtypoid_is_type lambda_type)
+									      #
+									      (acf::RK_PACKAGE, FALSE) =>  hcf::unpack_package_uniqtypoid;
+									      (acf::RK_TUPLE _, TRUE) =>  hcf::unpack_tuple_uniqtypoid;
+
+									      # We might select out of a struct
+									      # into a tuple or vice-versa:
+									      #	
+									      _ => (\\ _ = []);
+									  esac;
+
+								    if (length (ltd lambda_type) == n)
+									 THE sv;
+								    else NULL;
+								    fi;
+								};
+
+							    _   =>
+								{   click_lacktype ();
+								    NULL;
+								};
+							esac;				#  sad 
+
+						    g' _ => NULL;
+						end;
+					    end;
+
+					g _ => NULL;
+
+				    end;				# fun g
+
+				    svs = map (val2sval m) vs;
+
+				    case (g svs)
+					#
+					THE sv
+					    =>
+					    {   click_record ();
+
+						(loop (substitute (m, lv, sv, acf::INT 0)) le fate)
+						then
+						    apply (unuseval m) vs;
+					    };
+
+					_   =>
+					    {   nm  =  addbind (m, lv, RECORD (lv, svs));
+						nle =  loop nm le fate;
+
+						if (dua::dead  lvi)   nle;
+						else		      acf::RECORD (rk, map sval2val svs, lv, nle);
+						fi;
+					    };
+				    esac;
+				fi;
+			    };
+
+			fun fc_select (v, i, lv, le)
+			    =
+			    {   lvi = dua::get lv;
+
+				if (dua::dead  lvi)
+				    #
+				    click_deadval ();
+
+				    loop m le fate;
+				else
+				    case (val2sval m v)
+					#
+					RECORD (lvr, svs)
+					    =>
+					    {   sv = list::nth (svs, i);
+						click_select ();
+						loop (substitute (m, lv, sv, acf::VAR lvr)) le fate;
+					    };
+
+					sv  =>
+					    {   nm = addbind (m, lv, GET_FIELD (lv, sv, i));
+						nle = loop nm le fate;
+
+						if (dua::dead lvi)   nle;
+						else		     acf::GET_FIELD (sval2val sv, i, lv, nle);
+						fi; 
+					    };
+				    esac;
+				fi;
+			    };
+
+			fun fc_branch (po, vs, le1, le2)
+			    =
+			    {   nvs =  map substval vs;
+				npo =  cpo po;
+
+				nle1 =  loop m le1 #2;
+				nle2 =  loop m le2 #2;
+
+				fate (m, acf::BRANCH (npo, nvs, nle1, nle2));
+			    };
+
+			fun fc_primop (po, vs, lv, le)
+			    =
+			    {   lvi = dua::get lv;
+				#
+				pure =  not (hbo::might_have_side_effects (#2 po));
+				#
+				if (pure and dua::dead lvi)
+				    #
+				    click_deadval();loop m le fate;
+				else
+				    nvs =  map substval vs;
+				    npo =  cpo po;
+
+				    nm  =  addbind (m, lv, VARIABLE (lv, NULL));
+				    nle =  loop nm le fate;
+
+				    if (pure and dua::dead lvi)   nle;
+				    else			  acf::BASEOP (npo, nvs, lv, nle);
+				    fi;
+				fi;
+			    };
+
+			case le
+			    #
+			    acf::RET                    vs =>  fate (m, acf::RET (map substval vs));
+			    acf::LET                    x  =>  fc_let x;
+			    acf::MUTUALLY_RECURSIVE_FNS x  =>  fc_fix x;
+			    acf::APPLY                  x  =>  fc_app x;
+			    acf::TYPEFUN                x  =>  fc_tfn x;
+
+			 #  acf::APPLY_TYPEFUN (f, types) => fate (m, acf::APPLY_TYPEFUN (substval f, types)) 
+
+			    acf::APPLY_TYPEFUN x =>  fc_tapp x;
+			    acf::SWITCH        x =>  fc_switch x;
+			    acf::CONSTRUCTOR   x =>  fc_con x;
+			    acf::RECORD        x =>  fc_record x;
+			    acf::GET_FIELD     x =>  fc_select x;
+
+			    acf::RAISE (v, ltys) =>  fate (m, acf::RAISE (substval v, ltys));
+			    acf::EXCEPT (le, v)  =>  fate (m, acf::EXCEPT (loop m le #2, substval v));
+
+			    acf::BRANCH x =>  fc_branch x;
+			    acf::BASEOP x =>  fc_primop x;
+			esac;
+
+		    };
+
+	
+	        # dua::def_use_analysis_of_anormcode fdec; 
+		#
+		case (fcexp
+                         is::empty
+			 him::empty
+                         (acf::MUTUALLY_RECURSIVE_FNS([fdec], acf::RET [acf::VAR f]))
+                         #2
+                     )
+		  
+		    acf::MUTUALLY_RECURSIVE_FNS([fdec], acf::RET [acf::VAR f])
+                        =>
+                        fdec;
+
+		    fdec =>   bug "invalid return Function_Declaration";
+		esac;
+
+	    };									# fun contract
+    };										# package fcontract
+end;										# stipulate
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## copyright 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

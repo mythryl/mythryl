@@ -1,0 +1,402 @@
+## cproto.pkg
+## author: Matthias Blume
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+# An ad-hoc encoding of ctypes::c_prototype (from lowhalf) into Mythryl types.
+# (This encoding has _nothing_ to do with actual representation types,
+# it is used just for communicating the function call protocol to
+# the backend. All actual Mythryl arguments are passed as one_word_int::Int,
+# one_word_unt::Unt, or Float.)
+#
+
+
+###       "I think conventional languages are for the birds.
+###
+###        They're just extensions of the von Neumann computer,
+###        and they keep our noses in the dirt of dealing with
+###        individual words and computing addresses, and doing
+###        all kinds of silly things like that, things that we've
+###        picked up from programming for computers.
+###
+###        We've built them into programming languages;
+###        we've built them into Fortran;
+###        we've built them in PL/1;
+###        we've built them into almost every language."
+###
+###                                        -- John Backus
+
+
+
+#
+# The following mapping applies:
+#   Given C-type t, we write [t] to denote its encoding in Mythryl types.
+#
+# [double]             = real
+# [float]              = real List
+# [long double]        = real List List
+# [char]               = char
+# [unsigned char]      = one_byte_unt::word
+# [int]                = tagged_int::int
+# [unsigned int]       = tagged_unt::word
+# [long]               = one_word_int::Int
+# [unsigned long]      = one_word_unt::word
+# [short]              = char List
+# [unsigned short]     = one_byte_unt::word List
+# [long long]          = one_word_int::Int List
+# [unsigned long long] = one_word_unt::word List
+# [T*]                 = String
+# ml chunk            = Bool
+# [struct {} ]          = exn
+# [struct { t1, ..., tn } ]  = Void * [t1] * ... * [tn]
+# [union { t1, ..., tn } ]   = Int * [t1] * ... * [tn]
+# [void]               = Void
+#
+# Currently we don't encode arrays.  (C arrays are mostly like pointers
+# except within structures.  For the latter case, we can simulate the
+# desired effect by making n fields of the same type.)
+#
+# The prototype of a function taking arguments of types a1, ..., an (n > 0)
+# and producing a result of type r is encoded as:
+#       ([callingConvention] * [a1] * ... * [an] -> [r]) List
+#
+# We use
+#       ([callingConvention] * [a1] * ... * [an] -> [r]) List List
+# to specify a reentrant call.
+#
+# For n = 0 (C argument List is "(void)"), we use:
+#       ([callingConvention] -> [r]) List     or      ([callingConvention] -> [r]) List List
+# The use of list constructor (s) here is a trick to avoid having to construct
+# an actual function value of the required type when invoking the RAW_CCALL
+# baseop.  Instead, we just pass NIL.  The code generator will throw away
+# this value anyway.
+# 
+# The [callingConvention] type for non-empty records and non-empty argument lists
+# has the additional effect of avoiding the degenerate case of
+# 1-element (Mythryl) records.
+#
+# [callingConvention] encodes the calling convention to be used:
+#     [default]             = Void
+#     [unix_convention]     = word    -- for intel32/linux
+#     [windows_convention]  = Int     -- for intel32/win32
+
+
+stipulate
+    package cty =  ctypes;					# ctypes			is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package hbo =  highcode_baseops;				# highcode_baseops		is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package tyj =  type_junk;					# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package mtt =  more_type_types;				# more_type_types		is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package tdt =  type_declaration_types;			# type_declaration_types	is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+herein
+
+    package cprototype: (weak)  api {
+
+			       exception BAD_ENCODING;
+
+			       # Decode the encoding described above.
+			       #
+			       # Construct an indicator list for the _actual_ Mythryl arguments of
+			       # a raw C call and the result type of a raw C call. 
+			       # 
+			       # Each indicator specifies whether the arguments/result is
+			       # passed as a 32-bit integer, a 64-bit integer (currently unused),
+			       # a 64-bit floating point value, or an unsafe::unsafe_chunk::chunk.
+
+				decode:  String ->
+					    { function_type: tdt::Typoid,
+					      encoding:      tdt::Typoid
+					    }
+					 -> { c_prototype:                   cty::Cfun_Type,
+					      ml_argument_representations:   List( hbo::Ccall_Type ),
+					      ml_result_representation:      Null_Or( hbo::Ccall_Type ),
+					      is_reentrant:                  Bool
+					    };
+
+			       #  Formatting of C type info (for debugging purposes) 
+
+				c_type_to_string:       cty::Ctype -> String;
+				c_prototype_to_string:  cty::Cfun_Type -> String;
+			   }
+    {
+	exception BAD_ENCODING;
+
+	stipulate
+	    #
+	    fun get_domain_range t
+		=
+		(mtt::is_arrow_type t  ??   get t
+				      ::   NULL
+		)
+		where
+		    fun get (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t) } )
+			    =>
+			   get t;
+
+			get (tdt::TYPCON_TYPOID (_, [t, r]))
+			    =>
+			    THE (t, r);
+
+			get _ => NULL;
+		    end;
+		end;
+
+	    fun bad ()
+		=
+		raise exception BAD_ENCODING;
+
+	    fun list_type t
+		=
+		tdt::TYPCON_TYPOID (mtt::list_type, [t]);
+	herein
+
+	    fun decode defaultconv { encoding => t, function_type }
+		=
+		{   #  The type-mapping table: 
+
+		    m = [ (mtt::int_typoid,                           cty::SIGNED   cty::INT,       hbo::CCI32),
+			  (mtt::unt_typoid,                           cty::UNSIGNED cty::INT,       hbo::CCI32),
+			  #
+			  (mtt::string_typoid,                        cty::PTR,                      hbo::CCI32),
+			  (mtt::bool_typoid,                          cty::PTR,                      hbo::CCML),
+			  (mtt::float64_typoid,                       cty::DOUBLE,                   hbo::CCR64),
+			  #
+			  (list_type mtt::float64_typoid,             cty::FLOAT,                    hbo::CCR64),
+			  (mtt::char_typoid,                          cty::SIGNED   cty::CHAR,      hbo::CCI32),
+			  #
+			  (mtt::unt8_typoid,                          cty::UNSIGNED cty::CHAR,      hbo::CCI32),
+			  #
+			  (mtt::int1_typoid,                         cty::SIGNED   cty::LONG,      hbo::CCI32),
+			  (mtt::unt1_typoid,                         cty::UNSIGNED cty::LONG,      hbo::CCI32),
+			  #
+			  (list_type mtt::char_typoid,                cty::SIGNED   cty::SHORT,     hbo::CCI32),
+			  (list_type mtt::unt8_typoid,                cty::UNSIGNED cty::SHORT,     hbo::CCI32),
+			  #
+			  (list_type mtt::int1_typoid,               cty::SIGNED   cty::LONG_LONG, hbo::CCI64),
+			  (list_type mtt::unt1_typoid,               cty::UNSIGNED cty::LONG_LONG, hbo::CCI64),
+			  #
+			  (list_type (list_type mtt::float64_typoid), cty::LONG_DOUBLE,              hbo::CCR64),
+			  (mtt::exception_typoid,                     cty::STRUCT [],                hbo::CCI32)];
+
+		    fun get t
+			=
+			null_or::map
+			    (\\ (_, x, y) =  (x, y))
+			    (list::find
+				(\\ (u, _, _) =  tyj::typoids_are_equal (t, u))
+				m
+			    );
+
+		    fun unlist (tdt::TYPEVAR_REF { id, ref_typevar => REF (tdt::RESOLVED_TYPEVAR t) }, i)
+			    =>
+			    unlist (t, i);
+
+			unlist (t0 as tdt::TYPCON_TYPOID (tc, [t]), i)
+			    =>
+			    if (tyj::type_equality (tc, mtt::list_type))
+				 unlist (t, i + 1);
+			    else
+				(t0, i);
+			    fi;
+
+			unlist (t, i)
+			    =>
+			    (t, i);
+		    end;
+
+
+		    # Given [T] (see above), produce the cty::c_type value
+		    # and hbo::ccall_type corresponding to T:
+
+		    fun dt t
+			=
+			case (get t)
+			    #
+			    THE tt => tt;
+			    #	
+			    NULL
+				=>
+				case (mtt::get_fields t)
+				    #
+				    THE (f1 ! fl)
+					=>
+					if (tyj::typoids_are_equal (f1, mtt::void_typoid))
+					     #
+					     (cty::STRUCT (map (#1 o dt) fl), hbo::CCI32);
+					else (cty::UNION  (map (#1 o dt) fl), hbo::CCI32);
+					fi;
+
+				    _ => bad ();
+				esac;
+
+			esac;
+
+		    fun rdt (t, lib7_args)
+			=
+			if (tyj::typoids_are_equal (t, mtt::void_typoid))
+			    #
+			    (cty::VOID, NULL, lib7_args);
+			else
+			    my (ct, mt)
+				=
+				dt t;
+
+			    case ct
+				#
+				(cty::STRUCT _ | cty::UNION _)
+				    =>
+				    (ct, THE mt, mt ! lib7_args);
+
+			       _   =>
+				   ( ct,
+				     THE mt,
+				     lib7_args
+				   );
+			    esac;
+			fi;
+
+		    my (fty, nlists)
+			=
+			unlist (t, 0);
+
+		    reentrant
+			=
+			nlists > 1;
+
+		    fun get_calling_convention t
+			=
+			if    (tyj::typoids_are_equal (t, mtt::void_typoid))  THE defaultconv;
+			elif  (tyj::typoids_are_equal (t, mtt::unt_typoid ))  THE "unix_convention";
+			elif  (tyj::typoids_are_equal (t, mtt::int_typoid ))  THE "windows_convention";
+			else                                                  NULL;
+			fi;
+
+		    # Get argument types and result type; decode them.
+		    # Construct the corresponding cty::c_prototype value.
+
+		    case (get_domain_range fty)
+			#
+			NULL => bad ();
+			#
+			THE (d, r)
+			    =>
+			    {   my (calling_convention, arg_tys, args_ml)
+				    =
+				    case (get_calling_convention d)
+					#
+					THE calling_convention
+					    =>
+					    (calling_convention, [], []);
+
+					NULL => case (mtt::get_fields d)
+						    #
+						    THE (convty ! fl)
+							=>
+							case (get_calling_convention convty)
+							    #
+							    THE calling_convention
+								=>
+								{   my (arg_tys, args_ml)
+									=
+									paired_lists::unzip (map dt fl);
+
+								    (calling_convention, arg_tys, args_ml);
+								};
+
+							    NULL => bad ();
+							esac;
+
+
+						    _ => bad ();
+						esac;
+				    esac;
+
+
+				(rdt (r, args_ml))
+				    ->
+				    (return_type, ret_ml, args_ml);
+				    
+
+				{ ml_argument_representations =>  args_ml,
+				  ml_result_representation    =>  ret_ml,
+				  is_reentrant                =>  reentrant,
+
+				  c_prototype
+				      =>
+				      { calling_convention,
+					return_type,
+					parameter_types    => arg_tys
+				      }
+				};
+			    };
+		    esac;
+		};
+
+	    stipulate
+#		include ctypes;
+
+		fun c_int cty::CHAR      =>  "char";
+		    c_int cty::SHORT     =>  "short";
+		    c_int cty::INT       =>  "int";
+		    c_int cty::LONG      =>  "long";
+		    c_int cty::LONG_LONG =>  "long long";
+		end;
+
+		fun c_type cty::VOID   =>  "void";
+		    c_type cty::FLOAT  =>  "float";
+		    c_type cty::DOUBLE =>  "double";
+
+		    c_type cty::LONG_DOUBLE  =>  "long double";
+		    c_type (cty::UNSIGNED i) =>  "unsigned " + c_int i;
+
+		    c_type (cty::SIGNED i) =>  c_int i;
+		    c_type cty::PTR        =>  "T*";
+
+		    c_type (cty::ARRAY (t, i)) =>  cat [c_type t, "[", int::to_string i, "]"];
+		    c_type (cty::STRUCT fl)    =>  cat ("s { " ! fold_backward (\\ (f, l) = c_type f ! ";" ! l) [" }"] fl);
+		    c_type (cty::UNION fl)     =>  cat ("u { " ! fold_backward (\\ (f, l) = c_type f ! ";" ! l) [" }"] fl);
+		end;
+
+		fun c_proto { calling_convention, return_type, parameter_types => a1 ! an }
+			=>
+			cat (c_type return_type ! "(*)(" ! c_type a1 !
+				fold_backward (\\ (a, l) = ", " ! c_type a ! l) [")"] an);
+
+		    c_proto { calling_convention, return_type, parameter_types => [] }
+			=>
+			c_type return_type + "(*)(void)";
+		end;
+
+	    herein
+
+		c_type_to_string      =  c_type;
+		c_prototype_to_string =  c_proto;
+
+	    end;
+	end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

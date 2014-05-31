@@ -1,0 +1,1342 @@
+The src/lib/* directory tree contains libraries of compiled Mythryl code.
+
+(NOT to be confused with runtime support libraries of compiled C code!
+These live under src/c/*)
+
+Compiled Mythryl code libraries are stored in a system-specific format
+completely unrelated to host OS library format(s).  (This allows us to
+do typesafe linking of separately compiled modules.)
+
+In general:
+
+ o  Source files are compiled to produce .compiled files.
+    These .compiled files correspond to Unix '.o' files, but
+    are in an unrelated, Mythryl-specific format.
+       They contain all the native-compiled code and code
+    corresponding to a single source code file, plus
+    a symbol table with full type information for all
+    externally-visible functions, variables etc.
+
+ o  Our .compiled files may be combined ('built') into archive
+    files named foo.lib.frozen for some "foo".  A frozen library
+    usually holds a number of .compiled files
+    together with symbol table information.
+       Combining .compiled files into libraries is optional: An
+    application may use .compiled files directly, or may use a
+    combination of .lib.frozen and .compiled files.
+
+ o  The set of .lib.frozen and .compiled files constituting a complete
+    application may be combined into a single "executable" (actually
+    a heap image).
+    This is usually done via the bin/build-an-executable-mythryl-heap-image
+    script.  Such an executable may then be executed directly
+    courtesy of the script-style {\tt #!/usr/bin/mythryl-runtime-intel32} 'shebang'
+    line at the top of each heap image file.  (In any event,
+    the C-coded 'mythryl-runtime-intel32'  application is what winds up actually
+    loading and executing the heap image.)  Such executables live in
+    the {\tt bin/} directory.
+
+
+See also:
+    src/A.MAKE_COMPILER.INTERNALS.OVERVIEW
+
+
+2009-05-20 CrT:
+		WARNING: The currently maintained version of this file is in
+			 the online docs, section "Compiler Internals".  This
+			 copy will probably grow steadily more out of date
+			 over time.
+
+Contents
+========
+
+    What's Special About the Mythryl Compiler?
+    Compiler Schematic
+    Overview
+    Front end
+    Middle end
+    Back end
+    Detailed Compiler Passes Sequence
+    History
+    Resources
+
+
+What's Special About the Mythryl Compiler?
+==========================================
+
+If you come to Mythryl from hacking traditional Algolic
+compilers  (C/C++/Java/...), you'll find that the Mythryl
+presents the following major novel features:
+
+  o Much more sophisticated "typechecker".  The type system
+    includes support for functions and variables and unspecified
+    types are inferred using unification (think Prolog), all of
+    which makes the type system a little logic language in its
+    own right -- it is possible to write pages of code entirely
+    in the type sublanguage.  For example, it is possible to
+    implement a complete emulation of the C type system in the
+    Mythryl type system.
+
+  o The Mythryl semantics demand that tail-recursive calls be
+    implemented as simple jumps, where Algolic compilers traditionally
+    do a call-and-return.  This means that the Mythryl compiler
+    pervasively looks at a "function call" as basically just a
+    "goto with arguments", and a "function return" as similarly
+    just another "goto with arguments".  This pervasively changes
+    the flavor of function compilation. 
+
+  o Pattern-matching:  Function definition 'parameter lists' and
+    the lefthand-sides of 'assignment' statements can have deeply
+    nested structures with alternatives;    compiling these into
+    efficient code presents a signficant new challenge met by
+
+        src/lib/compiler/back/low/tools/match-compiler/match-compiler-g.pkg
+
+  o Tight heapcleaner ("garbage collector") integration with the compiler.
+    Mythryl programs allot heap memory at the rate of roughly one word
+    every 10-20 instructions -- gigabytes per second on 2010-era CPUs.
+
+    (This is basically because Mythryl code characteristically avoids heap
+    side-effects by copying datastructures rather than mutating them.
+    Also, the Mythryl implementation is stackless, allocating closures
+    -- "stackframes" -- entirely on the heap.)
+
+    Allocating and then recovering heap memory at such rates requires
+    careful compiler attention to generation of allocation code and tight
+    integration with the heapcleaner.  The main relevant compiler files are:
+
+	src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+	src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+    for additional discussion see  src/A.GARBAGE-COLLECTOR.OVERVIEW
+
+  o Heavy internal optimization of datastructure representations.
+
+    C compilers typically treat tree-of-records type datastructures
+    rather naively as malloc()d-heap-records-with-pointers, partly
+    because the extensive pointer-aliasing possibilities in C pretty
+    much forbid changing the structure.
+
+    Mythryl's lack of aliasing, lack of pointer equality, and prevalence
+    of read-only fields in records free the Mythryl compiler to really
+    go to town in terms of allocating record fields (or entire records)
+    in registers etc, resulting in dramatic performance improvements for
+    code dominated by recursive rewrites of recursive datastructures.
+    (Such as the Mythryl compiler!)
+
+    The central compiler file for this stuff is:
+
+        src/lib/compiler/back/top/forms/insert-anormcode-boxing-and-coercion-code.pkg
+
+ o  In a somewhat similar vein, give or take a bit of inlining here and
+    there, C compilers traditionally pretty much take function boundaries
+    as given, more or less moving functions around like blocks of wood.
+
+    Mythryl's more abstract semantics allow the Mythryl compiler much
+    more room to play;  what the Mythryl compiler does with functions
+    within a file is more like melting them down into a soup of basic
+    blocks and then casting them into an entirely new shape in which
+    little is preserved beyond externally visible entrypoints into the
+    file.
+
+    Where the standard Algolic compiler thinks primarily in terms of
+    compiling one function at a time, the Mythryl compiler thinks
+    primarily in terms of compiling one connected component of the
+    sourcefile callgraph at a time. 
+
+    For example, multiple functions in the sourcecode may wind up
+    sharing a single closure ("stackframe"), or closures may be factored
+    into private and shared parts, all in the name of improved
+    space and time efficiency.
+
+    One central compiler file for this stuff is:
+
+        src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg
+
+The latter two both reduce the strain on the heapcleaner by reducing
+the effective heap-memory allocation rate.
+
+
+
+Compiler Schematic
+==================
+
+The view from ten thousand feet looks like so: 
+
+-FRONT END-
+                 source text in Mythryl
+                       |
+                       |  lexing and parsing
+                       V
+                 raw syntax
+                       |
+                       |  typechecking and type inference
+                       V
+                 deep syntax
+                       |
+                       |  pattern-match compilation and such.
+-BACK END UPPER HALF-  V
+                 lambdacode form                     # Polymorphically typed lambda calculus format,
+                       |                             # used only very briefly as a transitional format.
+                       |  
+                       V
+                 anormcode form                      # "A-Normal" format,
+                       |                             # used for machine-independent optimizations.
+                       |
+                       V
+                 nextcode form                       # "Continuation passing style" format,
+                       |                             # the workhouse format for the backend upper half.
+                       |
+-BACK END LOWER HALF-  V
+                 treecode form                       # Used for machine-dependent optimizations.
+                       |
+                       |
+                       V
+                 machcode form                       # Abstract machine code.  Used primarily for register allocation
+                       |                             # low-level optimizations such as basic-block reordering and jump-forwarding.
+                       |
+                       V
+                 Machine code.			      # Position-independent -- we don't have a linker that patches code.
+
+
+Thus, the Mythryl compiler code representations used are, in order:
+
+1)  Raw Syntax is the initial frontend code representation.
+2)  Deep Syntax is the second and final frontend code representation.
+3)  Lambdacode is the first backend code representation, used only transitionally.
+4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+8)  Execode is absolute executable binary machine instructions for the target architecture.
+
+These are respectively defined by:
+
+1)    src/lib/compiler/front/parser/raw-syntax/raw-syntax.api
+2)    src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+3)    src/lib/compiler/back/top/lambdacode/lambdacode-form.api
+4)    src/lib/compiler/back/top/anormcode/anormcode-form.api
+5)    src/lib/compiler/back/top/nextcode/nextcode-form.api
+6)    src/lib/compiler/back/low/treecode/treecode-form.api
+7)    src/lib/compiler/back/low/pwrpc32/code/machcode-pwrpc32.codemade.api
+      src/lib/compiler/back/low/sparc32/code/machcode-sparc32.codemade.api
+      src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+The transformations between these formats are implemented by:
+
+1-2)  src/lib/compiler/front/semantic/typecheck/translate-raw-syntax-to-deep-syntax.pkg
+2-3)  src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+3-4)  src/lib/compiler/back/top/lambdacode/translate-lambdacode-to-anormcode.pkg
+4-5)  src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+5-6)  src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+6-7)  src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+      src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+      src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+7-8)  src/lib/compiler/back/low/intel32/translate-machcode-to-execode-intel32-g.pkg
+      src/lib/compiler/back/low/sparc32/emit/translate-machcode-to-execode-sparc32-g.codemade.pkg
+      src/lib/compiler/back/low/pwrpc32/emit/translate-machcode-to-execode-pwrpc32-g.codemade.pkg
+
+
+
+Overview
+========
+
+
+
+This compiler is a derivative of SML/NJ, a research
+compiler built collaboratively by Bell Labs, CMU, Yale,
+Cornell and Princeton, among others.  (A good overview
+of its internals is contained in [13].)
+
+The compiler proper is the part of Mythryl responsible
+for converting a single source file into native 
+object code.
+
+(See ROOT/src/app/makelib for the higher-level task of compiling
+all the components of an application in the correct
+order and producing an executable binary for the application
+as a whole.)
+
+The compiler proper is conceptually organized into two parts:
+
+  front/  Handles lexing, parsing and typechecking.
+  back/   Handles optimization and code generation.
+
+The back/ in turn is subdivided into two parts:
+
+  upper/    Handles high-level (machine-independent) issues.
+  lower/    Handles low-level  (machine-dependent)   issues.
+
+The task of compiling all the files for a complete project
+in proper dependency order is handled by 'makelib', a facility
+which bears some resemblance to Unix 'make', specialized to
+take advantage of Mythryl semantics, to meet special Mythryl
+needs, and to integrate seamlessly with the rest of the compiler.
+
+The core 'makelib' package is
+
+    src/app/makelib/main/makelib-g.pkg
+
+This is where commandline switches to the compiler are
+processed.  This file is however mostly concerned with
+"make" level functionality (traversing the source-file
+dependency graph and compiling individual files in
+topologically correct ordering) rather than compilation
+per se.
+
+From a control flow point of view, the top of the core
+interactive compile function-call hiearchy is the c::compile
+call in
+
+    src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+
+together with nearby code, while the core makefile-driven
+compilation code is in
+
+    src/app/makelib/main/makelib-g.pkg
+
+which delegates most of the work to
+
+    src/app/makelib/compile/link-in-dependency-order-g.pkg
+
+and (especially) the compile_in_this_process function in
+
+    src/app/makelib/compile/compile-in-dependency-order-g.pkg
+
+Either way, the actual heart of the compile-one-file logic
+is in
+
+    src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+
+
+
+Parsing vs Compiling
+====================
+
+Unlike most compilers, Mythryl completely decouples
+parsing from code generation.  The Mythryl source files
+in a project are parsed initially primarily to extract the
+package dependency graph, which is then analysed to determine
+compilation order.  
+
+A cache of parsetrees is maintained to avoid having to parse
+sourcefiles once during dependency analysis and a second time
+during compilation proper.  The core of this caching logic is
+
+    src/app/makelib/compilable/thawedlib-tome.pkg
+
+which manages everything we know about a particular sourcefile
+at any given point of time, including the parsetree (if known)
+and the resulting object file (if it has been generated).
+
+From a control-flow point of view, the top level of the parse
+phase for an individual sourcefile may be taken to be the two
+entrypoints defined in
+
+    src/lib/compiler/front/parser/main/parse-mythryl.pkg
+
+and the top level of the typechecking phase for one sourcefile
+may be taken to be
+
+    src/lib/compiler/front/typer/main/translate-raw-syntax-to-deep-syntax.pkg
+
+
+
+Dependency Graphs
+=================
+To ensure type safety, when compiling a package Mythryl needs
+to have full type information for all packages used by that
+package.  This means that projects must be compiled in bottom-up
+order, leaf packages first.  It also means that the dependency
+graph must be acyclic -- the compiler cannot cope with two
+packages both of which depends on the other. (This is sometimes
+a nuisance to the programmer.)
+
+The 'makelib' facility tracks dependency information at two
+levels of granularity:
+
+  o A coarse granularity graph at the level of libraries.
+
+  o A fine   granularity graph at the level of individual
+    sourcefiles within a library.
+
+These are defined respectively in
+
+    src/app/makelib/depend/inter-library-dependency-graph.pkg
+    src/app/makelib/depend/intra-library-dependency-graph.pkg
+
+
+
+Front End
+=========
+
+The Mythryl front end processes source code in two broad
+phases:
+
+   Parsing, which produces a raw syntax tree from a sourcefile.
+   Typechecking, which produces a deep syntax tree from a raw syntax tree.
+
+
+The core language syntax implementation is in the two files
+
+    src/lib/compiler/front/parser/lex/mythryl.lex
+    src/lib/compiler/front/parser/yacc/mythryl.grammar
+
+The raw and deep syntax tree datastructures are defined in
+
+    src/lib/compiler/front/parser/raw-syntax/raw-syntax.api
+    src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+
+
+
+The symbol tables used by the compiler are hierarchical, complex,
+and diffusely defined.  A good entrypoint into studying them is
+
+    src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+
+The top of the symbol table hierarchy is
+
+    src/lib/compiler/toplevel/compiler-state/compiler-mapstack-set.pkg 
+
+
+
+Back End
+========
+
+When the front end is done typechecking the code, it
+is handed over successively to
+
+    src/lib/compiler/back/top/
+    src/lib/compiler/back/low/
+
+where the first  does machine-independent stuff
+and   the second does machine-dependent   stuff.
+
+
+
+Back End Upper Half
+===================
+
+
+The back end upper half originated in the Yale FLINT project[12].
+
+From a control-flow point of view, the core
+back end upper half module is
+
+    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+which schedules the various compiler passes in
+highly customizable form.
+
+The front end gives us the code in the form of a
+deep syntax tree, defined in
+
+    src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+
+The upper half module translates the deep syntax tree
+into three successive forms, each lower-level than
+the previous:
+
+    lambdacode:   A polymorphic typed lambda calculus intermediate representation.
+    anormcode:   "A-Normal" format, a typed form in which the function call hierarchary remains explicit.
+    nextcode:    "Continuation Passing Style", an untyped blocks-linked-by-gotos representation.
+
+The lambdacode format is defined in
+
+    src/lib/compiler/back/top/lambdacode/lambdacode-form.api
+
+It is an essentially language-neutral high-level representation,
+so translation into it from deep syntax requires removing all
+vestiges of Mythryl-specific source syntax.  This translation
+is done by
+
+    src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+
+In particular, this translation requires expanding all pattern-matching
+constructs into elementary function applications, a subtask handled by
+
+    src/lib/compiler/back/top/translate/translate-deep-syntax-pattern-to-lambdacode.pkg
+
+The lambdacode representation is purely transitional;
+One constructed, it is immediately converted into anormcode
+(A-Normal) form.
+
+A-Normal format is well documented in the literature.[2]  It is a
+high-level, typed, optimization-oriented format in which the call
+hierarchy remains explicit.  These characteristics make some sorts
+of optimizations easy (and others correspondingly hard).  Our version
+is defined in
+
+    src/lib/compiler/back/top/anormcode/anormcode-form.api
+
+(See the comments in that file for a list of the major transforms
+performed on A-Normal Form code, and the files implementing them.)
+
+The translation from lambdacode to anormcode (A-Normal) form is handled by
+
+    src/lib/compiler/back/top/lambdacode/translate-lambdacode-to-anormcode.pkg
+
+While in A-Normal form, a number of optimizations are performed
+(or can be, per configuration options handed to backend-tophalf-g.pkg).
+Stefan Monnier's 2003 PhD Thesis "Principled Compilation and Scavenging"
+provides a good overview. [3]
+
+When we've done what we reasonably can in A-Normal form, we convert
+the code to "nextcode", known in the literature as "Continuation Passing Style".
+
+This is an untyped format in which code is represented essentially
+as a series of basic blocks linked by GOTOs, albeit in abstract,
+machine-independent form.  In particular, the explicit function-call
+hierarchy is discarded, as is the implicit stack, replaced by fates
+passed as explicit arguments, hence the name.
+
+Our definition of nextcode is somewhat diffuse, and split into an
+externally visible API on the one hand, whose definition
+centers on
+
+    src/lib/compiler/back/top/highcode/highcode-form.api
+    src/lib/compiler/back/top/highcode/highcode-form.pkg
+
+and a more complex internal package, whose definition
+centers on
+
+    src/lib/compiler/back/top/highcode/highcode-uniq-types.api
+    src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+
+Translation from A-Normal to nextcode form is handled by
+
+    src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+
+Once in nextcode form, a different set of optimizations become
+easy, and are applied.   (The relative dis/advantages of
+A-Normal and nextcode form are discussed in Stefan Monnier's
+above-mentioned PhD thesis.)
+
+See [14] and the comments in
+
+    src/lib/compiler/back/top/highcode/highcode-form.api
+
+for discussion of the various nextcode compiler passes.
+
+
+
+Back End Lower Half
+===================
+
+
+The back end lower half originated in the
+NYU / Bell Labs "MLRISC" project [11].
+
+A different lower half is generated for each supported
+architecture, using generics to share common code.
+
+For clarity and simplicity, the following will discuss
+only the intel32 back end;  The others are similar.
+
+
+In a general sense, the root of the lower half is
+
+    src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+
+This is a simple wrapper supplying platform-appropriate
+arguments to  backend_lowhalf_g, which is defined in
+
+    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+
+This contains the function 'compile' which is the
+the toplevel driver for the backend, selecting
+which optimization phases to run and in what
+order per user options or else compiled-in defaults.
+
+The lion's share of the detail work is delegated
+to translate_nextcode_to_treecode_g, which is defined in
+
+    src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+whose principal export is the function  translate_nextcode_to_execode
+which encapsulates the complete process of compiling
+nextcode intermediate code all the way down to native machine
+code for the intel32 architecture.  At runtime, this function
+gets called from   translate_anormcode_to_execode   in
+
+    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+this constituting the runtime transition from the
+highcode "middle end" to the lowhalf backend. 
+
+
+[ I have as yet only the haziest sense of the
+  backend datastructures and control flow. The
+  following needs a lot of work. -- Cynbe       ]
+
+The original and still primary (?) code representation used
+in the back end is a simple register transfer level
+language defined in
+
+    src/lib/compiler/back/low/treecode/treecode-form.api
+
+A (currently unused) high-level intermediate representation API is defined in
+
+    src/lib/compiler/back/low/ir/lowhalf-ir.api
+
+A (also currently unused) control-flow graph representation is defined in:
+
+    src/lib/compiler/back/low/ir/lowhalf-mcg.api
+
+Later an (again, currently unused) additional SSA ("Static Single Assignment")
+representation was added, defined in
+
+    src/lib/compiler/back/low/static-single-assignment/ssa.api
+
+SSA optimizations have their own driver, implemented in
+
+    src/lib/compiler/back/low/glue/lowhalf-ssa-improver-g.pkg
+
+which is currently nowhere invoked. Hmm.
+
+
+Detailed Compiler-passes Sequence
+=================================
+
+	Do initial lexing and parsing of sourcefile	find_raw_declaration_and_sourcecode_info					in   src/app/makelib/compilable/thawedlib-tome.pkg
+
+	Following passes are run by			compile_one_sourcefile								in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+
+------>	Translate raw syntax to deep syntax.		r2d::translate_raw_syntax_to_deep_syntax call 					in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	Pickle-then-unpickle				pickle_unpickle call								in   " "
+	Optionally insert debug/profile code.		maybe_instrument_deep_syntax							in   " "
+
+	This is actually part of the next.		translate_deep_syntax_pattern_to_lambdacode					in   src/lib/compiler/back/top/translate/translate-deep-syntax-pattern-to-lambdacode.pkg
+------>	translate_deep_syntax_to_lambdacode		translate_deep_syntax_to_lambdacode						in   src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+------>	translate_lambdacode_to_anormcode		translate_lambdacode_to_anormcode						in   src/lib/compiler/back/top/lambdacode/translate-lambdacode-to-anormcode.pkg
+
+	Cross-module inlining and specialization.	do_lambdasplit_inlining								in   src/lib/compiler/back/top/lsplit/lambdasplit-inlining.pkg
+
+	The following pass sequence is specified
+	 by   'anormcode_passes'													in   src/lib/compiler/back/top/main/anormcode-sequencer-controls.pkg
+
+	improve_anormcode_quickly													in   src/lib/compiler/back/top/improve/improve-anormcode-quickly.pkg
+	improve_mutually_recursive_anormcode_functions											in   src/lib/compiler/back/top/improve/improve-mutually-recursive-anormcode-functions.pkg 
+	improve_anormcode														in   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+	specialize_anormcode_to_least_general_type											in   src/lib/compiler/back/top/improve/specialize-anormcode-to-least-general-type.pkg
+	loopify_anormcode														in   src/lib/compiler/back/top/improve/loopify-anormcode.pkg
+	improve_mutually_recursive_anormcode_functions											in   src/lib/compiler/back/top/improve/improve-mutually-recursive-anormcode-functions.pkg
+	do_crossmodule_anormcode_inlining												in   src/lib/compiler/back/top/improve/do-crossmodule-anormcode-inlining.pkg
+	improve_anormcode														in   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+	insert_anormcode_boxing_and_coercion_code											in   src/lib/compiler/back/top/forms/insert-anormcode-boxing-and-coercion-code.pkg
+	improve_anormcode														in   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+	drop_types_from_anormcode													in   src/lib/compiler/back/top/forms/drop-types-from-anormcode.pkg
+	improve_anormcode														in   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+	improve_mutually_recursive_anormcode_functions											in   src/lib/compiler/back/top/improve/improve-mutually-recursive-anormcode-functions.pkg
+	improve_anormcode+eta														in   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+
+------>	translate_anormcode_to_nextcode													in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+	nextcode_preimprover_transform													in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+        # Many more possible here -- see top-of-file comments										in   src/lib/compiler/back/top/improve-nextcode/run-optional-nextcode-improvers-g.pkg
+	# The first two of the following three are specified by cg::optional_nextcode_improvers						in   src/lib/compiler/toplevel/main/compiler-controls.pkg
+	# Running the third is hardwired;
+	# and get run by 				run_optional_nextcode_improvers							in   src/lib/compiler/back/top/improve-nextcode/run-optional-nextcode-improvers-g.pkg
+
+	zeroexpand					do_nextcode_inlining								in   src/lib/compiler/back/top/improve-nextcode/do-nextcode-inlining-g.pkg
+	last_contract					clean_nextcode									in   src/lib/compiler/back/top/improve-nextcode/clean-nextcode-g.pkg
+	Replace Integer ops with Int ops.		replace_unlimited_precision_int_ops_in_nextcode					in   src/lib/compiler/back/top/improve-nextcode/replace-unlimited-precision-int-ops-in-nextcode.pkg
+
+	Split off nextcode literals.			split_off_nextcode_literals							in   src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
+	Generate literals bytecode vector.		make_nextcode_literals_bytecode_vector						in   src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
+	(No...) nextcode inlining			nextcode_inlining								in   src/lib/compiler/back/top/closures/dummy-nextcode-inlining-g.pkg
+        make_nextcode_closures                          make_nextcode_closures                                                          in   src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg
+	unnest_nextcode_fns				unnest_nextcode_fns								in   src/lib/compiler/back/top/closures/unnest-nextcode-fns.pkg
+	Spill nextcode registers			spill_nextcode_registers							in   src/lib/compiler/back/low/main/nextcode/spill-nextcode-registers-g.pkg
+	pick_nextcode_fns_for_heaplimit_checks		pick_nextcode_fns_for_heaplimit_checks						in   src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
+
+	Break callgraph into connected components	find_nextcode_cccomponents 							in   src/lib/compiler/back/low/main/nextcode/find-nextcode-cccomponents.pkg
+	Translate; also inserts heapcleaner call stuff.	translate_nextcode_cccomponent_to_treecode					in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+
+------>	Transform Treecode to Machcode			translate_treecode_to_machcode							in   src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+	Guess loop probabilities.			guess_machcode_loop_probabilities						in   src/lib/compiler/back/low/frequencies/guess-machcode-loop-probabilities-g.pkg
+	Guess basic-block execution frequencies.	guess_bblock_execution_frequencies						in   src/lib/compiler/back/low/frequencies/guess-bblock-execution-frequencies-g.pkg
+	Allocate registers.				allocate_registers								in   src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+	Free up EBP register.				replace_framepointer_uses_with_stackpointer_in_machcode_controlflow_graph	in   src/lib/compiler/back/low/intel32/omit-framepointer/free-up-framepointer-in-machcode-intel32-g.pkg
+	Implement parallel register moves.		compile_register_moves								in   src/lib/compiler/back/low/mcg/compile-register-moves-phase-g.pkg
+	Choose efficient bblock order.			make_final_basic_block_order_list						in   src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list-g.pkg
+	Forward jumps-to-jumps.				forward_jomps_to_jumps								in   src/lib/compiler/back/low/block-placement/forward-jumps-to-jumps-g.pkg
+	Emit longjump cleaner calls			put_longjump_heapcleaner_calls							in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	Emit heapcleaner calls for package		put_heapcleaner_calls_for_package						in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	Resolve span-dependent instruction sizes.	squash_all_jumps_to_minimum_size						in   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+------>	Generate absolute machinecode bytevectors.	op_to_bytevector								in   src/lib/compiler/back/low/intel32/translate-machcode-to-execode-intel32-g.pkg
+	Generate literals-vector bytecodes.		make_nextcode_literals_bytecode_vector						in   src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
+	Write machine code into codeseg buffer.		write_dataseg_and_textseg_into_code_segment_buffer				in   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+	Construct compiledfile image in ram.		make_compiledfile								in   src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	Write compiledfile image to disk.		write_compiledfile								in   src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	Link and run package.				link_and_run_package_closure							in   src/lib/compiler/execution/main/link-and-run-package.pkg
+
+
+
+	Transform Treecode to Machcode
+	----------------------------------
+		    translate_treecode_to_machcode										in   src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Estimate loop probabilities.
+	----------------------------------
+		    guess_machcode_loop_probabilities										in   src/lib/compiler/back/low/frequencies/guess-machcode-loop-probabilities-g.pkg
+	called by   guess_bblock_execution_frequencies										in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   run_phases													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Guess basic block execution frequencies.
+	----------------------------------
+		    guess_bblock_execution_frequencies										in   src/lib/compiler/back/low/frequencies/guess-bblock-execution-frequencies-g.pkg
+	called by   guess_bblock_execution_frequencies										in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   run_phases													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Allocate registers.
+	----------------------------------
+		    allocate_registers												in   src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+	called by   allocate_registers												in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   run_phases													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+	Free up EBP register.
+	----------------------------------
+		    replace_framepointer_uses_with_stackpointer_in_machcode_controlflow_graph					in   src/lib/compiler/back/low/intel32/omit-framepointer/free-up-framepointer-in-machcode-intel32-g.pkg
+	called by   replace_framepointer_uses_with_stackpointer_in_machcode_controlflow_graph					in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   omitfp													in   " "
+	called by   run_phases													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Implement parallel register moves.
+	----------------------------------
+		    compile_register_moves											in   src/lib/compiler/back/low/mcg/compile-register-moves-phase-g.pkg
+	called by   compile_register_moves											in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   run_phases													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Choose efficient bblock order.
+	----------------------------------
+		    make_final_basic_block_order_list										in   src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list-g.pkg
+	called by   make_final_basic_block_order_list										in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   dump_blocks													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+	Forward jumps-to-jumps.
+	----------------------------------
+		    forward_jomps_to_jumps											in   src/lib/compiler/back/low/block-placement/forward-jumps-to-jumps-g.pkg
+	called by   forward_jumps_to_jumps											in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   dump_blocks													in   " "
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+	Emit longjump cleaner calls
+	----------------------------------
+		    put_longjump_heapcleaner_calls										in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	called by   translate_nextcode_cccomponent_to_treecode									in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Emit heapcleaner calls for package
+	----------------------------------
+		    put_heapcleaner_calls_for_package										in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	called by   finish_compilation_unit											in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Resolve span-dependent instruction sizes.
+	-----------------------------
+		    squash_all_jumps_to_minimum_size										in   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+	called by   squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer				in   " "
+	called by   squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer				in    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   harvest_code_segment											in    src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+	called by   gen														in    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in    " " 
+	called by   translate_anormcode_to_execode										in    src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in    " "
+	called by   compile_one_sourcefile											in    src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Generate absolute machinecode bytevectors.
+	-----------------------------
+		    op_to_bytevector												in   src/lib/compiler/back/low/intel32/translate-machcode-to-execode-intel32-g.pkg
+	called by   note_code_in												in   src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+	called by   extract_all_code_and_data_from_machcode_controlflow_graph							in   " "
+	called by   dump_blocks													in   src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   translate_machcode_cccomponent_to_execode									in   " "
+	called by   finish_compilation_unit + translate_nextcode_cccomponent_to_treecode					in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	called by   translate_nextcode_to_execode										in   " "
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Generate literals-vector bytecodes.
+	-----------------------------
+		    make_nextcode_literals_bytecode_vector									in   src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
+	called by   make_nextcode_literals_bytecode_vector										in   src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in   " " 
+	called by   translate_anormcode_to_execode										in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in   " "
+	called by   compile_one_sourcefile											in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Write machine-code byte-vector into codeseg buffer.
+	-----------------------------
+		    write_dataseg_and_textseg_into_code_segment_buffer								in    src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+	called by   squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer				in    " "
+	called by   squash_jumps_and_write_all_machine_code_and_data_bytes_into_code_segment_buffer				in    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	called by   harvest_code_segment											in    src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+	called by   gen														in    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	called by   translate_anormcode_to_execode										in    " " 
+	called by   translate_anormcode_to_execode										in    src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	called by   translate_raw_syntax_to_execode										in    " "
+	called by   compile_one_sourcefile											in    src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Construct compiledfile image in ram.
+	-----------------------------
+		    make_compiledfile												in    src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	called by   compile_one_sourcefile 											in    src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Write compiled file to disk.
+	-----------------------------
+		    write_compiledfile												in   src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	called by   verbosely_write_compiledfile_to_stream									in   src/app/makelib/compile/compile-in-dependency-order-g.pkg
+	called by   write_compiledfile_to_disk											in   " "
+	called by   compile_one_sourcefile 											in   " " 	
+	called by   compile_in_this_process											in   " "
+	called by   verbosely_compile_in_this_process										in   " "
+	called by   compile_preferably_in_subprocess										in   " "
+	called by   load_else_compile_compiledfile'										in   " "
+	called by   load_else_compile_compiledfile										in   " "
+	called by   must_load_or_compile_compiledfile										in   " "
+	called by   compile_dependencies_then_sourcefile									in   " "
+	called by   compile_thawedlib_tome											in   " "
+	called by   compile_near_tome												in   " "
+	called by   compile_far_tome'												in   " "
+	called by   compile_far_tome												in   " "
+	called by   do_intra_library_dagwalk											in   " "
+	called by   concurrently_compile_tomes											in   " "
+        called by   symbol_and_inlining_mapstacks										in   " " 
+	called by   dagwalker_for_make_command											in   src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+
+
+	Link and run package.
+	---------------------
+		    link_and_run_package_closure										in    src/lib/compiler/execution/main/link-and-run-package.pkg
+	called by   link_and_run_compiledfile											in    src/lib/compiler/execution/compiledfile/compiledfile.pkg	    
+	called by   fresh													in    src/app/makelib/compile/link-in-dependency-order-g.pkg 
+	called by   link_thawedlib_tome												in    " "
+		*MAGIC* :-)
+	called by   dagwalker_for_make_command											in    src/app/makelib/main/makelib-g.pkg
+	called by   run														in   " "
+	called by   make													in   " "
+
+History
+=======
+
+The Mythryl codebase contains a lot of historical
+artifacts, so some familiarity with its history is
+helpful in understanding the code.
+
+Mythryl is a fork of the SML/NJ [4] 110.58 codebase.
+ SML/NJ was the first compiler for SML, and remains the
+de facto reference compiler.
+
+To understand its signficance, some of the history of
+the SML language must be given as context:
+
+The original ML language was defined in the late
+1970s by Robin Milner as a metalanguage (hence "ML")
+for the Edinburgh logical framework LF.
+
+The SML/NJ compiler was written in cooperation between
+Bell Labs and Princeton.  It began about 1985 as primarily
+a two-person effort between David MacQueen and Andrew Appel,
+with MacQueen serving as language expert and Appel as compiler
+expert.  A long succession of PhD students also contributed,
+and in fact continue to contribute.
+
+Appel is a fan of Fate-Passing Style, and author
+of a series of books on compiler implementation using it.
+Since he was chief architect of the compiler, these books
+provide useful insight into the SML/NJ design and
+implementation philosophy. [8]  Consquently, the initial
+SML/NJ compiler consisted of a front end from which the
+current front end is directly descended, and a nextcode-based
+backend with handcrafted code generator.
+
+In 1990, Standard ML was defined by the publication of The
+Definition of Standard ML by Robin Milner, Mads Tofte,
+Robert Harper and David MacQueen.  In particular, this
+incorporated MacQueen's module system design [6], a huge step
+forward whose repercussions are still being felt.  This
+slim volume was the first to formally define not only the
+syntax for a practical programming language, but also its
+semantics.
+
+A 1991 snapshot of the five-year-old SML/NJ compiler is
+provided by Appel and MacQueen's "Standard ML of New Jersey".[7]
+
+Zhong Shao's 1994 Princeton PhD thesis [5] provides a good
+snapshot of the SML/NJ compiler as of that year.
+
+About 1992, Yale launched a FLINT ("Functional Language
+INTermediate code representation"?) project [1] to improve
+the optimization of functional languages.
+
+The code developed by this initially separate project was
+later merged into the SML/NJ compiler, providing the
+lambdacode and anormcode (A-Normal) form passes which now sit between
+the front end and the original nextcode optimizer.  Essentially,
+the FLINT-derived code now forms the front half of the
+Mythryl highcode module, while the original nextcode optimizer
+forms the back half.  The seperate heritage of these two
+parts lives on in the form of a lack of integration,
+coordination and nomenclature between them.
+
+Stefan Monnier's 2003 thesis [3] describes both the tension
+and the synergy between the FLINT-derived and nextcodebased
+parts of the highcode module.
+
+Also about 1992, the MLRISC project [9] was launched
+to implement an optimizing, portable, retargetable,
+language-neutral back end.  A snapshot of this project
+as of 1994 is provided in [10].
+
+The Definition of Standard ML was updated and republished
+in 1997.  The changes were mostly minor, and in fact on
+the whole mostly served to simplify the language by removing
+unproductive elements of the original definition.
+
+About 2000, MLRISC replaced the original SML/NJ compiler
+backend about, although integration between the new
+backend and the rest of the compiler remained marginal.
+(This part of the compiler is renamed "lowhalf" in the Mythryl
+codebase.)
+
+Also about 2000, Bell Labs, now renamed Lucent, spun off
+as a separate company, and tanking in the stock market,
+stopped funding development of SML/NJ.  As a result, the
+principal contributors were forced to seek new positions,
+and development of the SML/NJ codebase slowed to a glacial
+crawl for the 2000-2005 period, with in fact no new end-user
+releases of the compiler whatever.
+
+
+
+Resources
+=========
+
+[1] The FLINT project home page is:
+
+        http://flint.cs.yale.edu/flint/
+
+[2] A-Normal Form is described in:
+    The Essence of Compiling with Fates
+    Cormac Flanagan, Amr Sabry, Bruce F Duba, Matthias Felleisen (Rice CSci)
+    1993, 11p
+    http://www.soe.ucsc.edu/~cormac/papers/pldi93.ps
+
+
+[3] Principled Compilation and Scavenging
+    Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+
+        http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+
+    See also Stefan's publications page:
+
+        http://www.iro.umontreal.ca/~monnier/
+
+
+[4] The Standard ML of New Jersy home page is
+
+        http://www.smlnj.org/
+
+[5] Compiling Standard ML for Efficient Execution on Modern Machines
+    1994 145p Zhong Shao (Princeton PhD thesis under Andrew Appel)
+
+        http://flint.cs.yale.edu/flint/publications/zsh-thesis.ps.gz
+
+[6] An Implementation of Standard ML Modules
+    1988 12p David MacQueen
+
+        http://www-2.cs.cmu.edu/~rwh/courses/modules/papers/macqueen88/paper.pdf
+
+[7] Standard ML of New Jersey
+    1991 13p Andrew W Appel, David B MacQueen
+
+        http://www.cs.princeton.edu/~appel/papers/smlnj.ps
+
+[8] Modern Compiler Implementation in ML:  Basic Techniques
+    Andrew W Appel 1997 390p.
+
+[9] MLRISC home page:
+
+        http://cs.nyu.edu/leunga/www/MLRISC/Doc/html/INTRO.html
+
+[10] A Portable and Optimizing Back End for the SML/NJ Compiler
+     Lal George, Florent Guillame, John H Reppy, 1994  18p
+
+        http://download.at.kde.org/languages/ml/papers/94-cc-george.ps
+
+[11] MLRISC A Framework for retargetable and optimizing compiler back ends
+     Lal George, Allen Leung
+     2003 144p
+     http://cs.nyu.edu/leunga/www/MLRISC/Doc/latex/mlrisc.ps
+
+[12] An Overview of the FLINT/ML Compiler
+     Zhong Shao (Yale)
+     1997, 10p
+     http://flint.cs.yale.edu/flint/publications/tic97.html
+
+[13] Separate Compilation for ML
+     Andrew W Appel (Princeton), David B MacQueen (Bell Labs)
+     1994, 11p
+     http://citeseer.ist.psu.edu/57261.html
+
+[14] Fate-Passing, Closure-Passing Style
+     Andrew W. Appel, Trevor Jim (Bell Labs)
+     1988, 11p
+     http://www.cs.princeton.edu/~appel/papers/cpcps.ps
+         Still provides a good overview of the nextcode passes in SML/NJ.
+
+
+
+(Additional references are listed in doc/references.)

@@ -1,0 +1,338 @@
+fun make file = if cm::make file then () else raise exception FAIL("Can't load "$file);
+fun again () = run "make.pkg";
+
+make "$/c-kit.lib";
+make "$/smlnj-lib.cm";
+make "../ffi-packager/ffi-packager.cm";
+
+
+# --------------------------------------------------------------------------
+# This is a program that drives the entire gtk library packaging process.
+# Originally I wrote this as a bash script, then a perl script.
+# But the job turns out to be too complex, so I've finally started 
+# using ML to do it.
+# --------------------------------------------------------------------------
+
+local use ffi_packager
+      package a = Ast
+      filename = "sml-gtk-runtime-ffi/s-smlgtk_event.pkg"
+      prog = io::read_file filename
+      fun decl (a::FUN_DECL [a::FUN(("abstract'"|"concrete'"), _)]) = a::SEQ_DECL []
+        | decl d = d
+      prog = decl::map [Map::D decl] prog
+      my ()   = io::writeFile([io::OUTFILE filename], prog)
+in    
+end 
+
+package p =
+gift_wrap_g
+(  use ffi_packager gift_wrap_defaults
+  
+   name     = "gtk"
+   name'    = "gtk"
+   version  = "0.1.4"
+   enums    = [("Glib-enums.sml", "glib_enums", "^g_"),         # Was ^G_ -- CrT 2007-05-30
+                   ("Gdk-enums.sml", "gdk_enums", "^gdk_"),        # Was ^GDK_ -- CrT 2007-05-30
+                   ("Gtk-enums.sml", "gtk_enums", "^gtk_")        # Was ^GTK_ -- CrT 2007-05-30
+                  ]
+   file_regexp = "(gtk|gtk|glib)"
+
+   #  make the library lighter! 
+   remove_rtti = TRUE
+
+   #  make constructors for non gtk types 
+   make_constructor = re::matches "^Gdk (Box|Color)"
+   make_accessors   = re::matches "^(Gtk|Gdk)"
+   make_mutators    = re::matches 
+       "^Gdk (Box|Color)|Gtk (Widget|Object|Style|Allocation|Adjustment)$" 
+
+   macros_file = "macros.pkg"
+
+   package raw  = Ast
+   package u    = AstUtil
+   package nlffi= lib7_nlffi_gen_info
+   package obj  = object_maker
+
+   /*------------------------------------------------------------------------
+    *
+    * Some common routines
+    *
+    *------------------------------------------------------------------------*/
+   stripGtk = re::replace "^_?[Gg]tk" ""
+   noUnderscore = re::replace "^_+" ""
+
+   /*------------------------------------------------------------------------
+    *
+    * Initialization
+    *
+    *------------------------------------------------------------------------*/
+   fun init info
+       = 
+       let 
+	  /*-------------------------------------------------------------------
+	   * 
+	   * Create the gtk hierarchy
+	   *
+	   *-------------------------------------------------------------------*/
+
+	   fun ok t
+	       =
+	       re::matches "^_?Gtk" t and not (re::matches "Class$" t);
+
+	   gtkClasses
+               = 
+	       obj::makeObjectHier
+		     { info, filter=ok, name="gtk",
+		      tag=\\ t => to_lower (stripGtk t)$"_t",
+		      root="_GtkObject",
+		      downcast=\\ t => "as"$stripGtk t,
+		      ml=noUnderscore, str="Gtk"
+		     };
+
+	   objects := [ gtkClasses ];
+
+	   isGtkClass =   obj::is_member gtkClasses;
+	   toGtkClass =   obj::findClass gtkClasses;
+	   toGtkType  =   obj::ml gtkClasses;
+
+	  /*-------------------------------------------------------------------
+	   * 
+	   * Generate the files Gtk.sig and Gtk.sml
+	   *
+	   *-------------------------------------------------------------------*/
+	  local  
+	     my { sign, str } = obj::genTypeDefs gtkClasses
+	     sign = sign @ [io::read_verbatim "Gtk-include.api"]
+	     str  = str  @ [io::read_verbatim "Gtk-include.pkg"]
+	     sign = raw::API_DECL("GTK", raw::DECLsig sign)
+	     str  = raw::PACKAGE_DECL("Gtk",[],
+			  THE { abstract=TRUE, api_expression=raw::IDsig (raw::IDENT([], "GTK")) },
+			       raw::DECLSEXP str)
+	  in
+	     my () = 
+	      (cm::add (info, "api GTK", "../Gtk.sig");
+	       cm::add (info, "package gtk", "../Gtk.sml (lambdasplit: infinity)");
+	       writeFile (info, "Gtk.sig", sign);
+	       writeFile (info, "Gtk.sml", str)
+	      )
+	  end;
+
+	  /*-------------------------------------------------------------------
+	   * 
+	   * Define some type transformations.
+	   *
+	   *-------------------------------------------------------------------*/
+	  use ffi_transforms Tr;
+	  infix || && ;
+
+	  Bool =   BoolIfCtypeIs "gboolean";
+
+	  /* 
+	   * Convert (ST__GtkXXX::tag, rw) ptr' to X GtkXXX
+	   */
+
+	  findGtk =   re::grep "^\\(ST_(_+Gtk.*)\\.tag, rw\\) su_obj ptr'$" o Ty::show;
+
+	  findConstr =   re::grep "^(.*)_new(_with_.*)?$";
+
+	  fun gtkArg (f, st) (x, TYPE { ty, cty, mode, ... } )
+              =
+	      (case findGtk ty of
+		 THE[t] =>
+		 if isGtkClass t then
+		   (addOpen (st, "Gtk");
+		    ((x, TYPE { ty=Ty::parse (newVar st$" "$toGtkType t),
+			    cty, mode } ),[],[])
+		   )
+		 else raise exception Skip
+	      | _ => raise exception Skip
+	      );
+
+	  /* 
+	   * Convert (ST__GtkXXX::tag, rw) su_obj ptr' to base GtkXXX
+	   * If it is a constructor then convert to the return class 
+	   */
+	  fun gtkRet promote (f, st) (x, TYPE { ty, cty, mode, ... } )
+	     =
+	     (case (findGtk ty, findConstr (fn::cname f)) of
+	       (THE[t], NULL) =>  #  non class constructor 
+		if isGtkClass t then
+		   (addOpen (st, "Gtk"); 
+		    ((x, TYPE { ty=Ty::parse("base "$toGtkType t),
+			    cty, mode } ), [], [])
+		   )
+		else raise exception Skip
+	     | (THE[t], THE (t' . _)) =>  #  A class constructor 
+		 (case toGtkClass (t') of
+		   THE t' =>
+		    (addOpen (st, "Gtk");
+		     ((x, TYPE { ty=
+			  Ty::parse("base "$toGtkType (if promote then t' else t)),
+			     cty, mode } ), [], [])
+		    )
+		 | NULL => raise exception Skip
+		 )
+	     | _ => raise exception Skip
+	     );
+
+	  gtk  =   ForeachIn gtkArg o ForeachOut (gtkRet TRUE);
+	  gtk' =   ForeachIn gtkArg o ForeachOut (gtkRet FALSE);
+
+	  /* 
+	   * Call by reference -> call by value 
+	   */
+	  local use nlffi::T
+	  in
+	     pp = TyP (ptr' (obj (ptr any, rw)))
+	     pi = TyP (ptr' (primObj rw (re::matches "int|short|float|double")))
+	  end
+
+	  call_by_value
+              =
+              ForeachIn 
+		  (Do
+		   [If (FunCnameMatches "_(get|query)(_|$)" && (pi || pp))
+			(FastCallByValue None),
+		    If (FunCnameIs "gtk_accelerator_parse" && Args[1, 2])
+			(FastCallByValue None)
+		   ] 
+		  );
+
+	  /* 
+	   * Flatten simple structures like GdkRectangle
+	   */
+	  flatten
+              =
+              ForeachIn 
+		  (If (TyMatches "GdkRectangle") 
+		      (Do [If (FunCnameIs "gtk_widget_draw") 
+			      (OptPtrArg (TupleStructPtrArg None)),
+			   TupleStructPtrArg None
+			  ]
+		      )
+		  )
+
+	  /*
+	   * Everything together 
+	   */
+	  convert  =   gtk o FastString o Bool o call_by_value o flatten;
+
+
+          tr::declare info "^f-" convert;
+       }
+
+   /*------------------------------------------------------------------------
+    *
+    * Create "messages" for Gtk functions
+    *
+    *------------------------------------------------------------------------*/
+   fun f_files (info, str, f, g)
+       =
+       if re::matches "^gtk_" (fn::cname f)
+       then
+	     {   fun isMessage selfTy
+                   =
+		   case re::grep "X (Gtk.*)$" (Ty::show selfTy) of
+		      THE[a_class] =>
+			 re::matches ("^"$ml::typeName a_class) (fn::cname f) 
+		    |  _ => FALSE
+
+		 fun add (m, ty, code)
+                     = 
+		     {   str::addToSig (str, raw::VALUE_API_DECL([m], ty));
+			 str::addToBody (str, code);
+		     }
+
+		 fun create (m, pat, self, [], ty)
+                         = 
+			 add (m, fn::ty f, u::MY (m, u::ID "f")) 
+
+		   | create (m, pat, self, args, argTy)
+			 =
+			 {   pats = [pat, raw::IDPAT "obj"];
+			     exp  = u::APPLY("f", raw::TUPLE_IN_EXPRESSION (map u::ID ("obj" . args)));
+			     sign = raw::FUNTY (argTy, raw::FUNTY (self, raw::TUPLETY []));
+			     code = raw::FUN_DECL [raw::FUN (m,
+					       [raw::CLAUSE (pats, NULL, exp)]) ];
+			     add (m, sign, code);
+			 }
+
+		 fun makeTupleFn (m, self, args)
+                     =
+		     {   fun var i = "x"$int::to_string i;
+ 
+			 vars = list::from_fn (length args, var);
+			 pat  = raw::TUPLEPAT (map raw::IDPAT vars);
+			 ty   = raw::TUPLETY args;
+
+		         create (m, pat, self, vars, ty);
+		     }
+
+		 fun makeRecordFn (m, self, selfTy, args)
+                     =
+		     {   pat =   raw::RECORD_PATTERN (map (\\ (x, _) => (x, raw::IDPAT x)) args,
+					       FALSE);
+			 vars = map (\\ (x, _) => x) args;
+			 ty   = raw::RECORDTY args;
+
+		         create (m, pat, selfTy, vars, ty);
+		     }
+
+		 fun make (ty, m) = 
+		   case ty of
+		   raw::FUNTY (raw::TUPLETY (self . args), raw::TUPLETY []) => 
+		     if isMessage self then makeTupleFn (m, self, args)
+		     else ()
+		 | raw::FUNTY (raw::RECORDTY((self, ty) . args), raw::TUPLETY []) => 
+		     if isMessage ty then makeRecordFn (m, self, ty, args)
+		     else ()
+		 | raw::FUNTY (self, raw::TUPLETY []) =>   
+		     if isMessage self then makeTupleFn (m, self,[])
+		     else ()
+		 | _ => ()
+	     in  make (fn::ty f, "m");
+		 make (fn::labTy g, "m'") except _ => ()
+	     end
+       else ()
+
+
+   /*------------------------------------------------------------------------
+    *
+    * Generate macros
+    *
+    *------------------------------------------------------------------------*/
+   macros_header = [A.@@@["use C Gtk",
+                            "infix --> @",
+                            "fun ptr --> { deref, get } = deref ptr",
+                            "fun obj @ { deref, get } = get obj"
+                           ]
+                       ]
+   macros_file = "macros.pkg"
+
+   /*
+    * Cleanup Action 
+    */
+   fun cleanup info =  
+       (cm::add (info, "package gtk_downcast", "../Gtk-downcast.pkg");
+        winix__premicrothread::process::bin_sh' "cd Gadgets; make wrapper";
+        ()
+       )
+)
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

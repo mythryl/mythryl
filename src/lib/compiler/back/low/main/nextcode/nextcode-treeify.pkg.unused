@@ -1,0 +1,85 @@
+api FPS_TREEIFY {
+  enum treeify = TREEIFY | COMPUTE | DEAD
+
+  my usage:  List( FPS::function ) -> (FPS::Lambda_Variable -> treeify)
+end
+
+
+package fps_no_treeify:  FPS_TREEIFY {
+
+  enum treeify = TREEIFY | COMPUTE | DEAD 
+  usage = \\ _ => \\ _ => COMPUTE
+}
+
+
+
+package fps_treeify:  FPS_TREEIFY {
+
+  package c = fps
+
+  enum Treeify
+      =
+      TREEIFY | COMPUTE | DEAD
+
+  fun error msg
+      =
+      error_message::impossible ("FPStack." + msg)
+
+  fun usage fl
+      =
+      {   # Table to record number of uses 
+
+	  exception USE_COUNT_TABLE;
+
+	  my useCntTable:  int_map::Intmap( Treeify )
+                        =  int_map::new (32, USE_COUNT_TABLE);
+
+	  uses =   int_map::mapWithDefault (useCntTable, DEAD);
+
+	  addCntTable =   int_map::add useCntTable;
+
+	  fun addUse v
+              = 
+	      case uses v
+	       of DEAD => addCntTable (v, TREEIFY)
+		| TREEIFY => addCntTable (v, COMPUTE)
+		| _ => ();
+
+	  fun add_value (c::VAR v) = addUse v
+	    | add_value _ = ();
+
+	  fun add_values [] = ()
+	    | add_values (c::VAR v . vl) = (addUse v; add_values vl)
+	    | add_values(_ . vl) = add_values vl;
+
+	  fun cntUsesCps (c::RECORD(_, vl, w,    e)) =  {   add_values (map #1 vl);   cntUsesCps e; }
+	    | cntUsesCps (c::BRANCH(_, vl, _, c1, c2)) = {  add_values vl; cntUsesCps c1; cntUsesCps c2; }
+	    | cntUsesCps (c::MATH(_, vl, _, _,  e)) =  {   add_values vl;            cntUsesCps e; }
+	    | cntUsesCps (c::PURE(_, vl, _, _,   e)) =  {   add_values vl;            cntUsesCps e  };
+	    | cntUsesCps (c::SETTER(_, vl,       e)) = {    add_values vl;            cntUsesCps e; }
+	    | cntUsesCps (c::OFFSET (i, v, x,    e)) =  {   add_value v;              cntUsesCps e; }
+	    | cntUsesCps (c::SELECT (i, v, x, _, e)) =  {   add_value v;              cntUsesCps e; }
+	    | cntUsesCps (c::SWITCH (v, _, el))         {   add_value v;       apply cntUsesCps el; }
+	    | cntUsesCps (c::APPLY (v, vl))            =  {   add_value v; add_values vl;              }
+	    | cntUsesCps (c::FIX _) = error "pass1: FIX"
+	    | cntUsesCps (c::LOOKER (looker, vl, x, _, e))
+              = 
+	      {   add_values vl; 
+
+		  /* floating subscript cannot move past a floating update.
+		   * For now subscript operations cannot be treeified.
+		   * This is hacked by making it (falsely) used more than once.
+		   */
+		  case looker
+		  of
+		       c::p::numsubscript { kind=c::p::FLOAT _} => (addUse x; addUse x)
+		    |  _ => ()
+		  /*esac*/;
+		  cntUsesCps e;
+              }
+
+	  apply (\\ (_, _, _, _, e) => cntUsesCps e) fl;
+
+	  uses;
+      }
+}

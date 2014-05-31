@@ -1,0 +1,1566 @@
+#  Mythryl-Yacc Parser Generator (c) 1989, 1990 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/mythryl-yacc.lib
+
+
+
+###            "Computer programming is tremendous fun.
+###
+###             Like music, it is a skill that derives
+###             from an unknown blend of innate talent
+###             and constant practice.
+###
+###             Like drawing, it can be shaped to a
+###             variety of ends -- commercial, artistic,
+###             and pure entertainment.
+###
+###             Programmers have a well-deserved reputation
+###             for working long hours but are rarely
+###             credited with being driven by creative fevers.
+###
+###             Programmers talk about software development
+###             on weekends, vacations, and over meals not
+###             because they lack imagination, but because
+###             their imagination reveals worlds that others
+###             cannot see."
+###
+###                         -- Larry O'Brien and Bruce Eckel
+
+
+stipulate
+    package fil =  file__premicrothread;			# file__premicrothread	is from   src/lib/std/src/posix/file--premicrothread.pkg
+herein
+
+    generic package   parser_generator_g   (
+	#             ==================
+	#
+	package parse_gen_parser:  Parse_Gen_Parser;		# Parse_Gen_Parser	is from   src/app/yacc/src/parse-gen-parser.api
+	package make_table:        Make_Lr_Table;		# Make_Lr_Table		is from   src/app/yacc/src/make-lr-table.api
+	package verbose:           Verbose;			# Verbose		is from   src/app/yacc/src/verbose.api
+	package print_package:     Print_Package;		# Print_Package		is from   src/app/yacc/src/print-package.api
+
+	    sharing make_table::lr_table == print_package::lr_table;
+	    sharing make_table::errs     == verbose::errs;
+
+	    package deep_syntax:  Deep_Syntax;			# Deep_Syntax		is from   src/app/yacc/src/deep-syntax.api
+    )
+
+    : (weak)  Parser_Generator_G				# Parser_Generator_G	is from   src/app/yacc/src/parser-generator-g.api
+
+    {
+	include rw_vector;
+	include list;
+
+	infix my 9 sub;
+
+	package grammar =  make_table::grammar;
+	package header  =  parse_gen_parser::header;
+
+	include header;
+	include grammar;
+
+
+	line_length = 200;		#  Approx. maximum length of a line 
+
+	# Record type describing names of packages
+	# in the program being generated:
+	#
+	Names = NAMES { lr_vals_pkg_macro_name:	String,		#  Misc { n } package name 
+			lr_table_pkg_name:		String,		#  LR table package 
+			#
+			tokens_pkg_name:		String,		#  tokens { n } package name 
+			actions_pkg_name:		String,		#  Actions package 
+			#
+			values_pkg_name:		String,		#  semantic value package 
+			error_recovery_pkg_name:	String,		#  error correction package 
+			#
+			arg:			String,		#  user argument for parser 
+			#
+			tokens_api_name:		String,		#  TOKENS { n } api 
+			lrvals_api_name:		String,		#  API for Misc package 
+			#
+			parser_data_pkg_name:	String,		#  Name of package which holds parser data 
+			parser_data_api_name:	String		#  Api for this package 
+		      };
+
+	to_lower =   string::map  char::to_lower;
+
+	debug = TRUE;
+
+	exception SEMANTIC;
+
+	# Common functions and values used in printing out program 
+	#
+	Values = VALUES   { say:		String -> Void,
+			    say_colon_colon: String -> Void,
+			    sayln:		String -> Void,
+			    pure_actions:	Bool,
+			    pos_type:	String,
+			    arg_type:	String,
+			    ntvoid:		String,
+			    termvoid:	String,
+			    start:		grammar::Nonterminal,
+			    has_type:	grammar::Symbol -> Bool,
+
+			    #  Actual (user) name of terminal 
+
+			    term_to_string:		grammar::Terminal -> String,
+			    symbol_to_string:	grammar::Symbol   -> String,
+
+			    # type Symbol comes from the HDR package,
+			    # and is now abstract:
+
+
+			    term:		List( (header::Symbol, Null_Or( Type )) ),
+			    nonterm:	List( (header::Symbol, Null_Or( Type )) ),
+			    terms:		List( grammar::Terminal ),
+
+			    # token_info is the user inserted
+			    # spec in the *_Token api
+
+			    token_info:	Null_Or( String )
+			  };
+
+	package symbol_hash
+	    =
+	    typelocked_hashtable_g (
+		Element = String;
+		gt = (>) : (String, String) -> Bool;
+	    );
+
+	package term_table
+	    =
+	    table_g (
+		Key =   grammar::Terminal;
+
+		fun gt (TERM i, TERM j) =   i > j;
+	    );
+
+	package symbolmapstack
+	    = 
+	    table_g (
+
+		Key = grammar::Symbol;
+
+		fun gt (   TERMINAL (  TERM  i),    TERMINAL (  TERM  j)) =>  i > j;
+		    gt (NONTERMINAL (NONTERM i), NONTERMINAL (NONTERM j)) =>  i > j;
+		    gt (NONTERMINAL      _,         TERMINAL           _) =>   TRUE;
+		    gt (   TERMINAL _,           NONTERMINAL _          ) =>  FALSE;
+		end;
+	    );
+
+	fun force_uppercase string	# Leave "FOO" alone, map "foo" to "QQ_FOO"
+	    =
+	    case (list::find char::is_lower (string::explode string))
+		#
+		NULL  => string;
+
+		THE _ => "QQ_" + (
+			     string::implode (
+				 map char::to_upper (string::explode string)
+			     )
+			 );
+	    esac;
+
+	#   print_types: function to print the following types in the lr_values
+	#   package and a package containing the type Semantic_Value:
+	#
+	#	    Semantic_Value  -- it holds semantic values on the parse stack
+	#	    Source_Position -- the type of line numbers
+	#	    Result          -- the type of the value that results from the parse
+	#
+	#	The type Semantic_Value is set equal to the type Semantic_Value declared
+	#	in the package named by values_pkg_name.  The type Semantic_Value
+	#	is declared inside the package named by values_pkg_name to deal
+	#	with the scope of constructors.
+	#
+	fun print_types (   VALUES { say, sayln, term, nonterm, symbol_to_string, pos_type, arg_type, termvoid, ntvoid, say_colon_colon, has_type, start, pure_actions, ... },
+			    NAMES { values_pkg_name, ... },
+			    symbol_type
+			)
+	    =
+	    {   fun print_constructors (symbol, THE s)
+			=> 
+			say (   " | "
+			    +   (force_uppercase (symbol_name symbol))
+			    +   " "
+			    +   (if pure_actions  ""; else "Void -> ";fi)
+			    +   " ("
+			    +   name_of_type s
+			    +   ")"
+			    );
+
+		    print_constructors _ => ();
+		end;
+
+		sayln "stipulate include header; herein";
+		sayln ("Source_Position = " + pos_type + ";");
+		sayln ("Arg = " + arg_type + ";");
+		sayln ("package " + values_pkg_name + " { ");
+
+		say (   "Semantic_Value = "
+		    +   termvoid
+		    +   " | "
+		    +   ntvoid
+		    +   " "
+		    +   (if pure_actions  " Void"; else " Void -> Void";fi)
+		    );
+
+		apply print_constructors term;
+		apply print_constructors nonterm;
+		sayln ";\n};";
+
+		sayln (   "Semantic_Value = "
+		      +   values_pkg_name
+		      +   "::Semantic_Value;"
+		      );
+
+		say "Result = ";
+
+		case (symbol_type (NONTERMINAL start))
+		    #
+		    NULL  =>   sayln "Void;";
+		    THE t =>   { say (name_of_type t);   sayln ";"; };
+		esac;
+
+		sayln "end;";
+	    };
+
+	# function to print tokens { n } package 
+	#
+	fun print_tokens_pkg (  VALUES  { say, sayln, term_to_string, has_type, termvoid, terms, pure_actions, token_info, ... },
+				NAMES { lr_vals_pkg_macro_name, lr_table_pkg_name, values_pkg_name, tokens_pkg_name, tokens_api_name, parser_data_pkg_name, ... }
+			     )
+	    =
+	    {   sayln ("package " + tokens_pkg_name + " : (weak) " + tokens_api_name + " {");
+
+		case token_info
+		    NULL => ();
+		    _    => sayln ("include " + parser_data_pkg_name + "::header;");
+		esac;
+
+		sayln ("Semantic_Value = " + parser_data_pkg_name + "::Semantic_Value;");
+
+		sayln "Token (X,Y) = token::Token(X,Y);";
+
+		# Following function generates a per-terminal
+		# terminal-making function looking like one of
+		# the following (depending whether the terminal
+		# has an associated value):
+		#
+		#     fun int  (i, p1, p2) = token::TOKEN (parser_data::lr_table::TERM 14, (parser_data::values::INT (\\ () => i), p1, p2));
+		#     fun keyword (p1, p2) = token::TOKEN (parser_data::lr_table::TERM 15, (parser_data::values::TM_VOID,          p1, p2));
+		#
+		fun print_term_function (term as TERM i)
+		    =
+		    {   say "fun "; say (to_lower (term_to_string term));
+			say " (";
+
+			if (has_type (TERMINAL term))
+			    #
+			    say "i, ";
+			fi;
+
+			say "p1, p2) = token::TOKEN (";
+			say (parser_data_pkg_name + "::" + lr_table_pkg_name + "::TERM ");
+			say (int::to_string i);
+			say ", (";
+			say (parser_data_pkg_name + "::" + values_pkg_name + "::");
+
+			if (has_type (TERMINAL term))
+			    #		         
+			    say (term_to_string term);
+
+			    if pure_actions   say " i";
+			    else	      say " (\\\\ () = i)";
+			    fi;
+			else
+			    say termvoid;
+			fi;
+
+			say ", ";
+			sayln "p1, p2));";
+		    };
+
+		apply print_term_function terms;
+
+		sayln "};";
+	    };
+
+
+	# Function to print out api - takes print function
+	# which does not need to insert line breaks:
+	#
+	fun print_apis (   VALUES  { term, token_info, ... },
+			  NAMES { tokens_api_name, tokens_pkg_name, lrvals_api_name, parser_data_pkg_name, parser_data_api_name, ... },
+			  say
+		      )
+	    =
+	    say  (   "api " + tokens_api_name + " {\n" +
+		     case token_info    NULL => "";  THE s => s + "\n"; esac +
+		     "    Token (X,Y);\n" +
+		     "    Semantic_Value;\n" +
+		     (   list::fold_backward
+			     (   \\ ((s, type), r)
+				    =>
+				    string::cat [
+					"    ",
+					to_lower (symbol_name s),
+					case type
+
+					     NULL  =>  ": ("; 
+					     THE l =>  ": ((" + (name_of_type l) + "), ";
+					 esac,
+
+					"X, X) -> Token (Semantic_Value,X);\n",
+					r
+				    ]; end 
+			     )
+			     ""
+			     term
+		     ) +
+		     "};\n" +
+		     "api " + lrvals_api_name + "{\n" +
+		     "    package tokens:  " + tokens_api_name +  ";\n" +
+		     "    package " + parser_data_pkg_name + ": " + parser_data_api_name + ";\n" +
+		     "    sharing " + parser_data_pkg_name + "::token::Token == tokens::Token;\n" +
+		     "    sharing " + parser_data_pkg_name + "::Semantic_Value == tokens::Semantic_Value;\n" +
+		     "};\n"
+		  );
+
+	# Function to print package for error recovery
+	#
+	fun print_error_recovery (
+			keyword:            List( Terminal ),
+			preferred_change:   List( (List( Terminal ), List( Terminal ))),
+			noshift:            List( Terminal ),
+			value:              List( (Terminal, String) ),
+
+			VALUES  { term_to_string, say, sayln, terms, say_colon_colon, has_type, termvoid, pure_actions, ... },
+			NAMES { error_recovery_pkg_name, lr_table_pkg_name, values_pkg_name, ... }
+		    )
+	    =
+	    {   fun sayterm (TERM i)
+		    =
+		    {   say "(TERM ";
+			say (int::to_string i);
+			say ")";
+		    };
+
+		fun print_boolean_case ( l:  List( Terminal ))
+		    =
+		    {   say "\\\\ ";
+
+			apply
+			    (\\ t =  { sayterm t; say " => TRUE"; say "; ";})
+			    l;
+
+			sayln "_ => FALSE; end;";
+		    };
+
+		fun print_terminals_list (l:  List( Terminal ))
+		    =
+		    {   sayln "NIL";
+
+			apply
+			    (\\ t =  { say " @@ "; sayterm t;})
+			    (reverse l);
+		    };
+
+
+		fun print_change ()
+		    =
+		    {   sayln "my preferred_change:   List( (List( Terminal ), List( Terminal )) ) = ";
+
+			apply
+			    (\\ (d, i)
+				 =>
+				 {   say"(";
+				     print_terminals_list d;
+				     say ", ";
+				     print_terminals_list i; 
+				     sayln ") ! ";
+				 }; end 
+			    )
+			    preferred_change;
+
+			sayln "NIL;";
+		    };
+
+		fun print_error_values (l:   List( (Terminal, String) ))
+		    =
+		    {   sayln "stipulate include header; herein";
+			sayln "errtermvalue=";
+			say "\\\\ ";
+
+			apply
+			    (\\ (t, s)
+				=>
+				{   sayterm t;
+				    say " => ";
+				    say_colon_colon values_pkg_name;
+				    say (term_to_string t);
+				    say "(";
+				    if (not pure_actions ) say "\\\\ () = "; fi;
+				    say "(";
+				    say s;
+				    say "))";
+				    sayln "; ";
+				}; end 
+			    )
+			    l;
+
+		       say "_ => ";
+		       say (values_pkg_name + "::");
+		       sayln (termvoid + ";");
+		       sayln " end; end;";
+		   };
+
+
+		fun print_names ()
+		    =
+		    {   fun f term
+			    =
+			    {   sayterm term; say " => ";
+				sayln (string::cat ["\"", term_to_string term, "\""]);
+				say "; ";
+			    };
+
+			sayln "show_terminal =";
+			say "\\\\ ";
+			apply f terms;
+			sayln "_ => \"bogus-term\"; end;";
+		    };
+
+		error_recovery_terms
+		    = 
+		    list::fold_backward
+			(   \\ (t, r)
+				=
+				if (has_type (TERMINAL t) or exists (\\ (a, _) =   a == t) value)
+					 r;
+				else t ! r;
+				fi
+			)
+			[]
+			terms;
+
+		say "package ";
+		say error_recovery_pkg_name;
+		sayln "{";
+		sayln ("include " + lr_table_pkg_name + ";");
+		sayln "infix my 60 @@;";
+		sayln "fun x @@ y = y ! x;";
+		sayln "is_keyword =";
+
+		print_boolean_case keyword;
+		print_change();
+
+		sayln "no_shift = ";
+
+		print_boolean_case noshift;
+		print_names ();
+		print_error_values value;
+
+		say "my terms:  List( Terminal ) = ";
+
+		print_terminals_list error_recovery_terms;
+
+		sayln ";\n};";
+	    };
+
+
+	fun print_actions (  rules,
+			     VALUES { has_type, say, sayln, termvoid, ntvoid, symbol_to_string, say_colon_colon, start, pure_actions, ... },
+			     NAMES { actions_pkg_name, values_pkg_name, lr_table_pkg_name, arg, ... },
+			     term_hash,
+			     symbol_hash
+			 )
+	    =
+	    {   print_deep_syntax_tree_rule
+		    =
+		    deep_syntax::print_rule (say, sayln);
+
+		fun is_nonterm (NONTERMINAL i) =>   TRUE;
+		    is_nonterm  _              =>   FALSE;
+		end;
+
+		fun number_rhs r
+		    =
+		    list::fold_forward
+			(\\ (e, (r, table))
+			    =
+			    { num = case (symbolmapstack::find (e, table))
+					THE i => i;
+					NULL => 1;
+                                    esac;
+			      ((e, num, has_type e or is_nonterm e) ! r,
+				 symbolmapstack::set((e, num+1), table));
+			    }
+			)
+			(NIL, symbolmapstack::empty)
+			r;
+
+		fun print_rule (   i: Int,
+				   r as { lhs as (NONTERM lhs_num), prec, rhs, code, rulenum }
+			       )
+		    =
+		    {   include deep_syntax;
+
+			# Build an argument:
+			# 
+			fun make_token (sym, num:  Int, typed)
+			    =
+			    {   symbol_string =   symbol_to_string sym;
+
+				uc_symbol_string =   force_uppercase   symbol_string;
+
+				symbol_string =   to_lower symbol_string;
+
+				symbol_number =   symbol_string + (int::to_string num);
+
+				PTUPLE [
+
+				    WILD,
+
+				    PTUPLE [
+
+					if (not (has_type sym))
+
+					    if   (is_nonterm sym)
+
+						 PAPP (
+						     values_pkg_name + "::" + ntvoid,
+						     PVAR symbol_number
+						 );
+					    else
+						 WILD;
+					    fi;
+					else	
+					    PAPP (
+						values_pkg_name + "::" + uc_symbol_string,
+
+						if   (num == 1   and   pure_actions)
+
+						     AS (symbol_number, PVAR symbol_string);
+						else
+						     PVAR symbol_number;
+						fi
+					    );
+					fi,
+
+					if (num == 1)
+
+					    AS (symbol_string + "left", PVAR (symbol_number + "left"));
+					else
+					    PVAR (symbol_number + "left");
+					fi,
+
+					if (num == 1)
+
+					    AS (symbol_string + "right", PVAR (symbol_number + "right"));
+					else
+					    PVAR (symbol_number + "right");
+					fi
+				    ]
+				];
+			    };
+
+			numbered_rhs =   #1 (number_rhs rhs);
+
+			# Construct case pattern 
+
+			pattern = PTUPLE [ PINT i, PLIST (map make_token numbered_rhs,
+						      THE (PVAR "rest671"))];
+
+			# Remove terminals in argument list w/o types 
+			#	
+			args_with_types
+			    =
+			    list::fold_backward
+				\\ ((_, _, FALSE), r)      =>       r;
+				    (s as (_, _, TRUE), r) =>   s ! r;
+				end
+				NIL
+				numbered_rhs;
+
+			# Construct case body 
+			#
+			default_position = EVAR "default_position";
+			resultexp        = EVAR "result";
+			resultpat        = PVAR "result";
+			code             = CODE code;
+			rest             = EVAR "rest671";
+
+			body =  LET ( [ NAMED_VALUE
+					  (resultpat,
+
+					    EAPP (  EVAR (   values_pkg_name + "::"
+							    +
+							    if (has_type (NONTERMINAL lhs))
+								force_uppercase (symbol_to_string (NONTERMINAL lhs));
+							    else
+								ntvoid;
+							    fi
+							 ),
+
+						    if pure_actions
+							#
+							code;
+
+						    elif (args_with_types==NIL)
+							#
+							FN (WILD, code);
+
+						    else
+							FN ( WILD,
+
+							     if (has_type (NONTERMINAL lhs))   body;
+							     else                              SEQ (body, UNIT);
+							     fi
+							     where
+								 body = LET (map (\\ (sym, num: Int, _)
+										     =
+										     { symbol_string = to_lower (symbol_to_string sym);
+											  symbol_number = symbol_string + int::to_string num;
+										       NAMED_VALUE (if (num==1 )
+												 AS (symbol_string, PVAR symbol_number);
+											    else PVAR symbol_number;fi,
+											    EAPP (EVAR symbol_number, UNIT));
+										     }
+										 )
+										 (reverse args_with_types),
+										 code
+									    );
+							     end
+							   );
+						    fi
+					       )
+					     )
+				      ],
+
+				      ETUPLE
+					[ EAPP (EVAR (lr_table_pkg_name + "::NONTERM"), EINT (lhs_num)),
+
+					  case rhs
+
+					      NIL =>
+						  ETUPLE [resultexp, default_position, default_position];
+
+					      r   =>
+						  {   my (rsym, rnum, _) = head (numbered_rhs);
+						      my (lsym, lnum, _) = head (reverse numbered_rhs);
+
+						      ETUPLE
+							[ resultexp,
+							  EVAR ((to_lower (symbol_to_string lsym)) + int::to_string lnum + "left"),
+							  EVAR ((to_lower (symbol_to_string rsym)) + int::to_string rnum + "right")
+							];
+						 };
+					  esac,
+
+					  rest
+					]
+				    );
+
+			print_deep_syntax_tree_rule (RULE (pattern, body));
+
+		    };		# fun print_rule
+
+		fun print_rules ()
+		    =
+		    {   sayln "\\\\ (i392, default_position, stack, ";
+			say   "    (";
+			say   arg;
+			sayln "): Arg) = ";
+			sayln "case (i392, stack)";
+			say   " ";
+
+			apply
+			    (\\ (rule as { rulenum, ... } )
+				=
+				{   print_rule (rulenum, rule);
+				    say "; ";
+				}
+			    )
+			    rules;
+
+			 sayln "_ => raise exception (MLY_ACTION i392);";
+			 sayln "esac;";
+		    };
+
+		say "package ";
+		say actions_pkg_name;
+		sayln " {";
+		sayln "exception MLY_ACTION Int;";
+		sayln "stipulate include header; herein";
+		sayln "actions = ";
+
+		print_rules ();
+
+		sayln "end;";
+		say "void = ";
+		say_colon_colon values_pkg_name;
+		sayln (termvoid + ";");
+		say "extract = ";
+		say "\\\\ a = (\\\\ ";
+		say_colon_colon values_pkg_name;
+
+		if (has_type (NONTERMINAL start))
+
+		    say (force_uppercase (symbol_to_string (NONTERMINAL start)));
+		else
+		    say "ntVOID";
+		fi;
+
+		sayln " x => x;";
+		sayln " _ => { exception PARSE_INTERNAL;";
+		say "\t raise exception PARSE_INTERNAL; }; end ) a ";
+		sayln (if pure_actions  ";"; else "();";fi);
+		sayln "};";
+	    };			# fun print_actions
+
+	fun make_parser (
+		(   header,
+		    DECL { eop, change, keyword, nonterm, prec, term, control, value } : Decl_Data,
+		    rules:  List( Rule )
+		),
+		spec,
+		error:  Source_Position -> String -> Void,
+		was_error:  Void -> Bool
+	    )
+	    =
+	    {   verbose
+		    =
+		    list::exists
+			\\ VERBOSE => TRUE;
+			   _       => FALSE;
+			end
+			control;
+
+		default_reductions
+		    =
+		    not (
+			list::exists
+			    \\ NODEFAULT => TRUE;
+			       _         => FALSE;
+			    end
+			    control
+		    );
+
+		pos_type
+		    =
+		    f control
+		    where 
+			fun f NIL           =>   NULL;
+			    f ((POS s) ! r) =>   THE s; 
+			    f (_ ! r)       =>   f r;
+			end;
+		    end;
+
+		start
+		    =
+		    f control
+		    where 
+			fun f NIL => NULL;
+			    f ((START_SYM s) ! r) => THE s; 
+			    f (_ ! r) => f r;
+			end;
+		    end;
+
+		name
+		    =
+		    f control
+		    where 
+			fun f NIL => NULL;
+			    f ((PARSER_NAME s) ! r) => THE s; 
+			    f (_ ! r) => f r;
+			end;
+		   end;
+
+		header_decl
+		    =
+		    f control
+		    where 
+			fun f NIL => NULL;
+			    f ((GENERIC s) ! r) => THE s; 
+			    f (_ ! r) => f r;
+			end;
+		    end;
+
+		token_api_info_decl
+		    =
+		    f control
+		    where 
+			fun f NIL => NULL;
+			    f ((TOKEN_API_INFO s) ! _) => THE s;
+			    f (_ ! r) => f r;
+			end;
+		    end;
+
+		arg_decl
+		    =
+		    f control
+		    where 
+			fun f NIL => ("()", "Void");
+			    f ((PARSE_ARG s) ! r) => s; 
+			    f (_ ! r) => f r;
+			end;
+		    end;
+
+		noshift
+		    =
+		    f control
+		    where 
+			fun f NIL => NIL;
+			    f ((NSHIFT s) ! r) => s; 
+			    f (_ ! r) => f r;
+			end;
+		    end;
+
+		pure_actions
+		    =
+		    f control
+		    where 
+			fun f NIL            =>   FALSE;
+			    f ((PURE) ! r) =>   TRUE; 
+			    f (_ ! r)      =>   f r;
+			end;
+		    end;
+
+		term
+		    =
+		    case term
+			NULL  =>   { error 1 "missing %term definition"; NIL;};
+			THE l =>   l;
+		    esac;
+
+		nonterm
+		    =
+		    case nonterm
+			 NULL  =>   {   error 1 "missing %nonterm definition";
+					NIL;
+				    };
+			 THE l =>   l;
+		    esac;
+
+		pos_type
+		    =
+		    case pos_type
+
+			 NULL  =>   { error 1 "missing %pos definition"; "";};
+			 THE l =>   l;
+		    esac;
+
+
+		term_hash
+		    = 
+		    list::fold_backward
+			(\\ ((symbol, _), table)
+			    =
+			    {   name =   symbol_name symbol;
+
+				if (symbol_hash::exists (name, table))
+				    error (symbol_pos symbol) ("duplicate definition of " + name + " in %term");
+				    table;
+				else
+				    symbol_hash::add (name, table);
+				fi;
+			    }
+			)
+			symbol_hash::empty
+			term;
+
+		fun is_term name
+		    =
+		    symbol_hash::exists (name, term_hash);
+
+		symbol_hash
+		    = 
+		    list::fold_backward
+			(\\ ((symbol, _), table)
+			    =
+			    {   name = symbol_name symbol;
+
+				if  (symbol_hash::exists (name, table))
+
+				    error (symbol_pos symbol)
+					(if   (is_term name)
+
+					      name + " is defined as a terminal and a nonterminal";
+					 else 
+					      "duplicate definition of " + name + " in %nonterm";
+					 fi);
+				    table;
+
+				else
+				    symbol_hash::add (name, table);
+				fi;
+			    }
+			)
+			term_hash
+			nonterm;
+
+		fun make_unique_id s
+		    =
+		    symbol_hash::exists (s, symbol_hash)
+		      ??  make_unique_id (s + "'")
+		      ::  s;
+
+		if (was_error())   raise exception SEMANTIC;   fi;
+
+		num_terms    = symbol_hash::size term_hash;
+		num_nonterms = symbol_hash::size symbol_hash - num_terms;
+
+		fun symbol_error sym err symbol
+		    =
+		    error (symbol_pos symbol)
+			  (symbol_name symbol + " in " + err + " is not defined as a " + sym);
+
+		stipulate
+		    term_error =  symbol_error  "terminal";
+		herein 
+
+		    fun term_num statement
+			=
+			{   statement_error =  term_error  statement;
+			    #
+			    \\ symbol
+				=
+				case (symbol_hash::find (symbol_name symbol, symbol_hash))
+				    #
+				    NULL  => {   statement_error symbol;
+						 TERM -1;
+					     };
+
+				    THE i => TERM if (i < num_terms)
+						      i;
+						  else
+						      statement_error symbol;
+						      -1;
+						  fi;
+				esac;
+			};
+		end;
+
+		stipulate
+		    nonterm_error  =  symbol_error  "nonterminal";
+		herein   
+
+		    fun nonterm_num  statement
+			=
+			{   statement_error =  nonterm_error  statement;
+			    #
+			    \\ symbol
+				=
+				case (symbol_hash::find (symbol_name symbol, symbol_hash))
+				    #
+				    NULL  => {   statement_error symbol;
+						 NONTERM -1;
+					     };
+
+				    THE i => if (i >= num_terms)
+						 NONTERM (i-num_terms);
+					     else
+						 statement_error symbol;
+						 NONTERM -1;
+					     fi;
+				esac;
+			};
+		end;
+
+		my symbol_num:  String -> header::Symbol -> grammar::Symbol
+		    =
+		    {   symbol_error
+			    =
+			    symbol_error "symbol"; 
+
+			\\ statement
+			    =
+			    {   statement_error
+				    =
+				    symbol_error statement;
+
+				\\ symbol
+				    =
+				    case (symbol_hash::find (symbol_name symbol, symbol_hash))
+
+					NULL  =>    {   statement_error symbol;
+							NONTERMINAL (NONTERM -1);
+						    };
+
+					THE i =>    if (i >= num_terms)  NONTERMINAL (NONTERM (i-num_terms));
+						    else                 TERMINAL (TERM i);
+						    fi;
+				    esac;
+			    };
+		    };
+
+		#  Map all symbols in the following values to terminals and check that
+		#  the symbols are defined as terminals:
+		#
+		#	    eop:  List( symbol )
+		#	    keyword: List( symbol )
+		#	    prec:  List( lexvalue * ( List( symbol ) ))
+		#	    change:  List( List( symbol ) * List( symbol ) )
+
+
+		eop     =  map (term_num "%eop")     eop;
+		keyword =  map (term_num "%keyword") keyword;
+
+		prec = map (\\ (a, l)
+				=
+				(a, case a
+				       LEFT     => map (term_num "%left")     l;
+				       RIGHT    => map (term_num "%right")    l;
+				       NONASSOC => map (term_num "%nonassoc") l;
+				    esac
+				)
+			   )
+			   prec;
+
+		change
+		    =
+		    {   map_term
+			    =
+			    term_num "%prefer, %subst, or %change";
+
+			map 
+			    (\\ (a, b) =  (map map_term a, map map_term b))
+			    change;
+		    };
+
+		noshift
+		    =
+		    map
+			(term_num "%noshift")
+			noshift;
+
+		value
+		    =
+		    {   map_term = term_num "%value";
+
+			map (\\ (a, b) = (map_term a, b))
+			    value;
+		    };
+
+		my (rules, _)
+		    =
+		    {   symbol_num  = symbol_num "rule";
+			nonterm_num = nonterm_num "rule";
+
+			term_num = term_num "%prec tag";
+
+			list::fold_backward
+
+			    (\\ (RULE { lhs, rhs, code, prec }, (l, n))
+				=
+				( { lhs=>nonterm_num lhs,
+				    rhs=>map symbol_num rhs,
+				    code,
+				    prec=>case prec
+					      THE t =>  THE (term_num t);
+					      NULL  =>  NULL;
+					  esac,
+				    rulenum=>n
+				  }
+				  ! l,
+				  n - 1
+				)
+			    )
+			    (NIL, length rules - 1)
+			    rules;
+		    };
+
+		if (was_error ())   raise exception SEMANTIC;   fi;
+
+		# term_to_string: map terminals back to strings 
+		#
+		stipulate 
+		    #
+		    data =  make_rw_vector (num_terms, "");
+
+		    fun unmap (symbol, _)
+			=
+			{   name =  symbol_name  symbol;
+			    #
+			    set (
+				data,
+
+				case (symbol_hash::find (name, symbol_hash))
+				    #
+				    THE i =>   i;
+				    NULL  =>   raise exception FAIL "term_to_string";
+				esac,
+
+				name
+			    );
+			};
+
+		herein
+					    my _ =
+		    apply unmap term;
+
+		    fun term_to_string (TERM i)
+			=
+			if (debug  and  (i < 0  or  i >= num_terms))
+			    #		        
+			    "bogus-num" + (int::to_string i);
+			else
+			    data[ i ];
+			fi;
+		end;
+
+		stipulate
+		    #
+		    data = make_rw_vector (num_nonterms, "");
+
+		    fun unmap (symbol, _)
+			=
+			{   name =  symbol_name  symbol;
+			    #
+			    set
+			      ( data,
+
+				case (symbol_hash::find (name, symbol_hash))
+				    #
+				    THE i =>   i - num_terms;
+				    NULL  =>   raise exception FAIL "nonterm_to_string";
+				esac,
+
+				name
+			      );
+			};
+
+
+		herein
+					    my _ =
+		    apply unmap nonterm;
+
+		    fun nonterm_to_string (NONTERM i)
+			=
+			if (debug  and  (i < 0 or i >= num_nonterms))
+			    #		        
+			    "bogus-num" + (int::to_string i);
+			else
+			     data[ i ];
+			fi;
+		end;
+
+		#  create functions mapping terminals to precedence numbers and rules to
+		#  precedence numbers.
+		#
+		#  Precedence statements are listed in order of ascending (tighter naming)
+		#  precedence in the specification.   We receive a list composed of pairs
+		#  containing the kind of precedence (left, right, or assoc) and a list of
+		#  terminals associated with that precedence.  The list has the same order as
+		#  the corresponding declarations did in the specification.
+		#
+		#  Internally, a tighter naming has a higher precedence number.  We give
+		#  precedences using multiples of 3:
+		#
+		#		p+2 = right associative (force shift of symbol)
+		#		p+1 = precedence for rule
+		#		p = left associative (force reduction of rule)
+		#
+		#  Nonassociative terminals are given also given a precedence of p+1.  The
+		#  table generator detects when the associativity of a nonassociative terminal
+		#  is being used to resolve a shift/reduce conflict by checking if the
+		#  precedences of the rule and the terminal are equal.
+		#
+		#  A rule is given the precedence of its rightmost terminal
+		#
+		stipulate
+
+		    prec_data =   make_rw_vector (num_terms, NULL:  Null_Or( Int ));
+
+		    fun add_prec term_prec (term as (TERM i))
+			=
+			case (prec_data[ i ])
+
+			     NULL  =>   set (prec_data, i, term_prec);
+			     THE _ =>   error 1 ("multiple precedences specified for terminal " + (term_to_string term));
+			esac;
+
+		    fun term_prec ((LEFT, _),     i) => i;
+			term_prec ((RIGHT, _),    i) => i+2;
+			term_prec ((NONASSOC, l), i) => i+1;
+		    end;
+
+		herein 
+					    my _ =
+		    list::fold_forward
+			(\\ (args as ((_, l), i))
+			     =
+			     { apply (add_prec (THE (term_prec args))) l; i+3;}
+			)
+			0 prec;
+
+		    fun term_prec (TERM i)
+			=
+			if   (debug and (i < 0 or i >= num_terms))
+
+			     NULL;
+			else
+			     prec_data[ i ];
+			fi;
+		end;
+
+		fun elim_assoc i
+		    =
+		    (i - (i % 3) + 1);
+
+		stipulate
+
+		   fun find_right_term (NIL, r)
+			   =>
+			   r;
+
+		       find_right_term (TERMINAL t ! tail, r)
+			   =>
+			   find_right_term (tail, THE t);
+
+		       find_right_term (_ ! tail, r)
+			   =>
+			   find_right_term (tail, r);
+		   end;
+
+		herein
+
+		    fun rule_prec rhs
+			=
+			case (find_right_term (rhs, NULL))
+
+			    THE term => case (term_prec term)
+					    THE i =>  THE  (elim_assoc i);
+					    a     =>  a;
+					esac;
+
+			    NULL     => NULL;
+			esac;
+		end;
+
+		grammar_rules
+		    =
+		    map conv rules
+		    where 
+
+			fun conv { lhs, rhs, code, prec, rulenum }
+			    =
+			    { rulenum,
+			      lhs,
+			      rhs,
+			      precedence
+				  =>
+				  case prec
+
+				      THE t =>   case (term_prec t)
+						     THE i =>   THE (elim_assoc i);
+						     a     =>   a;
+						 esac;
+
+				       _    =>   rule_prec rhs;
+				  esac
+			    };
+
+		    end;
+
+
+		# Get start symbol 
+		#
+		start = case start
+			    #
+			    NULL     =>   .lhs (head grammar_rules);
+			    THE name =>   nonterm_num "%start" name;
+			esac;
+
+
+		# fun symbol_type
+		#
+		stipulate
+
+		    data = make_rw_vector (   num_terms + num_nonterms,
+					      NULL:  Null_Or( Type )
+					  );
+
+		    fun unmap (symbol, type)
+			=
+			set (
+
+			    data,
+
+			    case (symbol_hash::find (symbol_name symbol, symbol_hash))
+				#                          
+				THE i =>   i;
+				NULL  =>   raise exception FAIL "symbol_type";
+			    esac,
+
+			    type
+			);
+
+		herein
+						    my _ =
+		    apply unmap term;		my _ =
+		    apply unmap nonterm;
+
+		    fun symbol_type (NONTERMINAL (NONTERM i)) =>   if  (debug and (i<0 or i>=num_nonterms)  )   NULL; else   data[ i + num_terms ];   fi;
+			symbol_type (   TERMINAL (   TERM i)) =>   if  (debug and (i<0 or i>=num_terms)     )   NULL; else   data[ i             ];   fi;
+		    end;
+		end;
+
+		fun symbol_to_string (NONTERMINAL i) =>   nonterm_to_string i;
+		    symbol_to_string (   TERMINAL i) =>      term_to_string i;
+		end;
+
+		grammar  = GRAMMAR { rules             =>  grammar_rules,
+				     terms             =>  num_terms,
+				     nonterms          =>  num_nonterms,
+
+				     precedence        =>  term_prec,
+
+				     eop,
+				     start,
+				     noshift,
+
+				     term_to_string,
+				     nonterm_to_string
+				   };
+
+		mixed_case_name
+		    =
+		    case name
+			THE s =>  symbol_name s;
+			NULL  =>  "";
+		    esac;
+
+		lowercase_name =   to_lower mixed_case_name;
+
+		names = NAMES {    lr_vals_pkg_macro_name  => lowercase_name + "_lr_vals_fun",
+				   values_pkg_name         => "values",
+				   lr_table_pkg_name       => "lr_table",
+
+				   tokens_pkg_name         => "tokens",
+				   actions_pkg_name        => "actions",
+				   error_recovery_pkg_name => "error_recovery",
+				   arg                     => #1 arg_decl,
+
+				   tokens_api_name         => mixed_case_name + "_Tokens",
+				   lrvals_api_name         => mixed_case_name + "_Lrvals",
+
+				   parser_data_pkg_name    => "parser_data",
+				   parser_data_api_name    => "Parser_Data"
+			      };
+
+		(make_table::make_table (grammar, default_reductions))
+		    ->
+		    (table, state_errors, core_print, errs);
+
+		entries = REF 0;		# Track number of action table entries here 
+
+
+		{   result = fil::open_for_write (spec + ".pkg");		# Save    the synthesized code for foo.grammar in foo.grammar.pkg.
+		    apis   = fil::open_for_write (spec + ".api");		# Declare the synthesized code for foo.grammar in foo.grammar.api.
+
+		    pos = REF 0;
+
+		    fun pr s
+			=
+			fil::write (result, s);
+
+		    fun say s
+			=
+			{   l = string::length s;
+
+			    new_pos =  *pos + l;
+
+			    if (new_pos > line_length) 
+				#			     
+				pr "\n";
+				pos := l;
+			    else
+				pos := new_pos;
+			    fi;
+
+			    pr s;
+			};
+
+		    fun say_colon_colon s
+			=
+			say (s + "::");
+
+		    fun sayln t
+			=
+			{   pr t;
+			    pr "\n";
+			    pos := 0;
+			};
+
+		    termvoid =   make_unique_id "TM_VOID";
+		    ntvoid   =   make_unique_id "NT_VOID";
+
+		    fun has_type s
+			=
+			case (symbol_type s)
+			    #
+			    NULL =>   FALSE;
+			    _    =>   TRUE;
+			esac;
+
+		    terms =   f 0
+			      where 
+				  fun f n =   if (n == num_terms)   NIL;
+					      else			(TERM n) ! f (n+1);
+					      fi;
+
+			      end;
+
+		    values = VALUES { say, sayln, say_colon_colon,
+				      termvoid, ntvoid,
+				      has_type, pos_type,
+				      start, pure_actions,
+				      term_to_string, symbol_to_string,
+				      term, nonterm, terms,
+
+				      arg_type  =>   #2 arg_decl,
+				      token_info =>   token_api_info_decl
+				  };
+
+		    names
+			->
+			NAMES
+			  { lr_vals_pkg_macro_name,
+			    lr_table_pkg_name,
+			    parser_data_pkg_name,
+			    tokens_api_name,
+			    tokens_pkg_name,
+			    parser_data_api_name,
+			    ...
+			  };
+
+
+		    case header_decl
+			#		  
+			THE s => say s;
+
+			NULL  => {   say "generic package "; say lr_vals_pkg_macro_name; 
+				     sayln "(package token:  Token;)";
+
+				     say " : (weak) api { package ";
+				     say parser_data_pkg_name;
+				     say " : ";
+				     sayln (parser_data_api_name + ";");
+
+				     say "       package ";
+				     say tokens_pkg_name; say " : ";
+				     sayln (tokens_api_name + ";");
+				     sayln "   }";
+				 };
+		    esac;
+
+		    sayln " { ";
+		    sayln ("package " + parser_data_pkg_name + "{");
+		    sayln "package header { ";
+		    sayln header;
+		    sayln "};";
+		    sayln "package lr_table = token::lr_table;";
+		    sayln "package token = token;";
+		    sayln "stipulate include lr_table; herein ";
+
+		    entries
+			:=
+			print_package::make_package {
+			    table,
+			    print => pr,
+			    name  => "table",
+			    verbose
+			};
+
+		    sayln "end;";
+
+		    print_types (values, names, symbol_type);
+		    print_error_recovery (keyword, change, noshift, value, values, names);
+		    print_actions (rules, values, names, term_hash, symbol_hash );
+
+		    sayln "};";
+
+		    print_tokens_pkg (values, names);
+
+		    sayln "};";
+
+		    print_apis (values, names, \\ s = fil::write (apis, s));    
+
+		    fil::close_output  apis;
+		    fil::close_output  result;
+
+		    make_table::errs::print_summary
+			(\\ s = fil::write (fil::stdout, s))
+			errs;
+		};
+
+		if verbose
+		    #
+		    f =  fil::open_for_write  (spec + ".desc");
+
+		    fun say s
+			=
+			fil::write (f, s);
+
+		    # print_rule:
+		    #
+		    stipulate
+			#
+			rules =  rw_vector::from_list  grammar_rules;
+			#
+		    herein
+
+			fun print_rule  say
+			    =
+			    (\\ i =  print_rule' rules[ i ])
+			    where 
+
+				fun print_rule' { lhs, rhs, precedence, rulenum }
+				    =
+				    {   (say o nonterm_to_string) lhs;
+
+					say " : ";
+
+					apply
+					    (\\ s =  { say (symbol_to_string s); say " ";})
+					    rhs;
+				    };
+			    end;
+		    end;
+
+		    verbose::print_verbose
+		      {
+			term_to_string,
+			nonterm_to_string,
+			table,
+			state_errors,
+			errs,
+			entries    => *entries,
+			print      => say,
+			print_cores => core_print,
+			print_rule
+		      };
+
+		    fil::close_output  f;
+		fi;				# if verbose
+	    };					# fun make_parser
+
+	fun parse_fn spec
+	    =
+	    {   (parse_gen_parser::parse  spec)
+		    ->
+		    (result, input_source);
+
+		make_parser (
+		    get_result result,
+		    spec,
+		    header::error input_source,
+		    error_occurred input_source
+		);
+	    };
+    };
+end;

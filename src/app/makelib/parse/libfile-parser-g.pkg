@@ -1,0 +1,1360 @@
+## libfile-parser-g.pkg  -- Toplevel interpreter for .lib file syntax.
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+
+# This is the Mythryl .lib-file parser.
+#
+# Our primary input is the filename
+# of a root .lib file.
+#
+# We parse that .lib file and all
+# .lib files recursively reachable
+# from it, then return a dependency
+# graph with a node for each .lib file
+# and an edge for each reference of
+# a .lib file from another one.
+#
+# Our dependency graph is defined in:
+#
+#     src/app/makelib/depend/inter-library-dependency-graph.pkg
+#
+#
+#
+###################################################
+# If our   freeze_policy   argument is FREEZE_ALL,
+# which it is when we are called from
+#
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#
+# then we recursively build .frozen freezefiles for
+# all real libraries, which of course requires first
+# compiling all their .api and .pkg sourcefiles down
+# to .api.compiled and .pkg.compiled object-code files.
+#
+# In this case the actual compiles take place as a
+# side-effect of our
+#
+#     freezefile::save_freezefile ()
+#
+# calls -- see
+#
+#     src/app/makelib/freezefile/freezefile-g.pkg
+#
+#
+#
+###################################################
+# If our   freeze_policy   argument is FREEZE_NONE,
+# which it is when we are called from the
+#
+#     src/app/makelib/main/makelib-g.pkg
+#
+# files, then in general all compiling of .api and
+# .pkg files down to .compiled files is done later via:
+#
+#     src/app/makelib/compile/compile-in-dependency-order-g.pkg
+#
+# Both the standard and the bootstrap compiler
+# call us to build their inter-library dependency
+# graphs.
+#
+# E.g., our
+#
+#     libfile_parser_g
+#
+# generic is invoked from both
+#
+#     src/app/makelib/main/makelib-g.pkg
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#
+# at compiletime, and both also invoke our
+#
+#     parse_libfile_tree_and_return_interlibrary_dependency_graph()
+#
+# entrypoint at runtime. 
+
+
+
+
+										# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+										# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+										# library_source_index			is from   src/app/makelib/stuff/library-source-index.pkg
+										# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+										# libfile_grammar_actions		is from   src/app/makelib/parse/libfile-grammar-actions.pkg
+										# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+										# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+
+stipulate
+    package ad  =  anchor_dictionary;						# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package err =  error_message;						# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fil =  file__premicrothread;					# file__premicrothread			is from   src/lib/std/src/posix/file--premicrothread.pkg
+    package fp  =  filename_policy;						# filename_policy			is from   src/app/makelib/main/filename-policy.pkg
+    package frn =  find_reachable_sml_nodes;					# find_reachable_sml_nodes		is from   src/app/makelib/depend/find-reachable-sml-nodes.pkg
+    package fzp =  freeze_policy;						# freeze_policy				is from   src/app/makelib/parse/freeze-policy.pkg
+    package lg  =  inter_library_dependency_graph;				# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package lnd =  line_number_db;						# line_number_db			is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package log =  logger;							# logger				is from   src/lib/src/lib/thread-kit/src/lib/logger.pkg
+    package mld =  makelib_defaults;						# makelib_defaults			is from   src/app/makelib/stuff/makelib-defaults.pkg
+    package ms  =  makelib_state;						# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+    package pp  =  standard_prettyprint_mill;					# standard_prettyprint_mill		is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package ri  =  runtime_internals;						# runtime_internals			is from   src/lib/std/src/nj/runtime-internals.pkg
+    package sci =  sourcecode_info;						# sourcecode_info			is from   src/lib/compiler/front/basics/source/sourcecode-info.pkg
+    package sg  =  intra_library_dependency_graph;				# intra_library_dependency_graph	is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package spm =  source_path_map;						# source_path_map			is from   src/app/makelib/paths/source-path-map.pkg
+    package sps =  source_path_set;						# source_path_set			is from   src/app/makelib/paths/source-path-set.pkg
+    package tlt =  thawedlib_tome;						# thawedlib_tome			is from   src/app/makelib/compilable/thawedlib-tome.pkg
+    package ts  =  timestamp;							# timestamp				is from   src/app/makelib/paths/timestamp.pkg
+
+    Pp = pp::Pp;
+
+    # Logging support.  To log messages from this file scatter
+    #
+    #     to_log {. sprintf "Whatever"; };				# Do not add trailing newline to message string.
+    #
+    # calls through the code as appropriate and then either
+    # uncomment the below
+    #
+    #     my _ = log::enable  libfile_parser_logging;
+    #
+    # line or do
+    #
+    #     logger::enable  (the (logger::find_logtree_node_by_name "libfile_parser::logging"));
+    #
+    # from the Mythryl interactive prompt.
+    #
+    libfile_parser_logging
+	=
+	log::make_logtree_leaf
+	  { parent  =>  fil::all_logging,
+	    name    =>  "libfile_parser::logging",
+	    default =>  FALSE					# Change to TRUE or call  (log::enable libfile_parser_logging)   to enable logging in this file.
+	  };
+    #
+    to_log =  log::log_if  libfile_parser_logging  0;
+herein
+
+    generic package libfile_parser_g (
+	#
+	drop_stale_entries_from_compiler_and_linker_maps:   Void -> Void;
+	#
+	package freezefile_roster:	Freezefile_Roster;			# Freezefile_Roster			is from   src/app/makelib/freezefile/freezefile-roster-g.pkg
+	package freezefile:		Freezefile;				# Freezefile				is from   src/app/makelib/freezefile/freezefile.api
+    )
+    : Libfile_Parser								# Libfile_Parser			is from   src/app/makelib/parse/libfile-parser.api
+    {
+	stipulate
+	    package ffr = freezefile_roster;
+	    package fzf = freezefile;
+
+	    package vff
+		=
+		verify_freezefile_g (package freezefile = freezefile;);
+
+	    lookahead = 30;
+
+
+
+							    # lr_parser							is from   src/app/yacc/lib/parser2.pkg
+							    # make_complete_yacc_parser_with_custom_argument_g		is from   src/app/yacc/lib/make-complete-yacc-parser-with-custom-argument-g.pkg
+
+
+	    package libfile_lr_vals = libfile_lr_vals_fun (package token  = lr_parser::token;);
+	    package libfilelex      = makelib_lex_g   (package tokens = libfile_lr_vals::tokens;);
+
+	    package libfile_parser
+		=
+		make_complete_yacc_parser_with_custom_argument_g (
+		    #
+		    package parser_data =  libfile_lr_vals::parser_data;
+		    package lex         =  libfilelex;
+		    package lr_parser   =  lr_parser;
+		);
+
+
+	    freezefile_cache
+		=
+		REF (spm::empty:   spm::Map( lg::Library ));
+
+	    #
+
+	    #
+	    fun do_major_cleaning ()
+		=
+		ri::hc::clean_heap 7;
+
+	    #
+	    fun get_freezefile_cache_entry (makefile_path, primordial_library as lg::LIBRARY { libfile, ... } )
+		    =>
+		    if (ad::compare (makefile_path, libfile) == EQUAL)
+			 #
+			 THE primordial_library;
+		    else
+			 spm::get (*freezefile_cache, makefile_path);
+		    fi;
+
+		get_freezefile_cache_entry (_, lg::BAD_LIBRARY)
+		    =>
+		    NULL;
+	    end;
+
+
+
+	    # When an entry A vanishes from the freezefile cache
+	    # (this only happens in paranoid mode), then all
+	    # the other ones that refer to A must vanish, too.
+	    #
+	    # They might still be valid themselves,
+	    # but if they had been unpickled before
+	    # A became invalid they will point to
+	    # invalid data.
+	    #
+	    # By removing them from the cache we force
+	    # them to be re-read and re-unpickled.
+	    # This restores sanity.
+	    #
+	    fun delete_cached_freezefile
+		    (
+		      makelib_state: ms::Makelib_State,
+		      p,
+		      version,					# XXX BUGGO FIXME 'version' here can die, I think.
+		      lg::LIBRARY { libfile => igp, ... }
+		    )
+		    =>
+		    {   changed = REF TRUE;
+
+			policy =  makelib_state.makelib_session.filename_policy;
+
+
+			freezefile_name
+			    =
+			    fp::make_freezefile_name
+				policy
+				p;
+									# filename_policy	is from   src/app/makelib/main/filename-policy.pkg
+			#
+			fun can_stay lg::BAD_LIBRARY
+				=>
+				TRUE; #  Doesn't matter 
+
+			    can_stay (lg::LIBRARY { sublibraries, ... } )
+				=>
+				canstay
+				where
+				    fun good_sublib (lt: lg::Library_Thunk)
+					=
+					case (lt.library_thunk ())
+					    #				  
+					    lg::LIBRARY { more => lg::MAIN_LIBRARY { frozen_vs_thawed_stuff => lg::FROZENLIB_STUFF _, ... }, ... }
+						=>
+						ad::compare (p, igp) == EQUAL
+						or
+						spm::contains_key (*freezefile_cache, p);
+					    #
+					    _   => TRUE;
+					esac;
+
+				    canstay =  list::all  good_sublib  sublibraries;
+
+				    if (not canstay)
+					#                                
+					changed := TRUE;
+				    fi;
+				end;
+			end;
+
+
+
+			# Logically remove the freezefile from the registry:
+			#
+			freezefile_cache :=   spm::drop (*freezefile_cache, p);
+
+
+			# Physically remove the freezefile:
+			#
+			winix__premicrothread::file::remove_file  freezefile_name
+			except
+			    _ = ();
+
+
+
+			# Restore sanity in the registry:
+			#
+			for (*changed) {
+
+			    changed := FALSE;
+
+			    freezefile_cache
+				:=
+				spm::filter  can_stay  *freezefile_cache;
+			};
+		    };
+
+		delete_cached_freezefile (_, _, _, lg::BAD_LIBRARY)
+		    =>
+		    ();
+	    end;
+
+
+
+
+
+
+							# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
+							# source_path_map	is from   src/app/makelib/paths/source-path-map.pkg
+							# prettyprinter		is from   src/lib/prettyprint/big/src/prettyprinter.pkg
+							# library_source_index	is from   src/app/makelib/stuff/library-source-index.pkg
+
+	    # Recursively parse the tree of .lib files
+	    # rooted at makelib_file_to_read, returning their
+	    # contents in the form of a dependency graph
+	    # with one node per .lib file.
+	    #
+	    # NB: Technically, the .lib "tree" is in
+	    #     fact a dag ("directed acyclic graph"),
+	    #     since a given .lib file may have many
+	    #     parents as well as many children.
+	    #     Which is to say, many libraries may
+	    #     use a given low-level library file.
+	    #
+	    fun parse_libfile_tree_and_return_interlibrary_dependency_graph {		# This function is part of our exported interface.
+		  #
+		  makelib_file_to_read:		ad::File,	# Our primary input, foo.lib or such. 
+		  load_plugin,					# Function to load a plugin given its directory and filename.
+		  library_source_index,				# Maps makelib filenames to instances of sourcecode_info::Input_Source.
+		  makelib_session,				# Holds 'filename_policy', 'keep_going_after_compile_errors', 'server_mode' ...
+		  freeze_policy,				# See explanation in   src/app/makelib/parse/freeze-policy.api
+		  primordial_library,				# Preparsed copy of src/lib/core/init/init.cmi since we can't parse it ourself (uses different syntax).
+		  paranoid					# TRUE to do extra validity checking.
+		}
+		=
+		{
+		    ad::sync ();
+
+		    # Write per-makefile .compile.log files.
+		    # We don't currently put anything interesting
+		    # in them, but just creating them distinguishes
+		    # live .lib files from deadwood:
+		    #
+		    makefile_filename		# Something like "/pub/home/.../root.lib"
+			=
+			ad::os_string  makelib_file_to_read;
+
+		    unparse_filename	# Construct      "/pub/home/.../root.lib.compile.log"
+			=
+			makefile_filename + ".compile.log";
+
+		    pp  = standard_prettyprint_mill::make_standard_prettyprint_mill  unparse_filename  [];
+
+		    pp.lit "This logfile generated by src/app/makelib/parse/parse-makelib-g.pkg\n";
+		    pp.flush ();
+		    pp.close ();
+
+
+
+		    primordial_library_path
+			=
+			case primordial_library
+			    #
+			    lg::LIBRARY x     =>  x.libfile;
+			    lg::BAD_LIBRARY =>  err::impossible "parse-makelib-g.pkg: parse: bad primordial_library value";
+			esac;
+
+
+		    freeze_this_library  =  freeze_policy != fzp::FREEZE_NONE;
+		    freeze_all_libraries =  freeze_policy == fzp::FREEZE_ALL;
+
+		    library_source_index =  library_source_index;
+		    plaint_sink		 =  err::default_plaint_sink ();
+
+		    timestamp_of_youngest_sourcefile_in_library =   REF  ts::ancient;		# Used to decide whether a library rebuild is needed, in   src/app/makelib/main/makelib-g.pkg
+		    #
+		    fun libname library
+			=
+			the_else
+			  (
+			    null_or::map ad::describe  library,
+			    "<toplevel>"
+			  );
+
+		    makelib_state0
+		      =
+		      { makelib_session,
+			library_source_index,
+			#
+			plaint_sink,
+			timestamp_of_youngest_sourcefile_in_library
+		      };
+
+		    keep_going_after_compile_errors
+			=
+			makelib_session.keep_going_after_compile_errors;
+
+									# null_or			is from   src/lib/std/src/null-or.pkg
+									# frozenlib_tome_map		is from   src/app/makelib/freezefile/frozenlib-tome-map.pkg
+									# freeze_policy			is from   src/app/makelib/parse/freeze-policy.pkg
+									# source_path_map		is from   src/app/makelib/paths/source-path-map.pkg
+
+		    # The libfile cache saves the results of
+		    # processing .lib files, for possible
+		    # re-use later.
+		    #
+		    # Having NULL registered for a .lib file means
+		    # that a previous attempt to run it failed.
+		    #
+		    # We initialize it with a parsed copy of the
+		    # primordial library because it uses special
+		    # special that this file's logic will choke on:
+		    #
+		    libfile_cache
+			=
+			REF (spm::singleton
+				( primordial_library_path,		# "src/lib/core/init/init.cmi"
+				  THE primordial_library		# Parsed version of init.cmi.
+				)
+			    );
+
+
+		    exports_map
+			=
+			REF  frozenlib_tome_map::empty;
+
+		    #
+		    fun update_exports_map				# Called only in paranoid mode after verifying ns_g (producing s_g).
+			    ( lg::LIBRARY ns_g,
+			      lg::LIBRARY  s_g
+			    )
+			    =>
+			    {   s_e =  s_g.catalog;
+				#
+				fun add (symbol, t: lg::Fat_Tome)
+				    =
+				    case (t.masked_tome_thunk ())	# src
+					#			      
+					{ exports_mask,
+					  tome_tin =>  sg::TOME_IN_THAWEDLIB (sg::THAWEDLIB_TOME_TIN  sourcefile_tin)
+					}
+					    =>
+					    case (symbol_map::get (s_e, symbol))
+						#				       
+						NULL => ();
+						#
+						THE (t:  lg::Fat_Tome)
+						    =>
+						    case (t.masked_tome_thunk ())
+							#
+							{ exports_mask,
+							  tome_tin => sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN freezefile_tin, ... }
+							}
+							    =>
+							    exports_map
+								:=
+								frozenlib_tome_map::set (
+								    *exports_map,
+								    freezefile_tin.frozenlib_tome,
+								    sourcefile_tin.thawedlib_tome
+								);
+
+							_ => ();
+						    esac;
+					    esac;
+
+
+					_   => ();
+				    esac;
+
+				symbol_map::keyed_apply
+				    add
+				    ns_g.catalog;
+			    };
+
+			update_exports_map _
+			    =>
+			    ();
+		    end;
+
+		    #
+		    fun register_new_freezefile (gpath, g)
+			=
+			{  freezefile_cache
+			       :=
+			       spm::set (*freezefile_cache, gpath, g);
+
+			   sps::apply
+			       (tlt::clean_library  TRUE)
+			       (frn::groups_of  g);
+
+			   drop_stale_entries_from_compiler_and_linker_maps ();
+
+			   libfile_cache :=  spm::drop (*libfile_cache, gpath);
+
+			   do_major_cleaning ();					# For good measure.
+			};
+
+		    #
+		    fun has_cycle (root_library, library_stack)
+			=
+			{   #  Check for cycles among libraries and print them nicely: 
+			    #
+			    fun find_cycle ([], _)
+				    =>
+				    [];
+
+				find_cycle ((h as (this_library, (s, p1, p2))) ! t, cycle)
+				    =>
+				    if (ad::compare (this_library, root_library) == EQUAL)
+					#
+					reverse (h ! cycle);
+				    else
+					find_cycle (t, h ! cycle);
+				    fi;
+			    end;
+			    #
+			    fun report ((this_library, (s, p1, p2)), hist)
+				=
+				{   fun pphist (pp:Pp)
+					=
+					loop (this_library, hist)
+					where
+					    fun loop (_, [])
+						    =>
+						   ();
+
+						loop (g0, (this_library, (s, p1, p2)) ! t)
+						    =>
+						    {   s =  err::match_error_string s (p1, p2);
+
+							pp.newline();
+							pp.lit s;
+							pp.lit ": importing ";
+							pp.lit (ad::describe g0);
+							loop (this_library,   t);
+						    };
+					    end;
+					end;
+
+				    err::error s (p1, p2) err::ERROR
+					       ("library hierarchy forms a cycle with " +
+						ad::describe root_library)
+					       pphist;
+				};
+
+			    case (find_cycle (library_stack, []))
+
+				 h ! t
+				     =>
+				     {  report (h, t);
+					TRUE;
+				     };
+
+				[]   =>
+				     FALSE;
+			    esac;
+			};
+
+		    #
+		    fun main_parse
+			(
+			  makelib_file_to_read,
+			  version,
+			  library_stack,
+			  p_err_flag,
+			  freeze_this_library,
+			  this_library,
+			  makelib_state,
+			  anchor_renamings,	# MUSTDIE
+			  error
+			)
+			=
+			{
+			    fun load_freezefile_from_disk
+
+				    freezefile_stack
+
+				    ( makelib_state,
+				      makefile_path,
+				      version			# XXX BUGGO DELETEME
+				      ,  anchor_renamings	# MUSTDIE
+				    )
+				=
+				{   # Detect cycles among freezefiles.
+				    #
+				    # Such cycles should never occur
+				    # unless someone purposely renames
+				    # freezefiles in a bad way:
+
+				    fun find_cycle ([], _)
+					    =>
+					    NULL;
+
+					find_cycle (h ! t, cycle)
+					    =>
+					   if   (ad::compare (h, makefile_path) == EQUAL)
+						THE (h ! cycle);
+					   else find_cycle (t, h ! cycle);
+					   fi;
+				    end;
+
+				    #
+				    fun report cycle
+					=
+					{   fun pphist (pp:Pp)
+						=
+						loop (reverse cycle)
+						where
+						    fun loop []
+							    =>
+							    ();
+
+							loop (h ! t)
+							    =>
+							    {   pp.newline();
+								pp.lit (ad::describe h);
+								loop t;
+							    };
+						    end;
+						end;
+
+					    err::error_no_file
+						(plaint_sink, p_err_flag)
+						lnd::null_region
+						err::ERROR
+						("freezefiles form a cycle with " + ad::describe makefile_path)
+						pphist;
+					};
+
+				    #
+				    fun load_freezefile ()
+					=
+					{
+					    maybe_afreezefile
+						=
+						fzf::load_freezefile
+						    {
+						      get_library =>  load_freezefile_from_disk (makefile_path ! freezefile_stack),
+						      saw_errors  =>  p_err_flag
+						    }
+
+						    ( makelib_state,
+						      makefile_path,
+						      version		# XXX BUGGO DELETEME
+							, anchor_renamings	# MUSTDIE
+						    );
+
+					    case maybe_afreezefile
+
+						 NULL
+						     =>
+						     {
+							 NULL;
+						     };
+
+						 THE freezefile
+						     =>
+						     {
+							register_new_freezefile (makefile_path, freezefile);
+
+							name1 = ad::describe makefile_path;
+                                                        name2 = ad::abbreviate  (ad::os_string'  makefile_path);
+
+							# Narrate both names to console only if
+							# the second adds significant information:
+							#
+                                                        if (string::is_suffix name2 name1)  fil::say {. cat [ "\n                    libfile-parser-g.pkg:   Library                 ", name1,               "     is up to date."]; };
+							else				    fil::say {. cat [ "\n                    libfile-parser-g.pkg:   Library                 ", name1, " (", name2, ")     is up to date."]; };
+							fi;
+
+							THE freezefile;
+						     };
+					    esac;
+					};
+
+				    case (find_cycle (freezefile_stack, []))
+					#
+					THE cycle
+					    =>
+					    {   report cycle;
+						NULL;
+					    };
+					#
+					NULL
+					    =>
+					    case (get_freezefile_cache_entry (makefile_path, primordial_library))
+						#
+						THE freezefile => {
+								      THE freezefile;
+								  };
+						NULL           => {
+								      load_freezefile ();
+								  };
+					    esac;
+				    esac;
+				};                                                              #  fun load_freezefile_from_disk 
+
+			    #
+			    fun freeze_library (NULL
+						 , _	# MUSTDIE
+					       )
+				    =>
+				    NULL;
+
+				freeze_library (THE library
+						 , anchor_renamings	# MUSTDIE
+					       )
+				    =>
+				    # We may not freeze sublibraries,
+				    # only main ones, so start by checking
+				    # its 'more' field to see which we have:
+				    #
+				    case library
+					#
+					lg::BAD_LIBRARY =>   NULL;
+					#
+					lg::LIBRARY { more => lg::MAIN_LIBRARY _, ... }
+					    =>
+					    {
+						frozen_library
+						    =
+						    fzf::save_freezefile   makelib_state
+						      {
+							library,
+							saw_errors  => p_err_flag
+							,renamings => anchor_renamings   # MUSTDIE
+						      };
+
+					        case frozen_library
+						    #
+						    THE library'
+							=>
+							{   register_new_freezefile (makelib_file_to_read, library');
+							    #
+							    THE library';
+							};
+
+						    NULL => NULL;
+					       esac;
+					   };
+
+					lg::LIBRARY { more => lg::SUBLIBRARY _, libfile, ... }
+					    =>
+					    THE library;
+				    esac;
+			    end;			# fun freeze_library
+
+							# (resuming: fun main_parse)
+
+			    # A VIRTUAL library must be a member of
+			    # exactly one REAL library.  Check this:
+			    #
+			    case (spm::get (*libfile_cache, makelib_file_to_read))
+				#
+				THE library_or_null
+				    =>
+				    library_or_null
+				    where
+					case library_or_null
+					    #
+					    THE (lg::LIBRARY { more => lg::SUBLIBRARY { main_library, ... }, ... } )
+						=>
+						{
+						    fun eq (NULL,  NULL)   =>   TRUE;
+							eq (THE p, THE p') =>   ad::compare (p, p') == EQUAL;
+							eq _               =>   FALSE;
+						    end;
+
+						    if (not (eq (this_library, main_library)))
+							#
+							error (cat ["library ",
+									ad::describe makelib_file_to_read,
+									" appears as member of \
+									\two different libraries: ",
+									libname main_library, " and ",
+									libname this_library, "\n"]);
+							#
+							p_err_flag := TRUE;
+						    fi;
+
+						};
+
+					    _   => ();
+					esac;
+
+				    end;
+
+				NULL
+				    =>
+				    {   fun find_and_load_freezefile ()
+					    =
+					    load_freezefile_from_disk [] (makelib_state, makelib_file_to_read, version
+								 , anchor_renamings	# MUSTDIE
+							      );
+
+					#
+					fun find_and_parse_libfile ()
+					    =
+					    parse' (makelib_file_to_read, library_stack, p_err_flag, this_library, makelib_state
+							, anchor_renamings	# MUSTDIE
+						   );
+
+					#
+					fun add_makefile_to_cache  (library_or_null:  Null_Or(lg::Library))
+					    =
+					    {    libfile_cache
+						     :=
+						     spm::set
+							 (
+							   *libfile_cache,
+							   makelib_file_to_read,
+							   library_or_null
+							 );
+
+						 library_or_null;
+					    };
+								       # source_path_map	is from   src/app/makelib/paths/source-path-map.pkg
+
+					#
+					fun cache_and_maybe_freeze_library  library_or_null
+					    =
+					    add_makefile_to_cache (
+
+						if freeze_this_library
+						    #
+						    freeze_library (library_or_null
+								      , anchor_renamings	# MUSTDIE
+								   );
+					        else
+						    tlt::clean_library FALSE makelib_file_to_read;
+						    library_or_null;
+						fi
+					    );
+
+					if (not paranoid) 
+					    #
+					    case (find_and_load_freezefile ())
+						#
+						THE lib =>  add_makefile_to_cache (THE lib);
+						NULL    =>  cache_and_maybe_freeze_library (find_and_parse_libfile ());
+					    esac;
+					else
+					    case (find_and_parse_libfile ())
+						#
+						NULL =>   add_makefile_to_cache NULL;
+						#
+						THE lib
+						    =>
+						    {   library_or_null'
+							    =
+							    if (vff::verify makelib_state  *exports_map  lib)
+								#
+								add_makefile_to_cache (
+								    #
+								    case (find_and_load_freezefile ())
+									#
+									THE lib' =>  THE lib';
+									NULL     =>  THE lib;
+								    esac
+								);
+							    else
+								delete_cached_freezefile (makelib_state, makelib_file_to_read, version, primordial_library);
+								cache_and_maybe_freeze_library (THE lib);
+							    fi;
+
+						        case library_or_null'
+							    #
+							    THE lib'
+								=>
+								{   update_exports_map (lib, lib');
+								    THE lib';
+								};
+							    #
+							    NULL => NULL;
+						        esac;
+						  };
+					    esac;
+					fi;
+				    };
+			    esac;
+			}                                                    # fun main_parse 
+
+
+		    # Parse' is used when we are sure
+		    # that we don't want to load a
+		    # freezefile:
+		    #
+		    also
+		    fun parse' (makelib_file_to_read, library_stack, p_err_flag, this_library, makelib_state
+					, anchor_renamings	# MUSTDIE XXX BUGGO FIXME should kill anchor_renamings arg.
+			       )
+			=
+			{   # Normal processing -- used when
+			    # there is no cycle to report:
+			    #
+			    fun normal_processing ()
+				=
+				{   fil::say {.
+					cat [
+					    "                    libfile-parser-g.pkg:   Reading  library file   ",
+					    (number_string::pad_right ' ' 50 (ad::abbreviate (ad::os_string' makelib_file_to_read))),
+					    "\ton behalf of ",
+					    libname this_library
+					];
+				    };
+
+				    path_root =   ad::dir   makelib_file_to_read;
+
+				    local_index =   libfile_grammar_actions::make_tool_index ();
+
+				    #
+				    safely::do
+					{
+					  open_it  => {. fil::open_for_read (ad::os_string  makelib_file_to_read); },
+					  close_it =>  fil::close_input,
+					  cleanup  =>  \\ _ =  ()
+					}
+				       {.   source =    sci::make_sourcecode_info
+							  {
+							    file_name	    =>  ad::abbreviate  (ad::os_string   makelib_file_to_read),
+							    line_num	    =>  1,
+							    source_stream   =>  #stream,
+							    is_interactive  =>  FALSE,
+							    error_consumer  =>  plaint_sink
+							  };
+
+					    line_number_db
+						=
+						source.line_number_db;
+
+
+					    library_source_index::register
+						library_source_index
+						(makelib_file_to_read,  source);
+
+
+					    # We can hard-wire the source into this
+					    # error function because the function
+					    # is only for immediate use and doesn't
+					    # get stored into persistent data structures:
+					    #
+					    fun report_error  source_region  message
+						=
+						err::error  source  source_region  err::ERROR  message  err::null_error_body;
+
+					    #
+					    fun complain_about_obsolete_syntax  r
+						=
+						if (mld::warn_on_obsolete_syntax.get ())
+						    #
+						    err::error source r err::WARNING "old-style feature (obsolete)" err::null_error_body;
+						fi;
+
+
+					    # Return value of 'recursive_parse' is a library (never NULL).
+					    # This function is used to parse sub-libraries.
+					    # Errors are propagated by explicitly setting the
+					    # "saw_errors" flag of the parent library:
+					    #
+					    fun recursive_parse
+						    (src_pos1, src_pos2)
+						    this_library
+						    (makelib_file_to_parse,
+							 version	# XXX BUGGO DELEME 'version' should die
+							 , anchor_renamings	# MUSTDIE
+						    )
+						=
+						{
+						    library_stack'
+							=
+							(makelib_file_to_read,  (source, src_pos1, src_pos2))
+							!
+							library_stack;
+
+						    saw_errors = source.saw_errors;
+
+						    # Unless we are in keep-going mode we do no further
+						    # recursive dagwalks once there was an error on
+						    # this makefile:
+						    #
+						    if (*saw_errors  and  not keep_going_after_compile_errors)
+							#
+							lg::BAD_LIBRARY;
+						    else
+							case (main_parse (
+								 makelib_file_to_parse,			#  New .lib file to run recursively. 
+								 version,
+								 library_stack',
+								 saw_errors,
+								 freeze_all_libraries,
+								 this_library,
+								 makelib_state,
+								 anchor_renamings,		# MUSTDIE
+								 report_error (src_pos1, src_pos2)
+							     ))
+
+							     THE result =>  {
+										result;
+									    };
+							     NULL       =>  {   saw_errors := TRUE;
+										lg::BAD_LIBRARY;
+									    };
+							esac;
+						    fi;
+						}
+						except
+						    exn as io_exceptions::IO _
+							=
+							{   report_error
+								(src_pos1, src_pos2)
+								(exceptions::exception_message exn);
+
+							    lg::BAD_LIBRARY;
+							};
+
+								# libfile_grammar_actions		is from   src/app/makelib/parse/libfile-grammar-actions.pkg
+					    #  
+					    fun make_member
+						    (
+						      { name, make_path },
+						      src_pos1, src_pos2,
+						      ilk,
+						      tool_options
+						    )
+						=
+						libfile_grammar_actions::make_member
+
+						    { makelib_state,
+						      load_plugin,
+						      recursive_parse =>  recursive_parse (src_pos1, src_pos2)
+						    }
+
+						    { name,
+						      make_path,
+						      ilk,
+
+						      tool_options,
+						      library     => (makelib_file_to_read, (src_pos1, src_pos2)),
+
+						      local_index,
+						      path_root
+						    };
+
+					    # Build the   Lex_Arg   argument for
+					    # the lexer as defined in
+					    #
+					    #     src/app/makelib/parse/libfile.lex
+					    #
+					    # The lexer's local state is
+					    # encapsulated here to make sure
+					    # the parser is re-entrant:
+					    #
+					    lexarg
+						=
+						{   #  Local state: 
+						    depth     =  REF 0;
+						    curstring =  REF [];
+						    startpos  =  REF 0;
+						    instring  =  REF FALSE;
+
+						    ####################################
+						    # Comment handling -- mostly tracking comment nesting depth:
+
+						    fun enter_comment ()
+							=
+							depth := *depth + 1;
+
+						    #
+						    fun leave_comment ()
+							=
+							{   d = *depth - 1;
+
+							    depth := d;
+							    d == 0;
+							};
+
+
+						    # Handling double-quoted string literals:
+						    #
+						    fun enter_qquote pos
+							=
+							{   instring  :=  TRUE;
+							    curstring :=  [];
+							    startpos  :=  pos;
+							};
+
+						    #
+						    fun append_char_to_qquote (c: Char)
+							=
+							curstring :=  c ! *curstring;
+
+						    fun append_control_char_to_qquote  (yytext: String,  base_char: Char)
+							=
+							# We're adding a control character to current qquote (double-quoted string literal)
+							# based on a spec like "^A" or "^a" (i.e., a carat followed by an alphabetic.
+							#	
+							# To do this we need to read the char in question out of yytext and then subtract
+							# off base_char (either 'A' or 'a') to convert from alphabetic to control-char range.
+							#
+							append_char_to_qquote  (char::from_int  (char::to_int  (string::get (yytext, 2)) - (char::to_int  base_char)));
+
+						    #
+						    fun append_escaped_char_to_qquote  (string: String,  source_position: Int)
+							=
+							# We're adding to the current qquote (double-quoted string literal)
+							# an char encoded as a three-char decimal escape like \013:
+							#
+							{   ns =  substring (string, 1, 3);			# Skip the \, get the 013  part.
+							    n  =  int::from_string ns;				# Convert the 013 (or whatever) from ascii to an integer.
+
+							    append_char_to_qquote (char::from_int (the n))	# Convert the integer to a char and append it.
+							    except _
+								=
+								report_error
+								    (source_position,  source_position + size string)
+								    ("illegal decimal char spec: " + ns);
+							};
+
+						    #
+						    fun leave_qquote
+							( source_position:  Int,
+							  token # :            ((String, /*start:*/Int, /*stop:*/Int) -> Lex_Result)
+							)
+							=
+							{   instring := FALSE;
+							    token (implode (reverse *curstring), *startpos, source_position);
+							};
+
+
+						    # Handle end-of-file -- signal error if
+						    # we have an unclosed comment or string:
+						    # 
+						    fun handle_eof_by_complaining_about_unclosed_comments_and_strings ()
+							=
+							pos
+							where
+							    pos =  lnd::last_change  line_number_db;
+							    #
+							    if   (*depth > 0)	report_error (pos, pos) "unexpected end of input in comment";
+							    elif (*instring)	report_error (pos, pos) "unexpected end of input in string";
+							    fi;
+							end;
+
+						    #
+						    fun newline  pos			# Called on each '\n' -- lets us track current line number.
+							=
+							lnd::newline  line_number_db  pos;
+
+						    #
+						    fun handle_line_directive (p, t)			#  Handling #line directives
+							=
+							{   fun sep c
+								=
+								c == '#'  or  char::is_space c;
+
+							    #
+							    fun convert s
+								=
+								the_else (int::from_string s, 0);
+
+							    #
+							    fun r (line, col, file)
+								=
+								lnd::resynch
+								    line_number_db
+								    (p, { file_name => file,
+									  line, column => col } );
+
+
+							    case (string::tokens sep t)
+								#
+								[_, line            ]   =>   r (convert line, NULL,              NULL    );
+								[_, line, file      ]   =>   r (convert line, NULL,              THE file);
+								[_, line, col, file ]   =>   r (convert line, THE (convert col), THE file);
+								 _                      =>   report_error (p, p + size t) "illegal #line directive";
+							    esac;
+							};
+
+						    { enter_comment,
+						      leave_comment,
+						      #	
+						      enter_qquote,
+						      append_char_to_qquote,
+						      append_control_char_to_qquote,
+						      #	
+						      append_escaped_char_to_qquote,
+						      leave_qquote,
+						      #	
+						      handle_eof_by_complaining_about_unclosed_comments_and_strings,
+						      newline,
+						      complain_about_obsolete_syntax,
+						      #	
+						      report_error,
+						      handle_line_directive,
+						      #	
+						      in_section2 =>  REF FALSE		# Starts FALSE; we set it TRUE once we've seen LIBRARY_COMPONENTS or SUBLIBRARY_COMPONENTS token.
+						   };
+						};
+
+					    #
+					    fun inputc k
+						=
+						fil::read  #stream;
+
+
+					    token_stream
+						=
+						libfile_parser::make_lexer  inputc  lexarg;
+
+
+					    parsearg					# libfile parser argument as defined by   %arg   in   src/app/makelib/parse/libfile.grammar
+					      =
+					      { libfile => makelib_file_to_read,
+						path_root,
+						complain_about_obsolete_syntax,
+						#
+						report_error,
+						make_member,
+						this_library,
+						#
+						makelib_state,
+						primordial_library
+					      };
+
+					    my (parse_result, _)
+						=
+						libfile_parser::parse (
+						    lookahead,
+						    token_stream,
+						    \\ (message, position1, position2) =  report_error  (position1, position2)  message,
+						    parsearg
+						);
+
+					    if *source.saw_errors   NULL;
+					    else                    THE parse_result;
+					    fi;
+					};
+				    #
+
+
+				}
+				except
+				    lr_parser::PARSE_ERROR = NULL;
+
+			    if (has_cycle (makelib_file_to_read, library_stack))   NULL;
+			    else					           normal_processing ();
+			    fi;
+			};                                                                #  fun parse' 
+
+		    tlt::new_generation ();
+
+		    case (main_parse (
+			     makelib_file_to_read,
+			     NULL,			# version
+			     [],			# library_stack
+			     REF FALSE,			# p_err_flag
+			     freeze_this_library,
+			     NULL,			# this_library
+			     makelib_state0,
+			    [],				# anchor_renamings	# MUSTDIE
+			    \\ _ = ()
+			 ))
+			#	      
+			THE (library as (lg::LIBRARY { more => lg::MAIN_LIBRARY _, ... }))			# Normal successful-return case.
+			    =>
+			    THE (library, makelib_state0);
+			#
+			NULL  =>    NULL;
+			#
+			THE lg::BAD_LIBRARY =>   NULL;								# Not sure if this can actualy happen. -- 2011-10-13 CrT
+			#
+			THE (lg::LIBRARY { more => lg::SUBLIBRARY _, libfile, ... })
+			    =>
+			    {   fil::say {.
+				    cat [
+					"Error: .lib-file tree root ",
+					(number_string::pad_right ' ' 50 (ad::abbreviate (ad::os_string' libfile))),
+					" is a sublibrary, not a main library."
+				    ];
+				};
+
+				raise exception err::COMPILE_ERROR;						# Not sure if this is the best way to report the error.
+			    };
+
+		    esac;
+		};                                       #  fun parse_libfile_tree_and_return_interlibrary_dependency_graph 
+	herein
+	    # Here's the stuff we export:
+
+	    fun clear_state ()      =   freezefile_cache := spm::empty;
+	    fun list_freezefiles () =   map #1 (spm::keyvals_list  *freezefile_cache);
+
+	    # This function will be used to delete
+	    # in-memory picklestrings to conserve memory
+	    # if the mythryld commandline switch
+	    #
+	    #     -Ccm.conserve-memory=TRUE 	# <=== this is probably waaay obsolete syntax
+	    #
+	    # is given.
+	    #
+	    # It is called only from
+	    #
+	    #     src/app/makelib/main/makelib-g.pkg
+	    #
+	    fun clear_pickle_cache ()
+		=
+		spm::apply
+		    delete
+		    *freezefile_cache
+		where
+		    fun delete (lg::LIBRARY { more =>   lg::MAIN_LIBRARY  { frozen_vs_thawed_stuff =>   lg::FROZENLIB_STUFF { clear_pickle_cache }, ... }, ... })
+			    =>
+			    clear_pickle_cache ();
+
+			delete _
+			    => ();
+		    end;
+		end;
+
+	    #
+	    fun dismiss_freezefile l
+		=
+		{   ffr::clear_state ();						# Clear global freezefile roster.
+		    #
+		    freezefile_cache
+			:=
+			spm::drop (*freezefile_cache, l);
+		};
+
+	    parse_libfile_tree_and_return_interlibrary_dependency_graph =
+	    parse_libfile_tree_and_return_interlibrary_dependency_graph;
+	end;
+    };
+end;
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"				 	 #
+# End:									 #
+##########################################################################

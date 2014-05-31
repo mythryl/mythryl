@@ -1,0 +1,368 @@
+## symlink-tree.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# Compare to:
+#     src/lib/src/dir-tree.pkg
+
+# Just like dir_tree from
+#     src/lib/src/dir-tree.pkg
+# except that we also follow symlinks.
+
+stipulate
+    package lms =  list_mergesort;				# list_mergesort	is from   src/lib/src/list-mergesort.pkg
+    package psx =  posixlib;					# posixlib			is from   src/lib/std/src/psx/posixlib.pkg
+herein
+
+    package symlink_tree: Dir_Tree {				# Dir_Tree		is from   src/lib/src/dir-tree.api
+
+	fun is_directory  name
+	    =
+	    psx::stat::is_directory
+		(psx::stat name)
+	    except
+		_ = FALSE;
+
+	fun is_file name
+	    =
+	    psx::stat::is_file
+		(psx::stat name)
+	    except
+		_ = FALSE;
+
+	fun is_dot_initial  name
+	    =
+	    string::get (name, 0)   ==   '.';
+
+	fun canonicalize  directory_name
+	    =
+	    {   # Drop any leading "./":
+		#
+		directory_name
+		    =
+		    regex::replace_first  "^\\./"  ""  directory_name;
+
+		# Change "." to "":
+		#
+		directory_name
+		    =
+		    directory_name == "."   ??   ""
+					    ::   directory_name;
+
+		# Make relative paths absolute by
+		# prepending current working directory:
+		#
+		directory_name
+		    =
+		    if   (string::length directory_name == 0)
+			 winix__premicrothread::file::current_directory ();
+		    else
+			if (string::get   (directory_name, 0) != '/')
+			    #
+			    cwd = winix__premicrothread::file::current_directory ();
+
+			    cwd + "/" + directory_name;
+			else
+			    directory_name;
+			fi;
+		    fi;
+
+		# Delete any  foo/.. subsequences:
+		#
+		directory_name'
+		    =
+		    regex::replace_first  "[^/]+/\\.\\./"  ""  directory_name;
+
+		if  (directory_name == directory_name')
+		     directory_name;
+		else
+		     canonicalize  directory_name';
+		fi;
+	    };
+
+	# For all directory entries in given directory tree do
+	#     results = result_fn( path, dir, file, results );
+	# (where  path == dir + "/" + file)
+	# and then return the resulting list.
+	#
+	fun filter_directory_subtree_contents
+	    (
+	      (directory_name:  String),
+	      already_visited,
+	      (filter_fn:      { path: String, directory_name: String, name: String, results: List(X) } -> List(X)),
+	      (results:         List(X))
+	    )
+	    =
+	    {
+		have =  string_set::member;
+		stat =  psx::stat;
+
+		my  (already_visited, results)
+		    =
+		    safely::do
+			{
+			  open_it  =>  {. psx::open_directory_stream  directory_name; },
+			  close_it =>     psx::close_directory_stream,
+			  cleanup  =>     \\ _ =  ()
+			}
+		       {.   loop (already_visited, results)
+			    where
+				fun loop (already_visited, results)
+				    =
+				    case (psx::read_directory_entry  #directory_stream)
+					#
+					NULL =>  (already_visited, results);
+					#
+					THE name
+					    =>
+					    {
+						path    =  directory_name + "/" + name;
+
+						results =  filter_fn { path, directory_name, name, results };
+
+						my (already_visited, results)
+						    =
+						    if ( name != "."
+						    and  name != ".."
+						    and  is_directory  path)
+
+							# We cannot uniquely identify a directory by its path,
+							# because with symlinks several paths may lead to a
+							# given directory.  So instead we identify it by its
+							# dev,inode numbers from stat.  (Possibly we need to
+							# do better than this for NFS?)         XXX BUGGO FIXME
+							# 
+							stat_rec = stat path;
+							dev_inode = sprintf "%d %d" stat_rec.dev stat_rec.inode;
+
+							if (not (have (already_visited, dev_inode)))
+
+							     filter_directory_subtree_contents
+								 (
+								   path,
+								   string_set::add (already_visited, dev_inode),
+								   filter_fn,
+								   results
+								 );
+							else
+							     (already_visited, results);
+							fi;
+						    else
+							(already_visited, results);
+						    fi;
+
+						 loop (already_visited, results);
+					    };
+				    esac;
+			    end;
+			};
+
+		(already_visited, results);
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all entries in directory subtree whose
+	# names do not start with a dot:
+	#
+	#     [ "/home/jcb/foo", ... ]
+	#
+	fun entries (directory_name: String)
+	    =
+	    {   fun ignore_dot_initial_entries { path, directory_name, name, results }
+		    =
+		    if  (string::length name > 0
+		    and  string::get   (name, 0) == '.')
+
+			 results;
+		    else
+			 path ! results;
+		    fi ;
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  ignore_dot_initial_entries,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all entries in directory subtree whose
+	# names are not "." or "..":
+	#
+	#     [ "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", ... ]
+	#
+	fun entries' (directory_name: String)
+	    =
+	    {   fun ignore_dot_and_dotdot { path, directory_name, name, results }
+		    =
+		    if  (name == "."
+		    or   name == "..")
+
+			 results;
+		    else
+			 path ! results;
+		    fi;
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  ignore_dot_and_dotdot,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all entries in directory subtree:
+	#
+	#     [ "/home/jcb/.", "/home/jcb/..", "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", ... ]
+	#
+	fun entries'' (directory_name: String)
+	    =
+	    {   fun accept_everything { path, directory_name, name, results }
+		    =
+		    path ! results;
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  accept_everything,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all nondot files in directory subtree:
+	#
+	#     [ "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun files (directory_name: String)
+	    =
+	    {   fun accept_only_nondot_files { path, directory_name, name, results }
+		    =
+		    if   (is_dot_initial name)		results;
+		    elif (is_file path)		 path ! results;
+		    else				results;
+		    fi;	
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  accept_only_nondot_files,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all plain files in directory subtree:
+	#
+	#     [ "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun files' (directory_name: String)
+	    =
+	    {   fun accept_only_nondot_files { path, directory_name, name, results }
+		    =
+		    if   (is_dot_initial name)		results;
+		    elif (is_file path)		 path ! results;
+		    else				results;
+		    fi;	
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  accept_only_nondot_files,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+
+	# Return alphabetically sorted list of paths
+	# for all nondot dirs in directory subtree:
+	#
+	#     [ "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun directories (directory_name: String)
+	    =
+	    {   fun accept_only_nondot_dirs { path, directory_name, name, results }
+		    =
+		    if   (is_dot_initial name)		results;
+		    elif (is_directory path)	 path ! results;
+		    else				results;
+		    fi;	
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  accept_only_nondot_dirs,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+	# Return alphabetically sorted list of paths
+	# for all plain files in directory subtree:
+	#
+	#     [ "/home/jcb/.bashrc", "/home/jcb/.emacs", "/home/jcb/foo", "/home/jcb/src/test.c", "/home/jcb/zot" ]
+	#
+	fun directories' (directory_name: String)
+	    =
+	    {   fun accept_only_dirs { path, directory_name, name, results }
+		    =
+		    if   (name == ".")			results;
+		    elif (name == "..")			results;
+		    elif (is_directory path)	 path ! results;
+		    else				results;
+		    fi;	
+
+		my (_, results)
+		    =
+		    filter_directory_subtree_contents
+			(
+			  canonicalize directory_name,
+			  string_set::empty,		# Set of directories already visited.
+			  accept_only_dirs,
+			  []
+			);
+
+		lms::sort_list  string::(>)  results;
+	    };
+
+
+    };
+end;
+
+
+## Author: Matthias Blume (blume@cs.princeton.edu)
+## Copyright (c) 1999, 2000 by Lucent Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

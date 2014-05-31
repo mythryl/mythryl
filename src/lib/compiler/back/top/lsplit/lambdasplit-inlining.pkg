@@ -1,0 +1,281 @@
+## lambdasplit-inlining.pkg
+#
+# Here is a good paper for background reading:
+#
+#     Lambda-Splitting: A Higher-Order Approach to Cross-Module Optimizations (1997)
+#     Matthias Blume ,  Andrew W. Appel
+#     in  Proc. 1997 ACM SIGPLAN International Conference on Functional Programming (ICFP '97)
+#     http://www.cs.princeton.edu/~appel/papers/inlining.ps
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package ph  =  picklehash;						# picklehash			is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package im  =  inlining_mapstack;					# inlining_mapstack		is from   src/lib/compiler/toplevel/compiler-state/inlining-mapstack.pkg
+    package imt =  import_tree;						# import_tree			is from   src/lib/compiler/execution/main/import-tree.pkg
+herein
+
+    api Lambdasplit_Inlining {
+	#
+	Picklehash    = ph::Picklehash;
+
+	Import_Tree_Node = imt::Import_Tree_Node;
+	Import_Tree      = (Picklehash, Import_Tree_Node);
+
+	Inlining_Mapstack = im::Picklehash_To_Anormcode_Mapstack;
+
+	do_lambdasplit_inlining
+	    :
+	    ( acf::Function,
+	      List( Import_Tree ),
+	      Inlining_Mapstack
+	    )
+	    ->
+	    ( acf::Function,
+	      List( Import_Tree )
+	    );
+    };
+end;
+
+
+###            "Young man, in mathematics
+###             you don't understand things,
+###             you just get used to them."
+###
+###                    -- Johnny von Neuman
+###                       (1903-1957 Hungarian/US
+###                        mathematician and scientist)
+
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package acj =  anormcode_junk;					# anormcode_junk		is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package hut =  highcode_uniq_types;					# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package im  =  inlining_mapstack;					# inlining_mapstack		is from   src/lib/compiler/toplevel/compiler-state/inlining-mapstack.pkg
+    package imt =  import_tree;						# import_tree			is from   src/lib/compiler/execution/main/import-tree.pkg
+    package ph  =  picklehash;						# picklehash			is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package tmp =  highcode_codetemp;					# highcode_codetemp		is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+herein
+
+    package   lambdasplit_inlining
+    :         Lambdasplit_Inlining					# Lambdasplit_Inlining		is from   src/lib/compiler/back/top/lsplit/lambdasplit-inlining.pkg
+    {
+	Picklehash    = ph::Picklehash;
+
+	Import_Tree_Node == imt::Import_Tree_Node;
+
+	Import_Tree       =   (Picklehash, Import_Tree_Node);
+	Inlining_Mapstack =   im::Picklehash_To_Anormcode_Mapstack;
+
+
+	fun bug s
+	    =
+	    error_message::impossible ("LSplitInline: " + s);
+
+
+	fun inline0 (
+	       (    main_fkind,
+		    main_lvar,
+		    [   (main_arg_lvar, main_arg_lty)   ],
+		    main_body
+	       ),
+	       old_imports,
+	       inlining_mapstack
+	    )
+		=>
+		{   import_types  = case (hut::uniqtypoid_to_typoid  main_arg_lty)
+					#
+					hut::typoid::PACKAGE it =>  it;
+					 _                    =>  bug "non-package arg to comp-unit";
+				    esac;
+
+		    new_arg_lvar  =   tmp::issue_highcode_codetemp ();
+		    symbol_lookup =   im::get  inlining_mapstack;
+
+
+		    fun count (IMPORT_TREE_NODE [])
+			    =>
+			    1;
+
+			count (IMPORT_TREE_NODE l)  => fold_forward (\\ ((_, t), n)
+			    =>
+			    count t + n; end ) 0 l;
+		    end;
+
+
+		    fun select_hdr (highcode_codetemp, import_tree, rvarlist)
+			=
+			one_node (highcode_codetemp, import_tree, \\ e = e, rvarlist)
+			where
+			    fun one_node (highcode_codetemp, IMPORT_TREE_NODE [], h, r)
+				    =>
+				    (   h,
+					highcode_codetemp ! r
+				    );
+
+				one_node (highcode_codetemp, IMPORT_TREE_NODE  l, h, r)
+				    =>
+				    {
+					fun one_branch ((s, import_tree), (h, r))
+					    =
+					    { highcode_codetemp'  = tmp::issue_highcode_codetemp ();
+
+						my (h, r)    = one_node (highcode_codetemp', import_tree, h, r);
+
+						(   \\ e =  acf::GET_FIELD ( acf::VAR highcode_codetemp,
+									    s,
+									    highcode_codetemp',
+									    h e
+									  ),
+						    r
+						);
+					    };
+
+					fold_forward one_branch (h, r) l;
+				    };
+			    end;
+			end;
+
+		    # build: ( imports,
+		    #          types,
+		    #          offset,
+		    #          vars
+		    #        )
+		    #        ->
+		    #        ( types,                      # new typelist   
+		    #          imports                     # new imports
+		    #          Lambda_Expression           # new body
+		    #        )
+		    #
+		    fun build ([], [], _, rvarlist)
+			    =>
+			    ( [],
+			      [],
+			      acf::RECORD ( acf::RK_PACKAGE,
+					    reverse (map acf::VAR rvarlist),
+					    main_arg_lvar,
+					    main_body
+					  )
+			    );
+
+			build ([], _, _, _)
+			    =>
+			    bug "build mismatch: too many types";
+
+			build ((an_import as (pid, tree)) ! more_imports, typelist, i, rvarlist)
+			    =>
+			    {
+				leaf_count = count tree;
+
+				case (null_or::map  acj::copyfdec (symbol_lookup pid))
+				    #
+				    NULL
+					=>
+					{
+					    fun h (0, typelist, i, rvarlist)
+						    =>
+						    build (more_imports, typelist, i, rvarlist);
+
+						h (n, type ! typelist, i, rvarlist)
+						    =>
+						    {
+							rv = tmp::issue_highcode_codetemp ();
+
+							my (typelist, imports, body)
+							    =
+							    h (n - 1, typelist, i + 1, rv ! rvarlist);
+
+							( type ! typelist,
+							  imports,
+							  acf::GET_FIELD (acf::VAR new_arg_lvar, i, rv, body)
+							);
+						    };
+
+						h _ => bug "build mismatch: too few types";
+					    end;
+
+					    my (typelist, imports, body)
+						=
+						h (leaf_count, typelist, i, rvarlist);
+
+					    ( typelist,
+					      an_import ! imports,
+					      body
+					    );
+					};
+
+				    THE (f as (fk, fv, [(arg_var, arg_type)], b))
+					=>
+					{
+					    #  control_print::say "hello\n" 
+					    inlv = tmp::issue_highcode_codetemp ();
+					    my (wrap_select, rvarlist) = select_hdr (inlv, tree, rvarlist);
+					    my (typelist, imports, body) =
+						build (more_imports, list::drop_n (typelist, leaf_count), i + 1, rvarlist);
+
+					    ( arg_type ! typelist,
+					      #	
+                                              (pid, IMPORT_TREE_NODE []) ! imports,
+					      #
+					      acf::GET_FIELD (acf::VAR new_arg_lvar, i, arg_var, acf::LET ([inlv], b, wrap_select body))
+                                            );
+					};
+
+				     _ => bug "bad cross-inlining argument list";
+				 esac;
+			    };
+		    end;				# fun build
+
+		    (build (old_imports, import_types, 0, []))
+			->
+			(new_typelist, new_imports, new_body);
+
+		    new_arg_lty   =   hut::typoid_to_uniqtypoid (hut::typoid::PACKAGE new_typelist);
+
+		    ( ( main_fkind,
+			main_lvar,
+			[ (new_arg_lvar, new_arg_lty) ],
+			new_body
+		      ),
+		      new_imports
+		    );
+		};         #  main fun inline case 
+
+	    inline0 _ => bug "bad comp-unit argument list";
+	end;
+
+
+	# This fun is called (only) from:	
+	#
+	#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+	fun do_lambdasplit_inlining  args
+	    =
+	    {   (inline0 args) ->   (e, i);
+
+		(/* LContract::lcontract */ e, i);
+	    };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

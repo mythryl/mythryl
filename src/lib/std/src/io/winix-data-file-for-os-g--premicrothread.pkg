@@ -1,0 +1,1028 @@
+## winix-data-file-for-os-g--premicrothread.pkg
+#
+# Here we combine the platform-specific code in our  wxd
+# argument with   the platfrom-agnostic code in our
+# body to generate a complete binary-file I/O package
+# for a particular platform.
+# This is the binary-file counterpart to
+#
+#     src/lib/std/src/io/winix-text-file-for-os-g--premicrothread.pkg
+#
+# This is intended for monothreaded code, so threadkit defines an alternative:
+#
+#     src/lib/std/src/io/winix-data-file-for-os-g.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+
+
+
+# QUESTION: What operations should raise exceptions
+#           when the stream is closed?
+
+stipulate
+    package eow =  io_startup_and_shutdown__premicrothread;	# "eow" == "end of world"	# io_startup_and_shutdown__premicrothread			is from   src/lib/std/src/io/io-startup-and-shutdown--premicrothread.pkg
+    package int =  int_guts;									# int_guts							is from   src/lib/std/src/int-guts.pkg
+    package iox =  io_exceptions;								# io_exceptions							is from   src/lib/std/src/io/io-exceptions.pkg
+    package pos =  file_position_guts;								# file_position_guts						is from   src/lib/std/src/bind-position-31.pkg
+
+
+    package a   =  rw_vector_of_one_byte_unts;							# rw_vector_of_one_byte_unts					is from   src/lib/std/src/rw-vector-of-one-byte-unts.pkg
+    package rs  =  rw_vector_slice_of_one_byte_unts;						# rw_vector_slice_of_one_byte_unts				is from   src/lib/std/src/rw-vector-slice-of-one-byte-unts.pkg
+    package v   =  vector_of_one_byte_unts;							# vector_of_one_byte_unts					is from   src/lib/std/src/vector-of-one-byte-unts.pkg
+    package vs  =  vector_slice_of_one_byte_unts;						# vector_slice_of_one_byte_unts					is from   src/lib/std/src/vector-slice-of-one-byte-unts.pkg
+herein
+
+    # This generic gets invoked from:
+    #
+    #     src/lib/std/src/posix/winix-data-file-for-posix--premicrothread.pkg
+    #     src/lib/std/src/win32/winix-data-file-for-win32.pkg
+    #
+    generic package   winix_data_file_for_os_g__premicrothread   (
+	#             ========================================
+	#
+												# "wxd" == "WiniX file io Driver".
+												# It will will be one of:
+												#
+												# winix_data_file_io_driver_for_posix__premicrothread		is from   src/lib/std/src/posix/winix-data-file-io-driver-for-posix--premicrothread.pkg
+												# winix_data_file_io_driver_for_win32__premicrothread		is from   src/lib/std/src/win32/winix-data-file-io-driver-for-win32--premicrothread.pkg
+	package wxd
+              : Winix_Extended_File_Io_Driver_For_Os__Premicrothread				# Winix_Extended_File_Io_Driver_For_Os__Premicrothread		is from   src/lib/std/src/io/winix-extended-file-io-driver-for-os--premicrothread.api
+		where
+		    drv == winix_base_data_file_io_driver_for_posix__premicrothread;
+
+    )
+    : (weak) Winix_Data_File_For_Os__Premicrothread						# Winix_Data_File_For_Os__Premicrothread			is from   src/lib/std/src/io/winix-data-file-for-os--premicrothread.api
+    {
+	package drv =  wxd::drv;
+
+	# An element for initializing buffers:
+	#
+	some_element = (0u0:  one_byte_unt::Unt);
+
+	#  # Fast, but unsafe version (from vector_of_one_byte_unts)
+	#     vecSub = inline_t::vector_of_one_byte_unts::get
+	#     arrUpdate = inline_t::rw_vector_of_one_byte_unts::update
+	#   /* fast vector extract operation.  This should never be called with
+	#    * a length of 0.
+	#    */
+	#     fun vecExtract (v, base, optLen) = let
+	# 	  len = v::length v
+	# 	  fun newVec n = let
+	# 		newV = assembly::a::make_string n
+	# 		fun fill i = if (i < n)
+	# 		      then (
+	# 			inline_t::vector_of_one_byte_unts::update (newV, i, vecSub (v, base+i));
+	# 			fill (i+1))
+	# 		      else ()
+	# 		in
+	# 		  fill 0; newV
+	# 		end
+	# 	  in
+	# 	    case (base, optLen)
+	# 	     of (0, NULL) => v
+	# 	      | (_, NULL) => newVec (len - base)
+	# 	      | (_, THE n) => newVec n
+	# 	    #  end case 
+	# 	  end
+	#
+	vec_extract =  vs::to_vector o vs::make_slice;
+	vec_get     =  v::get;
+	rw_vec_set  =  a::set;
+	empty       =  v::from_list [];
+
+	package pur {						# "pur" is short for "pure" (I/O).
+	    #
+	    Vector        =  v::Vector;
+	    Element       =  v::Element;
+
+	    Filereader    =  drv::Filereader;
+	    Filewriter    =  drv::Filewriter;
+	    File_Position =  drv::File_Position;
+
+	    # *** Functional input streams ***
+	    # We represent an Input_Stream by a pointer to a buffer and an offset
+	    # into the buffer.  The buffers are chained by the "next" field from
+	    # the beginning of the stream towards the end.  If the "next" field
+	    # is LAST, then it refers to an empty buffer (consuming the EOF marker
+	    # involves moving the stream from immediately in front of the LAST to
+	    # to the empty buffer).  A "next" field of TERMINATED marks a
+	    # terminated stream.  We also have the invariant that the "last_nextref"
+	    # field of the "global_file_stuff" package points to a next REF that is either
+	    # NO_NEXT or TERMINATED.
+
+	    Input_Stream = INPUT_STREAM  (Input_Buffer, Int)
+
+	    also
+	    Input_Buffer
+		=
+		INPUT_BUFFER
+		  {
+		    data:  Vector,
+		    file_position:  Null_Or( File_Position ),
+		    #
+		    next:  Ref( Next ),
+		    global_file_stuff:  Global_File_Stuff
+		  }
+	    also
+	    Next
+	      = NEXT  Input_Buffer	#  forward link to additional data 
+	      | LAST  Input_Buffer	#  End of stream marker 
+	      | NO_NEXT			#  placeholder for forward link 
+	      | TERMINATED		#  termination of the stream 
+
+	    also
+	    Global_File_Stuff
+		=
+		GLOBAL_FILE_STUFF
+		  { filereader:			Filereader,
+		    read_vector:		Int -> Vector,
+		    is_closed:			Ref( Bool ),
+		    get_file_position:		Void -> Null_Or( File_Position ),
+		    last_nextref:		Ref(  Ref(  Next ) ),			# Points to the 'next' cell of the last buffer.
+		    clean_tag:			eow::Tag
+		  };
+
+
+	    fun global_file_stuff_of_ibuf (INPUT_BUFFER { global_file_stuff, ... } )
+		=
+		global_file_stuff;
+
+
+	    fun best_io_quantum_of_ibuf  buf
+		=
+		{   (global_file_stuff_of_ibuf  buf)
+			 ->
+			 GLOBAL_FILE_STUFF { filereader => drv::FILEREADER { best_io_quantum, ... }, ... };
+
+		    best_io_quantum;
+		};
+
+
+	    fun read_vector (INPUT_BUFFER { global_file_stuff=>GLOBAL_FILE_STUFF { read_vector=>f, ... }, ... } )
+		=
+		f;
+
+
+	    fun raise_io_exception (GLOBAL_FILE_STUFF { filereader => drv::FILEREADER { filename, ... }, ... }, ml_op, exn)
+		=
+		raise exception iox::IO { op=>ml_op, name => filename, cause=>exn };
+
+	    fun extend_stream (read_fn, ml_op, buf as INPUT_BUFFER { next, global_file_stuff, ... } )
+		=
+		{   global_file_stuff ->   GLOBAL_FILE_STUFF { get_file_position, last_nextref, ... };
+
+		    file_position =  get_file_position();
+		    chunk         =  read_fn (best_io_quantum_of_ibuf buf);
+		    new_next      =  REF NO_NEXT;
+
+		    buf' = INPUT_BUFFER {
+			    file_position,
+			    global_file_stuff,
+			    data => chunk,
+			    next => new_next
+			  };
+
+		    result =   v::length chunk == 0   ??   LAST buf'
+						    ::   NEXT buf';
+
+		    next := result;
+		    last_nextref := new_next;
+		    result;
+		}
+		except
+		    ex = raise_io_exception (global_file_stuff, ml_op, ex);
+
+
+	    fun get_next_buffer (read_fn, ml_op) (buf as INPUT_BUFFER { next, global_file_stuff, ... } )
+		=
+		case *next
+		    #		      
+		    TERMINATED => (LAST buf);
+		    NO_NEXT     => extend_stream (read_fn, ml_op, buf);
+		    next       => next;
+		esac;
+
+
+	    #  Read a chunk that is at least the specified size: 
+	    #
+	    fun read_chunk buf
+		=
+		{   (global_file_stuff_of_ibuf  buf)
+			 ->
+			 GLOBAL_FILE_STUFF { read_vector, filereader => drv::FILEREADER { best_io_quantum, ... }, ... };
+
+		    case (best_io_quantum - 1)
+			 #
+			 0 =>  (\\ n =  read_vector n);
+
+			 k =>  (\\ n			#  round up to next multiple of best_io_quantum 
+				   =
+				   read_vector (int::quot((n+k), best_io_quantum) * best_io_quantum)
+			       );
+		    esac;
+
+		};
+
+	    fun generalized_input get_buf
+		=
+		{   fun get (INPUT_STREAM (buf as INPUT_BUFFER { data, ... }, pos))
+			=
+			{   len = v::length data;
+
+			    if (pos < len)
+				#
+				( vec_extract (data, pos, NULL),
+				  INPUT_STREAM (buf, len)
+				);
+			    else
+				case (get_buf  buf)
+				    #
+				    LAST buf   =>  (empty, INPUT_STREAM (buf, 0));
+				    NEXT rest =>  get (INPUT_STREAM (rest, 0));
+				    _         =>  raise exception FAIL "bogus get_buf";
+				esac;
+			    fi;
+			};
+
+		    get;
+		};
+
+	    # Terminate an input stream:
+	    #
+	    fun terminate (GLOBAL_FILE_STUFF { last_nextref, clean_tag, ... } )
+		=
+		case *last_nextref
+		    #
+		    m as REF NO_NEXT
+			=>
+			{   eow::drop_stream_startup_and_shutdown_actions  clean_tag;
+			    #
+			    m := TERMINATED;
+			};
+
+		    m as REF TERMINATED
+			=>
+			();
+
+		    _   =>   raise exception MATCH;			# To quiet the compiler.
+		esac;
+
+
+	    fun read (stream as INPUT_STREAM (buf, _))
+		=
+		generalized_input
+		    (get_next_buffer (read_vector buf, "read"))
+		    stream;
+
+
+	    fun read_one (INPUT_STREAM (buf, pos))
+		=
+		{   buf ->  INPUT_BUFFER { data, next, ... };
+
+		    if (pos < v::length data)
+			#  
+			THE (vec_get (data, pos), INPUT_STREAM (buf, pos+1));
+		    else
+			case *next
+			    #
+			    NEXT buf =>   read_one (INPUT_STREAM (buf, 0));
+
+			    LAST _    =>   NULL;
+
+			    TERMINATED =>  NULL;
+
+			    NO_NEXT =>
+				case (extend_stream (read_vector buf, "read_one", buf))
+				    #
+				    NEXT rest =>   read_one (INPUT_STREAM (rest, 0));
+				    _         =>   NULL;
+				esac;
+
+			 esac;
+		    fi;
+		};
+
+	    fun read_n (INPUT_STREAM (buf, pos), bytes_to_read)
+		=
+		{	(read_as_list_of_vectors (buf, pos, bytes_to_read))
+			->
+			(list_of_vectors, remaining_stream);
+
+		    (v::cat list_of_vectors, remaining_stream);
+		}
+		where
+		    fun join (item, (list, stream))
+			=
+			(item ! list, stream);
+
+		    fun read_as_list_of_vectors (buf as INPUT_BUFFER { data, ... }, i, n)
+			=
+			{   len =  v::length  data;
+			    #
+			    remain =  len-i;
+
+			    if (remain >= n)
+				#				    
+				([vec_extract (data, i, THE n)], INPUT_STREAM (buf, i+n));
+			    else
+				join (
+				    vec_extract (data, i, NULL),
+				    next_buf (buf, n-remain)
+				);
+			    fi;
+			}
+
+		    also
+		    fun next_buf (buf as INPUT_BUFFER { next, data, ... }, n)
+			=
+			case *next
+			    #
+			    NEXT buf   =>  read_as_list_of_vectors (buf, 0, n);
+			    LAST buf    =>  ([], INPUT_STREAM (buf, 0));
+
+			    TERMINATED => ([], INPUT_STREAM (buf, v::length data));
+
+			    NO_NEXT     =>   case (extend_stream (read_vector buf, "read_n", buf))
+						#
+						NEXT rest =>  read_as_list_of_vectors (rest, 0, n);
+						_         =>  ([], INPUT_STREAM (buf, v::length data));
+					    esac;
+			esac;
+		end;
+
+	    fun read_all (stream as INPUT_STREAM (buf, _))
+		=
+		{   (global_file_stuff_of_ibuf  buf)
+			->
+			GLOBAL_FILE_STUFF { filereader => drv::FILEREADER { avail, ... }, ... };
+
+		    # Read a chunk that is as large
+		    # as the available input:
+		    #
+		    fun big_chunk _
+			=
+			read_chunk  buf  delta
+			where
+			    delta = case (avail ())
+					#
+					NULL  =>  best_io_quantum_of_ibuf  buf;
+					THE n =>  n;
+				    esac;
+			end;
+
+		    big_input
+			=
+			generalized_input (get_next_buffer (big_chunk, "read_all"));
+
+		    fun loop (v, stream)
+			=
+			if (v::length v == 0)
+			    #
+			    ([], stream);
+			else
+			    (loop (big_input stream))
+				->
+				(l, stream');
+
+			    (v ! l, stream');
+			fi;
+
+		    (loop (big_input stream))
+			->
+			(data, stream');
+
+		    (v::cat data, stream');
+		};
+
+	    fun close_input (INPUT_STREAM (buf, _))
+		=
+		case (global_file_stuff_of_ibuf  buf)
+		    #
+		    GLOBAL_FILE_STUFF { is_closed => REF TRUE, ... }
+			=>
+			();
+
+		    global_file_stuff as GLOBAL_FILE_STUFF { is_closed, filereader => drv::FILEREADER { close, ... }, ... }
+			=>
+			{   terminate  global_file_stuff;
+			    #
+			    is_closed := TRUE;
+
+			    close ()
+			    except
+				ex =  raise_io_exception (global_file_stuff, "close_input", ex);
+			};
+		esac;
+
+
+	    fun end_of_stream (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { next=>REF (NEXT _), ... } =>  FALSE;
+		    INPUT_BUFFER { next=>REF (LAST  _), ... } =>  TRUE;
+
+		    INPUT_BUFFER { next, data, global_file_stuff=>GLOBAL_FILE_STUFF { is_closed, ... }, ... }
+			=>
+			if (pos == v::length  data)
+			    #
+			    case (*next, *is_closed)
+				#
+				(NO_NEXT, FALSE)
+				    =>
+				    case (extend_stream  (read_vector buf,  "end_of_stream",  buf))
+					#
+					(LAST _) =>  TRUE;
+					_       =>  FALSE;
+				    esac;
+
+				_   => TRUE;
+			    esac;
+			else
+			    FALSE;
+			fi;
+		esac;
+
+
+	    fun make_instream (filereader, data)
+		=
+		{   filereader ->  drv::FILEREADER { read_vector, get_file_position, set_file_position, ... }; 
+		    #
+		    get_file_position
+			=
+			case (get_file_position, set_file_position)
+			    #
+			    (THE f,   THE _  ) =>  (\\ () = THE (f()));
+			    _                  =>  (\\ () = NULL);
+			esac;
+
+
+		    next = REF NO_NEXT;
+
+		    closed_flag = REF FALSE;
+
+		    tag = eow::note_stream_startup_and_shutdown_actions
+                            {
+			      init  =>  \\ () =  closed_flag := TRUE,
+			      flush =>  \\ () =  (),
+			      close =>  \\ () =  closed_flag := TRUE
+			    };
+
+		    global_file_stuff
+			=
+			GLOBAL_FILE_STUFF
+			  {
+			    get_file_position,
+			    filereader,
+			    read_vector,
+			    #	
+			    is_closed      =>  closed_flag,
+			    last_nextref   =>  REF next,
+			    clean_tag      =>  tag
+			  };
+
+		    # What should we do about the position when there is initial data?? *
+		    # Suggestion: When building a stream with supplied initial data,
+		    # nothing can be said about the positions inside that initial
+		    # data (who knows where that data even came from!).
+
+		    file_position
+			=
+			if (v::length data == 0)   get_file_position ();
+			else			   NULL;
+			fi;
+
+
+		    INPUT_STREAM ( INPUT_BUFFER { file_position, data, global_file_stuff, next },
+			    0
+			  );
+		  };
+
+	    fun get_reader (INPUT_STREAM (buf, pos))
+		=
+		{
+		    buf ->  INPUT_BUFFER
+			      { data,
+				next,
+				global_file_stuff as GLOBAL_FILE_STUFF { filereader, ... },
+				...
+			      };
+
+
+		    fun get_data (NEXT (INPUT_BUFFER { data, next, ... } ))
+			    =>
+			    data ! get_data *next;
+
+			get_data _
+			    =>
+			    [];
+		    end;
+
+		    terminate  global_file_stuff;
+
+		    if (pos < v::length data)
+			#
+			( filereader,
+			  v::cat (vec_extract (data, pos, NULL) ! get_data *next)
+			);
+		    else
+			( filereader,
+			  v::cat (get_data *next)
+			);
+		    fi;
+		};
+
+	    #  Get the underlying file position of a stream: 
+	    #
+	    fun file_position_in (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { file_position => NULL,  global_file_stuff, ... }
+			=>
+			raise_io_exception (global_file_stuff, "filePosIn", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+
+		    INPUT_BUFFER { file_position => THE b, global_file_stuff, ... }
+			=>
+			pos::(+) (b, pos::from_int pos);
+		esac;
+
+
+	    Output_Stream
+		=
+		OUTPUT_STREAM
+		  {
+		    buffer:			a::Rw_Vector,
+		    first_free_byte_in_buffer:	Ref( Int ),
+		    #
+		    is_closed:			Ref( Bool ),
+		    buffering_mode:		Ref( iox::Buffering_Mode ),
+		    filewriter:			Filewriter,
+		    #
+		    write_rw_vector:		rs::Slice -> Void,
+		    write_vector:		vs::Slice -> Void,
+		    #
+		    clean_tag:			eow::Tag
+		  };
+
+
+	    fun raise_io_exception (OUTPUT_STREAM { filewriter => drv::FILEWRITER { filename, ... }, ... }, ml_op, cause)
+		=
+		raise exception  iox::IO { op => ml_op, name => filename, cause };
+
+
+	    fun is_closed_out (stream as OUTPUT_STREAM { is_closed=>REF TRUE, ... }, ml_op)
+		    =>
+		    raise_io_exception (stream, ml_op, iox::CLOSED_IO_STREAM);
+
+		is_closed_out _
+		    =>
+		    ();
+	    end;
+
+
+	    fun flush_buffer (stream as OUTPUT_STREAM { buffer, first_free_byte_in_buffer, write_rw_vector, ... }, ml_op)
+		=
+		case *first_free_byte_in_buffer
+		    #
+		    0 => ();
+		    #
+		    n => {   write_rw_vector (rs::make_slice (buffer, 0, THE n));
+			     first_free_byte_in_buffer := 0;
+			 }
+			 except
+			     any_exception = raise_io_exception (stream, ml_op, any_exception);
+		esac;
+
+
+	    fun write (stream as OUTPUT_STREAM os, v)
+		=
+		{
+		    is_closed_out (stream, "write");
+
+		    os -> { buffer, first_free_byte_in_buffer, buffering_mode, ... };
+
+		    fun flush ()
+			=
+			flush_buffer (stream, "write");
+
+		    fun flush_all ()
+			=
+			os.write_rw_vector (rs::make_full_slice buffer)
+			except
+			    any_exception
+				=
+				raise_io_exception
+				    (stream, "write", any_exception);
+
+		    fun write_direct ()
+			=
+			{   case *first_free_byte_in_buffer
+				#
+				0 => ();
+				n => {   os.write_rw_vector (rs::make_slice (buffer, 0, THE n));
+					 #
+					 first_free_byte_in_buffer := 0;
+				     };
+			    esac;
+
+			    os.write_vector  (vs::make_full_slice  v);
+			}
+			except
+			    any_exception
+				=
+				raise_io_exception
+				    (stream, "write", any_exception);
+
+		    fun insert copy_vec
+			=
+			{   buf_len  =  a::length  buffer;
+			    data_len =  v::length  v;
+
+			    if (data_len >= buf_len)
+				#
+				write_direct ();
+			    else
+				i     =  *first_free_byte_in_buffer;
+				avail =  buf_len - i;
+
+				if (avail < data_len)
+				    #
+				    copy_vec (v, 0, avail, buffer, i);
+				    flush_all ();
+				    copy_vec (v, avail, data_len-avail, buffer, 0);
+				    first_free_byte_in_buffer := data_len-avail;
+				else
+				    copy_vec (v, 0, data_len, buffer, i);
+				    first_free_byte_in_buffer := i + data_len;
+
+				    if   (avail == data_len)   flush ();   fi;
+				fi;
+			    fi;
+			};
+
+		    case *buffering_mode
+			#	
+			iox::NO_BUFFERING
+			    =>
+			    write_direct ();
+
+			_   =>
+			    insert copy_vector
+			    where 
+				fun copy_vector (from, from_i, from_len, into, at)
+				    =
+				    rs::copy_vector
+					{ from =>  vs::make_slice (from, from_i, THE from_len),
+					  into,
+					  at
+					};
+			    end;
+		    esac;
+		};
+
+	    fun write_one (stream as OUTPUT_STREAM { buffer, first_free_byte_in_buffer, buffering_mode, write_rw_vector, ... }, element)
+		=
+		{   is_closed_out (stream, "write_one");
+		    #
+		    case *buffering_mode
+			#
+			iox::NO_BUFFERING
+			    =>
+			    {   rw_vec_set (buffer, 0, element);
+				#	
+				write_rw_vector (rs::make_slice (buffer, 0, THE 1))
+				except
+				    ex =  raise_io_exception (stream, "write_one", ex);
+			    };
+
+		      _     =>
+			    {   i = *first_free_byte_in_buffer;
+				i' = i+1;
+
+				rw_vec_set (buffer, i, element);
+
+				first_free_byte_in_buffer := i';
+
+				if (i' == a::length buffer)
+				    #
+				    flush_buffer (stream, "write_one");
+				fi;
+			    };
+		    esac;
+		};
+
+	    fun flush stream
+		=
+		flush_buffer (stream, "flush");
+
+	    fun close_output (stream as OUTPUT_STREAM { filewriter => drv::FILEWRITER { filename, close, ... }, is_closed, clean_tag, ... } )
+		=
+		if (not *is_closed)
+		    #
+		    flush_buffer (stream, "close");
+		    is_closed := TRUE;
+		    eow::drop_stream_startup_and_shutdown_actions clean_tag;
+# print ("close-output -- is_closed is FALSE so calling close() of '" + filename + "'.    -- winix-data-file-for-os-g--premicrothread.pkg\n");
+		    close();
+# else
+# print ("close-output -- is_closed is TRUE, nothing to do for '" + filename + "'.    -- winix-data-file-for-os-g--premicrothread.pkg\n");
+		fi;
+
+	    fun make_outstream (wr as drv::FILEWRITER { best_io_quantum, write_rw_vector, write_vector, ... }, mode)
+		=
+		{   fun iterate (f, size, subslice)
+			=
+			lp
+			where
+			    fun lp sl
+				=
+				if   (size sl != 0)
+
+				     n = f sl;
+
+				     lp (subslice (sl, n, NULL));
+				fi;
+			end;
+
+		    write_rw_vector'
+			=
+			case write_rw_vector
+			    #
+			    NULL  =>  (\\ _ =  raise exception iox::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, rs::length, rs::make_subslice);
+			esac;
+
+
+		    write_vector'
+			=
+			case write_vector
+			    #
+			    NULL  =>  (\\ _ =  raise exception iox::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, vs::length, vs::make_subslice);
+			esac;
+
+
+		  # Install a dummy cleaner:
+		  #
+		  tag = eow::note_stream_startup_and_shutdown_actions {
+			  init  => \\ () =  (),
+			  flush => \\ () =  (),
+			  close => \\ () =  ()
+			};
+
+		  stream =  OUTPUT_STREAM
+			      {
+				buffer		    =>  a::make_rw_vector (best_io_quantum, some_element),
+				first_free_byte_in_buffer =>  REF 0,
+				#
+				is_closed       =>  REF FALSE,
+				buffering_mode  =>  REF mode,
+				#
+				filewriter      =>  wr,
+				write_rw_vector =>  write_rw_vector',
+				#
+				write_vector    =>  write_vector',
+				clean_tag       =>  tag
+			      };
+
+		    eow::change_stream_startup_and_shutdown_actions (tag, {
+			init  => \\ () =  close_output  stream,
+			flush => \\ () =  flush         stream,
+			close => \\ () =  close_output  stream
+		      } );
+
+		    stream;
+		};
+
+	    fun get_writer (stream as OUTPUT_STREAM { filewriter, buffering_mode, ... } )
+		=
+		{   flush_buffer (stream, "getWriter");
+		    #
+		    (filewriter, *buffering_mode);
+		};
+
+
+	    # Position operations on outstreams
+
+	    Out_Position
+		=
+		OUT_POSITION  {
+		  pos:  drv::File_Position,
+		  stream:  Output_Stream
+		};
+
+	    fun get_output_position (stream as OUTPUT_STREAM { filewriter, ... } )
+		=
+		{   flush_buffer (stream, "get_output_position");
+		    #
+		    case filewriter
+			#
+			drv::FILEWRITER { get_file_position=>THE f, ... }
+			    =>
+			    OUT_POSITION { pos => f(), stream }
+			    except
+				ex = raise_io_exception (stream, "get_output_position", ex);
+
+			_   => raise_io_exception (stream, "get_output_position", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+
+	    fun file_pos_out (OUT_POSITION { pos, stream } )
+		=
+		{   is_closed_out (stream, "filePosOut");
+		    #
+		    pos;
+		};
+
+	    fun set_output_position (OUT_POSITION { pos, stream as OUTPUT_STREAM { filewriter, ... } } )
+		=
+		{   is_closed_out (stream, "set_output_position");
+
+		    case filewriter
+			#
+			drv::FILEWRITER { set_file_position=>THE f, ... }
+			    =>
+			    (f pos)
+			    except
+				ex = raise_io_exception (stream, "set_output_position", ex);
+
+			_   =>  raise_io_exception (stream, "get_output_position", iox::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+
+	    fun set_buffering_mode (stream as OUTPUT_STREAM { buffering_mode, ... }, iox::NO_BUFFERING)
+		    =>
+		    {   flush_buffer (stream, "setBufferMode");
+			#
+			buffering_mode := iox::NO_BUFFERING;
+		    };
+
+		set_buffering_mode (stream as OUTPUT_STREAM { buffering_mode, ... }, mode)
+		    =>
+		    {   is_closed_out (stream, "setBufferMode");
+			#
+			buffering_mode := mode;
+		    };
+	    end;
+
+	    fun get_buffering_mode (stream as OUTPUT_STREAM { buffering_mode, ... } )
+		=
+		{   is_closed_out (stream, "get_buffering_mode");
+		    #
+		    *buffering_mode;
+		};
+
+	};											# package pure_io 
+
+	Vector  = v::Vector;
+	Element = v::Element;
+
+	Input_Stream  =  Ref( pur::Input_Stream  );
+	Output_Stream =  Ref( pur::Output_Stream );
+
+	# * Input operations *
+	#
+	fun read stream
+            =
+            {   (pur::read  *stream)
+		    ->
+		    (v, stream');
+
+		stream := stream';
+
+                v;
+	    };
+
+	fun read_one stream
+	    =
+	    case (pur::read_one *stream)
+		#
+		THE (element, stream') =>   {   stream := stream';
+						THE element;
+					    };
+		NULL => NULL;
+	    esac;
+
+
+	fun read_n (stream, n)
+	    =
+	    {   (pur::read_n  (*stream, n))
+		    ->
+		    (v, stream');
+
+		stream := stream';
+
+                v;
+	    };
+
+	fun read_all (stream:  Input_Stream)
+            =
+            {   (pur::read_all  *stream)
+		    ->
+		    (v, s);
+
+		stream := s;
+
+                v;
+	    };
+
+
+	fun peek (stream:  Input_Stream)
+	    =
+	    case (pur::read_one *stream)
+		#
+		THE (element, _) => THE element;
+		NULL             => NULL;
+	    esac;
+
+
+	fun close_input stream
+	    =
+	    {   (*stream) ->  (s as pur::INPUT_STREAM (buf as pur::INPUT_BUFFER { data, ... }, _));
+
+		# Find the end of the stream:
+                #
+		fun find_eos (pur::INPUT_BUFFER { next=>REF (pur::NEXT buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (pur::INPUT_BUFFER { next=>REF (pur::LAST buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (buf as pur::INPUT_BUFFER { data, ... } )
+			=>
+			pur::INPUT_STREAM (buf, v::length data);
+		end;
+
+		pur::close_input  s;
+
+		stream :=  find_eos buf;
+	      };
+
+	fun end_of_stream  stream
+	    =
+	    pur::end_of_stream  *stream;
+
+	# Output operations:
+	#
+	fun write (stream, v)          =  pur::write(*stream, v);
+	fun write_one (stream, c)      =  pur::write_one(*stream, c);
+	fun flush stream               =  pur::flush *stream;
+	fun close_output stream        =  pur::close_output *stream;
+	fun get_output_position stream =  pur::get_output_position *stream;
+
+	fun set_output_position (stream, p as pur::OUT_POSITION { stream=>stream', ... } )
+	    =
+	    {   stream := stream';
+		#
+		pur::set_output_position p;
+	    };
+
+	fun make_instream (stream:  pur::Input_Stream)       =  REF stream;
+	fun get_instream  (stream:  Input_Stream)            =  *stream;
+	fun set_instream  (stream:  Input_Stream, stream')   =  stream := stream';
+
+	fun make_outstream (stream:  pur::Output_Stream)     =  REF stream;
+	fun get_outstream  (stream:  Output_Stream)          =  *stream;
+	fun set_outstream  (stream:  Output_Stream, stream') =  stream := stream';
+
+	# * Open files *
+	#
+	fun open_for_read filename
+	    =
+	    make_instream (pur::make_instream (wxd::open_for_read filename, empty))
+	    except
+		ex =  {
+# print ("winix-data-file-for-os-g--premicrothread.pkg: open_for_read: failed to open for input: '" + filename + "\n");
+
+			  raise exception iox::IO { op=>"open_for_read", name=>filename, cause=>ex };
+		      };
+
+	fun open_for_write filename
+	    =
+	    make_outstream (pur::make_outstream (wxd::open_for_write filename, iox::BLOCK_BUFFERING))
+	    except
+		ex =  {
+			  raise exception iox::IO { op=>"open", name=>filename, cause=>ex };
+		      };
+
+	fun open_for_append filename
+	    =
+	    make_outstream (pur::make_outstream (wxd::open_for_append filename, iox::NO_BUFFERING))
+	    except
+		ex =  {
+			  raise exception  iox::IO { op => "open_for_append", name => filename, cause=>ex };
+		      };
+
+    }; #  winix_data_file_for_os_g__premicrothread 
+end;
+
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

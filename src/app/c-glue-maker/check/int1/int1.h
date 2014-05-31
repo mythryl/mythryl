@@ -1,0 +1,9 @@
+extern int** foo;
+
+
+
+
+
+
+
+

@@ -1,0 +1,447 @@
+Copyright (c) 2001, 2002, Lucent Technologies, Bell Laboratories
+
+  author: Matthias Blume (blume@research.bell-labs.com)
+
+This directory contains C-GLUE-MAKER, a glue-code generator for
+the Mythryl foreign function interface.  The generator reads
+C source code (.h files) and emits Mythryl code along with
+a .lib file for Makelib, to compile all the generated code.
+
+See:
+
+     No-Longer-Foriegn: Teaching an ML compiler to speak C "natively"
+     Matthias Blume (Bell Labs)
+     2001, 14p
+     http://ttic.uchicago.edu/~blume/papers/nlffi.pdf
+
+
+Compiling this generator requires that the C-Kit ($ROOT/src/lib/c-kit/src/c-kit.lib)
+be installed.
+
+---------------------------------------------------------------------
+
+February 21, 2002:  Major changes:
+
+I reworked the glue code generator in a way that lets generated code
+scale better -- at the expense of some (mostly academic) generality.
+
+Changes involve the following:
+
+1. The genericization is gone.
+
+2. Every top-level C declaration results in a separate top-level
+   Mythryl equivalent (implemented by its own Mythryl source file).
+
+3. Incomplete pointer types are treated just like their complete
+   versions -- the only difference being that no runtime-type
+   information (RTTI) will be available for them.  In the
+   "light" interface, this rules out precisely those operations
+   over them that C would disallow.
+
+4. All related C sources must be supplied to c-glue-maker together.
+   Types incomplete in one source but complete in another get
+   automatically completed in a cross-file fashion.
+
+5. The handle for the shared library to link to is now abstracted as
+   a function closure.  Moreover, it must be supplied as a top-level
+   variable (by the programmer).  For this purpose, c-glue-maker has
+   corresponding command-line options.
+
+These changes mean that even very large (in number of exported definitions)
+libraries such as, e.g., GTK can now be handled gracefully without
+reaching the limits of the Mythryl compiler's abilities.
+
+[The example of GTK -- for which c-glue-maker creates several thousands (!)
+of separate Mythryl source files -- puts an unusal burden on Makelib.
+However, aside from running a bit longer than usual, Makelib handles loads
+of this magnitude just fine.  "Freezing" the resulting library solves
+the problem entirely as far as later clients are concerned.]
+
+
+Sketch of translation- (and naming-) scheme:
+
+  struct foo { ... }
+      -->   package ST_foo   in    st-foo.pkg  (not exported)
+               basic type info (name, size)
+       &    package S_foo    in    s-foo.pkg
+               abstract interface to the type
+                    field accessors f_xxx  (unless -light)
+                                and f_xxx' (unless -heavy)
+                    field types     field_type_xxx
+                    field RTTI      field_rtti_xxx
+
+       & (unless "-nosucvt" was set)
+            packages IS_foo  in    <a>/is-foo.pkg
+            (see discussion of struct *foo below)
+
+  union foo { ... }
+      -->   package UT_foo   in    ut-foo.pkg  (not exported)
+               basic type info (name, size)
+       &    package U_foo    in    u-foo.pkg
+               abstract interface to the type
+                    field accessors f_xxx  (unless -light)
+                                and f_xxx' (unless -heavy)
+                    field types     t_f_xxx
+                    field RTTI      type_f_xxx
+
+       & (unless "-nosucvt" was set)
+            packages IU_foo  in    <a>/iu-foo.pkg
+            (see discussion of union *foo below)
+
+  struct { ... }
+      like struct <n> { ... }, where <n> is a fresh integer or 'bar
+      if 'struct { ... }' occurs in the context of a
+      'typedef struct { ... } bar'
+
+  union { ... }
+      like union <n> { ... }, where <n> is a fresh integer or 'bar
+      if 'union { ... }' occurs in the context of a
+      'typedef union { ... } bar'
+
+
+  enum foo { ... }
+      -->   package E_foo   in     e-foo.pkg
+               external type mlrep with
+                   enum constants    e_xxx
+               conversion functions between tag enum and mlrep
+                                    between mlrep and sint
+               access functions (get/set) that operate on mlrep
+                (as an alternative to C.Get.enum/C.Set.enum which
+                 operate on sint)
+
+           If the command-line option "-ec" ("-enum-constructors") was set
+           and the values of all enum constants are different from each
+           other, then mlrep will be a enum (thus making it possible
+           to pattern-match).
+
+  enum { ... }
+      If this construct appears in the context of a surrounding
+      (non-anonymous) struct or union or typedef, the enumeration gets
+      assigned an artificial tag (just like similar structs and unions,
+      see above).
+
+      Unless the command-line option "-nocollect" was specified, then
+      all constants in other (truly) unnamed enumerations will be
+      collected into a single enumeration represented by package E_'.
+      This single enumeration is then treated like a regular enumeration
+      (including handling of "-ec" -- see above).
+
+      The default behavior ("collect") is to assign a fresh integer
+      tag (again, just like in the struct/union case).
+
+  T foo (T, ..., T)  (global function/function prototype)
+      -->   package F_foo   in     f-foo.pkg
+               containing three/four members:
+                    type :  RTTI
+                    fptr:  thunkified fptr representing the C function
+            maybe   f'  :  light-weight function wrapper around fptr
+                              Turned off by -heavy (see below).
+            maybe   f   :  heavy-weight function wrapper around fptr
+                              Turned off by -light (see below).
+
+  T foo;  (global variable)
+      -->   package G_foo   in     g-foo.pkg
+               containing three members:
+                    t   :  type
+                    type :  RTTI
+                    chunk :  thunkified chunk representing the C variable
+
+  struct foo *  (without existing definition of struct foo; incomplete type)
+      -->   an internal package ST_foo with a type "tag" (just like in
+            the struct foo { ... } case)
+            The difference is that no package S_foo will be generated,
+            so there is no field-access interface and no RTTI (size or type)
+            for this.  All "light-weight" functions referring to this
+            pointer type will be generated, heavy-weight functions will
+            be generated only if they do not require access to RTTI.
+
+            If "-heavy" was specified but a heavy interface function
+            cannot be generated because of incomplete types, then its
+            light counterpart will be generated anyway.
+
+  union foo *   Same as with struct foo *, but replace S_foo with U_foo
+            and ST_foo with UT_foo.
+
+  Additional files for implementing function entry sequences are created
+  and used internally.  They do not contribute to exports, however.
+
+
+Command-line options for c-glue-maker:
+
+  General syntax:   c-glue-maker <option> ... [--] <C-file> ...
+
+  Environment variables:
+
+    c-glue-maker looks at the environment variable FFIGEN_CPP to obtain
+    the template string for the cpp command line.  If FFIGEN_CPP is not
+    set, the template defaults to "gcc -E -U__GNUC__ %o %s > %t".
+    The actual command line is obtained by substituting occurrences of
+    %s with the name of the source, and %t with the name of a temporary
+    file holding the pre-processed code.
+
+  Options:
+
+   -dir <dir>   output directory where all generated files are placed
+   -d <dir>     default:  "glue"
+
+   -allSU       instructs c-glue-maker to include all structs and unions,
+                even those that are defined in included files (as opposed
+                to files explicitly listed as arguments)
+                default: off
+
+   -width <w>   sets output line width (just a guess) to <w>
+   -w <w>       default: 75
+
+   -mythryl-option <x>   instructs c-glue-maker to include <x> into the list
+                of options with which to annotate .pkg entries in the generated
+                .lib file.  By default, the list consists just of "noguid".
+   -guid        Removes the default "noguid" from the list of sml options.
+                (This re-enables strict handling of type- and object-identity
+                but can have negative impact on CM cutoff recompilation
+                performance if the programmer routinely removes the entire
+                tree of c-glue-maker-generated files during development.)
+
+/*
+   -lambdasplit <x>   instructs c-glue-maker to generate "lambdasplit"
+   -ls <x>      options for all Mythryl files (see Makelib manual for what
+                this means; it does not currently work anyway because
+                cross-module inlining is broken).
+                default: nothing
+*/
+
+   -target <t>  Sets the target to <t> (which must be one of "sparc32-posix",
+   -t <t>       "intel32-posix", or "intel32-win32").
+                default: current architecture
+
+   -light       Suppress "heavy" versions of function wrappers and
+   -l           field accessors; also resets any earlier -heavy to default
+                default: not suppressed
+
+   -heavy       Suppress "light" versions of function wrappers and
+   -h           field accessors; also resets any earlier -light to default
+                default: not suppressed
+
+   -namedargs   Instruct c-glue-maker to generate function wrappers that
+   -na          use named arguments (Mythryl records) instead of tuples if
+                there is enough information for this in the C source;
+                (this is not always very useful)
+                default: off
+
+   -nocollect   Do not do the following:
+                Collect enum constants from truly unnamed enumerations
+                (those without tags that occur at toplevel or in an
+                unnamed context, i.e., not in a typedef or another
+                named struct or union) into a single artificial
+                enumeration tagged by ' (single apostrohe).  The corresponding
+                Mythryl-side representative will be a package named E_'.
+
+   -enum-constructors
+   -ec          When possible (i.e., if all values of a given enumeration
+                are different from each other), make the Mythryl representation
+                type of the enumeration a enum.  The default (and
+                fallback) is to make that type the same as mlrep::signed::Int.
+
+   -libhandle <h>   Use the variable <h> to refer to the handle to the
+   -lh <h>      shared library object.  Given the constraints of Makelib, <h>
+                must have the form of a long Mythryl identifier, e.g.,
+                my_library::lib_handle.
+                default: library::lib_handle
+
+   -include <f> Mention file <f> in the generated .lib file.  THIS OPTION
+   -add <f>     IS NECESSARY AT LEAST ONCE to provide the library handle.
+                It can be used arbitrarily many times, resulting in each
+                file being mentioned in the generated .lib file.
+                If <f> is relative, then it must be relative to the directory
+                specified in the -dir <dir> option.
+
+   -libfile <f>  Specify name of the generated .lib file, relative to
+   -m7 <f>      the directory specified by the -dir <dir> option.
+                default: nlffi-generated.lib
+
+   -cppopt <o>  The string <o> gets added to the list of options to be
+                passed to cpp (the C preprocessor).  The list of options
+                gets substituted for %o in the cpp command line template.
+
+   -U<x>        The string -U<x> gets added to the list of cpp options.
+
+   -D<x>        The string -D<x> gets added to the list of cpp options.
+
+   -I<x>        The string -I<x> gets added to the list of cpp options.
+
+   -version     Just write the version number of c-glue-maker to standard
+                output and then quit.
+
+   -match <r>   Normally c-glue-maker will include Mythryl definitions for a C
+   -m <r>       declaration if the C declaration textually appears in
+                one of the files specified at the command line.  Definitions
+                in #include-d files will normally not appear (unless
+                their absence would lead to inconsistencies).
+                By specifying -match <r>, c-glue-maker will also include
+                those definitions appearing in recursively #include-d files,
+                whose names match the AWK-style regular expression <r>.
+
+   -prefix <p>  Generated Mythryl package names will all have prefix <p>
+   -p <p>       (in addition to the usual "S_" or "U_" or "F_" ...)
+
+   -gensym <g>  Names "gensym-ed" by c-glue-maker (for anonymous struct/union/
+   -g <g>       enums) will get an additional suffix _<g>.  (THIS SHOULD
+                BE USED if output from several indepdendent runs of 
+                c-glue-maker are to coexist in the same Mythryl program.)
+
+   --           Terminate processing of options, remaining arguments are
+                taken to be C source files.
+
+----------------------------------------------------------------------
+
+Sample usage:
+
+Suppose we have a C interface defined in foo.h.
+
+1. Running c-glue-maker:
+
+   It is best to let a tool such as Unix' "make" handle the invocation of
+   c-glue-maker.  The following "Makefile" can be used as a template for
+   other projects:
+
+  +----------------------------------------------------------
+  |FILES = foo.h
+  |HANDLE = foo_handle::lib_handle
+  |DIR = foo
+  |HANDLE_FILE = ../foo-handle.pkg
+  |CF = foo.lib
+  |
+  |$(D)/$(CF): $(FILES)
+  |	c-glue-maker -include $(HANDLE_FILE) -libhandle $(HANDLE) -dir $(DIR) -libfile $(CF) $^
+  +----------------------------------------------------------
+
+   Suppose the above file is stored as "foo.make".  Running
+
+     % make -f foo.make
+
+   will generate a subdirectory "foo" full of Mythryl files corresponding to
+   the definitions in foo.h.  Access to the generated Mythryl code is gained
+   by referring to the Makelib library foo/foo.lib; the .lib-file (foo.lib) is
+   also produced by c-glue-maker.
+
+2. The Mythryl code uses the library handle specified in the command line
+   (here: foo_handle::lib_handle) for dynamic linking.
+
+   The type of foo_handle::lib_handle must be:
+
+        foo_handle::lib_handle : String -> Void -> c_memory::Addr
+
+   That is, foo_handle::lib_handle takes the name of a symbol and produces that
+   symbol's suspended address.
+
+   The code that implements foo_handle::lib_handle must be provided by the programmer.
+   In the above example, we assume that it is stored in file foo-handle.pkg.
+   The name of that file must appear in the generated .lib-file, hence the
+   "-include" command-line argument.
+
+   Notice that the name provided to c-glue-maker must be relative to the
+   output directory.  Therefore, in our case it is "../foo-handle.pkg" and not
+   just foo-handle.pkg (because the full path would be foo/../foo-handle.pkg).
+
+3. To actually implement foo_handle::lib_handle, use the "dynamic_linkage" module.
+   Suppose the shared library's name is "/usr/lib/foo.so".
+   Here is the corresponding contents of foo-handle.pkg:
+
+  +-------------------------------------------------------------
+  |package foo_handle
+  |=
+  |pkg
+  |    local 
+  |        lh = dynamic_linkage::open_lib {
+  |               name   => "/usr/lib/foo.so",
+  |               global => TRUE,
+  |               lazy   => TRUE
+  |             };
+  |    in
+  |        fun lib_handle s
+  |            =
+  |            {   sh = dynamic_linkage::lib_symbol (lh, s);
+  |
+  |                \\ () =  dynamic_linkage::address sh;
+  |            };
+  |    end;
+  |end;
+  +-------------------------------------------------------------
+
+   If all the symbols you are linking to are already available within
+   the Mythryl runtime system, then you don't need to open a new shared
+   object, and your foo_handle implementation can be just this:
+
+  +-------------------------------------------------------------
+  |package foo_handle
+  |=
+  |pkg
+  |    fun lib_handle s
+  |        =
+  |        {   sh = dynamic_linkage::lib_symbol (dynamic_linkage::main_lib, s);
+  |
+  |            \\ () =  dynamic_linkage::address sh;
+  |        };
+  |end;
+  +-------------------------------------------------------------
+
+   If the symbols you are accessing are strewn across several separate
+   shared objects, then there are two possible solutions:
+
+   a)  Open several shared libraries and perform a trial-and-error search
+       for every symbol you are looking up.  The dynamic_linkage module raises
+       an exception (DYNAMIC_LINK_ERROR of String) if the lookup fails.  This
+       can be used to daisy-chain lookup operations.
+
+       [Be careful:  Sometimes there are non-obvious inter-dependencies
+       between shared libraries.  Consider using dynamic_linkage::open_lib'
+       to express those.]
+
+   b)  A simpler and more robust way of accessing several shared libraries
+       is to create a new "summary" library object at the OS level.
+       Supposed you are trying to access /usr/lib/foo.so and /usr/lib/bar.so.
+       The solution is to make a "foobar.so" object by saying:
+
+        % ld -shared -o foobar.so /usr/lib/foo.so /usr/lib/bar.so
+
+       The Mythryl code then refers to foobar.so and the Linux dynamic loader
+       does the rest.
+
+4. To put it all together, let's wrap it up in a .lib-file.  For example,
+   if we simply want to directly make the c-glue-maker-generated definitions
+   available to the "end user", we could write this wrapper .lib-file
+   (let's call it foo.lib):
+
+  +-------------------------------------------------------------
+  |LIBRARY_EXPORTS
+  |	library(foo/foo.lib)
+  |LIBRARY_COMPONENTS
+  |	$ROOT/src/lib/std/standard.lib
+  |	$ROOT/src/lib/c-glue-lib/c.lib
+  |	foo/foo.lib : make (-f foo.make)
+  +-------------------------------------------------------------
+
+   Now, saying
+
+     % mythryld --make foo.lib
+
+   is all one need do in order to compile.  (Makelib will automatically
+   invoke "make" -- you don't have to run it separately.)
+
+   If the goal is not to export the "raw" c-glue-maker-generated stuff
+   but rather something more nicely "wrapped", consider writing wrapper
+   Mythryl code.  Suppose you have wrapper definitions for package foo_a
+   and package foo_b with code for those in wrapper-foo-a.pkg and
+   wrapper-foo-b.pkg.  In this case the corresponding .lib-file would
+   look like the following:
+
+  +-------------------------------------------------------------
+  |LIBRARY_EXPORTS
+  |	package foo_a
+  |	package foo_b
+  |LIBRARY_COMPONENTS
+  |	$ROOT/src/lib/std/standard.lib
+  |	$ROOT/src/lib/c-glue-lib/c.lib
+  |	foo/foo.lib : make (-f foo.make)
+  |	wrapper-foo-a.pkg
+  |	wrapper-foo-b.pkg
+  +-------------------------------------------------------------

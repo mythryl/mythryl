@@ -1,0 +1,901 @@
+## machine.pkg
+
+# Compiled by:
+#     src/lib/reactive/reactive.lib
+
+# This is an implementation of the reactive interpreter instructions,
+# and functions to generate them.
+
+package machine: (weak)
+api {
+
+
+    State = TERM | STOP | SUSP;
+
+        # Activation return codes: 
+        #
+    	# TERM: Execution of the instruction is complete.
+    	#       Activation at future instances has no effect.
+    	
+    	# STOP: Execution is stopped in this instant,
+    	#       but could progress in the next instant.
+    	
+    	# SUSP: Execution is suspended and must be resumed
+    	#       during this instant.
+
+
+    In_Signal;
+    Out_Signal;
+
+    Instant = Int;
+
+    Signal_State = Ref( Instant );
+
+    Signal =  SIGNAL  {
+	          name:  quickstring__premicrothread::Quickstring,
+	          id:    Int,
+	          state: Signal_State
+              };
+
+    Machine = MACHINE  {
+		  now:             Ref( Instant ),
+		  move_flag:       Ref( Bool ),
+		  end_of_instant:  Ref( Bool ),
+
+		  program:         Code,
+
+		  signals:         List( Signal ),
+		  inputs:          List( Signal ),
+		  outputs:         List( Signal )
+		}
+
+    also
+    Code =  CODE {
+		is_term:	 Void -> Bool,
+		terminate:	 Void -> Void,
+		reset:		 Void -> Void,
+		preempt:	 Machine -> Void,
+		activation:	 Machine -> State
+	    };
+
+    run_machine:    Machine -> Bool;
+    reset_machine:  Machine -> Void;
+    inputs_of:      Machine -> List( In_Signal );
+    outputs_of:     Machine -> List( Out_Signal );
+
+    input_signal:   In_Signal  -> quickstring__premicrothread::Quickstring;
+    output_signal:  Out_Signal -> quickstring__premicrothread::Quickstring;
+
+    set_in_signal:  ((In_Signal, Bool)) -> Void;
+
+    get_in_signal:  In_Signal  -> Bool;
+    get_out_signal: Out_Signal -> Bool;
+
+    Config;
+
+    ||| : ((Code, Code)) -> Code;
+    &&& : ((Code, Code)) -> Code;
+
+    nothing:  Code;
+    stop:  Void -> Code;
+    suspend:  Void -> Code;
+    action:  (Machine -> Void) -> Code;
+    exec:    (Machine -> { stop:  Void -> Void, done:  Void -> Bool } ) -> Code;
+    if_then_else:  (((Machine -> Bool), Code, Code)) -> Code;
+    repeat:      ((Int, Code)) -> Code;
+    loop:        Code -> Code;
+    close:       Code -> Code;
+    emit:        Signal -> Code;
+    await:       Config -> Code;
+    when:        ((Config, Code, Code)) -> Code;
+    trap_with:    ((Config, Code, Code)) -> Code;
+
+}
+{
+
+    package i = instruction; 		#  For the config type. 
+
+    State
+	= TERM
+	| STOP
+	| SUSP;
+
+    Instant =  Int;
+
+    Signal_State =  Ref( Instant );
+
+    Signal = SIGNAL {
+		 name:  quickstring__premicrothread::Quickstring,
+		 id:    Int,
+		 state: Signal_State
+	     };
+
+    Config = i::Config( Signal );
+
+    Machine = MACHINE  {
+	now:		Ref( Instant ),
+	move_flag:	Ref( Bool ),
+	end_of_instant:	Ref( Bool ),
+	program:  	Code,
+	signals:  	List( Signal ),
+	inputs:   	List( Signal ),
+	outputs:  	List( Signal )
+      }
+
+    also
+    Code = CODE  {
+	       is_term:	    Void -> Bool,
+	       terminate:   Void -> Void,
+	       reset:	    Void -> Void,
+	       preempt:	    Machine -> Void,
+	       activation:  Machine -> State
+	   };
+
+
+    fun now               (MACHINE m) =  *m.now;
+    fun new_move          (MACHINE m) =   m.move_flag := TRUE;
+    fun is_end_of_instant (MACHINE m) =  *m.end_of_instant;
+
+    Presence = PRESENT | ABSENT | UNKNOWN;
+
+    fun presence (m, SIGNAL s)
+        =
+        {   ts  =  *s.state;
+	    now =  now m;
+	  
+	    if   (now == ts)
+                 PRESENT;
+	    else
+                 if  (now == -ts  or
+                      is_end_of_instant m)
+
+                      ABSENT;
+	         else
+                      UNKNOWN;
+                 fi;
+            fi;
+	};
+
+    fun present (m, SIGNAL s) =   now m ==   *s.state;
+    fun absent  (m, SIGNAL s) =   now m == -(*s.state);
+
+    fun put_sig (m, SIGNAL s) =   s.state :=    now m;
+    fun put_not (m, SIGNAL s) =   s.state :=  -(now m);
+
+    In_Signal  = IN   ((Machine, Signal));
+    Out_Signal = OUT  ((Machine, Signal));
+
+    fun input_signal  (IN (_, SIGNAL s)) =   s.name;
+    fun output_signal (OUT(_, SIGNAL s)) =   s.name;
+
+    fun set_in_signal (IN (m, s), FALSE) =>   put_not (m, s);
+        set_in_signal (IN (m, s), TRUE ) =>   put_sig (m, s);
+    end;
+
+    fun get_in_signal  (IN  (m, s)) =   present (m, s);
+    fun get_out_signal (OUT (m, s)) =   present (m, s);
+
+    fun terminate  (CODE c   ) =   c.terminate ();
+    fun is_term    (CODE c   ) =   c.is_term   ();
+    fun reset      (CODE c   ) =   c.reset     ();
+    fun preemption (CODE c, m) =   c.preempt    m;
+    fun activation (CODE c, m) =   c.activation m;
+
+    fun activate (i, m)
+        =
+        if  (is_term i)
+             TERM;
+	else
+             case (activation  (i, m))
+	       
+                  TERM   =>  { terminate i;   TERM; };
+	          result =>  result;
+             esac;
+        fi;
+
+    fun preempt (i, m)
+        =
+        if   (not (is_term i))
+             preemption (i, m);
+             terminate i;
+        fi;
+
+    # Default instruction methods:
+    fun is_term_meth   term_flag () =  *term_flag;
+    fun terminate_meth term_flag () =   term_flag := TRUE;
+    fun reset_meth     term_flag () =   term_flag := FALSE;
+
+    fun ||| (i1, i2)
+        =
+        {
+	    term_flag  = REF FALSE;
+
+	    left_sts  = REF SUSP;	# "sts" may be "status"
+	    right_sts = REF SUSP;
+
+	    fun reset_meth ()
+                =
+                {   term_flag := FALSE;
+
+                    left_sts  := SUSP;
+                    right_sts := SUSP;
+
+		    reset i1;
+                    reset i2;
+                };
+
+	    fun preempt_meth m
+                =
+                {   preempt (i1, m);
+                    preempt (i2, m);
+                };
+
+	    fun activation_meth m
+                =
+                {   if (*left_sts  == SUSP)  left_sts  := activate (i1, m); fi;
+		    if (*right_sts == SUSP)  right_sts := activate (i2, m); fi;
+
+		    case (*left_sts, *right_sts)
+		      
+		         (TERM, TERM) =>  TERM;
+		         (SUSP, _)    =>  SUSP;
+		         (_, SUSP)    =>  SUSP;
+		         _            =>  {   left_sts  := SUSP;
+                                              right_sts := SUSP;
+                                              STOP;
+                                          };
+                    esac;
+		};
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+	        terminate	=> terminate_meth term_flag,
+	        reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+    fun &&& (i1, i2)
+        =
+        {   term_flag = REF FALSE;
+
+	    fun reset_meth ()
+                =
+                {   term_flag := FALSE;
+
+                    reset i1;
+                    reset i2;
+                };
+
+	    fun preempt_meth m
+                =
+                {   preempt (i1, m);
+                    preempt (i2, m);
+                };
+
+	    fun activation_meth m
+                =
+		if  (is_term  i1)
+	             activate (i2, m);
+	        else
+                     case (activate (i1, m))
+		          TERM   =>  activate (i2, m);
+		          result =>  result;
+                     esac;
+                fi;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	      };
+	};
+
+    nothing = CODE {
+	    is_term	=>  \\ () =  TRUE,
+	    terminate	=>  \\ () =  (),
+	    reset	=>  \\ () =  (),
+	    preempt	=>  \\ _  =  (),
+	    activation	=>  \\ _  =  TERM
+	  };
+
+    fun stop ()
+        =
+        {   term_flag =  REF FALSE;
+	  
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth     term_flag,
+		preempt		=> \\ _ =  (),
+		activation	=> \\ _ =  STOP
+	    };
+	};
+
+    fun suspend ()
+        =
+        {   term_flag = REF FALSE;
+	  
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth     term_flag,
+		preempt		=> \\ _ =  (),
+		activation	=> \\ _ =  {   term_flag := TRUE;   STOP;  }
+	      };
+	  };
+
+    fun action f
+        =
+        {   term_flag =  REF FALSE;
+	  
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth     term_flag,
+		preempt		=> \\ _ =  (),
+		activation	=> \\ m =  {   f m;   TERM;   }
+	    };
+	};
+
+    fun exec f
+        =
+        {   term_flag =  REF FALSE;
+
+	    ops =  REF (NULL:   Null_Or { stop:  Void -> Void, done:  Void -> Bool } );
+
+            # NOTE: what if a reset occurs while we are running?
+            # We would need to change the type of reset_meth
+            # to take a machine parameter.
+
+	    fun reset_meth ()
+                =
+                term_flag := FALSE;
+
+	    fun preempt_meth m
+                =
+		case *ops
+		  
+		     NULL  => ();
+		     THE a => {   ops := NULL;   a.stop ();  };
+		esac;
+
+	    fun activation_meth m
+                =
+		case *ops
+		  
+		     THE a
+			 =>
+			 if   (a.done ()   )   ops := NULL;   TERM;
+					  else                  STOP;   fi;
+		     NULL
+			 =>
+			 {   ops := THE (f m);   SUSP;   };
+		esac;
+	  
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+    fun if_then_else (prior, i1, i2)
+        =
+        {
+	    term_flag =  REF FALSE;
+	    cond     =  REF NULL;
+
+	    fun reset_meth ()
+                =
+                {   term_flag := FALSE;
+
+		    case *cond
+		      
+		         THE TRUE  =>  reset i1;
+		         THE FALSE =>  reset i2;
+		         NULL      =>  ();
+                    esac;
+
+		    cond := NULL;
+                };
+
+	    fun preempt_meth m
+                =
+		case *cond
+		  
+		     THE TRUE  =>  preempt (i1, m);
+		     THE FALSE =>  preempt (i2, m);
+		     NULL      =>  ();
+		esac;
+
+
+	    fun activation_meth m
+                =
+		case *cond
+		  
+		     THE TRUE  =>  activate (i1, m);
+		     THE FALSE =>  activate (i2, m);
+
+		     NULL
+			 =>
+			 {   b = prior m;
+
+			     cond := THE b;
+
+			     if   b      activate (i1, m);
+				      else   activate (i2, m);   fi;
+			 };
+		esac;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+    fun repeat (n, i)
+        =
+        {   term_flag = REF FALSE;
+	    counter  = REF n;
+
+	    fun reset_meth ()
+                =
+                {   term_flag := FALSE;
+                    counter  := n;
+                };
+
+	    fun preempt_meth m
+                =
+                preempt (i, m);
+
+	    fun activation_meth m
+                =
+		if   (*counter > 0)
+
+		     case (activate (i, m))
+		       
+			  TERM
+			      =>
+			      {   counter := *counter - 1;
+				  reset i;
+				  TERM;
+			      };
+
+			  result =>  result;
+		     esac;
+		else
+                     TERM;
+                fi;
+
+	    CODE {
+		is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	      };
+	};
+
+    fun loop i
+        =
+        {   term_flag    =  REF FALSE;
+	    end_reached =  REF FALSE;
+
+	    fun reset_meth ()
+                =
+                {   term_flag    := FALSE;
+                    end_reached := FALSE;
+                };
+
+	    fun preempt_meth m
+                =
+                preempt (i, m);
+
+	    fun activation_meth m
+                =
+		case (activate (i, m))
+		  
+		   STOP => {   end_reached := FALSE;   STOP;  };
+		   SUSP => SUSP;
+		   TERM
+		       =>
+		       if   *end_reached
+
+# 			      say (m, "instantaneous loop detected\n"); 
+			    STOP;
+		       else
+			    end_reached := TRUE;
+			    reset i;
+			    TERM;
+		       fi;
+		esac;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+    fun close i
+        =
+        {   term_flag =  REF FALSE;
+
+	    fun activation_meth m
+                =
+		case (activate (i, m))
+		  
+		     SUSP   =>  activation_meth m;
+		     result =>  result;
+		esac;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth term_flag,
+		preempt		=> \\ _ =  (),
+		activation	=> activation_meth
+	    };
+	};
+
+    # Configuration evaluation
+    fun fixed (m, c)
+        =
+	fix c
+        where 
+
+            fun fix (i::POS_CONFIG id) =>  (presence (m, id) != UNKNOWN);
+	        fix (i::NEG_CONFIG id) =>  (presence (m, id) != UNKNOWN);
+
+	        fix (i::OR_CONFIG (c1, c2))
+                    =>
+                    {   b1 = fix c1;
+			b2 = fix c2;
+
+			(b1 and evaluate (m, c1)) or
+			(b2 and evaluate (m, c2)) or
+			(b1 and b2);
+		    };
+
+	        fix (i::AND_CONFIG (c1, c2))
+                    =>
+                    {
+			b1 = fix c1;
+			b2 = fix c2;
+
+			(b1 and not (evaluate (m, c1))) or
+			(b2 and not (evaluate (m, c2))) or
+			(b1 and b2);
+		    };
+            end;
+	  
+	  end
+
+    also
+    fun evaluate (m, c)
+         =
+	 evaluate c
+         where 
+
+	     fun evaluate (i::POS_CONFIG id)       =>        present (m, id);
+		 evaluate (i::NEG_CONFIG id)       =>   not (present (m, id));
+
+		 evaluate (i::OR_CONFIG  (c1, c2)) =>   evaluate c1  or   evaluate c2;
+		 evaluate (i::AND_CONFIG (c1, c2)) =>   evaluate c1  and  evaluate c2;
+	     end;
+	 end;
+
+    fun fixed_eval (m, c)
+        =
+	f c
+        where 
+
+	    fun f (i::POS_CONFIG id)
+                    =>
+		    case (presence (m, id))
+		      
+			 UNKNOWN => NULL;
+			 PRESENT => THE TRUE;
+			 ABSENT  => THE FALSE;
+		    esac;
+
+		f (i::NEG_CONFIG id)
+                    =>
+		    case (presence (m, id))
+		      
+			 UNKNOWN =>  NULL;
+			 PRESENT =>  THE FALSE;
+			 ABSENT  =>  THE TRUE;
+		    esac;
+
+		f (i::AND_CONFIG (c1, c2))
+                    =>
+		    case (f c1, f c2)
+		      
+			 (THE FALSE, _        ) =>  THE FALSE;
+			 (_,         THE FALSE) =>  THE FALSE;
+			 (THE TRUE,  THE TRUE ) =>  THE TRUE;
+			 _                      =>  NULL;
+		    esac;
+
+
+		f (i::OR_CONFIG (c1, c2))
+                    =>
+		    case (f c1, f c2)
+		      
+			 (THE TRUE,  _        ) =>  THE TRUE;
+			 (_,         THE TRUE ) =>  THE TRUE;
+			 (THE FALSE, THE FALSE) =>  THE FALSE;
+			 _                      =>  NULL;
+		    esac;
+	    end;
+	end;
+
+    fun emit signal
+        =
+        {   term_flag =  REF FALSE;
+
+	    fun activation_meth m
+                =
+                {   new_move m;
+		    put_sig (m, signal);
+		    TERM;
+                };
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth     term_flag,
+		preempt		=> \\ _ =  (),
+		activation	=> activation_meth
+	    };
+	};
+
+    fun await c
+        =
+        {   term_flag =  REF FALSE;
+
+	    fun activation_meth m
+                =
+                case (fixed_eval (m, c))
+		  
+		    NULL     =>  SUSP;
+		    THE TRUE =>  STOP;
+
+		    THE FALSE
+                        =>
+                        {   term_flag := TRUE;
+
+			    if   (is_end_of_instant m   )   STOP;
+                                                       else   TERM;   fi;
+                        };
+                esac;
+
+
+	    CODE {
+                is_term	   =>  is_term_meth   term_flag,
+		terminate  =>  terminate_meth term_flag,
+		reset	   =>  reset_meth     term_flag,
+		preempt    =>  \\ _ =  (),
+		activation =>  activation_meth
+	    };
+	};
+
+    fun when (c, i1, i2)
+        =
+        {   term_flag =  REF FALSE;
+	    value     =  REF NULL;
+
+	    fun reset_meth m
+                =
+                {   term_flag := FALSE;
+		    reset i1;
+                    reset i2;
+		    value := NULL;
+                };
+
+	    fun preempt_meth m
+                =
+                {   preempt (i1, m);
+                    preempt (i2, m);
+                };
+
+	    fun activation_meth m
+                =
+		case *value
+		  
+		     NULL
+			 =>
+			 case (fixed_eval (m, c))
+			   
+			      NULL => SUSP;
+
+			      THE v
+				  =>
+				  {   value := THE v;
+
+				      if  (is_end_of_instant m)
+
+					   STOP;
+				      else
+					   if   v      activate (i1, m);
+						    else   activate (i2, m);   fi;
+				      fi;
+				  };
+			 esac;
+
+		     THE TRUE  =>  activate (i1, m);
+		     THE FALSE =>  activate (i2, m);
+		esac;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+    fun trap_with (c, i1, i2)
+        =
+        {   term_flag      =  REF FALSE;
+	    active_handle =  REF FALSE;
+	    resume_body   =  REF TRUE;
+
+	    fun reset_meth m
+                =
+                {   term_flag := FALSE;
+
+		    reset i1;
+                    reset i2;
+
+		    active_handle := FALSE;
+		    resume_body   := TRUE;
+                };
+
+	    fun preempt_meth m
+                =
+                if   *active_handle      preempt (i2, m);
+		                      else   preempt (i1, m);   fi;
+
+	    fun activation_meth m
+                =
+		if   *active_handle
+
+                     activate (i2, m);
+		else
+		     fun check_config ()
+                         =
+			 case (fixed_eval (m, c))
+			   
+			      NULL => SUSP;
+
+			      THE TRUE
+				  =>
+				  {   #  Actual preemption 
+				      preempt (i1, m);
+				      active_handle := TRUE;
+
+				      if   (is_end_of_instant m)
+					   STOP;
+				      else
+					   activate (i2, m);
+				      fi;
+				  };
+
+			      THE FALSE
+				  =>
+				  {   resume_body := TRUE;
+				      STOP;
+				  };
+			 esac;
+
+		     if   *resume_body
+
+			  case (activate (i1, m))
+			       STOP   => {   resume_body := FALSE;   check_config();   };
+			       result => result;
+			  esac;
+		     else
+                          check_config();
+                     fi;
+		fi;
+
+	    CODE {
+                is_term		=> is_term_meth   term_flag,
+		terminate	=> terminate_meth term_flag,
+		reset		=> reset_meth,
+		preempt		=> preempt_meth,
+		activation	=> activation_meth
+	    };
+	};
+
+
+    # Run a machine to a stable state.
+    # Return TRUE if that is a terminal state 
+
+    fun run_machine (machine as MACHINE m)
+        =
+        {   fun until_stop ()
+                =
+		case (activate (m.program, machine))
+		  
+		     SUSP
+			 =>
+			 {   if   *m.move_flag      m.move_flag      :=  FALSE;
+						 else   m.end_of_instant :=  TRUE;   fi;
+			     until_stop ();
+			 };
+
+		     STOP => FALSE;
+		     TERM => TRUE;
+		esac;
+	  
+	    m.end_of_instant :=  FALSE;
+	    m.move_flag      :=  FALSE;
+
+	    until_stop ()
+            then
+                m.now := *m.now + 1;
+	};
+
+
+    # Reset a machine back to its initial state 
+
+    fun reset_machine ( MACHINE m )
+        =
+        {   fun reset_sig (SIGNAL s)
+                =
+                s.state := 0;
+	  
+	    m.now := 1;
+
+	    m.move_flag      :=  FALSE;
+	    m.end_of_instant :=  FALSE;
+
+	    reset m.program;
+
+	    list::apply  reset_sig  m.signals;
+	    list::apply  reset_sig  m.inputs;
+	    list::apply  reset_sig  m.outputs;
+	};
+
+    fun inputs_of  (m as MACHINE r) =   list::map  (\\ s =  IN  (m, s))  r.inputs;
+    fun outputs_of (m as MACHINE r) =   list::map  (\\ s =  OUT (m, s))  r.inputs;	# Or r.outputs? XXX BUGGO FIXME
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

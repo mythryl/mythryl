@@ -1,0 +1,641 @@
+## generic-regular-expression-syntax-g.pkg
+#
+# This module allows the client to specialize the syntax of the 
+# escape sequences to some degree via a callback.
+#
+# -- Allen Leung Leung (leunga@{ cs.nyu.edu, dorsai.org } )
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+###                 "This is, without a doubt, the scariest regular expression I have ever used in anger:
+###
+###                 (tags-query-replace " . :\\(\\([ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\|([ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\([ 	]*\\(->\\|\\*\\)[ 	]*[ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\)*)\\)\\([ 	]*\\(->\\|\\*\\)[ 	]*\\([ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\|([ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\([ 	]*\\(->\\|\\*\\)[ 	]*[ 	]*[A-Za-z0-9_'$]+\\(::[A-Za-z0-9_']+\\)*\\)*)\\)\\)*\\([ 	\n]*[,) }#]\\|[ 	\n]+my[ 	\n]+\\|[ 	\n]+type[ 	\n]+\\|[ 	\n]+enum[ 	\n]+\\|[ 	\n]+package[ 	\n]+\\|[ 	\n]+end[ 	\n]+\\|[ 	\n]*(\\*\\)\\)" ":\\1" NIL)
+
+
+
+generic package  generic_regular_expression_syntax_g (
+
+    package r:  Abstract_Regular_Expression;
+
+    # Types of escape sequences:
+    #
+    Escape
+       = CHAR         r::char::Char			#  It is a character.
+       | MATCH_SET    r::char_set::Set			#  It is a set.
+       | NONMATCH_SET r::char_set::Set			#  It is a set complemented.
+       | REGEXP       r::Abstract_Regular_Expression	#  Do the work in the client.
+       | CHARCODE     number_string::Radix		#  Do character code parsing.
+       | CTRL						#  Do control character parsing.
+       | BACKREF  ((String -> String), Int)		#  The i-th back reference.
+       | ERROR String;                 			#  It is an error.
+
+    Context = IN_CHARSET | IN_REGEXP;
+
+    # This callback is used to categorize escape sequences.
+    # Escape sequences can appear in character sets and regular places
+
+    Callbackdata;
+
+    escape
+	:  Callbackdata
+        -> Context
+        -> number_string::Reader( Char,   X )
+        -> number_string::Reader( Escape, X );
+
+    dot:  r::Abstract_Regular_Expression;	 #  What is '.' interpreted as?
+
+    # Do we allow dangling modifiers such as   ? * +   ?
+    # I.e. an empty string in front of these modifiers
+    # If TRUE, these will be treated as the empty string.
+    # If FALSE, there must something before these modifiers.
+
+   dangling_modifiers:  Bool;
+)
+: (weak)
+api {
+    Callbackdata = Callbackdata;
+
+    scan:  { data:       Callbackdata, 
+             backslash:  Char,			#  escape \ character 
+             error:      (X, String) -> Null_Or( (r::Abstract_Regular_Expression, X) )
+           }
+           ->
+           number_string::Reader (Char, X)
+	   ->
+           number_string::Reader (r::Abstract_Regular_Expression, X);
+}
+{
+    package r  = r;
+    package abstract_regular_expression = r;
+    package s  = r::char_set;
+    package sc = number_string;				# number_string		is from   src/lib/std/src/number-string.pkg
+    package is = int_red_black_set;			# int_red_black_set	is from   src/lib/src/int-red-black-set.pkg
+
+    fun char c
+        =
+        r::char::from_int (char::to_int c);
+
+    Callbackdata =   Callbackdata;
+
+    # The syntax is LL (1) so there is no backtracking here! 
+    #
+    fun scan { data, backslash, error } getc s
+        =
+	{   exception PARSE_ERROR (X, String);
+
+	    fun err (s, msg)
+                =
+                raise exception PARSE_ERROR (s, msg);
+
+	    # The set of back references
+            # that appear in the regexp: 
+
+	    back_refs =   REF is::empty;
+
+	    # Can a pattern only match zero len strings? 
+	    #
+	    fun is_zero_len (r::GROUP x)     =>  is_zero_len x;
+	        is_zero_len (r::CONCAT xs)   =>  list::all is_zero_len xs;
+	        is_zero_len (r::ALT xs)      =>  list::all is_zero_len xs;
+
+	        is_zero_len (r::GUARD(_, x)) =>  is_zero_len x;
+	        is_zero_len (r::STAR x)      =>  is_zero_len x;
+	        is_zero_len (r::PLUS x)      =>  is_zero_len x;
+	        is_zero_len (r::OPTION x)    =>  is_zero_len x;
+
+	        is_zero_len (r::INTERVAL(_, _,  THE 0)) =>  TRUE;
+	        is_zero_len (r::INTERVAL (x, m, THE n)) =>  m > n or is_zero_len x;
+
+	        is_zero_len (r::INTERVAL (x, _, _)) =>  is_zero_len x;
+	        is_zero_len (r::ASSIGN(_, _, x))    =>  is_zero_len x;
+
+	        is_zero_len (r::BEGIN)      =>  TRUE;
+	        is_zero_len (r::END)        =>  TRUE;
+	        is_zero_len (r::BOUNDARY _) =>  TRUE;
+	        is_zero_len _               =>  FALSE;
+            end;
+
+	    fun cat [x]    => x;
+	        cat stack  => r::CONCAT (reverse stack);
+            end;
+
+	    fun alt [x]   =>  x;
+	        alt stack =>  r::ALT (reverse stack);
+            end;
+
+	    # Pull a character from the stream:
+
+	    fun expect (ch, stream)
+                =
+		case (getc stream)
+		  
+                     NULL => err (stream, "missing " + char::to_string ch);
+
+		     THE (char', stream')
+                         =>
+			if (ch == char')
+			     stream';
+			else
+                             err (stream, "expecting "  + char::to_string ch +
+					  " but found " + char::to_string char'
+                                 );
+                        fi;
+                esac
+
+	    also
+            fun dangling (s, c)
+                = 
+		if dangling_modifiers   (s, [r::CONCAT []]);
+		else                    err (s, "dangling " + c);
+                fi
+
+	    also
+            fun star (s, stack as r::STAR _ ! _)           =>  (s, stack);
+	        star (s, r::PLUS x ! stack)                =>  (s, r::STAR x ! stack);
+	        star (s, r::INTERVAL (x, 1, NULL) ! stack) =>  (s, r::STAR x ! stack);
+	        star (s, r::INTERVAL (x, 0, NULL) ! stack) =>  (s, r::STAR x ! stack);
+
+	        star (s, x ! stack)
+		    =>
+		    (   s,
+			(   is_zero_len x   ??   r::OPTION x
+					    ::   r::STAR   x
+			)
+			!
+			stack
+		    );
+
+	        star (s, [])
+		    =>
+		    dangling (s, "*");
+            end
+
+	    also
+            fun plus (s, stack as r::PLUS _ ! _)               =>  (s, stack);
+	        plus (s, stack as r::STAR _ ! _)               =>  (s, stack);
+	        plus (s, r::INTERVAL (x, 1, NULL) ! stack)     =>  (s, r::PLUS x ! stack);
+	        plus (s, stack as r::INTERVAL(_, 0, NULL) ! _) =>  (s, stack);
+
+	        plus (s, stack as x ! xs)
+                    =>
+                    ( s,
+                      is_zero_len x  ??  stack
+				     ::	 r::PLUS x ! xs
+                    );
+
+	        plus (s, [])
+                    =>
+                    dangling (s, "+");
+            end
+
+
+	    also
+            fun opt (s, stack as r::OPTION _ ! _)          =>  (s, stack);
+	        opt (s, stack as r::STAR   _ ! _)          =>  (s, stack);
+	        opt (s, stack as r::INTERVAL(_, 0, _) ! _) =>  (s, stack);
+
+	        opt (s, x ! stack)
+                    =>
+                    (s, r::OPTION x ! stack);
+
+	        opt (s, [])
+                    =>
+                    dangling (s, "?");
+            end
+
+	    also
+            fun interval (s, stack)
+                =
+		#  { n } 
+		#  { min, max }
+		#  { min,}
+
+		{   fun done (s, min, max)
+                        = 
+			case (min, max, stack)
+			  
+			     (_, _, [])                        =>  dangling (s, "{}");
+			     (0, NULL, r::OPTION x ! stack)    =>  (s, r::STAR x ! stack);
+			     (0, NULL, stack as r::STAR _ ! _) =>  (s, stack);
+			     (1, NULL, stack as r::PLUS _ ! _) =>  (s, stack);
+
+			     (_, _, x ! stack)
+				 => 
+				 (   s,
+
+				     if   (is_zero_len x)
+				         
+					  if (min > 0)   x ! stack;
+					  else           r::OPTION x ! stack;
+                                          fi;
+				     else
+					  r::INTERVAL (x, min, max) ! stack;
+                                     fi
+				 );
+                        esac;
+
+		    case (int::scan sc::DECIMAL getc s)
+			#
+			THE (min, s)
+			    => 
+			    case (getc (sc::skip_ws getc s))
+				#
+				THE (',', s)
+				    => 
+				    case (getc (sc::skip_ws getc s))
+					#
+					THE ('}', s)
+					    =>
+					    done (s, min, NULL);
+
+					THE _
+					    =>
+					    case (int::scan sc::DECIMAL getc s)
+						#
+						THE (max, s)
+						    => 
+						    done (   expect( '}', sc::skip_ws getc s),
+							     min,
+							     THE max
+							 );
+
+						NULL
+						    =>
+						    err (s, "illegal max in interval");
+					    esac;
+
+					NULL => err (s, "missing '}'");
+				    esac;
+
+
+				THE ('}', s)
+				    =>
+				    done (s, min, THE min);
+
+				_ => err (s, "missing }");
+			    esac;
+
+		      NULL => err (s, "missing min in interval");
+                    esac;
+		}
+
+	    # Parse a character in a set:
+	    #
+	    also
+            fun parse_char s
+                =
+		case (getc s)
+		    #
+		    NULL        => err (s, "missing closing ]");
+		    THE(']', _) => NULL;				# Finished.
+		    THE('[', _) => err (s, "dangling [ in set");
+
+		    THE (c, s')
+			=>				# Handle escape sequences.
+			if (c != backslash)
+			    #
+			    THE (CHAR (char c), s');
+			else
+			    case (escape data IN_CHARSET getc s')
+				#
+				NULL => err (s, "dangling fn in set");
+				#
+				THE (ERROR msg, s')
+				    => 
+				    err (s, "bad escape sequence in charset: " + msg);
+
+				THE (CHARCODE radix, s')
+				    => 
+				    {   my  (c, s')
+					    =
+					    parse_char_code (radix, s');
+
+					THE (CHAR c, s');
+				    };
+
+				THE (CTRL, s)
+				    =>
+				    {   my  (c, s)
+					    =
+					    parse_control s;
+
+					THE (CHAR c, s);
+				    };
+
+				THE (REGEXP (r::CHAR c),           s) =>   THE (CHAR c, s');
+				THE (REGEXP (r::MATCH_SET set),    s) =>   THE (MATCH_SET set, s');
+				THE (REGEXP (r::NONMATCH_SET set), s) =>   THE (NONMATCH_SET set, s');
+				x => x;
+			    esac;
+		       fi;
+                esac
+
+	    #  Parse a character set expression:
+
+	    also
+            fun parse_set s
+                = 
+		{   fun loop (s, set)
+                        = 
+			case (parse_char s)
+			    #
+			    NULL => (set, s);
+			    #
+			    THE (CHAR c', s')
+				=> 
+				case (getc s')
+				    #
+				    THE ('-', s'')
+					=>	 #  range? 
+					case (parse_char s'')
+					    #
+					    NULL => err (s', "dangling -");
+					    #
+					    THE (CHAR c''', s''')
+						=> 
+						loop (s''', r::add_range (set, c', c'''));
+
+					    THE (_, s')
+						=>
+						err (s', "end range must be a character");
+					esac;
+
+				    _ => loop (s', s::add (set, c'));
+				esac;
+
+			    THE (MATCH_SET set', s)
+				=>
+				loop (s, s::union (set, set'));
+
+			    THE (NONMATCH_SET set', s)
+				=>
+				loop (s, s::union (set, s::difference (r::all_chars, set')));
+
+			    THE _
+				=> 
+				err (s, "bug in charset escape sequence");
+                        esac;
+
+		    my (mode, (set, s))
+                        = 
+			case (getc s)
+			  
+			     THE ('^', s')
+				 => 
+				 (r::NONMATCH_SET, loop (s', s::empty));
+
+			     _ => (   r::MATCH_SET,
+                                      loop (s, s::empty)
+                                  );
+                        esac;
+
+		    (mode set, s);
+
+		}
+
+
+	    #  The main parser:
+	    #
+	    also
+            fun parse (s, stack)
+                =
+		case (getc s)
+		    #
+		    NULL
+			=>
+			(cat stack, s);
+
+		    THE (c', s')
+			=>
+			case c'
+			    #
+			    ')' => (cat stack, s);
+			    '|' => (cat stack, s);
+
+			    '(' => {   my (re, s') = parse_alt s';
+				       parse (expect(')', s'), r::GROUP re ! stack);
+				   };
+
+			    '[' =>  {   my (re, s') = parse_set s';
+					parse (expect(']', s'), re ! stack);
+				    };
+
+			    '^' => parse (s', r::BEGIN ! stack);
+			    '$' => parse (s', r::END ! stack);
+			    '.' => parse (s', dot ! stack);
+			    '*' => parse (star (s', stack));
+			    '+' => parse (plus (s', stack));
+			    '?' => parse (opt  (s', stack));
+			    '{' => parse (interval (s', stack));
+			    ']' => err (s, "dangling ]");
+			    '}' => err (s, "dangling }");
+
+			    c'
+				=>
+				if (c' == backslash)
+				    #
+				    my  (re, s')
+					=
+					parse_escape s';
+
+				    parse (s', re ! stack);
+				else
+				    parse (s', r::CHAR (char c') ! stack);
+				fi;
+			esac;
+		esac
+
+	    also
+            fun parse_alt s
+                = 
+		{   fun loop (s, alts)
+                        =
+			case (getc s)
+			    #                           
+			    NULL => (alt alts, s);
+			    #                           
+			    THE('|', s')
+				=> 
+				{    my (re, s'') = parse (s', []) ;
+				     loop (s'', re ! alts);
+				};
+
+			    THE _ => (alt alts, s);
+                        esac;
+
+		    my  (re, s)
+                        =
+                        parse (s, []);
+
+		    loop (s, [re]);
+		}
+
+	    #  Do character code parsing:
+	    #
+	    also
+            fun parse_char_code (radix, s)
+                =
+		case (int::scan radix getc s)
+		    #                  
+		    THE (n, s)
+			=>  
+			((r::char::from_int n, s) 
+			except
+			    BAD_CHAR
+				=
+				err (s, "character code out of range"));
+
+		    NULL => err (s, "bad character code");
+                esac
+
+	    #  Do control character parsing:
+	    #
+	    also
+            fun parse_control s
+                =
+		case (getc s)
+		    #		  
+		    NULL         =>  err (s, "bad control character");
+		    THE ('[', s) =>  (r::char::from_int 27, s);
+
+		    THE (c, s)
+			=>
+			if (char::is_alpha c)
+			    #
+			    (r::char::from_int (char::to_int (char::to_lower c) - char::to_int 'a' + 1), s);
+			else
+			    err (s, "bad control character");
+			fi;
+                esac
+
+	    #  Do escape sequence 
+	    #
+	    also
+            fun parse_escape s
+                =
+		case (escape data IN_REGEXP getc s)
+		    #		  
+		    NULL => err (s, "dangling \\");
+
+		    THE (CHAR c, s)         => (r::CHAR c, s);
+		    THE (CHARCODE radix, s) => {   my (c, s) = parse_char_code (radix, s);
+						   (r::CHAR (c), s);
+					       };
+
+		    THE (MATCH_SET    set, s) => (r::MATCH_SET set, s);
+		    THE (NONMATCH_SET set, s) => (r::NONMATCH_SET set, s);
+
+		    THE (CTRL, s) => {   my (c, s) = parse_control s;
+					 (r::CHAR (c), s);
+				     };
+
+		    THE (REGEXP re,  s)  => (re, s);
+
+		    THE (BACKREF (f, i), s)
+			=> 
+			{   back_refs := is::add(*back_refs, i);
+			    (r::BACK_REF (f, i), s);
+			};
+
+		    THE (ERROR msg, s)
+			=> 
+			err (s, "bad escape sequence " + msg);
+		esac;
+
+
+	    # Do postprocessing if backreferences are used:
+	    #
+	    fun walk (i, r::CONCAT xs) =>   walk_list r::CONCAT (i, xs);
+	        walk (i, r::ALT    xs) =>   walk_list r::ALT (i, xs);
+	        walk (i, r::GROUP  x)
+		    =>
+		    {   my (j, x)
+                            =
+                            enter r::GROUP (i+1, x);	 # New group.
+
+			(   j,
+
+			    is::member(*back_refs, i)   ??   r::ASSIGN (i, \\ x = x, x)
+							::   x
+			);
+		    };
+
+	        walk (i, r::STAR   x) =>   enter r::STAR   (i, x);
+	        walk (i, r::PLUS   x) =>   enter r::PLUS   (i, x);
+	        walk (i, r::OPTION x) =>   enter r::OPTION (i, x);
+
+	        walk (i, r::GUARD (p, x))
+		    =>
+		    enter (\\ x =  r::GUARD (p, x)) (i, x);
+
+	        walk (i, r::INTERVAL (x, a, b))
+		    =>
+		    enter (\\ x =  r::INTERVAL (x, a, b)) (i, x);
+
+	        walk (i, x as r::BACK_REF     _) =>   (i, x);
+	        walk (i, x as r::MATCH_SET    _) =>   (i, x);
+	        walk (i, x as r::NONMATCH_SET _) =>   (i, x);
+	        walk (i, x as r::CHAR         _) =>   (i, x);
+	        walk (i, x as r::BOUNDARY     _) =>   (i, x);
+	        walk (i, x as r::BEGIN         ) =>   (i, x);
+	        walk (i, x as r::END           ) =>   (i, x);
+	        walk (i,      r::ASSIGN       _) =>   err (s, "bug");
+            end
+
+	    also
+            fun walk_list f (i, xs)
+                = 
+		{   fun loop (i, [])
+			    =>
+			    (i, []);
+
+		        loop (i, x ! xs)
+			    => 
+			    {   my (i, x)
+				   =
+				   walk (i, x);
+
+				my (i, xs)
+				   =
+				   loop (i, xs);
+
+				(i, x ! xs);
+			    };
+                    end;
+
+		    my  (i, xs)
+                        =
+                        loop (i, xs);
+
+		    (i, f xs);
+		}
+
+	    also
+            fun enter f (i, x)
+                = 
+		{   my (j, x) = walk (i, x);
+
+		    (j, f x);
+		};
+
+	    fun scan_it s
+                = 
+		{   my  (re, s)
+                        =
+                        parse_alt s;
+
+		    re =   if (is::is_empty *back_refs   )   re;
+                                                        else   #2 (walk (1, re));  fi;
+
+		    THE (re, s);
+		};
+
+	    scan_it s
+            except
+                PARSE_ERROR (s, msg)
+                    =
+                    error (s, msg);
+	};
+
+};				# generic package generic_regular_expression_syntax_g

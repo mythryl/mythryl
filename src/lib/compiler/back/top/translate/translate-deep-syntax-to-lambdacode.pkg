@@ -1,0 +1,3395 @@
+## translate-deep-syntax-to-lambdacode.pkg 
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format, which preserves expression tree structure) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode ("continuation-passing style", a single-assignment basic-block-graph form where call and return are essentially the same) is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# Our task here is converting from the second to the third form.
+#
+# This package is the doorway between the front end,
+# which is concerned with syntax and typechecking,
+# and the back end, which is concerned with performance
+# improvements and code generation.
+# 
+# Deep syntax is the most abstract of the frontend
+# code representations:
+#
+#     src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+#
+# A-Normal form is the highest level code representation
+# used for optimization in the back end.  In particular,
+# A-Normal form still explicitly represents the call hierarchy
+# and is thus an apppropriate setting for code optimizations
+# based on call hierarchy:
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+# We use a polymorphically typed lambda calculus representation
+# as a stepping stone to get from deep syntax to A-Normal form:
+#
+#     src/lib/compiler/back/top/lambdacode/lambdacode-form.api
+#
+# A-Normal is a relatively minor code representation in
+# this compiler;  it serves primarily as a stepping stone
+# to our nextcode ("continuation passing style") code
+# representation, which is the workhorse of the back
+# end top half:
+#
+#     src/lib/compiler/back/top/nextcode/nextcode-form.api
+#
+# For higher-level context, read 
+#
+#     src/A.COMPILER.OVERVIEW
+#
+#
+# "In this phase the deep syntax, annotated with static semantic information,
+#  is translated into a strict call-by-value lambda calculus augmented with
+#  data constructors, records and primitive operators and explicitly typed
+#  using a simple type system without typevariables.
+#
+#  The type information is converted directly from the static semantic
+#  information attached to the deep syntax.
+#
+#  Coercion functions are inserted at each abstraction and instantiation site
+#  to correctly support abstraction and polymorphicism.
+#
+#  Tis phase also inserts the proper implementation of each equality test
+#  and assignment operator and does pattern-match compilation"
+#
+#      -- Paraphrased from:
+#         p33, "Compiling Standard ML For Efficient Execution on Modern Machines"
+#         http://flint.cs.yale.edu/flint/publications/zsh-thesis.pdf
+#
+# We get invoked (only) from
+#
+#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+#
+# 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+#DO set_control "compiler::trap_int_overflow" "TRUE";
+
+stipulate
+    package ds  =  deep_syntax;			# deep_syntax		is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package tmp =  highcode_codetemp;		# highcode_codetemp	is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package it  =  import_tree;			# import_tree		is from   src/lib/compiler/execution/main/import-tree.pkg
+    package lcf =  lambdacode_form;		# lambdacode_form	is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+    package pcd =  per_compile_data;		# per_compile_data	is from   src/lib/compiler/front/typer-stuff/main/per-compile-data.pkg
+    package ph  =  picklehash;			# picklehash		is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package syx =  symbolmapstack;		# symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package vh  =  varhome;			# varhome		is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+    api Translate_Deep_Syntax_To_Lambdacode {
+
+        # Invariant: translate_deep_syntax_to_lambdacode is always applied
+        # to a top-level ds::Declaration
+
+        translate_deep_syntax_to_lambdacode
+	    :
+	    { declaration:		    ds::Declaration,
+	      exported_highcode_variables:  List( tmp::Codetemp ),
+	      symbolmapstack:		    syx::Symbolmapstack,
+	      ansi_c_prototype_convention:  String,							#  "unix_convention" or "windows_convention" 
+	      per_compile_data:		    pcd::Per_Compile_Data( ds::Declaration )
+	    }
+	    ->
+	    { lambdacode_expression:	    lcf::Lambdacode_Expression,
+	      #
+	      imports:                      List( ( ph::Picklehash,
+						    it::Import_Tree_Node
+						) )
+	    };
+    };
+end;
+
+
+###          "It is not the strongest of the species
+###           that survive, not the most intelligent,
+###           but the one most responsive to change."
+###
+###                          -- Charles Darwin
+
+
+
+stipulate
+    package coa =  core_access;					# core_access					is from   src/lib/compiler/front/typer-stuff/symbolmapstack/core-access.pkg
+    package coc =  compiler_controls;				# compiler_controls				is from   src/lib/compiler/toplevel/main/compiler-controls.pkg
+    package csy =  core_symbol;					# core_symbol					is from   src/lib/compiler/front/typer-stuff/basics/core-symbol.pkg
+    package d2l =  translate_deep_syntax_types_to_lambdacode;	# translate_deep_syntax_types_to_lambdacode	is from   src/lib/compiler/back/top/translate/translate-deep-syntax-types-to-lambdacode.pkg
+    package di  =  debruijn_index;				# debruijn_index				is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ds  =  deep_syntax;					# deep_syntax					is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package err =  error_message;				# error_message					is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package hbo =  highcode_baseops;				# highcode_baseops				is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;				# highcode_form					is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hut =  highcode_uniq_types;				# highcode_uniq_types				is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package iht =  int_hashtable;				# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package ij  =  inlining_junk;				# inlining_junk					is from   src/lib/compiler/front/semantic/basics/inlining-junk.pkg
+    package it  =  import_tree;					# import_tree					is from   src/lib/compiler/execution/main/import-tree.pkg
+    package lcf =  lambdacode_form;				# lambdacode_form				is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+    package lms =  list_mergesort;				# list_mergesort				is from   src/lib/src/list-mergesort.pkg
+    package ln  =  literal_to_num;				# literal_to_num				is from   src/lib/compiler/src/stuff/literal-to-num.pkg
+    package mc  =  translate_deep_syntax_pattern_to_lambdacode;	# translate_deep_syntax_pattern_to_lambdacode	is from   src/lib/compiler/back/top/translate/translate-deep-syntax-pattern-to-lambdacode.pkg
+    package mld =  module_level_declarations;			# module_level_declarations			is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package mtt =  more_type_types;				# more_type_types				is from   src/lib/compiler/front/typer/types/more-type-types.pkg
+    package pcd =  per_compile_data;				# per_compile_data				is from   src/lib/compiler/front/typer-stuff/main/per-compile-data.pkg
+    package pds =  prettyprint_deep_syntax;			# prettyprint_deep_syntax			is from   src/lib/compiler/front/typer/print/prettyprint-deep-syntax.pkg
+    package peq =  polyequal;					# polyequal					is from   src/lib/compiler/back/top/translate/polyequal.pkg
+    package ph  =  picklehash;					# picklehash					is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package phm =  picklehash_map;				# picklehash_map				is from   src/lib/compiler/front/basics/map/picklehash-map.pkg
+    package pht =  prettyprint_highcode_types;			# prettyprint_highcode_types			is from   src/lib/compiler/back/top/highcode/prettyprint-highcode-types.pkg
+    package plx =  prettyprint_lambdacode_expression;		# prettyprint_lambdacode_expression		is from   src/lib/compiler/back/top/lambdacode/prettyprint-lambdacode-expression.pkg
+    package pp  =  standard_prettyprint_mill;			# standard_prettyprint_mill			is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package ppt =  prettyprint_type;				# prettyprint_type				is from   src/lib/compiler/front/typer/print/prettyprint-type.pkg
+    package sxe =  symbolmapstack_entry;			# symbolmapstack_entry				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package sy  =  symbol;					# symbol					is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;					# symbol_path					is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package td  =  typer_debugging;				# typer_debugging				is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+    package tdt =  type_declaration_types;			# type_declaration_types			is from   src/lib/compiler/front/typer-stuff/types/type-declaration-types.pkg
+    package tmp =  highcode_codetemp;				# highcode_codetemp				is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
+    package trj =  typer_junk;					# typer_junk					is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package tyj =  type_junk;					# type_junk					is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package uds =  unparse_deep_syntax;				# unparse_deep_syntax				is from   src/lib/compiler/front/typer/print/unparse-deep-syntax.pkg
+    package ut  =  unparse_type;				# unparse_type					is from   src/lib/compiler/front/typer/print/unparse-type.pkg
+    package vac =  variables_and_constructors;			# variables_and_constructors			is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;					# varhome					is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+    #
+    package im
+	=
+	red_black_map_g (					# red_black_map_g				is from   src/lib/src/red-black-map-g.pkg
+
+	    Key = multiword_int::Int;
+	    compare = multiword_int::compare;
+	);
+herein 
+
+    package   translate_deep_syntax_to_lambdacode
+    : (weak)  Translate_Deep_Syntax_To_Lambdacode		# Translate_Deep_Syntax_To_Lambdacode		is from   src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+    {
+	#############################################################################
+	#                   CONSTANTS AND UTILITY FUNCTIONS
+	#############################################################################
+
+        debugging = typer_data_controls::translate_to_anormcode_debugging;		#  REF FALSE 
+	internals = REF FALSE;								# For what I'm doing at the moment I find the 'internals' output to be clutter. -- CrT 2013-09-15
+	#
+	fun bug msg
+            =
+            err::impossible("translate_deep_syntax_to_lambdacode: " + msg);
+
+	say = global_controls::print::say;
+
+	prettyprint_depth =  global_controls::print::print_depth;
+	#
+	fun prettyprint_type  type
+            =
+	    if *internals
+		td::with_internals
+		  (\\ ()
+		      =
+		      td::debug_print
+			  debugging
+			  ( "type: ",
+			    ut::unparse_typoid  symbolmapstack::empty,
+			    type
+			  )
+		  );
+	    else
+	      td::debug_print
+		  debugging
+		  ( "type: ",
+		    ut::unparse_typoid  symbolmapstack::empty,
+		    type
+		  );
+	    fi;
+
+
+	prettyprint_declaration = pds::prettyprint_declaration (symbolmapstack::empty, NULL);
+	prettyprint_expression  = pds::prettyprint_expression  (symbolmapstack::empty, NULL);
+	prettyprint_pattern     = pds::prettyprint_pattern      symbolmapstack::empty;
+
+	unparse_declaration = uds::unparse_declaration (symbolmapstack::empty, NULL);
+	unparse_expression  = uds::unparse_expression  (symbolmapstack::empty, NULL);
+	unparse_pattern     = uds::unparse_pattern      symbolmapstack::empty;
+
+	unparse_typevar_ref = ut::unparse_typevar_ref         symbolmapstack::empty;
+	#
+	fun if_debugging_unparse_expression (msg, expression)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, unparse_expression, expression));
+		else
+		    td::debug_print debugging (msg, unparse_expression, expression);
+		fi;
+	    fi;
+	#
+	fun if_debugging_unparse_pattern (msg, pattern)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, unparse_pattern, pattern));
+		else
+		    td::debug_print debugging (msg, unparse_pattern, pattern);
+		fi;
+	    fi;
+	#
+	fun if_debugging_unparse_declaration (msg, declaration)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, unparse_declaration, declaration));
+		else
+		    td::debug_print debugging (msg, unparse_declaration, declaration);
+		fi;
+	    fi;
+	#
+	fun if_debugging_unparse_typevar_ref  (msg, typevar_ref)
+	    = 
+	    if *debugging		# Without this 'if' (and the matching one in unify_typoids), compiling the compiler takes 5X as long! :-)
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, unparse_typevar_ref, typevar_ref));
+		else
+		    td::debug_print debugging (msg, unparse_typevar_ref, typevar_ref);
+		fi;
+	    fi;
+
+
+	#
+	fun if_debugging_prettyprint_expression (msg, expression)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, prettyprint_expression, expression));
+		else
+		    td::debug_print debugging (msg, prettyprint_expression, expression);
+		fi;
+	    fi;
+	#
+	fun if_debugging_prettyprint_pattern (msg, pattern)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, prettyprint_pattern, pattern));
+		else
+		    td::debug_print debugging (msg, prettyprint_pattern, pattern);
+		fi;
+	    fi;
+	#
+	fun if_debugging_prettyprint_declaration (msg, declaration)
+            =
+	    if *debugging	
+		if *internals
+		    td::with_internals
+			(\\ () =  td::debug_print debugging (msg, prettyprint_declaration, declaration));
+		else
+		    td::debug_print debugging (msg, prettyprint_declaration, declaration);
+		fi;
+	    fi;
+
+
+	#
+	fun print_callstack
+            (msg:        String)
+            (callstack:  List(String))
+	    =
+            {   printf "%s:  callstack(%d) == " msg (list::length callstack);
+		apply  {. printf " -> %s" #string; }  (reverse callstack);
+                printf "\n";
+            };
+	#
+	fun identity_fn x   =   x;
+
+	void_lexp = lcf::RECORD [];
+	#
+	fun get_name_or_null p
+            =
+            if (syp::null p)   NULL;
+            else               THE (syp::last p);
+            fi;
+
+# apparently not actually used:
+#	Picklehash = ph::Picklehash;
+
+						# fold_backward	def in    src/lib/core/init/pervasive.pkg
+
+	# Old-style fold for cases where
+        # it is partially applied:
+	#
+	fun fold f l init
+            =
+            fold_backward f init l;
+
+
+	# Sorting the record fields for
+        # record types and record expressions:
+	#
+	stipulate
+	    #
+	    fun elem_gtr ((ds::NUMBERED_LABEL { number=>x, ... }, _), (ds::NUMBERED_LABEL { number=>y, ... }, _))
+		=
+		x > y;
+	herein
+	    #
+	    fun sorted  x   =   lms::list_is_sorted  elem_gtr  x;
+	    fun sortrec x   =   lms::sort_list       elem_gtr  x;
+	    #
+	end;
+
+	# Is given varhome external?
+        #
+	fun varhome_is_external (vh::EXTERN _)    =>   TRUE;
+	    varhome_is_external (vh::PATH (a, _)) =>   varhome_is_external a;
+	    varhome_is_external _                 =>   FALSE;
+        end;
+
+	# An exception to raise exception if
+        # coreDict is not available: 
+	#
+	exception NO_CORE;
+
+
+
+	# This is the external entrypoint
+        # into this file.  We are invoked
+        # (only) from
+        #
+        #     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+        # All the remaining code in this file
+        # is nested within this function:
+	#
+	fun translate_deep_syntax_to_lambdacode
+            {
+	      declaration => given_declaration:  ds::Declaration,
+	      exported_highcode_variables:       List( tmp::Codetemp ),
+	      symbolmapstack:			 symbolmapstack::Symbolmapstack,
+	      ansi_c_prototype_convention:       String,				#  "unix_convention" or "windows_convention"  XXX BUGGO FIXME This should be a sumtype.
+	      #	
+	      per_compile_data
+		  as
+		    { error_match,
+		      error_fn,
+		      prettyprinter_or_null,
+		      ...
+		    }:				 per_compile_data::Per_Compile_Data( ds::Declaration )
+            }
+	    :
+            { lambdacode_expression:		 lcf::Lambdacode_Expression,
+	      imports:                           List(   (ph::Picklehash, it::Import_Tree_Node)   )	
+            }	
+            =
+	    {
+		if *debugging
+		    printf "\n============= translate_deep_syntax_to_lambdacode/TOP =============  in translate-deep-syntax-to-lambdacode.pkg\n";
+                    printf   "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n";
+	            if_debugging_unparse_declaration     ("given_declaration unparsed      at translate_deep_syntax_to_lambdacode/TOP", (given_declaration, 100) );
+	            if_debugging_prettyprint_declaration ("given_declaration prettyprinted at translate_deep_syntax_to_lambdacode/TOP", (given_declaration, 100) );
+		fi;
+
+                issue_highcode_codetemp
+                    =
+                    per_compile_data.issue_highcode_codetemp;
+		#
+		fun make_var ()
+                    =
+                    issue_highcode_codetemp  NULL;
+
+		# Set up a new type translator incorporating a fresh markmap:
+                #
+                (d2l::make_deep_syntax_to_lambdacode_type_translator ())
+                    ->
+		    { deepsyntax_typepath_to_uniqkind,
+		      deepsyntax_typepath_to_uniqtype,
+		      deepsyntax_type_to_uniqtype,
+		      deepsyntax_typoid_to_uniqtypoid,
+		      deepsyntax_package_to_uniqtypoid,
+		      deepsyntax_generic_package_to_uniqtypoid,
+		      mark_letbound_typevar
+                    };
+		#
+		fun to_tc_lt  debruijn_depth
+                    =
+                    ( deepsyntax_type_to_uniqtype   debruijn_depth,
+                      deepsyntax_typoid_to_uniqtypoid  debruijn_depth
+                    );
+
+
+
+		# Translate the type field in
+                # VALCON into Uniqtypoid.
+                #
+                # Constant valcons will take
+                # void_uniqtypoid as the argument.
+		#
+		fun to_valcon_lty  debruijn_depth  type				# "valcon" == "sumtype constructor";  "lty" == "lambda type".
+                    =
+		    case type 
+			#		      
+			tdt::TYPESCHEME_TYPOID
+			    {
+			      typescheme_eqflags => an_api,
+			      typescheme => tdt::TYPESCHEME { arity, body }
+			    }
+				=>
+				if (mtt::is_arrow_type body)
+				    #
+				    deepsyntax_typoid_to_uniqtypoid  debruijn_depth  type;
+				else
+				    deepsyntax_typoid_to_uniqtypoid  debruijn_depth
+				      (
+				        tdt::TYPESCHEME_TYPOID
+					  {
+					    typescheme_eqflags =>    an_api,
+					    typescheme                   =>    tdt::TYPESCHEME
+							                          { arity,
+										    body  =>   mtt::(-->) (mtt::void_typoid, body)
+							                          }
+					  }
+				      );
+				fi;
+
+			_ =>    if (mtt::is_arrow_type type)    deepsyntax_typoid_to_uniqtypoid  debruijn_depth  type;
+				else                            deepsyntax_typoid_to_uniqtypoid  debruijn_depth  (mtt::(-->) (mtt::void_typoid, type));
+				fi;
+                    esac;
+
+		# The special look-up functions for the Core dictionary:
+                # 
+		fun core_lookup (id, dictionary)
+                    = 
+		    {   sp  =   syp::SYMBOL_PATH [   csy::core_symbol,   sy::make_value_symbol id   ];
+			err =   \\ _ =  \\ _ =  \\ _ =  raise exception NO_CORE;
+
+                        find_in_symbolmapstack::find_value_via_symbol_path (dictionary, sp, err);
+		    };
+		#
+		fun con' ((_, vh::REFCELL_REP, lt), ts, e)
+                        =>
+                        lcf::APPLY (lcf::BASEOP (hbo::MAKE_REFCELL, lt, ts), e);
+
+		    con' ((_, vh::SUSPENSION (THE (vh::HIGHCODE_VARIABLE d, _)), lt), ts, e)
+			=>
+			{   v  =   make_var ();
+
+			    fe =   lcf::FN (v, hcf::make_tuple_uniqtypoid [], e);
+
+			    lcf::APPLY (lcf::APPLY_TYPEFUN (lcf::VAR d, ts), fe);
+			};
+
+		    con' x => lcf::CONSTRUCTOR x;
+                end;
+
+		# The following code implements the exception tracking and 
+		# errormsg reporting. 
+
+
+		stipulate
+		    source_code_region
+			=
+			REF (0, 0);
+
+		    markexn =   lcf::BASEOP
+				  (
+				    hbo::MARK_EXCEPTION_WITH_STRING,								# Op
+				    #
+				    hcf::make_lambdacode_arrow_uniqtypoid								# Result type
+				      ( hcf::make_tuple_uniqtypoid [ hcf::exception_uniqtypoid, hcf::string_uniqtypoid ],
+					hcf::exception_uniqtypoid
+				      ),
+				    []												# Arg types.
+				  );
+		herein 
+		    #
+		    fun with_region loc f x
+                        =
+			{   r =   *source_code_region;
+
+                            {   source_code_region := loc;
+
+                                f x
+                                then
+                                    source_code_region := r;
+                            }
+			    except
+                                e = {   source_code_region := r;
+                                        raise exception e;
+                                    };
+			};
+		    #
+		    fun make_raise (x, lt)
+                        = 
+			{   e =    if *global_controls::track_exn   lcf::APPLY (markexn, lcf::RECORD [ x, lcf::STRING (error_match *source_code_region) ] );
+				   else                            x;
+                                   fi;
+
+                            lcf::RAISE (e, lt);
+			};
+		    #
+		    fun complain s =   error_fn   *source_code_region   s;
+		    fun rep_err x  =   complain  err::ERROR  x  err::null_error_body;
+		    #
+		    fun maybe_report_use_of_poly_eq ()
+                        = 
+			if *global_controls::poly_eq_warn
+			    #
+                            complain err::WARNING "calling poly_equal"  err::null_error_body;
+			fi;
+
+		end;			#  markexn-local 
+
+
+
+		############################################################################
+		#          Sharing and lifting of package imports and varhomes
+		############################################################################
+
+		exception HASHTABLE;
+
+		Key = Int;
+
+		# * hashkey of varhomepath + varhomepath + res_var 
+
+		Info =  (Key, List(Int), tmp::Codetemp); 
+
+		my hashtable:  iht::Hashtable( List( Info ) )
+                            =  iht::make_hashtable  { size_hint => 32,  not_found_exception => HASHTABLE };
+		#
+		fun hashkey l
+                    =
+                    fold_backward
+                        (\\ (x, y) =  ((x * 10 + y) % 1019))							# Are we being bloody stupid yet?  XXX SUCKO FIXME.
+                        0
+                        l;
+		#
+		fun build_header v
+                    = 
+		    {
+                        fold_backward  h  identity_fn  info
+                        where
+			    info =   iht::get  hashtable  v;
+			    #
+			    fun h ((_, l, w), header)
+				= 
+				{   le   =   fold_forward  (\\ (k, e) =  lcf::GET_FIELD (k, e))
+							(lcf::VAR v)
+							l;
+
+				    \\ e =  header (lcf::LET (w, le, e));
+				};
+			end;
+		    }
+                    except
+                        _ = identity_fn;
+
+		#
+		fun bindvar (var, [], _)
+                        =>
+                        var;
+
+		    bindvar (var, l, name_or_null)
+			=> 
+			find_or_make_var info
+                        where
+			    info   =   (iht::get  hashtable  var)  except _ = [];
+			    key    =   hashkey l;
+			    #
+			    fun find_or_make_var []
+				    =>  
+				    {   var' =   issue_highcode_codetemp  name_or_null;
+
+					iht::set hashtable (var, (key, l, var') ! info);
+
+					var';
+				    };
+
+			        find_or_make_var ((key', l', var') ! rest)
+				    => 
+				    if (key' == key)
+					#
+					if  (l' == l)  var';
+					else           find_or_make_var  rest;
+					fi;
+				    else
+					find_or_make_var  rest;
+                                    fi;
+                            end;
+			end;
+                end;
+
+		Picklehash_Info
+		  = ANON    List( (Int, Picklehash_Info) )
+		  | NAMED  (tmp::Codetemp, hut::Uniqtypoid,  List( (Int, Picklehash_Info) ))
+                  ;
+
+		#
+		fun make_picklehash_info
+                    ( uniqtypoid,
+                      l,
+                      name_or_null
+                    )
+                    = 
+		    {   v =  issue_highcode_codetemp   name_or_null;
+			#
+			fun h []      =>  NAMED (v, uniqtypoid, []);
+			    h (a ! r) =>  ANON [(a, h r)];
+                        end;
+
+                        ( h l,
+                          v
+                        );
+		    };
+		#
+		fun merge_picklehash_info (pi, uniqtypoid, l, name_or_null)
+                    = 
+                    h (pi, l)
+                    where
+		        fun h (z as NAMED (v, _, _), [])
+				=>
+				(z, v);
+
+			    h (ANON xl, [])
+				=> 
+				{   v = issue_highcode_codetemp  name_or_null;
+
+				    ( NAMED (v, uniqtypoid, xl),
+				      v
+				    );
+				};
+
+			    h (z, a ! r)
+				=> 
+				{   my (xl, make_node)
+					= 
+					case z
+					    #
+                                            ANON c =>   (c, ANON);
+					    #
+				 	    NAMED (v, uniqtypoid', c)
+                                                =>
+                                                ( c,
+                                                  \\ x = NAMED (v, uniqtypoid', x)
+                                                );
+                                        esac;
+				    #
+				    fun dump ((np, v), z, y)
+					= 
+					{   nz =  (a, np) ! z;
+
+					    ( make_node ((reverse y) @ nz),
+					      v
+					    );
+					};
+				    #	
+				    fun get ([], y)
+					    =>
+					    dump (   make_picklehash_info (uniqtypoid, r, name_or_null),
+						     [],
+						     y
+						 );
+
+				        get (u as ((x as (i, pi)) ! z), y)
+					    => 
+					    if   (i <  a)   get (z, x ! y);
+					    elif (i == a)   dump (h (pi, r), z, y);
+				  	    else            dump (make_picklehash_info (uniqtypoid, r, name_or_null), u, y);
+                                            fi;
+                                    end;
+
+
+				    get (xl, []);
+				};
+                        end;
+		    end;               # where (fun merge_picklehash_info)
+
+
+		# A map that stores information
+                # about external references:
+                # 
+		picklehash_map
+                    =
+                    REF (phm::empty:  phm::Map( Picklehash_Info ));
+
+		#
+		fun make_picklehash (picklehash, t, l, name_or_null)
+                    =
+		    case (phm::get (*picklehash_map, picklehash))
+			#		      
+			NULL => 
+			    {   (make_picklehash_info (t, l, name_or_null))
+				    ->
+				    (picklehash_info, var);
+
+				picklehash_map
+				    :=
+				    phm::set
+				      ( *picklehash_map,
+					 picklehash,
+					 picklehash_info
+				      );
+
+				var;
+			    };
+
+			THE picklehash_info
+			    =>
+			    {   (merge_picklehash_info (picklehash_info, t, l, name_or_null))
+				    ->
+				    (new_picklehash_info, var);
+				    
+				#
+				fun drop (key, map)
+				    = 
+				    phm::drop (map, key); 
+
+				picklehash_map
+				    :=
+				    phm::set
+				      ( drop (picklehash, *picklehash_map),
+					picklehash,
+					new_picklehash_info
+				      );
+				var;
+			    };
+                    esac;
+
+		integer_map   =   REF (im::empty:  im::Map( tmp::Codetemp ));
+		#
+		fun get_interface_info  n
+                    =
+		    case (im::get (*integer_map, n))
+			#		      
+			THE v => v;
+			#
+			NULL  => {   v = make_var ();
+				     integer_map := im::set (*integer_map, n, v);
+				     v;
+				 };
+                    esac;
+
+		# Convert a varhome with type into a lambda expression 
+		#
+		fun translate_varhome_with_type (p, t, name_or_null)
+                    = 
+                    lcf::VAR (h (p, []))
+                    where
+		        fun h (vh::HIGHCODE_VARIABLE v, l) =>   bindvar (v, l, name_or_null);
+			    h (vh::EXTERN picklehash,   l) =>   make_picklehash (picklehash, t, l, name_or_null);
+			    h (vh::PATH (a, i),         l) =>   h (a, i ! l);
+			    h _                            =>   bug "unexpected varhome in translate_varhome_with_type";
+                        end;
+		    end;
+
+		# Convert a varhome into a lambda expression 
+		#
+		fun translate_varhome (p, name_or_null)
+                    = 
+                    lcf::VAR (h (p, []))
+		    where
+		        fun h (vh::HIGHCODE_VARIABLE v, l) =>   bindvar (v, l, name_or_null);
+			    h (vh::PATH (a, i), l)         =>   h (a, i ! l);
+			    h _                            =>   bug "unexpected varhome in translate_varhome";
+                        end;
+		    end;
+
+
+		# These two functions are major gross hacks.
+                # The NO_CORE exceptions would raised when compiling the files
+                #     src/lib/core/init/runtime.pkg,
+                #     src/lib/core/init/runtime.api,
+		#     boot/core.pkg
+                # The assumption is that the result of core_exn and core_get
+		# would never be used when compiling these three files.
+                #
+                # A good way to clean this up would be to put all the core constructors
+		# and base ops into the base ops dictionary. XXX BUGGO FIXME (ZHONG)
+
+		exception NO_CORE;
+		#
+		fun core_exn id
+                    =
+		    case (coa::get_constructor'  (\\ () =  raise exception NO_CORE)  (symbolmapstack, id))
+			#		      
+			tdt::VALCON { name, form as vh::EXCEPTION _, typoid, ... }
+			    =>
+			    {   type =  to_valcon_lty  di::top  typoid;
+				#
+				constructor_rep  =   make_representation (form, type, name);
+
+				con' ((name, constructor_rep, type), [], void_lexp);
+			    };
+			#
+			_ => bug "core_exn in translate";
+		    esac
+		    except
+                        NO_CORE
+                            =
+                            {   say "WARNING: no Core access\n";
+                                lcf::INT  0;
+                            }
+
+		also
+                fun core_get id
+                    =
+		    case (coa::get_variable'  (\\ () =  raise exception NO_CORE)  (symbolmapstack, id))
+			#		      
+			vac::PLAIN_VARIABLE { varhome, vartypoid_ref, path, ... }
+			    =>
+			    translate_varhome_with_type (   varhome,
+				       deepsyntax_typoid_to_uniqtypoid di::top  *vartypoid_ref,
+				       get_name_or_null  path
+				   );
+
+			_   =>
+			    bug "core_get in translate";
+		    esac
+		    except
+                        NO_CORE
+			    =
+			    {   say ("FATAL:  Unable to fetch '" + id + "' from core.pkg! -- translate-deep-syntax-to-lambdacode.pkg\n");
+				lcf::INT 0;
+			    }
+
+		# Expand the flex record pattern and convert the EXCEPTION varhome pattern 
+		# internalize the Valcon_Form's varhome, always exceptions 
+		#
+		also
+                fun make_representation (representation, lt, name)
+                    = 
+		    {   fun g (vh::HIGHCODE_VARIABLE v, l, t) =>  bindvar (v, l, THE name);
+			    g (vh::PATH (a, i),         l, t) =>  g (a, i ! l, t);
+			    g (vh::EXTERN p,            l, t) =>  make_picklehash (p, t, l, THE name);
+			    #
+			    g _ => bug "unexpected varhome in make_representation";
+                        end;
+
+		    
+			case representation
+			    #
+			    (vh::EXCEPTION x)
+				=> 
+				{   my (argt, _) =  hcf::unpack_lambdacode_arrow_uniqtypoid lt;
+				    #	
+				    vh::EXCEPTION ( vh::HIGHCODE_VARIABLE ( g (x,   [],   hcf::make_exception_tag_uniqtypoid argt)));
+				};
+			    #
+			    (vh::SUSPENSION NULL)
+				=>  						#  A hack to support "delay-force" base ops 
+				case (core_get "delay", core_get "force")
+				    #
+				    (lcf::VAR x, lcf::VAR y)
+					=>
+					vh::SUSPENSION ( THE ( vh::HIGHCODE_VARIABLE x,
+							       vh::HIGHCODE_VARIABLE y
+						             )
+						       );
+				    #
+				    _   =>   bug "unexpected case on Valcon_Form SUSPENSION 1";
+				esac;
+			    #
+			    (vh::SUSPENSION (THE _))
+				=>
+				bug "unexpected case on Valcon_Form SUSPENSION 2";
+
+			    _ => representation;
+                        esac; 
+		    };
+
+		# Convert a value of varhome+info into the lambda expression 
+		#
+		fun translate_varhome_info (varhome, info, get_lty, name_or_null)
+                    = 
+		    varhome_is_external varhome   ??   translate_varhome_with_type (varhome, get_lty(), name_or_null)
+                                                  ::   translate_varhome           (varhome,            name_or_null);
+
+		#
+		fun fill_pattern (pattern, d)
+                    = 
+                    fill pattern
+                    where
+		        fun fill (ds::TYPE_CONSTRAINT_PATTERN (p, t))
+                                =>
+                                fill p;
+
+			    fill (ds::AS_PATTERN (p, q))
+                                =>
+                                ds::AS_PATTERN (fill p, fill q);
+
+			    fill (ds::RECORD_PATTERN { fields, is_incomplete => FALSE, type_ref } )
+				=>
+				ds::RECORD_PATTERN
+                                  {
+                                    fields        =>   map   (\\ (lab, p) =  (lab, fill p))   fields,
+				    is_incomplete =>  FALSE,
+				    type_ref
+				  };
+
+			    fill (pattern as ds::RECORD_PATTERN { fields, is_incomplete => TRUE, type_ref } )
+				=>
+				{   exception DONT_BOTHER;
+
+				    fields' =   map   (\\ (l, p) =  (l, fill p))   fields;
+				    #
+				    fun find (t as tdt::TYPCON_TYPOID (tdt::RECORD_TYPE labels, _))
+                                            => 
+					    {   type_ref := t;
+                                                labels;
+                                            };
+
+				        find _ => {   complain err::ERROR "unresolved flexible record"
+							  (\\ pp
+								=
+								{   pp.newline();
+								    pp.lit "pattern: ";
+								    uds::unparse_pattern  symbolmapstack  pp  (pattern, *global_controls::print::print_depth);
+								}
+							   );
+
+						       raise exception DONT_BOTHER;
+                                                   };
+                                    end;
+				    #
+				    fun merge (a as ((id, p) ! r), lab ! s)
+                                            =>
+					    if (sy::eq (id, lab) ) (id,  p                   ) ! merge (r, s);
+					    else                   (lab, ds::WILDCARD_PATTERN) ! merge (a, s);
+                                            fi;
+
+				        merge ([], lab ! s) => (lab, ds::WILDCARD_PATTERN) ! merge([], s);
+				        merge ([], []) => [];
+				        merge _ => bug "merge in translate";
+                                    end;
+
+
+				    ds::RECORD_PATTERN
+                                      {
+					fields        =>  merge  (fields',  find (tyj::head_reduce_typoid  *type_ref)),
+					is_incomplete =>  FALSE,
+					type_ref
+				      }
+				    except
+                                        DONT_BOTHER
+					    =
+					    ds::WILDCARD_PATTERN;
+				};
+
+			    fill (ds::VECTOR_PATTERN (pats, type)) =>   ds::VECTOR_PATTERN (map fill pats, type);
+			    fill (ds::OR_PATTERN (p1, p2))         =>   ds::OR_PATTERN (fill p1, fill p2);
+
+			    fill (ds::CONSTRUCTOR_PATTERN (tdt::VALCON { name, is_constant, typoid, is_lazy, signature, form }, ts))
+				=> 
+				ds::CONSTRUCTOR_PATTERN (
+				    #
+				    tdt::VALCON {
+					#
+					name,
+					is_constant,
+					typoid,
+					is_lazy,
+					signature,
+
+					form
+                                            =>
+                                            make_representation
+                                              (
+                                                form,
+                                                to_valcon_lty  d  typoid,
+                                                name
+                                              )
+				    },
+				    ts
+				);
+
+			    fill (ds::APPLY_PATTERN (    tdt::VALCON { name, is_constant, typoid, form, signature, is_lazy },
+                                              ts,
+                                              pattern
+                                         )
+                                 )
+				=> 
+				ds::APPLY_PATTERN (
+				    #
+				    tdt::VALCON {
+					#
+					name,
+					is_constant,
+					typoid,
+					signature,
+					is_lazy,
+
+					form => make_representation 
+						  (
+						    form,
+						    to_valcon_lty  d  typoid,
+						    name
+						  )
+				    },
+				    ts,
+				    fill pattern
+				);
+
+			    fill xp
+                                =>
+                                xp;
+                        end;
+		    end;                  		# fun fill_pattern 
+
+		# The runtime polymorphic equality
+                # and string equality dictionary:
+                #
+		polymorphic_equality_dictionary
+                    =
+		    { get_string_eq,
+		      get_integer_eq,
+		      get_poly_eq
+		    }
+		    where
+		        my str_eq_ref:      Ref( Null_Or( lcf::Lambdacode_Expression ) ) =   REF NULL;
+			my poly_eq_ref:     Ref( Null_Or( lcf::Lambdacode_Expression ) ) =   REF NULL;
+			my integer_eq_ref:  Ref( Null_Or( lcf::Lambdacode_Expression ) ) =   REF NULL;
+			#
+			fun get_string_eq ()
+                            = 
+			    case *str_eq_ref
+				#                              
+				THE e => e;
+				NULL  => {   e = core_get "string_equal";						# string_equal	def in    src/lib/core/init/core.pkg
+					     str_eq_ref := THE e;
+					     e;
+					 };
+                            esac;
+			#
+			fun get_integer_eq ()		#  same as polyeq, but silent 
+                            =
+			    case *integer_eq_ref
+				#                              
+				THE e => e;
+				#
+				NULL => {   e = lcf::APPLY_TYPEFUN (core_get "poly_equal",				# poly_equal	def in    src/lib/core/init/core.pkg
+						    [deepsyntax_type_to_uniqtype di::top mtt::multiword_int_typoid]);
+					    integer_eq_ref := THE e;
+					    e;
+					 };
+                            esac;
+			#
+			fun get_poly_eq ()
+                            = 
+			    {   maybe_report_use_of_poly_eq ();
+
+				case *poly_eq_ref
+				    #
+				    THE e => e;
+				    #
+				    NULL => {   e = core_get "poly_equal";						# poly_equal	def in    src/lib/core/init/core.pkg
+						poly_eq_ref := (THE e);
+						e;
+					    };
+                                esac;
+                            };
+		    end;
+
+		eq_g = peq::equal (polymorphic_equality_dictionary, symbolmapstack); 
+
+
+		############################################################################
+		#
+		# Translating the primops; this should be moved into a separate file
+		# in the future. (ZHONG)        XXX BUGGO FIXME
+		#
+		############################################################################
+
+		lt_tyc   = hcf::make_type_uniqtypoid;
+		lt_arrow = hcf::make_lambdacode_arrow_uniqtypoid;
+		lt_tuple = hcf::make_tuple_uniqtypoid;
+		lt_int   = hcf::int_uniqtypoid;
+		lt_int1 = hcf::int1_uniqtypoid;
+		lt_bool  = hcf::bool_uniqtypoid;
+		lt_void  = hcf::void_uniqtypoid;
+
+		lt_ipair    = lt_tuple [lt_int,   lt_int];
+		lt_i32pair  = lt_tuple [lt_int1, lt_int1];
+		#
+		lt_icmp     = lt_arrow (lt_ipair, lt_bool);
+		lt_ineg     = lt_arrow (lt_int,   lt_int);
+		lt_intop    = lt_arrow (lt_ipair, lt_int);
+		lt_voidvoid = lt_arrow (lt_void,  lt_void);
+
+		my (true_valcon', false_valcon')
+                    = 
+		    ( h mtt::true_valcon,
+		      h mtt::false_valcon
+		    )
+		    where
+		        lt = hcf::make_lambdacode_arrow_uniqtypoid (hcf::void_uniqtypoid, hcf::bool_uniqtypoid);	# highcode "Void -> Bool"
+			#
+			fun h (tdt::VALCON { name, form, ... } )			# Take name and form from basetype, plug in our Void->Bool type.
+                            =
+                            (name, form, lt);
+		    end;
+
+		true_lexp  =   lcf::CONSTRUCTOR (true_valcon',  [], void_lexp); 
+		false_lexp =   lcf::CONSTRUCTOR (false_valcon', [], void_lexp);
+		#
+		fun cond (a, b, c)
+		    =
+		    lcf::SWITCH
+                      ( a,
+
+                        mtt::bool_signature,
+
+			[ (lcf::VAL_CASETAG (true_valcon',  [], make_var()), b),
+			  (lcf::VAL_CASETAG (false_valcon', [], make_var()), c)
+			],
+
+			NULL
+                     );
+		#
+		fun compose_not (eq, t)
+		    =  
+		    {   v = make_var();
+			argt = lt_tuple [t, t];
+		        lcf::FN (v, argt, cond (lcf::APPLY (eq, lcf::VAR v), false_lexp, true_lexp));
+		    };
+		#
+		fun cmp_op  p =   lcf::BASEOP (p, lt_icmp, []);
+		fun ineg_op p =   lcf::BASEOP (p, lt_ineg, []);
+
+		lessu = hbo::COMPARE { op=>hbo::LTU, kind_and_size=>hbo::UNT 31 };
+
+		lt_len = hcf::make_typeagnostic_uniqtypoid([hcf::plaintype_uniqkind], [lt_arrow (hcf::make_typevar_i_uniqtypoid 0, lt_int)]);
+
+		lt_upd
+                    = 
+		    {   x = hcf::make_ref_uniqtypoid (hcf::make_typevar_i_uniqtypoid 0);
+		        hcf::make_typeagnostic_uniqtypoid([hcf::plaintype_uniqkind], 
+				  [lt_arrow (lt_tuple [x, lt_int, hcf::make_typevar_i_uniqtypoid 0], hcf::void_uniqtypoid)]);
+		    };
+		#
+		fun len_op (tc) =   lcf::BASEOP (hbo::VECTOR_LENGTH_IN_SLOTS, lt_len, [tc]);
+		#
+		fun rshift_op  k =  hbo::ARITH { op=>hbo::RSHIFT, overflow=>FALSE,  kind_and_size=>k };
+		fun rshiftl_op k =  hbo::ARITH { op=>hbo::RSHIFTL, overflow=>FALSE, kind_and_size=>k };
+		fun lshift_op  k =  hbo::ARITH { op=>hbo::LSHIFT,  overflow=>FALSE, kind_and_size=>k };
+		#
+		fun lword0 (hbo::UNT 31) =>   lcf::UNT   0u0;  
+		    lword0 (hbo::UNT 32) =>   lcf::UNT1 0u0;
+		    #
+		    lword0 _             =>   bug "unexpected case in lword0";
+                end;
+		#
+		fun baselt (hbo::UNT 31) =>  lt_int;
+		    baselt (hbo::UNT 32) =>  lt_int1;
+		    #
+		    baselt _             =>  bug "unexpected case in baselt";
+                end;
+		#
+		fun shift_type k
+                    = 
+		    {   element = baselt k;
+		        tupt = lt_tuple [element, lt_int]; 
+		        lt_arrow (tupt, element);
+		    }; 
+		#
+		fun inline_shift (shift_op, kind_and_size, clear)
+                    = 
+		    {   fun shift_limit (hbo::UNT lim) =>   lcf::UNT (unt::from_int lim);
+		            shift_limit (hbo::INT lim) =>   lcf::UNT (unt::from_int lim);	# Yes, both coded as lcf::UNT here.
+			    #			
+			    shift_limit _ => bug "unexpected case in shift_limit";
+                        end;
+
+			p     = make_var();   vp   =   lcf::VAR  p;
+			w     = make_var();   vw   =   lcf::VAR  w;
+			count = make_var();   vcnt =   lcf::VAR  count;
+
+			argt = lt_tuple  [ baselt kind_and_size,  lt_int ];
+
+			cmp_shift_amt
+                            = 
+			    lcf::BASEOP (hbo::COMPARE { op=>hbo::LEU, kind_and_size=>hbo::UNT 31 }, lt_icmp, []);
+
+			lcf::FN									# \\ (w, count) = if (shift_limit(kind_and_size) <= count)   clear w;
+			  (									#                 else                                  shift_op (w, count);
+                            p,									# Arg
+                            argt,								# Arg type
+			    lcf::LET								# Body
+			      ( w,
+				lcf::GET_FIELD (0, vp),
+				lcf::LET
+				  ( count,
+				    lcf::GET_FIELD (1, vp),
+				    cond
+				      ( lcf::APPLY (cmp_shift_amt, lcf::RECORD [shift_limit kind_and_size, vcnt]),
+					clear vw, 
+					lcf::APPLY
+					  ( lcf::BASEOP (shift_op kind_and_size, shift_type kind_and_size, []),
+					    lcf::RECORD [vw, vcnt]
+					  )
+				      )
+				  )
+                              )
+                          );
+		    };
+		#
+		fun inline_ops nk
+		    =
+		    {
+			my (lt_arg, zero, overflow)
+			    =
+			    case nk							# "nk" == "number kind (and bitsize)"
+				#
+				hbo::INT   31 => (hcf::int_uniqtypoid,      lcf::INT        0,  TRUE );
+				hbo::UNT   31 => (hcf::int_uniqtypoid,      lcf::UNT      0u0,  FALSE);
+				hbo::INT   32 => (hcf::int1_uniqtypoid,    lcf::INT1      0,  TRUE );
+				hbo::UNT   32 => (hcf::int1_uniqtypoid,    lcf::UNT1    0u0,  FALSE);
+				hbo::FLOAT 64 => (hcf::float64_uniqtypoid,  lcf::FLOAT64 "0.0", FALSE);
+				#
+				_ => bug "inline_ops: bad number_kind_and_sizeize";
+			    esac;
+
+			lt_argpair =   lt_tuple [lt_arg, lt_arg];
+
+			compare_lambda_types =   lt_arrow (lt_argpair, lt_bool);
+
+			lt_neg =   lt_arrow (lt_arg, lt_arg);
+
+			less    =   lcf::BASEOP (hbo::COMPARE  { op => hbo::LT,     kind_and_size => nk           }, compare_lambda_types, []);
+			greater =   lcf::BASEOP (hbo::COMPARE  { op => hbo::GT,     kind_and_size => nk           }, compare_lambda_types, []);
+			negate  =   lcf::BASEOP (hbo::ARITH     { op => hbo::NEGATE, kind_and_size => nk, overflow }, lt_neg,               []);
+
+			{ lt_arg, lt_argpair, compare_lambda_types, less, greater, zero, negate };
+		    };
+		#
+		fun inline_min_or_max (nk, ismax)
+                    =
+                    {   (inline_ops nk) ->   { lt_argpair, less, greater, compare_lambda_types, ... };
+			#
+			x =  make_var ();
+                        y =  make_var ();
+                        z =  make_var ();
+
+			cmp_op =    if ismax  greater;
+				    else      less;
+				    fi;
+
+			elsebranch
+                            =
+			    case nk
+				#
+				hbo::FLOAT _ => {
+				    #  testing for NaN 
+				    fequal =
+					lcf::BASEOP (hbo::COMPARE { op => hbo::EQL, kind_and_size => nk }, compare_lambda_types, []);
+
+				    cond (lcf::APPLY (fequal, lcf::RECORD [lcf::VAR y, lcf::VAR y]), lcf::VAR y, lcf::VAR x);
+				};
+
+			        _ => lcf::VAR y;
+                            esac;
+
+			lcf::FN (z, lt_argpair,
+			    lcf::LET (x, lcf::GET_FIELD (0, lcf::VAR z),
+				 lcf::LET (y, lcf::GET_FIELD (1, lcf::VAR z),
+				      cond (lcf::APPLY (cmp_op, lcf::RECORD [lcf::VAR x, lcf::VAR y]),
+					    lcf::VAR x, elsebranch))));
+		    };
+		#
+		fun inline_absolute nk
+		    =
+		    {   (inline_ops nk) ->   { lt_arg, greater, zero, negate, ... };
+			#
+			x = make_var ();
+
+			lcf::FN (x, lt_arg,
+			    cond (lcf::APPLY (greater, lcf::RECORD [lcf::VAR x, zero]),
+				  lcf::VAR x, lcf::APPLY (negate, lcf::VAR x)));
+		    };
+		#
+		fun inl_inf_prec (what, corename, p, lt, is_from_inf)			# 'inf' is probably 'indefinite-precision-integer'.  'prec' is 'precision-conversion', i.e. bitwidth change.
+		    =
+		    {   my (orig_arg_lt, res_lt)
+                            =
+			    case (hcf::unpack_arrow_uniqtypoid lt)
+				#                              
+				(_, [a], [r]) =>  (a, r);
+				_             =>  bug ("unexpected type of " + what);
+                            esac;
+
+			extra_arg_lt
+                            =
+			    hcf::make_lambdacode_arrow_uniqtypoid
+				#
+				if is_from_inf  (orig_arg_lt,  hcf::int1_uniqtypoid);
+				else            (hcf::int1_uniqtypoid,  orig_arg_lt);
+                                fi;
+
+			new_arg_lt =  hcf::make_tuple_uniqtypoid [ orig_arg_lt, extra_arg_lt ];
+
+			new_lt     =  hcf::make_lambdacode_arrow_uniqtypoid (new_arg_lt, res_lt);
+
+			x = make_var ();
+
+			lcf::FN (x, orig_arg_lt,
+			    lcf::APPLY (lcf::BASEOP (p, new_lt, []),
+				 lcf::RECORD [lcf::VAR x, core_get corename]));
+		    };
+		#
+		fun translate_baseop   (baseop,   lt,   uniqtypes: List(hut::Uniqtype))		# This fn is called in one place:  below in  translate_variable_in_expression/PLAIN_VARIABLE/do_inline_baseop
+                    = 
+		    translate_baseop' baseop
+                    where
+		        fun translate_baseop' (hbo::LSHIFT_MACRO  k) =>  inline_shift (lshift_op,  k, \\ _ =  lword0 k);
+			    translate_baseop' (hbo::RSHIFTL_MACRO k) =>  inline_shift (rshiftl_op, k, \\ _ =  lword0 k);
+
+			    translate_baseop' (hbo::RSHIFT_MACRO k)					# Preserve sign bit with arithmetic rshift 
+                                =>
+				inline_shift (rshift_op, k, clear)
+                                where
+				    fun clear w
+                                        =
+                                        lcf::APPLY (lcf::BASEOP (rshift_op k, shift_type k, []), 
+						      lcf::RECORD [w, lcf::UNT 0u31]); 
+				end;
+
+			    translate_baseop' (hbo::MIN_MACRO nk) =>   inline_min_or_max (nk, FALSE);
+			    translate_baseop' (hbo::MAX_MACRO nk) =>   inline_min_or_max (nk, TRUE);
+			    translate_baseop' (hbo::ABS_MACRO nk) =>   inline_absolute nk;
+
+			    translate_baseop' hbo::NOT_MACRO
+				=>
+				{   x = make_var();
+
+				    lcf::FN (x, lt_bool, cond (lcf::VAR x, false_lexp, true_lexp));
+				}; 
+
+			    translate_baseop' hbo::COMPOSE_MACRO
+				=>
+				{   my (t1, t2, t3)
+					= 
+					case uniqtypes
+					    #					  
+					    [a, b, c] =>  ( lt_tyc  a,
+							    lt_tyc  b,
+							    lt_tyc  c
+							  );
+
+					    _         =>  bug "unexpected type for INLCOMPOSE";
+					esac;
+
+				    argt = lt_tuple [ lt_arrow  (t2, t3),
+						      lt_arrow  (t1, t2)
+						    ];
+
+				    x =  make_var ();
+				    z =  make_var (); 
+				    f =  make_var ();
+				    g =  make_var ();
+
+				    lcf::FN (z, argt, 
+					lcf::LET (f, lcf::GET_FIELD (0, lcf::VAR z),
+					  lcf::LET (g, lcf::GET_FIELD (1, lcf::VAR z),
+					    lcf::FN (x, t1, lcf::APPLY (lcf::VAR f, lcf::APPLY (lcf::VAR g, lcf::VAR x))))));
+				};                  
+
+			    translate_baseop' hbo::THEN_MACRO
+				=>
+				{   my (t1, t2)
+					= 
+					case uniqtypes
+					    #					  
+					    [a, b] =>  (lt_tyc a, lt_tyc b);
+					    _      =>  bug "unexpected type for INLBEFORE";
+					esac;
+
+				    argt = lt_tuple [t1, t2];
+				    x = make_var();
+
+				    lcf::FN (x, argt, lcf::GET_FIELD (0, lcf::VAR x));
+				};
+
+			    translate_baseop' hbo::IGNORE_MACRO
+				=>
+				{   argt =
+					case uniqtypes
+					    #					  
+					    [a] =>  lt_tyc a;
+					    _   =>  bug "unexpected type for INLIGNORE";
+					esac;
+
+				    lcf::FN (make_var (), argt, void_lexp);
+				};
+
+			    translate_baseop' hbo::IDENTITY_MACRO
+				=>
+				{   argt =
+					case uniqtypes
+					    #					  
+					    [a] =>  lt_tyc  a;
+					    _   =>  bug "unexpected type for INLIDENTITY";
+					esac;
+
+				    v = make_var ();
+
+				    lcf::FN (v, argt, lcf::VAR v);
+				};
+
+			    translate_baseop' hbo::CVT64
+				=>
+				{   v = make_var ();
+				    lcf::FN (v, lt_i32pair, lcf::VAR v);
+				};
+
+# Soon:
+			    translate_baseop' hbo::RO_MATRIX_GET_WITH_BOUNDSCHECK_MACRO =>  bug "hbo::RO_MATRIX_GET_WITH_BOUNDSCHECK_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+			    translate_baseop' hbo::RW_MATRIX_GET_WITH_BOUNDSCHECK_MACRO =>  bug "hbo::RW_MATRIX_GET_WITH_BOUNDSCHECK_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+			    translate_baseop' hbo::RW_MATRIX_SET_WITH_BOUNDSCHECK_MACRO =>  bug "hbo::RW_MATRIX_SET_WITH_BOUNDSCHECK_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+			    #
+			    translate_baseop' hbo::RO_MATRIX_GET_MACRO =>  bug "hbo::RO_MATRIX_GET_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+			    translate_baseop' hbo::RW_MATRIX_SET_MACRO =>  bug "hbo::RW_MATRIX_SET_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+
+			    translate_baseop' hbo::RW_MATRIX_GET_MACRO
+				=>
+				{
+				    bug "hbo::RW_MATRIX_GET_MACRO unimplemented -- translate-deep-syntax-to-lambdacode.pkg";
+
+				    my (tc1, t1)
+					=
+					case uniqtypes
+					    #					  
+					    [z] => (z, lt_tyc z);
+					    _   => bug "unexpected type for INLSUB";
+					esac;
+
+				    seqtc = hcf::make_rw_vector_uniqtype tc1;
+				    argt  = lt_tuple [lt_tyc seqtc, lt_int];
+
+				    op =  lcf::BASEOP (hbo::RW_VECTOR_GET, lt, uniqtypes);
+
+				    p = make_var();
+				    a = make_var();
+				    i = make_var();
+
+				    vp = lcf::VAR p;
+				    va = lcf::VAR a;
+				    vi = lcf::VAR i;
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					      lcf::LET (i, lcf::GET_FIELD (1, vp),
+						cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op seqtc, va)]),		# if i < len(v)
+						     lcf::APPLY (op, lcf::RECORD [va, vi]),							#      a[i];
+						     make_raise (core_exn "INDEX_OUT_OF_BOUNDS", t1)))));							# else raise exception INDEX_OUT_OF_BOUNDS;  fi;
+				    else
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					        lcf::LET (i, lcf::GET_FIELD (1, vp),
+						     lcf::APPLY (op, lcf::RECORD [va, vi]))));							#      a[i];
+				    fi;
+
+				};
+
+			    translate_baseop' hbo::RO_VECTOR_GET_WITH_BOUNDSCHECK
+				=>
+				{   my (tc1, t1)
+					=
+					case uniqtypes
+					    #					  
+					    [z] =>  (z,  lt_tyc z);
+					    _   =>  bug "unexpected type for INLSUBV";
+					esac;
+
+				    seqtc =  hcf::make_ro_vector_uniqtype tc1;
+				    argt  =  lt_tuple [lt_tyc seqtc, lt_int];
+
+				    op =   lcf::BASEOP (hbo::RW_VECTOR_GET, lt, uniqtypes);
+
+				    p =  make_var ();
+				    a =  make_var ();
+				    i =  make_var ();
+
+				    vp =  lcf::VAR  p;
+				    va =  lcf::VAR  a;
+				    vi =  lcf::VAR  i;
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					      lcf::LET (i, lcf::GET_FIELD (1, vp),
+						cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op seqtc, va)]),		# if i < len(v)
+						     lcf::APPLY (op, lcf::RECORD [va, vi]),							#      a[i];
+						     make_raise (core_exn "INDEX_OUT_OF_BOUNDS", t1)))));							# else raise exception INDEX_OUT_OF_BOUNDS;  fi;
+				    else
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					        lcf::LET (i, lcf::GET_FIELD (1, vp),
+						    lcf::APPLY (op, lcf::RECORD [va, vi]))));							#      a[i];
+				    fi;
+				};
+
+
+			    translate_baseop'  hbo::RW_VECTOR_GET_WITH_BOUNDSCHECK
+				=> 
+				{   my (tc1, t1)
+					=
+					case uniqtypes
+					    #					  
+					    [z] => (z, lt_tyc z);
+					    _   => bug "unexpected type for INLSUB";
+					esac;
+
+				    seqtc = hcf::make_rw_vector_uniqtype tc1;
+				    argt  = lt_tuple [lt_tyc seqtc, lt_int];
+
+				    op =  lcf::BASEOP (hbo::RW_VECTOR_GET, lt, uniqtypes);
+
+				    p = make_var();
+				    a = make_var();
+				    i = make_var();
+
+				    vp = lcf::VAR p;
+				    va = lcf::VAR a;
+				    vi = lcf::VAR i;
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					      lcf::LET (i, lcf::GET_FIELD (1, vp),
+						cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op seqtc, va)]),		# if i < len(v)
+						     lcf::APPLY (op, lcf::RECORD [va, vi]),							#      a[i];
+						     make_raise (core_exn "INDEX_OUT_OF_BOUNDS", t1)))));							# else raise exception INDEX_OUT_OF_BOUNDS;  fi;
+				    else
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					        lcf::LET (i, lcf::GET_FIELD (1, vp),
+						     lcf::APPLY (op, lcf::RECORD [va, vi]))));							#      a[i];
+				    fi;
+				};
+
+			    translate_baseop' (hbo::GET_VECSLOT_NUMERIC_CONTENTS { kind_and_size, checkbounds=>TRUE, immutable } )
+				=>
+				{
+																{   if *debugging
+																	#
+																	stderr             =   winix_text_file_for_posix__premicrothread::stderr;
+																	unparse_textstream =   winix_text_file_for_posix__premicrothread::stderr;
+
+																	output_stream
+																	  =
+																	  { consumer  =>  (\\ string =  winix_text_file_for_posix__premicrothread::write  (unparse_textstream,  string)),
+																	    flush     =>  {. winix_text_file_for_posix__premicrothread::flush  unparse_textstream; },
+																	    close     =>  \\ () = ()
+																	  };
+
+																	pp =   pp::make_prettyprint_mill  output_stream  [];
+
+																	fun prettyprint_uniqtype  uniqtype
+																	    =
+																	    {   pp.lit "   <<< ";
+																		pht::prettyprint_uniqtype  symbolmapstack::empty  pp  uniqtype;
+																		pp.lit " >>>   ";
+																	    };	
+
+																	len = list::length uniqtypes;
+
+																	pp.newline();
+																	pp.lit (sprintf "Prettyprinting %d types:          -- translate_baseop/GET_VECSLOT_NUMERIC_CONTENTS [translate-deep-syntax-to-lambdacode.pkg]\n" len);
+
+																	apply prettyprint_uniqtype uniqtypes;
+
+																	pp.newline();
+																	pp.lit (sprintf "Prettyprinting %d types complete. -- translate_baseop/GET_VECSLOT_NUMERIC_CONTENTS [translate-deep-syntax-to-lambdacode.pkg]\n" len);
+
+																	pp::flush_prettyprint_mill  pp;
+																	pp::close_prettyprint_mill  pp;
+																    fi;
+																};
+				    my (tc1, t1, t2)
+					= 
+					case uniqtypes
+					    #					  
+					    [a, b] =>   {
+							    ( a,  lt_tyc a,  lt_tyc b);
+							};
+					    _      =>   {   fprintf winix_text_file_for_posix__premicrothread::stderr "Unexpected type for hbo::GET_VECSLOT_NUMERIC_CONTENTS -- list::length(uniqtypes) == %d, expected 2\n" (list::length uniqtypes);
+							    bug "unexpected type for hbo::GET_VECSLOT_NUMERIC_CONTENTS";
+							};
+					esac;
+
+				    argt = lt_tuple [t1, lt_int];
+
+				    p = make_var();
+				    a = make_var();
+				    i = make_var();
+
+				    vp = lcf::VAR p;
+				    va = lcf::VAR a;
+				    vi = lcf::VAR i;
+
+				    op = hbo::GET_VECSLOT_NUMERIC_CONTENTS { kind_and_size, checkbounds=>FALSE, immutable };
+
+				    op' = lcf::BASEOP (op, lt, uniqtypes);
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					      lcf::LET (i, lcf::GET_FIELD (1, vp),
+						cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op tc1, va)]),		# if i < len(v)
+						     lcf::APPLY (op', lcf::RECORD [va, vi]),							#      a[i];
+						     make_raise (core_exn "INDEX_OUT_OF_BOUNDS", t2)))));							# else raise exception INDEX_OUT_OF_BOUNDS;  fi;
+				    else
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					        lcf::LET (i, lcf::GET_FIELD (1, vp),
+						     lcf::APPLY (op', lcf::RECORD [va, vi]))));							#      a[i];
+				    fi;
+				};
+
+			    translate_baseop' hbo::RW_VECTOR_SET_WITH_BOUNDSCHECK
+				=> 
+				{   my (tc1, t1)
+					=
+					case uniqtypes
+					    #					  
+					    [z] =>  (z, lt_tyc z);
+					    _   =>  bug "unexpected type for INLSUB";
+					esac;
+
+				    seqtc = hcf::make_rw_vector_uniqtype tc1;
+				    argt = lt_tuple [lt_tyc seqtc, lt_int, t1];
+
+				    op = lcf::BASEOP (hbo::RW_VECTOR_SET, lt, uniqtypes);
+
+				    x = make_var();
+
+				    a = make_var();
+				    i = make_var();
+				    v = make_var();
+
+				    vx = lcf::VAR x;
+				    va = lcf::VAR a;
+				    vi = lcf::VAR i;
+				    vv = lcf::VAR v;
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (x, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vx),
+					      lcf::LET (i, lcf::GET_FIELD (1, vx),
+						lcf::LET (v, lcf::GET_FIELD (2, vx),
+						  cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op seqtc, va)]),		# if i < len(v)
+						       lcf::APPLY (op, lcf::RECORD [va, vi, vv]),						#     a[i] = v;
+						       make_raise (core_exn "INDEX_OUT_OF_BOUNDS", hcf::void_uniqtypoid))))));				# else raise exception INDEX_OUT_OF_BOUNDS; fi;
+				    else
+					#
+					lcf::FN (x, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vx),
+					        lcf::LET (i, lcf::GET_FIELD (1, vx),
+						    lcf::LET (v, lcf::GET_FIELD (2, vx),
+						        lcf::APPLY (op, lcf::RECORD [va, vi, vv])))));						#     a[i] = v;
+				    fi;
+				};
+
+			    translate_baseop' (hbo::SET_VECSLOT_TO_NUMERIC_VALUE { kind_and_size, checkbounds=>TRUE } )
+				=>
+				{   my (tc1, t1, t2)
+					= 
+					case uniqtypes
+					    #					  
+					    [a, b] =>  (a, lt_tyc a, lt_tyc b);
+					    _      =>  bug "unexpected type for SET_VECSLOT_TO_NUMERIC_VALUE";
+					esac;
+
+				    argt = lt_tuple [t1, lt_int, t2];
+
+				    p = make_var();
+				    a = make_var();
+				    i = make_var();
+				    v = make_var();
+
+				    vp = lcf::VAR p;
+				    va = lcf::VAR a;
+				    vi = lcf::VAR i;
+				    vv = lcf::VAR v;
+
+				    op = hbo::SET_VECSLOT_TO_NUMERIC_VALUE { kind_and_size, checkbounds=>FALSE };
+				    op' = lcf::BASEOP (op, lt, uniqtypes);
+
+				    if *coc::check_vector_index_bounds
+					#
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					      lcf::LET (i, lcf::GET_FIELD (1, vp),
+						lcf::LET (v, lcf::GET_FIELD (2, vp),
+						  cond (lcf::APPLY (cmp_op (lessu), lcf::RECORD [vi, lcf::APPLY (len_op tc1, va)]),		# if i < len(v)
+						       lcf::APPLY (op', lcf::RECORD [va, vi, vv]),						#     a[i] = v;
+						       make_raise (core_exn "INDEX_OUT_OF_BOUNDS", hcf::void_uniqtypoid))))));				# else raise exception INDEX_OUT_OF_BOUNDS; fi;
+				    else
+					lcf::FN (p, argt,
+					    lcf::LET (a, lcf::GET_FIELD (0, vp),
+					        lcf::LET (i, lcf::GET_FIELD (1, vp),
+						    lcf::LET (v, lcf::GET_FIELD (2, vp),
+						        lcf::APPLY (op', lcf::RECORD [va, vi, vv])))));						#     a[i] = v;
+				    fi;
+				};
+
+		  /**** ASSIGN (r, x) != UPDATE (r, 0, x) under new rw_vector reps (John H Reppy;1998-10-30)
+			  | translate_baseop' (hbo::SET_REFCELL) = 
+				let my (tc1, t1) = case uniqtypes of [z] => (z, lt_tyc z)
+						      | _ => bug "unexpected type for ASSIGN"
+
+				    seqtc = hcf::make_ref_uniqtype tc1
+				    argt = lt_tuple [lt_tyc seqtc, t1]
+
+				    op = lcf::BASEOP (hbo::RW_VECTOR_SET, lt_upd, [tc1])
+
+				    x = make_var()
+				    varX = lcf::VAR x
+
+				 in lcf::FN (x, argt, 
+				     lcf::APPLY (op, lcf::RECORD [lcf::GET_FIELD (0, varX), lcf::INT 0, lcf::GET_FIELD (1, varX)]))
+				end
+		  ****/
+
+			    # Precision-conversion operations involving integer.
+			    # These need to be translated specially by providing
+			    # a second argument -- the routine from _Core that
+			    # does the actual conversion to or from integer.
+
+			    translate_baseop' (p as hbo::SHRINK_INTEGER prec)
+				=>
+				inl_inf_prec ("TEST_INF", "test_inf", p, lt, TRUE);
+
+
+			    translate_baseop' (p as hbo::CHOP_INTEGER prec)
+				=>
+				inl_inf_prec ("TRUNC_INF", "trunc_inf", p, lt, TRUE);
+
+
+			    translate_baseop' (p as hbo::STRETCH_TO_INTEGER prec)
+				=>
+				inl_inf_prec ("EXTEND_INF", "fin_to_inf", p, lt, FALSE);
+
+
+			    translate_baseop' (p as hbo::COPY_TO_INTEGER prec)
+				=>
+				inl_inf_prec ("COPY", "fin_to_inf", p, lt, FALSE);
+
+			    # Default handling for all other
+			    # base operations:
+			    #
+			    translate_baseop' baseop
+                                =>
+                                lcf::BASEOP (baseop, lt, uniqtypes);
+			end; 
+		    end;			#  where (fun translate_baseop)
+
+		#
+		fun make_integer_switch (sv, cases, default)
+                    =
+                    {   v = make_var ();
+
+			# Build a chain of equality tests
+                        # for checking large pattern values 
+			#
+			fun build []
+                                =>
+                                default;
+
+			    build ((n, e) ! r)
+				=>
+				cond ( lcf::APPLY ( polymorphic_equality_dictionary.get_integer_eq (),
+                                                    lcf::RECORD [ lcf::VAR v, lcf::VAR (get_interface_info n) ]
+                                                  ),
+				       e,
+                                       build r
+                                     );
+			end;
+
+			# Split pattern values into small values and large values.
+			# Small values can be handled directly using SWITCH:
+			#
+			fun split ([], s, l)
+                                =>
+                                (reverse s, reverse l);
+
+			    split ((n, e) ! r, sm, lg)
+				=>
+				case (ln::low_val n)
+				    #
+				    THE l =>   split (r, (lcf::INT_CASETAG l, e) ! sm, lg);
+				    NULL  =>   split (r, sm, (n, e) ! lg);
+                                esac;
+			end;
+			#
+			fun gen ()
+			    =
+			    case (split (cases, [], []))
+				#
+				([], largeints)
+                                    =>
+                                    build largeints;
+
+				(smallints, largeints)
+				    =>
+				    {   iv = make_var ();
+
+					lcf::LET
+                                          ( iv,
+
+					    lcf::APPLY (core_get "inf_low_value", lcf::VAR v),
+
+					    lcf::SWITCH
+                                              (
+						lcf::VAR iv,
+						vh::NULLARY_CONSTRUCTOR,
+						smallints,
+						THE (build largeints)
+					      )
+                                          );
+				    };
+			    esac;
+
+			lcf::LET (v, sv, gen ());
+		    };
+
+
+		##########################################################################################
+		# 
+		# Translation of various namings into lambda expressions:
+		# 
+		#  translate_variable:  (vac::Variable, di::Debruijn_Depth) -> lcf::Lambdacode_Expression
+		#  mkVE:  (vac::var, List( t::Type )) -> lcf::Lambdacode_Expression
+		#  mkCE:  ( t::Constructor,
+		#              List( t::Type ),
+		#              Null_Or( lcf::Lambdacode_Expression ),
+		#              di::Debruijn_Depth
+                #            )
+                #          -> l::Lambdacode_Expression
+		#  translate_package:  (mld::Package, di::Debruijn_Depth) -> lcf::Lambdacode_Expression
+		#  translate_generic:  (mld::Generic, di::Debruijn_Depth) -> lcf::Lambdacode_Expression
+		#  translate_symbolmapstack_entry:    di::Debruijn_Depth  -> sxe::naming -> lcf::Lambdacode_Expression
+		#
+		##########################################################################################
+		fun translate_variable
+                        ( (v as vac::PLAIN_VARIABLE { varhome, inlining_data, vartypoid_ref, path }):   vac::Variable,
+                          debruijn_depth:  di::Debruijn_Depth
+                        )
+                        : lcf::Lambdacode_Expression
+			=> 
+			translate_varhome_info
+                          (
+                            varhome,
+			    inlining_data,
+			    \\ () =  deepsyntax_typoid_to_uniqtypoid  debruijn_depth  *vartypoid_ref,
+			    get_name_or_null  path
+			  );
+
+		    translate_variable _
+                        =>
+                        bug "unexpected vars in translate_variable";
+                end;
+		#
+		fun translate_variable_in_expression (v, typoids, d)
+		    =
+		    {   fun otherwise ()
+			    =
+			    case typoids
+				#
+				[] =>  translate_variable (v, d);
+				_  =>  lcf::APPLY_TYPEFUN (translate_variable (v, d), map (deepsyntax_type_to_uniqtype d) typoids);
+                            esac;
+		    
+			case v
+			    #			  
+			    vac::PLAIN_VARIABLE { inlining_data, ... }
+				=>
+				ij::case_inlining_data  inlining_data
+				  {
+				    do_inline_list  =>  \\ _  =  otherwise (),
+				    do_inline_nil   =>  \\ () =  otherwise (),
+
+				    do_inline_baseop
+					=>
+					\\ ( baseop:		hbo::Baseop,
+                                             type
+					   )
+					    =
+					    case (baseop, typoids)
+						#                                                 
+						(hbo::POLY_EQL, [t])
+						    =>
+						    eq_g (type, t, to_tc_lt d);
+
+						(hbo::POLY_NEQ, [t])
+						    =>
+						    compose_not (eq_g (type, t, to_tc_lt d), deepsyntax_typoid_to_uniqtypoid d t);
+
+						(hbo::MAKE_NONEMPTY_RW_VECTOR_MACRO, [t])
+						    => 
+						    {   dictionary = 
+							    { default =>  core_get "make_vector",						# make_vector		def in    src/lib/core/init/core.pkg
+							      table   =>  [ ([hcf::float64_uniqtype], core_get "make_float_vector") ]		# make_float_vector	def in    src/lib/core/init/core.pkg
+							    };
+
+							lcf::GENOP (
+							    dictionary,
+							    baseop,
+							    deepsyntax_typoid_to_uniqtypoid  d  type,
+							    map  (deepsyntax_type_to_uniqtype d)  typoids
+							);
+						    };
+
+						(hbo::RAW_CCALL NULL, [a, b, c])
+						    =>
+						    {   i = THE (cprototype::decode ansi_c_prototype_convention
+										  { function_type => a, encoding => b }
+								)
+								except
+								    cprototype::BAD_ENCODING =  NULL;
+
+							lcf::BASEOP (
+							    hbo::RAW_CCALL  i,
+							    deepsyntax_typoid_to_uniqtypoid  d  type,
+							    map  (deepsyntax_type_to_uniqtype d)  typoids
+							);
+						    };
+
+						_   =>	{
+																if *debugging
+																    #
+																    stderr	       =   winix_text_file_for_posix__premicrothread::stderr;
+
+																    output_stream
+																      =
+																      { consumer  =>  (\\ string =  winix_text_file_for_posix__premicrothread::write  (stderr,  string)),
+																	flush     =>  {. winix_text_file_for_posix__premicrothread::flush  stderr; },
+																	close     =>  \\ () = ()	
+																      };
+
+																    pp =   pp::make_prettyprint_mill  output_stream  [];
+
+																    fun prettyprint_typoid typoid
+																	=
+																	{   pp.lit "   <<< ";
+																	    ppt::prettyprint_typoid  symbolmapstack::empty  pp  typoid;
+																	    pp.lit " >>>   ";
+																	    pp.newline();
+																	};	
+
+																    len =  list::length  typoids;	
+																    pp.newline();
+																    pp.lit "translate_variable_in_expression/vac::PLAIN_VARIABLE/do_inline_baseop/other";
+																    pp.newline();
+																    pp.lit (sprintf "prettyprinting %d typoids:     -- translate_variable_in_expression/PLAIN_VARIABLE/do_inline_baseop/   [translate-deep-syntax-to-lambdacode.pkg]"  len);
+																    pp.newline();
+
+																    apply prettyprint_typoid  typoids;
+
+																    pp.newline();
+																    pp.lit (sprintf "prettyprinting %d typoids done -- translate_variable_in_expression/PLAIN_VARIABLE/do_inline_baseop/   [translate-deep-syntax-to-lambdacode.pkg]" len);
+																    pp.newline();
+																    pp::flush_prettyprint_mill  pp;
+																    pp::close_prettyprint_mill  pp;
+																fi;
+							    translate_baseop
+							      (
+								baseop,
+								(deepsyntax_typoid_to_uniqtypoid d type),
+								map (deepsyntax_type_to_uniqtype d) typoids
+							      );
+							};
+					    esac
+				};
+
+			    _   =>
+				otherwise ();
+                        esac;
+		    };
+		#
+		fun translate_constructor_expression (tdt::VALCON { is_constant, form, name, typoid, ... }, ts, ap_op, d)
+                    = 
+		    {   lt = to_valcon_lty  d  typoid;
+			form' = make_representation (form, lt, name);
+			dc = (name, form', lt);
+			ts' = map (deepsyntax_type_to_uniqtype d) ts;
+
+                        if is_constant
+			    #
+                            con'(dc, ts', void_lexp);
+			else
+			    case ap_op
+				#			       
+				THE le => con'(dc, ts', le);
+
+				NULL => 
+				  {   my (arg_t, _) = hcf::unpack_lambdacode_arrow_uniqtypoid (hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts'));
+				      v = make_var ();
+				      lcf::FN (v, arg_t, con'(dc, ts', lcf::VAR v));
+				  };
+			    esac;
+                        fi;
+		    };
+		#
+		fun translate_package (s as mld::A_PACKAGE { varhome, inlining_data=>info, ... }, d)
+			=>
+			translate_varhome_info
+                            (
+                              varhome,
+                              info,
+                              \\ () = deepsyntax_package_to_uniqtypoid (s, d, per_compile_data),
+                              NULL
+                            );
+
+		    translate_package _ =>   bug "unexpected packages in translate_package";
+                end;
+
+		#
+		fun translate_generic (f as mld::GENERIC { varhome, inlining_data=>info, ... }, d)
+			=>
+			translate_varhome_info
+                            (
+                              varhome,
+                              info,
+                              \\ () = deepsyntax_generic_package_to_uniqtypoid (f, d, per_compile_data),
+                              NULL
+                            );
+
+		    translate_generic _ =>   bug "unexpected generics in translate_generic";
+                end;
+
+		#
+		fun translate_symbolmapstack_entry
+                    (debruijn_depth:  di::Debruijn_Depth)
+		    : (sxe::Symbolmapstack_Entry -> lcf::Lambdacode_Expression)
+                    =
+                    translate'
+                    where
+		        fun translate' (sxe::NAMED_VARIABLE v) =>  translate_variable (v, debruijn_depth);
+			    translate' (sxe::NAMED_PACKAGE  s) =>  translate_package  (s, debruijn_depth);
+			    translate' (sxe::NAMED_GENERIC  f) =>  translate_generic  (f, debruijn_depth);
+
+			    translate' (sxe::NAMED_CONSTRUCTOR (tdt::VALCON  { form=> vh::EXCEPTION acc,  name,  typoid, ... } ))
+				=>
+				{   nt =  to_valcon_lty  debruijn_depth  typoid;
+				    #
+				    my (argt, _) =   hcf::unpack_lambdacode_arrow_uniqtypoid nt;
+
+				    translate_varhome_with_type
+                                      ( acc,
+                                        hcf::make_exception_tag_uniqtypoid  argt,
+                                        THE name
+				      );
+				};
+
+			    translate' _ =>   bug "unexpected arg in translate_symbolmapstack_entry";
+                        end;
+		    end;
+
+
+		#################################################################################
+		# 
+		# Translate core deep_syntax_tree declarations into lambda expressions:
+		# 
+		#    my translate_named_values:  List( ds::Named_Value )
+		#                          * depth
+		#                         -> lcf::Lambdacode_Expression
+		#                         -> lcf::Lambdacode_Expression
+		# 
+		#    my translate_named_recursive_values
+		#        :
+		#        (List( ds::Named_Recursive_Value ) * )
+		#     -> lcf::Lambdacode_Expression
+		#     -> lcf::Lambdacode_Expression
+		# 
+		#    my translate_exception_declarations:   List( ds::eb )
+		#               * depth
+		#              -> lcf::Lambdacode_Expression
+		#              -> lcf::Lambdacode_Expression
+		#
+		#################################################################################
+
+													# lambdacode_form	is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+													# deep_syntax		is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+
+/*x*/		fun translate_pattern_expression (expression, d, [], callstack)
+                        =>
+                        {
+													    if *debugging
+														print_callstack "\n============= translate_pattern_expression/TOP ============= [translate-deep-syntax-to-lambdacode.pkg] " callstack;
+														if_debugging_unparse_expression ("translate_pattern_expression input expression argument:", (expression,100));
+														printf "\ntranslate_pattern_expression generalized_typevars argument has 0 entries so calling translate_expression instead of translate_pattern_expression.  [translate-deep-syntax-to-lambdacode.pkg]\n";
+													    fi;
+
+                            result = translate_deep_syntax_expression_to_lambdacode (expression, d, "translate_pattern_expression" ! callstack );
+
+				    if *debugging
+					printf "\ntranslate_pattern_expression/BOTTOM   [translate-deep-syntax-to-lambdacode.pkg]\n";
+				    fi;
+
+                            result;
+                        };
+
+/*x*/		    translate_pattern_expression
+/*x*/                   ( expression:          ds::Deep_Expression,
+/*x*/                     debruijn_depth:      di::Debruijn_Depth,
+/*x*/                     generalized_typevars:  List( tdt::Typevar_Ref ),	# From a deep syntax NAMED_VALUE or NAMED_RECURSIVE_VALUE record.
+/*x*/                     callstack:           List( String ) 
+/*x*/                   )
+/*x*/                   : lcf::Lambdacode_Expression
+/*x*/			=> 
+/*x*/			{
+																if *debugging
+																    print_callstack "\n============= translate_pattern_expression/TOP ============= " callstack;
+																    if_debugging_unparse_expression     ("\ntranslate_pattern_expression input expression argument unparsed:", (expression,100));
+																    if_debugging_prettyprint_expression ("\ntranslate_pattern_expression input expression argument pprinted:", (expression,100));
+																    printf "translate_pattern_expression generalized_typevars argument has %d entries:\n"  (length  generalized_typevars);
+																    apply unparse generalized_typevars
+																    where
+																	fun unparse  typevar_ref
+																	    =
+																	    if_debugging_unparse_typevar_ref  ("", typevar_ref);
+																    end;
+																    printf "\n";
+																fi;
+
+
+
+/*x*/                       generalized_typevars'
+/*x*/                           =
+/*x*/                           map f generalized_typevars
+/*x*/                           where
+/*x*/				    fun f { id, ref_typevar }
+/*x*/                                   =
+/*x*/                                   ref_typevar;
+/*x*/                           end;
+
+/*x*/                       old_bound_typevar_refs_values
+/*x*/                           =
+/*x*/                           map  (*_)  generalized_typevars';
+
+											# translate_types	is from   src/lib/compiler/back/top/translate/translate-deep-syntax-types-to-lambdacode.pkg
+                            # Assign TYPEVAR_MARK typevars.
+			    # We will erase these before we return.
+			    #
+			    # These TYPEVAR_MARK values are only
+			    # used in translate_deep_syntax_types_to_lambdacode::deepsyntax_type_to_uniqtype():	
+			    #
+			    #   "We have implemented a "minimum typing derivation" phase in our compiler to give
+			    #    all local variables "least" polymorphic types.  The derivation is done after [typechecking]
+			    #    so that is it only applied to type-correct programs.  Our algoirthm, which is similar
+			    #    to Bjorner's algorithm M, does a bottom-up traversal of the [deep syntax].
+			    #    During the traversal, we mark all variables which are local (e.g. let-bound)
+			    #    or hidden because of signature matching.  For each marked polymorphic variable v
+			    #    we gather all of its actual type instantiations and reassign v a new type -- the
+			    #    lead general type scheme that generalizes [its instantiations].  The new type is
+			    #    then propagated into v's declaration d, constraining other variables referenced by d."
+			    #
+			    #          -- p33, "Compiling Standard ML For Efficient Execution on Modern Machines"
+			    #             http://flint.cs.yale.edu/flint/publications/zsh-thesis.pdf
+			    #
+/*x*/			    g (0, generalized_typevars)
+                            where
+				fun g (i, [])
+					=>
+					();
+
+/*x*/				    g (i, { id, ref_typevar as REF (tdt::META_TYPEVAR _ | tdt::INCOMPLETE_RECORD_TYPEVAR _) } ! rest)
+/*x*/					=>
+/*x*/					{   m =   mark_letbound_typevar (debruijn_depth, i);		# This is the only call to mark_letbound_typevar in the compiler.
+
+					    if *debugging
+                                                printf "Setting [id%d]typevar_ref to (TYPEVAR_MARK (mark_letbound_typevar (d==%d, i==%d))):  g()  in  translate_pattern_expression()  in translate_deep_syntax_to_lambdacode\n" id (di::dp_toint debruijn_depth)  i;
+                                            fi;
+
+/*x*/					    ref_typevar :=   tdt::TYPEVAR_MARK m;		# This is the only place TYPEVAR_MARK are created.
+
+/*x*/					    g (i+1, rest);
+					};
+
+                                    # 2009-06-01 CrT: In the parent SML/NJ compiler this case cannot happen.
+                                    # When I added OOP support, in particular generalizing mutually recursive
+                                    # functions, it became possible, but so far as I can see it is harmless,
+                                    # so now we just ignore this case:
+				    #
+/*x*/				    g (i, ( typevar_ref as { id, ref_typevar as REF (tdt::TYPEVAR_MARK _) } ) ! result)
+/*x*/					=>
+					{   if *debugging
+                                                printf "Ignoring the fact that [id%d]typevar_ref is already set to (TYPEVAR_MARK (i d==%d) translate_deep_syntax_to_lambdacode\n" id i;
+                                            fi;
+/*x*/				           # bug (sprintf "unexpected [id%d]typevar TYPEVAR_MARK in translate_pattern_expression i d=%d" id i);
+/*x*/					   ();
+                                        };
+
+				    g _ => bug "unexpected typevar MACRO_EXPANDED in translate_pattern_expression";
+				end;
+			    end;
+
+
+/*x*/			    expression' = translate_deep_syntax_expression_to_lambdacode (expression, di::next debruijn_depth, "translate_pattern_expression" ! callstack);
+
+                            if *debugging
+                                printf "translate_pattern_expression/BBB in translate-deep-syntax-to-lambdacode.pkg\n";
+			    fi;	
+
+			    # Set all generalized_typevars
+                            # back to their original value:
+			    #
+			    restore (generalized_typevars', old_bound_typevar_refs_values)
+                            where
+				fun restore ([], [])
+                                        =>
+                                        ();
+
+				    restore
+                                        ( ref_typevar ! ref_typevars,
+                                          old_value   ! old_values
+                                        )
+                                        =>
+                                        {   ref_typevar := old_value;
+                                            restore (ref_typevars, old_values);
+                                        };
+
+				    restore _
+                                        =>
+                                        bug "unexpected cases in translate_pattern_expression";
+				end;
+			    end;
+
+			    len = length  generalized_typevars';
+
+                            if *debugging
+                                printf "translate_pattern_expression/BOTTOM in translate-deep-syntax-to-lambdacode.pkg\n";
+                                printf "translate_pattern_expression generalized_typevars argument %d entries restored:\n"  (length  generalized_typevars);
+				apply unparse generalized_typevars
+                                where
+	                            fun unparse  typevar_ref
+                                        =
+                                        if_debugging_unparse_typevar_ref  ("", typevar_ref);
+                                end;
+			    fi;	
+
+			    lcf::TYPEFUN (hcf::n_plaintype_uniqkinds  len,  expression');
+			};
+                end 
+
+		also
+/*x*/           fun translate_named_values
+/*x*/               ( named_values:    List( ds::Named_Value ),		# Obtained from a ds::VALUE_DECLARATIONS
+/*x*/                 debruijn_depth:  di::Debruijn_Depth,
+/*x*/                 callstack:       List( String ) 
+/*x*/               )
+/*x*/		    : (lcf::Lambdacode_Expression -> lcf::Lambdacode_Expression)
+/*x*/               =
+/*x*/		    {
+																if *debugging    print_callstack "\n============= translate_named_values/TOP    ============= " callstack; fi;
+/*x*/                   result =  fold  g  named_values;
+																if *debugging    print_callstack "\n============= translate_named_values/BOTTOM ============= " callstack; fi;
+/*x*/                   result;
+/*x*/               }
+                    where
+		        fun eq_tvs ([], [])					# "tvs" == "type variables"
+                                =>
+                                TRUE;
+
+			    eq_tvs (a ! r, (tdt::TYPEVAR_REF b) ! s)
+                                =>
+                                if (a==b)  eq_tvs (r, s);
+                                else       FALSE;
+                                fi;
+
+			    eq_tvs _
+                                =>
+                                FALSE;
+                        end;
+
+/*x*/			fun g named_value
+/*x*/                       =
+/*x*/                       {
+																if *debugging printf "\ntranslate_named_values/LOOP TOP\n"; fi;
+/*x*/				result =  g'  named_value;
+																if *debugging printf "\ntranslate_named_values/LOOP BOTTOM\n"; fi;
+/*x*/				result;
+/*x*/                       }
+                        also
+			fun g'  ( ds::VALUE_NAMING
+                                    {
+                                      pattern    => ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { varhome=>vh::HIGHCODE_VARIABLE v, ... } ),
+				      expression as ds::VARIABLE_IN_EXPRESSION {  var => REF (w as (vac::PLAIN_VARIABLE _)),  typescheme_args },
+				      generalized_typevars,
+                                      ...
+                                    },
+                                  fold_result_so_far
+                                )
+				=> 
+				if (eq_tvs (generalized_typevars, typescheme_args))
+																if *debugging printf "\nCALLING translate_variable:  g()/NAMED_VALUE I in  translate_named_values in translate-deep-syntax-to-lambdacode.pkg\n"; fi;
+				     result = lcf::LET (v, translate_variable (w, debruijn_depth), fold_result_so_far);
+																if *debugging printf "\nCALLED  translate_variable:  g()/NAMED_VALUE I in  translate_named_values in translate-deep-syntax-to-lambdacode.pkg\n"; fi;
+                                     result;
+				else
+																if *debugging printf "\nCALLING translate_pattern_expression:  g()/NAMED_VALUE I in  translate_named_values in translate-deep-syntax-to-lambdacode.pkg\n"; fi;
+                                     result = lcf::LET( v,
+							translate_pattern_expression (expression, debruijn_depth, generalized_typevars, "translate_named_values/g/NAMED_VALUE" ! callstack),
+							fold_result_so_far
+						      );
+																if *debugging printf   "CALLED  translate_pattern_expression:  g()/NAMED_VALUE I in  translate_named_values in translate-deep-syntax-to-lambdacode.pkg\n"; fi;
+				     result;
+                                fi;
+
+/*x*/			    g'  ( ds::VALUE_NAMING { pattern as ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { varhome=>vh::HIGHCODE_VARIABLE v, ... } ),
+/*x*/				                expression,
+/*x*/                                           generalized_typevars,
+/*x*/                                           ...
+/*x*/                                         },
+/*x*/                             fold_result_so_far
+/*x*/                           )
+/*x*/				=>
+/*x*/			        {
+																if *debugging    print_callstack "\n============= translate_named_values/g()/NAMED_VALUE II/TOP    ============= " callstack; fi;
+																if_debugging_unparse_expression ("\nexpression:", (expression,100));
+																if_debugging_unparse_pattern    ("\npattern:",    (pattern,   100));
+																if *debugging
+																   printf "\nbound_typevar_refs (%d entries):\n"  (length  generalized_typevars);
+																   apply unparse generalized_typevars
+																   where
+																       fun unparse  typevar_ref
+																	   =
+																	   if_debugging_unparse_typevar_ref  ("", typevar_ref);
+																   end;
+																   printf "\n";
+																fi;
+																if_debugging_prettyprint_expression ("\nexpression:", (expression,100));
+																if_debugging_prettyprint_pattern    ("\npattern:",    (pattern,   100));
+
+																if *debugging printf "\nCALLING translate_pattern_expression:  g()/NAMED_VALUE II  [translate_named_values  [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+
+/*x*/				    result = lcf::LET (v, translate_pattern_expression (expression, debruijn_depth, generalized_typevars, "translate_named_values.g/NAMED_VALUE II" ! callstack), fold_result_so_far);
+
+																if *debugging printf "CALLED  translate_pattern_expression:  g()/NAMED_VALUE II in  translate_named_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+																if *debugging    print_callstack "\n============= translate_named_values/g()/NAMED_VALUE II/BOTTOM ============= " callstack; fi;
+
+/*x*/                               result;
+				}; 
+
+			    g'  ( ds::VALUE_NAMING { pattern => ds::TYPE_CONSTRAINT_PATTERN (ds::VARIABLE_IN_PATTERN (vac::PLAIN_VARIABLE { varhome=>vh::HIGHCODE_VARIABLE v, ... } ), _),
+				                expression,
+                                                generalized_typevars,
+                                                ...
+                                              },
+                                  fold_result_so_far
+                                )
+				=>
+				{												if *debugging printf "\nCALLING translate_pattern_expression:  g()/NAMED_VALUE III (type-constrained variable) in  translate_named_values   [translate-deep-syntax-to-lambdacode.pkg]\n";fi;
+
+                                    result = lcf::LET ( v,
+							translate_pattern_expression (expression, debruijn_depth, generalized_typevars,  "translate_named_values.g/NAMED_VALUE III" ! callstack),
+							fold_result_so_far
+						      );
+
+																if *debugging printf "CALLED  translate_pattern_expression:  g()/NAMED_VALUE III (type-constrained variable) in  translate_named_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+                                    result;
+				};
+
+			    g'  ( ds::VALUE_NAMING { pattern, expression, generalized_typevars, ... },
+                                  fold_result_so_far
+                                )
+				=>
+				{
+																if *debugging printf "\nCALLING translate_pattern_expression:  g()/NAMED_VALUE IV (type-constrained variable) in  translate_named_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+
+				    ee    = translate_pattern_expression (expression, debruijn_depth, generalized_typevars, "translate_pattern_expression.g/NAMED_VALUE IV" ! callstack);
+
+																if *debugging printf "CALLED  translate_pattern_expression:  g()/NAMED_VALUE IV (type-constrained variable) in  translate_named_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+
+				    rules = [ (fill_pattern (pattern, debruijn_depth), fold_result_so_far),
+                                              (ds::WILDCARD_PATTERN, void_lexp)
+                                            ];
+
+				    root_var = make_var();
+				    #
+				    fun finish x
+					=
+					lcf::LET (root_var, ee, x);
+
+				    mc::compile_naming_pattern (
+                                        symbolmapstack,
+                                        rules,
+                                        finish,
+                                        root_var,
+                                        to_tc_lt  debruijn_depth,
+                                        complain,
+                                        make_integer_switch
+                                    );
+				};
+                        end;
+		    end				# where (fun translate_named_values) 
+
+		also
+                fun translate_named_recursive_values (rvbs, debruijn_depth, callstack)
+                    =
+                    {
+																if *debugging    print_callstack "\n============= translate_named_recursive_values/TOP    ============= " callstack; fi;
+                        result =    \\ (b: lcf::Lambdacode_Expression) =  lcf::MUTUALLY_RECURSIVE_FNS (vlist, tlist, elist, b);
+																if *debugging    print_callstack "\n============= translate_named_recursive_values/BOTTOM ============= " callstack; fi;
+			result;
+                    }
+		    where
+			my (vlist, tlist, elist)
+                            =
+                            fold_backward g ([], [], []) rvbs
+                            where
+				fun g   ( ds::NAMED_RECURSIVE_VALUE
+					    { variable => vac::PLAIN_VARIABLE { varhome=>vh::HIGHCODE_VARIABLE v, vartypoid_ref => REF type, ... },
+					      expression,
+					      generalized_typevars,
+					      ...
+					     },
+
+					  (vlist, tlist, elist)
+					)
+					=> 
+#					{   ee = translate_expression (expression, debruijn_depth); #  was translate_pattern_expression (expression, debruijn_depth, tvs) 
+#						                                  #  we no longer track type namings at NAMED_RECURSIVE_VALUE anymore ! 
+					{
+																if *debugging printf "\nCALLING translate_pattern_expression:  g() in translate_named_recursive_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+
+					    ee = translate_pattern_expression (expression, debruijn_depth, generalized_typevars, "translate_named_recursive_values" ! callstack);		# Restored old code 2009-04-25 CrT
+
+																if *debugging printf "CALLED  translate_pattern_expression:  g() in translate_named_recursive_values   [translate-deep-syntax-to-lambdacode.pkg]\n"; fi;
+					    vt = deepsyntax_typoid_to_uniqtypoid  debruijn_depth   type;
+
+					    ( v  ! vlist,
+					      vt ! tlist,
+					      ee ! elist
+					    );
+					};
+
+				    g _ => bug "unexpected valrec namings in makeRecursiveValueNamings";
+				end;
+			    end;
+		    end
+
+		also
+                fun translate_exception_declarations (ebs, debruijn_depth, callstack)
+                    = 
+                    fold g ebs
+                    where
+		        fun g (   ds::NAMED_EXCEPTION {
+				      exception_constructor => tdt::VALCON {
+								 form => vh::EXCEPTION (vh::HIGHCODE_VARIABLE v),
+								 typoid,
+								 ...
+							       }, 
+				      name_string => ident,
+				      ...
+				  },
+				  b
+			      )
+				=>
+				{   nt = to_valcon_lty  debruijn_depth  typoid;
+				    #
+				    my (argt, _) =  hcf::unpack_lambdacode_arrow_uniqtypoid  nt;
+
+				    lcf::LET ( v,
+                                          lcf::EXCEPTION_TAG
+                                            ( translate_deep_syntax_expression_to_lambdacode
+                                                ( ident,
+                                                  debruijn_depth,
+                                                  "translate_exception_declarations" ! callstack
+                                                ),
+                                              argt
+                                            ),
+                                          b
+                                        );
+				};
+
+			    g (    ds::DUPLICATE_NAMED_EXCEPTION {
+				       exception_constructor => tdt::VALCON {
+								       form => vh::EXCEPTION (vh::HIGHCODE_VARIABLE v),
+								       typoid,
+								       name,
+								       ...
+								   },
+				       equal_to => tdt::VALCON { form=>vh::EXCEPTION acc, ... }
+				   },
+				   b
+			      )
+				=>
+				{   nt = to_valcon_lty  debruijn_depth  typoid;
+				    #
+				    my (argt, _) = hcf::unpack_lambdacode_arrow_uniqtypoid nt;
+
+				    lcf::LET (v, translate_varhome_with_type (acc, hcf::make_exception_tag_uniqtypoid argt, THE name), b);
+				};
+
+			    g _ => bug "unexpected exn namings in makeExceptionNamings";
+                        end;
+		    end
+
+
+		###########################################################################
+		# 
+		# Translating module exprs and decls into lambda expressions:
+		# 
+		#    translate_package_expression
+		#        :
+		#        (ds::Package_Expression, depth)
+		#     -> lcf::Lambdacode_Expression
+		# 
+		#    translate_generic_expression
+		#        : 
+		#        (ds::Generic_Expression, depth)
+		#     -> lcf::Lambdacode_Expression
+		# 
+		#    translate_package_declarations
+		#        :
+		#        (List( ds::Named_Package ), depth)
+		#     -> lcf::Lambdacode_Expression
+		#     -> lcf::Lambdacode_Expression
+		# 
+		#    translate_generic_namings
+		#        :
+		#        (List( ds::Named_Generic ), depth)
+		#     -> lcf::Lambdacode_Expression
+		#     -> lcf::Lambdacode_Expression
+		# 
+		###########################################################################
+
+/*x*/		also
+/*x*/           fun translate_package_expression (package_expression, debruijn_depth, callstack)
+                    = 
+                    g package_expression
+                    where
+		        fun g (ds::PACKAGE_BY_NAME  a_package)
+                                =>
+                                translate_package (a_package, debruijn_depth);
+
+			    g (ds::PACKAGE_DEFINITION bs)
+                                =>
+                                lcf::PACKAGE_RECORD
+                                    (map  (translate_symbolmapstack_entry debruijn_depth)
+                                          bs
+                                    );
+
+			    g (ds::COMPUTED_PACKAGE { a_generic=>op, generic_argument=>arg, parameter_types } )
+                                => 
+				{   e1 = translate_generic (op, debruijn_depth);
+				    types =  map  (deepsyntax_typepath_to_uniqtype  debruijn_depth)  parameter_types;
+				    e2 = translate_package (arg, debruijn_depth);
+				    lcf::APPLY (lcf::APPLY_TYPEFUN (e1, types), e2);
+				};
+
+/*x*/			    g (ds::PACKAGE_LET { declaration, expression })
+/*x*/                           =>
+/*x*/                           translate_deep_syntax_to_lambdacode'
+/*x*/                               (declaration, debruijn_depth, "translate_package_expression" ! callstack)
+/*x*/                               (g expression);
+
+			    g (ds::SOURCE_CODE_REGION_FOR_PACKAGE (b, reg))
+                                =>
+                                with_region reg g b;
+                        end;
+		    end
+
+		also
+                fun translate_generic_expression (fe, debruijn_depth, callstack)
+                    = 
+                    g fe
+                    where
+		        fun g (ds::GENERIC_BY_NAME f)
+                                =>
+                                translate_generic (f, debruijn_depth);
+
+			    g (ds::GENERIC_DEFINITION { parameter as mld::A_PACKAGE { varhome, ... }, parameter_types, definition=>def } )
+				=>
+				case varhome
+				    #
+				    vh::HIGHCODE_VARIABLE v
+					=>
+					{   knds      =  map  deepsyntax_typepath_to_uniqkind  parameter_types;
+					    new_depth =  di::next debruijn_depth;
+					    body      =  translate_package_expression (def, new_depth, "translate_generic_expression" ! callstack);
+					    header    =  build_header v;
+
+					#  Naming of all v's components 
+
+					    lcf::TYPEFUN (knds, lcf::FN (v, deepsyntax_package_to_uniqtypoid (parameter, new_depth, per_compile_data), header body));
+					};
+
+				    _ => bug "translate_generic_expression: unexpected varhome";
+				esac;
+
+			    g (ds::GENERIC_LET (declaration, b))
+                                =>
+                                translate_deep_syntax_to_lambdacode'
+                                  ( declaration,
+                                    debruijn_depth,
+                                    "translate_generic_expression" ! callstack
+                                  )
+                                  (g b);
+
+			    g (ds::SOURCE_CODE_REGION_FOR_GENERIC (b, reg))
+                                =>
+                                with_region reg g b;
+
+			    g _ => bug "unexpected generic package expressions in translate_generic_expression";
+                        end;
+		    end
+
+		also
+/*x*/           fun translate_package_declarations (sbs, debruijn_depth, callstack)
+                    =
+/*x*/               fold g sbs
+                    where
+/*x*/		        fun g (ds::NAMED_PACKAGE { a_package=>mld::A_PACKAGE { varhome, ... }, definition, ... }, b)
+                                =>
+			        case varhome
+				    #			          
+/*x*/			            vh::HIGHCODE_VARIABLE  v
+/*x*/                                   =>
+/*x*/				        {   header = build_header v;     #  Naming of all v's components 
+/*x*/					    #
+/*x*/					    lcf::LET (v, translate_package_expression (definition, debruijn_depth, "translate_package_declarations" ! callstack), header b);
+/*x*/				        };
+
+			            _   =>
+                                        bug "translate_package_declarations: unexpected varhome";
+                                esac;
+
+			    g _ => bug "unexpected package namings in translate_package_declarations";
+                        end;
+		    end
+
+		also
+                fun translate_generic_namings (fbs, debruijn_depth, callstack)
+                    = 
+                    fold g fbs
+                    where
+		        fun g (ds::NAMED_GENERIC { a_generic=>mld::GENERIC { varhome, ... }, definition=>def, ... }, b)
+			        =>
+			        case varhome
+				    #				  
+				    vh::HIGHCODE_VARIABLE v
+					=>
+					{ header = build_header v;
+
+					    lcf::LET (v, translate_generic_expression (def, debruijn_depth, "translate_generic_namings" ! callstack), header b);
+					};
+
+				    _   =>
+					bug "translate_generic_namings: unexpected varhome";
+                                esac;
+
+			    g _ => bug "unexpected generic package namings in translate_package_declarations";
+                        end;
+		    end
+
+
+		also
+/*x*/           fun translate_deep_syntax_to_lambdacode'
+/*x*/               ( declaration:	ds::Declaration,
+/*x*/                 debruijn_depth:   di::Debruijn_Depth,
+/*x*/                 callstack:        List( String )
+/*x*/               )
+/*x*/		    : (lcf::Lambdacode_Expression -> lcf::Lambdacode_Expression)
+/*x*/               = 
+/*x*/               g declaration
+                    where
+		        fun g (ds::VALUE_DECLARATIONS vbs)                 => translate_named_values           ( vbs, debruijn_depth, "translate_deep_syntax_to_lambdacode'/g" ! callstack);
+			    g (ds::RECURSIVE_VALUE_DECLARATIONS rvbs)      => translate_named_recursive_values (rvbs, debruijn_depth, "translate_deep_syntax_to_lambdacode'/g" ! callstack);
+			    g (ds::ABSTRACT_TYPE_DECLARATION { body, ... } ) => g body;
+
+			    g (ds::EXCEPTION_DECLARATIONS        ebs)      => translate_exception_declarations (ebs, debruijn_depth, "translate_deep_syntax_to_lambdacode'/g" ! callstack);
+/*x*/			    g (ds::PACKAGE_DECLARATIONS          sbs)      => translate_package_declarations   (sbs, debruijn_depth, "translate_deep_syntax_to_lambdacode'/g" ! callstack);
+
+			    g (ds::GENERIC_DECLARATIONS fbs)               => translate_generic_namings (fbs, debruijn_depth, "translate_deep_syntax_to_lambdacode'/g" ! callstack);
+			    g (ds::LOCAL_DECLARATIONS (ld, vd))            => (g ld) o (g vd);
+			    g (ds::SEQUENTIAL_DECLARATIONS ds)             =>  fold_backward (o) identity_fn (map g ds);
+
+			    g (ds::SOURCE_CODE_REGION_FOR_DECLARATION (x, reg))
+				=> 
+				{   f = with_region reg g x;
+
+				    \\ y =  with_region reg f y;
+				};
+
+			    g (ds::INCLUDE_DECLARATIONS xs)
+				=> 
+				{   # Special hack to make the include tree simpler:
+				    #
+				    apply mkos xs
+				    where
+					fun mkos (_, s as mld::A_PACKAGE { varhome, ... } )
+						=>
+						if (varhome_is_external varhome)
+						    #
+						    translate_varhome_with_type (varhome, deepsyntax_package_to_uniqtypoid (s, debruijn_depth, per_compile_data), NULL);
+						    ();
+						fi;
+					    #
+					    mkos _ =>   ();
+					end;
+				    end;	
+
+				    identity_fn;
+				};
+
+			    g _ => identity_fn;
+                        end;
+		    end
+
+		also
+/*x*/           fun translate_deep_syntax_expression_to_lambdacode
+/*x*/               ( expression:	ds::Deep_Expression,
+/*x*/                 debruijn_depth:   di::Debruijn_Depth,
+/*x*/                 callstack:        List( String )
+/*x*/               )
+/*x*/		    : lcf::Lambdacode_Expression
+/*x*/               = 
+/*x*/		    {
+/*x*/			result =   translate_deep_syntax_expression_to_lambdacode' expression;
+ 
+																if *debugging
+																    print_callstack "\n============= translate_deep_syntax_expression_to_lambdacode/BOTTOM ============= " callstack;
+																fi;
+
+			result;
+		    }
+                    where
+																if *debugging
+																    print_callstack "\n============= translate_deep_syntax_expression_to_lambdacode/TOP    ============= " callstack;
+																    if_debugging_unparse_expression     ("\ntranslate_deep_syntax_expression_to_lambdacode input expression unparsed:",      (expression,100));
+																    if_debugging_prettyprint_expression ("\ntranslate_deep_syntax_expression_to_lambdacode input expression prettyprinted:", (expression,100));
+																fi;
+
+		        to_uniqtype    =  deepsyntax_type_to_uniqtype      debruijn_depth;
+			to_uniqtypoid  =  deepsyntax_typoid_to_uniqtypoid  debruijn_depth;
+
+			#
+			fun make_rules  case_rules
+                            =
+                            map  make_rule  case_rules
+			    where
+				fun make_rule  (ds::CASE_RULE (pattern, expression))
+				    =
+				    ( fill_pattern (pattern, debruijn_depth),
+				      #
+				      translate_deep_syntax_expression_to_lambdacode'  expression
+				    );
+			    end
+
+			also
+/*x*/			fun translate_deep_syntax_expression_to_lambdacode'  expression
+                            =
+                            {
+																if *debugging
+																    print_callstack "\n============= translate_deep_syntax_expression_to_lambdacode'/TOP    ============= " callstack;
+																    if_debugging_unparse_expression     ("\ntranslate_deep_syntax_expression_to_lambdacode' input expression unparsed:",      (expression,100));
+																    if_debugging_prettyprint_expression ("\ntranslate_deep_syntax_expression_to_lambdacode' input expression prettyprinted:", (expression,100));
+																fi;
+/*x*/                           result =  translate_deep_syntax_expression_to_lambdacode'' expression;
+																if *debugging
+																    print_callstack "\n============= translate_deep_syntax_expression_to_lambdacode'/BOTTOM ============= " callstack;
+																fi;
+                                result;
+                            }
+                        where
+			    fun translate_deep_syntax_expression_to_lambdacode'' (x as (ds::VARIABLE_IN_EXPRESSION {  var => REF v,  typescheme_args  }))
+				    =>
+{
+																if *debugging
+																    print_callstack "\n============= translate_deep_syntax_expression_to_lambdacode''/ds::VARIABLE_IN_EXPRESSION   ============= " callstack;
+																    printf "translate_deep_syntax_expression_to_lambdacode''/ds::VARIABLE_IN_EXPRESSION   list::length(typescheme_args) d=%d\n" (list::length typescheme_args);
+																    if_debugging_unparse_expression     ("\ntranslate_deep_syntax_expression_to_lambdacode''/ds::VARIABLE_IN_EXPRESSION x unparsed:", (x,100));
+																    if_debugging_prettyprint_expression ("\ntranslate_deep_syntax_expression_to_lambdacode''/ds::VARIABLE_IN_EXPRESSION x pprinted:", (x,100));
+																fi;
+				    translate_variable_in_expression (v, typescheme_args, debruijn_depth);			# Only call to this fn.
+};
+				translate_deep_syntax_expression_to_lambdacode'' (ds::VALCON_IN_EXPRESSION { valcon, typescheme_args })
+				    =>
+				    translate_constructor_expression (valcon, typescheme_args, NULL, debruijn_depth);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::APPLY_EXPRESSION { operator => ds::VALCON_IN_EXPRESSION { valcon, typescheme_args }, operand => e2 })
+				    =>
+				    translate_constructor_expression (valcon, typescheme_args, THE (translate_deep_syntax_expression_to_lambdacode' e2), debruijn_depth);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::INT_CONSTANT_IN_EXPRESSION (s, t))
+				   =>
+				    if   (tyj::typoids_are_equal (t, mtt::int_typoid          ))  lcf::INT   (ln::int   s);
+				    elif (tyj::typoids_are_equal (t, mtt::int1_typoid         ))  lcf::INT1 (ln::one_word_int s);
+				    elif (tyj::typoids_are_equal (t, mtt::multiword_int_typoid))  lcf::VAR (get_interface_info s);
+				    elif (tyj::typoids_are_equal (t, mtt::int2_typoid         ))
+
+					my (hi, lo) =   ln::two_word_int s;
+
+					lcf::RECORD [lcf::UNT1 hi, lcf::UNT1 lo];
+
+				    else
+					bug "translate INT_CONSTANT_IN_EXPRESSION";
+				    fi
+				    except
+					OVERFLOW = { rep_err "int constant too large";
+						     lcf::INT 0;
+						   };
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::UNT_CONSTANT_IN_EXPRESSION (s, t))
+				    =>
+				    if   (tyj::typoids_are_equal (t, mtt::unt_typoid ))   lcf::UNT    (ln::unt   s);
+				    elif (tyj::typoids_are_equal (t, mtt::unt8_typoid))   lcf::UNT    (ln::one_byte_unt  s);
+				    elif (tyj::typoids_are_equal (t, mtt::unt1_typoid))   lcf::UNT1  (ln::one_word_unt s);
+				    elif (tyj::typoids_are_equal (t, mtt::unt2_typoid)) 
+
+					(ln::two_word_unt s) ->   (hi, lo);
+
+					lcf::RECORD [lcf::UNT1 hi, lcf::UNT1 lo];
+
+				    else
+					prettyprint_type t;
+					bug "translate UNT_CONSTANT_IN_EXPRESSION";
+				    fi
+				    except
+					OVERFLOW = { rep_err "word constant too large";   lcf::INT 0;};
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::FLOAT_CONSTANT_IN_EXPRESSION s)
+				    =>
+				    lcf::FLOAT64  s;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::STRING_CONSTANT_IN_EXPRESSION s)
+				    =>
+				    lcf::STRING s;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::CHAR_CONSTANT_IN_EXPRESSION s)
+				    =>
+				    lcf::INT (char::to_int (string::get (s, 0)));
+
+				     # NOTE: the above won't work for cross compiling to 
+				     #  multi-byte characters        XXX BUGGO FIXME
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::RECORD_IN_EXPRESSION [])
+				    =>
+				    void_lexp;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::RECORD_IN_EXPRESSION xs)
+				    =>
+				    if (sorted xs)
+					#
+					lcf::RECORD  (map  (\\ (_, e) = translate_deep_syntax_expression_to_lambdacode' e)  xs);
+				    else
+					vars =   map  (\\ (l, e) =  (l, (translate_deep_syntax_expression_to_lambdacode' e, make_var())))
+						      xs;
+					#
+					fun bind ((_, (e, v)), x)
+					    =
+					    lcf::LET (v, e, x);
+
+					bexp =   map  (\\ (_, (_, v)) =  lcf::VAR v)
+						      (sortrec vars);
+
+					fold_backward
+					    bind
+					    (lcf::RECORD bexp)
+					    vars;
+				    fi;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::RECORD_SELECTOR_EXPRESSION (ds::NUMBERED_LABEL { number=>i, ... }, e))
+				    =>
+				    lcf::GET_FIELD (i, translate_deep_syntax_expression_to_lambdacode' e);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::VECTOR_IN_EXPRESSION ([], type))
+				    => 
+				    lcf::APPLY_TYPEFUN (core_get "zero_length_vector__global", [to_uniqtype type]);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::VECTOR_IN_EXPRESSION (xs, type))
+				    => 
+				    {   tc   =   to_uniqtype type;
+					#
+					vars =   map (\\ e =  (translate_deep_syntax_expression_to_lambdacode' e, make_var()))
+						     xs;
+					#
+					fun bind ((e, v), x)
+					    =
+					    lcf::LET (v, e, x);
+
+					bexp =   map (\\ (_, v) = lcf::VAR v)
+						     vars;
+
+					fold_backward  bind  (lcf::VECTOR (bexp, tc))  vars;
+				    };
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::ABSTRACTION_PACKING_EXPRESSION (e, type, types))
+				    =>
+				    translate_deep_syntax_expression_to_lambdacode' e;
+
+    #				{   my  (nty, ks, tps)
+    #					=
+    #					tyj::reformatTypeAbstraction (type, types, debruijn_depth);
+    #
+    #				    ts = map (tpsTypeConstructor debruijn_depth) tps;
+    #				    # * use of LtyDict::tcAbs is a temporary hack (ZHONG) *
+    #
+    #				    nts =   paired_listyj::map LtyDict::tcAbs (ts, ks);
+    #
+    #				    nd =   di::next debruijn_depth;
+    #
+    #				   case (ks, tps)
+    #				     of ([], []) => translate_deep_syntax_expression_to_lambdacode' e
+    #				      | _ => PACK (hcf::make_polymorphic_uniqtypoid (ks, [deepsyntax_typoid_to_uniqtypoid nd nty]), 
+    #						  ts, nts, translate_deep_syntax_expression_to_lambdacode' e);
+    #				}
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::SEQUENTIAL_EXPRESSIONS [e])
+				    =>
+				    translate_deep_syntax_expression_to_lambdacode' e;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::SEQUENTIAL_EXPRESSIONS (e ! r))
+				    =>
+				    lcf::LET (make_var(), translate_deep_syntax_expression_to_lambdacode' e, translate_deep_syntax_expression_to_lambdacode' (ds::SEQUENTIAL_EXPRESSIONS r)); 
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::APPLY_EXPRESSION { operator => e1, operand => e2 })
+				    =>
+				    lcf::APPLY (translate_deep_syntax_expression_to_lambdacode' e1, translate_deep_syntax_expression_to_lambdacode' e2);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, region))
+				    =>
+				    with_region  region  translate_deep_syntax_expression_to_lambdacode''  expression;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::TYPE_CONSTRAINT_EXPRESSION (e, _))
+				    =>
+				    translate_deep_syntax_expression_to_lambdacode' e;
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::RAISE_EXPRESSION (e, type))
+				    =>
+				    make_raise (translate_deep_syntax_expression_to_lambdacode' e, to_uniqtypoid type);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::EXCEPT_EXPRESSION (e, (l, type)))
+				    =>
+				    {   root_var =   make_var();
+					#
+					fun f x
+					    =
+					    lcf::FN (root_var, to_uniqtypoid type, x);
+
+					l' =   make_rules l;
+
+					lcf::EXCEPT
+					  ( translate_deep_syntax_expression_to_lambdacode' e,
+					    mc::compile_exception_pattern
+					      ( symbolmapstack,
+						l',
+						f, 
+						root_var,
+						to_tc_lt  debruijn_depth,
+						complain,
+						make_integer_switch
+					  )   );
+				    };
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::FN_EXPRESSION (l, type))
+				    => 
+				    {   root_var =   make_var();
+					#	
+					fun f x
+					    =
+					    lcf::FN (root_var, to_uniqtypoid type, x);
+
+					mc::compile_case_pattern
+					  (
+					    symbolmapstack,
+					    make_rules l,
+					    f,
+					    root_var,
+					    to_tc_lt  debruijn_depth,
+					    complain,
+					    make_integer_switch
+					  );
+				    };
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::CASE_EXPRESSION (ee, l, is_match))
+				    => 
+				    {   root_var =  make_var ();
+					#
+					ee' =  translate_deep_syntax_expression_to_lambdacode'  ee;
+
+					fun f x
+					    =
+					    lcf::LET (root_var, ee', x);
+
+					l' =   make_rules l;
+
+					(is_match ?? mc::compile_case_pattern
+						  :: mc::compile_naming_pattern
+					) (
+					    symbolmapstack,
+					    l',
+					    f,
+					    root_var,
+					    to_tc_lt  debruijn_depth,
+					    complain,
+					    make_integer_switch
+					  );
+				    };
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::IF_EXPRESSION { test_case, then_case, else_case } )
+				    =>
+				    cond (translate_deep_syntax_expression_to_lambdacode' test_case, translate_deep_syntax_expression_to_lambdacode' then_case, translate_deep_syntax_expression_to_lambdacode' else_case);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::AND_EXPRESSION (e1, e2))
+				    =>
+				    cond (translate_deep_syntax_expression_to_lambdacode' e1, translate_deep_syntax_expression_to_lambdacode' e2, false_lexp);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::OR_EXPRESSION (e1, e2))
+				    =>
+				    cond (translate_deep_syntax_expression_to_lambdacode' e1, true_lexp, translate_deep_syntax_expression_to_lambdacode' e2);
+
+				translate_deep_syntax_expression_to_lambdacode'' (ds::WHILE_EXPRESSION { test, expression } )
+				    =>
+				    {   fv = make_var ();
+					#
+					body = lcf::FN (make_var (), lt_void,
+						cond (translate_deep_syntax_expression_to_lambdacode' test,
+						      lcf::LET (make_var (), translate_deep_syntax_expression_to_lambdacode' expression, lcf::APPLY (lcf::VAR fv, void_lexp)),
+						      void_lexp));
+
+					lcf::MUTUALLY_RECURSIVE_FNS ([fv], [lt_voidvoid], [body], lcf::APPLY (lcf::VAR fv, void_lexp));
+				    };
+
+/*x*/				translate_deep_syntax_expression_to_lambdacode'' (ds::LET_EXPRESSION (dc, e))
+/*x*/				    =>
+/*x*/				    translate_deep_syntax_to_lambdacode' (dc, debruijn_depth, "translate_deep_syntax_expression_to_lambdacode''" ! callstack) (translate_deep_syntax_expression_to_lambdacode' e);
+
+				translate_deep_syntax_expression_to_lambdacode'' e
+				    => 
+				    err::impossible_with_body "untranslateable expression"
+					(\\ pp
+					    =
+					    {   pp.lit " expression: ";
+						uds::unparse_expression
+						    (symbolmapstack, NULL)
+						    pp
+						    (e, *prettyprint_depth);
+					    }
+					);
+			    end;			# fun translate_deep_syntax_expression_to_lambdacode''
+			end;				# where
+		    end					# fun translate_deep_syntax_expression_to_lambdacode
+
+		also
+                fun translate_integer (debruijn_depth, callstack) s
+                    =
+		    # This is a temporary solution.  Since integer literals
+		    # are created using a core function call, there is
+		    # no indication within the program that we are really
+		    # dealing with a constant value that -- in principle --
+		    # could be subject to such things as constant folding. XXX BUGGO FIXME
+
+		    {   valcon_expression =   ds::VALCON_IN_EXPRESSION  { valcon => mtt::cons_valcon,  typescheme_args => [mtt::unt_typoid] };
+			#
+			fun build []
+				=>
+				ds::VALCON_IN_EXPRESSION  { valcon => mtt::nil_valcon,  typescheme_args => [mtt::unt_typoid] };
+
+			    build (d ! ds)
+				=>
+				{   i =  unt::to_int_x  d;
+				    #
+				    ds::APPLY_EXPRESSION {
+					operator => valcon_expression,
+					operand  => trj::tupleexp [ds::UNT_CONSTANT_IN_EXPRESSION (multiword_int::from_int i, mtt::unt_typoid),
+							 build ds]
+				    };
+				};
+                        end;
+			#
+			fun small w
+                            =
+			    lcf::APPLY ( core_get (ln::is_negative s   ??   "make_small_neg_inf"
+					                          ::   "make_small_pos_inf"
+                                  ),
+
+				  translate_deep_syntax_expression_to_lambdacode
+				    (
+				      ds::UNT_CONSTANT_IN_EXPRESSION (multiword_int::from_int (unt::to_int_x w), mtt::unt_typoid),
+				      debruijn_depth,
+                                      "translate_integer" ! callstack
+                                )   );
+
+			case (ln::rep_digits  s)
+			    #			  
+			    []  =>  small 0u0;
+			    [w] =>  small w;
+			    ws  =>  lcf::APPLY (
+					core_get (ln::is_negative s   ??   "make_neg_inf"
+								      ::   "make_pos_inf"
+						 ),
+					translate_deep_syntax_expression_to_lambdacode (build ws,  debruijn_depth, "translate_integer" ! callstack)
+				    );
+                        esac;
+		    };
+
+		#  Wrap namings for multiword_int::Int literals around body. 
+		#
+		fun wrap_integer (body, callstack)
+                    =
+		    im::keyed_fold_forward
+			do_one
+			body
+		       *integer_map
+                    where 
+                        fun do_one (n, v, b)
+                            =
+                            lcf::LET (v, translate_integer (di::top, "wrap_integer" ! callstack) n, b);
+
+		    end;
+
+
+		#
+		fun wrap_picklehash_info
+                    ( body: 	         lcf::Lambdacode_Expression,
+                      picklehash_infos:  List( (ph::Picklehash, Picklehash_Info) )
+                    )
+                    : ( lcf::Lambdacode_Expression,
+                        List(   (ph::Picklehash, it::Import_Tree_Node)   )
+                      )
+                    = 
+		    {   imports =   map (\\ (p, pi) =  (p, p2itree pi))
+					picklehash_infos
+				    where
+					fun p2itree (ANON xl)
+						=> 
+						it::IMPORT_TREE_NODE
+						    (map (\\ (i, z) = (i, p2itree z))
+							 xl
+						    );
+
+					    p2itree (NAMED _)
+						=>
+						it::IMPORT_TREE_NODE [];
+					end;
+				    end;
+
+		  /*
+			{   say "\n ****************** \n";
+			    say "\n the current include tree is :\n";
+			    #
+			    fun tree (it::IMPORT_TREE_NODE [])
+                                    =
+                                    [ "\n" ];
+
+			      | tree (it::IMPORT_TREE_NODE xl)
+                                    = 
+				    fold_backward (\\ ((i, x), z)
+						   =
+						   {   ts = tree x;
+						       u = (int::to_string i)  + "   ";
+						       (map (\\ y = (u + y)) ts) @ z;
+						   }
+                                               )
+                                               []
+                                               xl;
+			    #
+			    fun prettyprint (p, n)
+                                = 
+			        {   say ("Picklehash " + (ph::to_hex p) + "\n"); 
+			            apply say (tree n));
+			            apply prettyprint imports; say "\n ****************** \n";
+			        }
+		  */
+			lambdacode_expression
+                            = 
+			    {   fun get ((_, ANON xl), z)
+                                        =>
+                                        fold_forward get z xl;
+
+				    get ((_, u as NAMED (_, t, _)), (n, cs, ts))
+                                        => 
+				        (n+1, (n, u) ! cs, t ! ts);
+                                end;
+
+				#  Get the fringe information 
+
+				getp =   \\ ((_, pi), z) =  get((0, pi), z);
+
+				my  (finfos, lts)
+                                    = 
+				    {   (fold_forward  getp  (0,[],[])  picklehash_infos)
+					    ->
+					    (_, fx, lx);
+
+				        (reverse fx, reverse lx);
+				    };
+
+				# Do the selection of all import variables:
+				#
+				fun make_selection (u, xl, be)
+				    = 
+				    fold_backward g be xl
+                                    where
+				        fun g ((i, pi), be)
+                                            = 
+					    {   my  (v, xs)
+                                                    =
+                                                    case pi
+							#                                                      
+                                                        ANON z => (make_var(), z);
+						        NAMED (v, _, z) => (v, z);
+                                                    esac;
+
+					        lcf::LET (v, lcf::GET_FIELD (i, u), make_selection (lcf::VAR v, xs, be));
+					    };
+				    end;
+
+				impvar =  make_var();
+				implty =  hcf::make_package_uniqtypoid lts;
+				nbody  =  make_selection (lcf::VAR impvar, finfos, body) ;
+
+                                lcf::FN (impvar, implty, nbody);
+			    };
+
+                        (lambdacode_expression, imports);
+		    };				                    # fun wrap_picklehash_info 
+
+		# The list of things being exported
+                # from the current compilation unit:
+		#
+		export_lexp =   lcf::PACKAGE_RECORD  (map  lcf::VAR  exported_highcode_variables);
+
+		# Translate the deep_syntax_declaration
+                # into a lambdacode expression:
+		# 
+		body =   translate_deep_syntax_to_lambdacode' (given_declaration, di::top, []) export_lexp;
+
+
+		# Add named integer constants:
+		#
+		body =   wrap_integer (body, []);
+
+
+		#  Wrap up the body with the imported variables:
+		#
+		(wrap_picklehash_info (body, phm::keyvals_list  *picklehash_map))
+		    ->
+		    (lambdacode_expression, imports);
+		                                                                                  
+		case prettyprinter_or_null
+		    NULL   =>   ();
+		    THE pp =>   {
+				    print_lambdacode_expression
+					(global_controls::highcode::print,   plx::prettyprint_lambdacode_expression pp)
+					"translate_deep_syntax_to_lambdacode"
+					lambdacode_expression
+				    where
+					fun print_lambdacode_expression (flag, print_e) s e
+					    =
+					    if *flag
+						 say ("\n\n[After " + s + " ...]\n\n");
+						 print_e  e;
+					    fi;
+				    end;
+				};
+		esac;
+
+#		# Normalize the lambdacode expression
+#               # into A-Normal form:
+#		#
+#		anormcode
+#                    =
+#                    translate_lambdacode_to_anormcode::translate
+#                        lambdacode_expression;
+#
+#	    
+		if *debugging
+                    printf "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
+		    printf   "============= translate_deep_syntax_to_lambdacode/BOTTOM ==========   [translate-deep-syntax-to-lambdacode.pkg]\n";
+		fi;
+
+	        per_compile_data ->   { prettyprinter_or_null, ... };
+
+		# Prettyprint to logfile if so requested:
+		#
+		case prettyprinter_or_null
+		    #
+		    NULL => ();
+
+		    THE pp
+			=>
+			{   if (pcd::saw_errors  per_compile_data)
+				#
+				pp.newline();
+				pp.newline();
+				pp.lit   "(Due to syntax errors, no lambdacode tree.)\n";
+				pp.newline();
+			    else 
+				pp.newline();
+				pp.newline();
+				pp.lit   "(Following printed by src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg.)";
+				pp.newline();
+
+				pp.newline();
+				pp.lit   "Lambdacode tree, prettyprinted:";
+				pp.newline();
+				#
+				plx::prettyprint_lambdacode_expression  pp  lambdacode_expression;
+				pp.newline();
+			    fi;
+			    pp.flush();
+			};
+		esac;
+
+
+
+		{ lambdacode_expression, imports };
+
+	    };									#  fun translate_deep_syntax_to_lambdacode 
+    };										#  package translate_deep_syntax_to_lambdacode 
+end;										#  top-level with
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

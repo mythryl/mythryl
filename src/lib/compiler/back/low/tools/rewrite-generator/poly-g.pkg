@@ -1,0 +1,197 @@
+
+
+
+###                  "So each of these breakthroughs,
+###                   while sometimes they're momentary,
+###                   sometimes over a period of a day or two,
+###                   they are the culmination of - and
+###                   couldn't exist without - the many months
+###                   of stumbling around in the dark that precede them."
+###
+###                                        -- Andrew Wiles 
+
+
+
+generic package PolyGen
+   (package RawSyntaxTreePP:     ADL_AST_PRETTY_PRINTER
+    package RawSyntaxTreeTrans:  ADL_AST_TRANSLATION
+       sharing RawSyntaxTreePP::raw_syntax = RawSyntaxTreeTrans::raw_syntax
+   ) : POLY_GEN =
+pkg
+   package raw_syntax = RawSyntaxTreePP::raw_syntax
+   package raw = raw_syntax
+   package t   = RawSyntaxTreeTrans
+   package h   = hashtable
+
+   fun bug msg = lowhalf_error_message::error("PolyGen", msg)
+   exception PolyGen
+   fun error msg = (adl_error::error msg; raise exception PolyGen)
+ 
+   enum hook =
+      HOOK of 
+      { name:    String,      #  name of function 
+        factor:  Bool,        #  factor rules by constructor? 
+        args:    List( String ), #  function arguments 
+        ret:     String,      #  return argument name 
+        unit:    raw_syntax::expression -> raw_syntax::expression,
+        gen:     (raw_syntax::aType * raw_syntax::expression -> raw_syntax::expression) * raw_syntax::consbind -> raw_syntax::expression
+      }  
+
+   fun id_fn id = raw::ID_IN_EXPRESSION (raw::IDENT([], id))
+   argExpression = id_fn "arg"
+   argPattern = raw::IDPAT "arg"
+
+   fun gen (HOOK { name, args, ret, unit, factor, gen, ... } ) isNonTerm ruleSet =
+   let redex = id_fn (hd args) #  the redex must be the first argument 
+
+
+       # Given a type, returns the appropriate function that performs the  
+       # transformation
+
+       nullTrans = raw::FN_IN_EXPRESSION [raw::CLAUSE([argPattern], NULL, argExpression)]
+       fun aType2Expression (raw::IDTY (raw::IDENT(_, id))) = 
+              if isNonTerm id then THE (id_fn (name$"'"$id)) else NULL
+         | aType2Expression (raw::APPTY (raw::IDENT(_, id), args)) =
+              if isNonTerm id then 
+                 let args = map aType2Expression args
+                 in  if list::exists null_or::not_null args then
+                       THE (raw::APPLY_EXPRESSION (id_fn (name$"'"$id),
+                         raw::TUPLE_IN_EXPRESSION (map (\\ THE f => f | NULL => nullTrans)
+                                    args)))
+                     else NULL 
+                 end
+              else NULL
+         | aType2Expression (raw::TUPLETY tys) = #  Create a functional 
+              let args = map aType2Expression tys
+                  fun bind ([], i, pats, exps, some) = (reverse pats, reverse exps, some)
+                    | bind (arg . args, i, pats, exps, some) = 
+                      let v = "v_"$int::to_string i
+                          pattern = raw::IDPAT v
+                          expression = id_fn v
+                          my (expression, some) = 
+                             case arg of NULL => (expression, some)
+                                       | THE f => (raw::APPLY_EXPRESSION (f, expression), TRUE)
+                      in  bind (args, i+1, pattern . pats, expression . exps, some) end
+                  my (pats, exps, some) = bind (args, 0, [], [], FALSE)
+              in  if some then
+                     THE (raw::FN_IN_EXPRESSION [raw::CLAUSE([raw::TUPLEPAT pats], NULL,
+                                                raw::TUPLE_IN_EXPRESSION exps)])
+                  else NULL
+              end
+         | aType2Expression (raw::RECORDTY ltys) = 
+              let args = map (\\ (l, t) => (l, aType2Expression t)) ltys
+                  fun bind ([], i, pats, exps, some) = (reverse pats, reverse exps, some)
+                    | bind((l, arg) . args, i, pats, exps, some) = 
+                      let pattern = (l, raw::IDPAT l)
+                          expression = id_fn l
+                          my (expression, some) = 
+                             case arg of NULL => (expression, some)
+                                       | THE f => (raw::APPLY_EXPRESSION (f, expression), TRUE)
+                      in  bind (args, i+1, pattern . pats, (l, expression) . exps, some)
+                      end
+                  my (pats, exps, some) = bind (args, 0, [], [], FALSE)
+              in  if some then
+                     THE (raw::FN_IN_EXPRESSION [raw::CLAUSE([raw::RECORD_PATTERN (pats, FALSE)], NULL,
+                                                raw::RECORD_IN_EXPRESSION exps)])
+                  else NULL
+              end
+         | aType2Expression (raw::TYVARTY (raw::VARTV id)) = THE (id_fn("parameter"$id))
+         | aType2Expression t = error("Can't handle type "$pp::lit (RawSyntaxTreePP::type t))
+
+       fun genOneRule (raw::SUMTYPE { name=>id, typevars, cbs, ... }, rules) =  
+       let prefix = []
+           subTerm = REF FALSE
+           fun applyTrans (type, e) =
+               case aType2Expression type of 
+                 NULL => unit e
+               | THE f => (subTerm := TRUE; raw::APPLY_EXPRESSION (f, e))
+
+           #  Arguments for this function 
+           #  How to generate the walk of one constructor 
+           fun genNonFactoredWalk (cons)
+               =
+	       let                                                                  
+                   subTerm := FALSE
+		   expression = gen (applyTrans, cons)
+		   expression = if *subTerm then expression else unit redex
+		   fun mapPattern { origName, newName, type } = raw::IDPAT newName
+	       in
+                   t::mapConsToClause { prefix=prefix, pattern=\\ p => p, expression=exp } cons
+	       end
+
+           exception Can'tFactor
+
+           #  How to generate the walk of one constructor 
+           fun genFactoredWalk (cons as raw::CONSTRUCTOR { name, type, ... }, rules)  =
+           let subTerm := FALSE
+               my resultExpression as raw::CONSexp(_, caseExpression) = gen (applyTrans, cons)
+               caseExpression = case caseExpression of THE e => e
+                                           | NULL => raw::TUPLE_IN_EXPRESSION []
+               body =
+                   case (rules, *subTerm) of  
+                     ([], FALSE) => redex
+                   | ([], TRUE) => resultExpression
+                   | (_, _) =>
+                     raw::CASE_EXPRESSION
+                      (caseExpression, 
+                       rules @
+                       [raw::CLAUSE([argPattern], NULL,
+                           case type of 
+                             THE _ => raw::CONSexp (raw::IDENT([], name), THE argExpression)
+                           | NULL => redex
+                         ) 
+                       ]
+                      )
+               fun mapPattern { origName, newName, type } = raw::IDPAT newName
+           in  t::mapConsToClause { prefix=prefix, pattern=\\ p => p, expression=body } cons
+           end
+
+           #  first factor all rules by their top level constructors 
+           fun factorRules (rules) = 
+           let exception Bad  
+               table = h::make_hashtable (hash_string::hash_string, op=)(32, Can'tFactor)   
+               apply (\\ raw::CONSTRUCTOR { name, ... } => h::set table (name,[]))
+                               cbs
+               fun factor (r, raw::CONSPAT (raw::IDENT([], id), arg), g, e) =
+                   enterRule (r, id, arg, g, e)
+                 | factor (r, raw::IDPAT id, g, e) =
+                   enterRule (r, id, NULL, g, e)
+                 | factor (r, raw::ASPAT(_, p), g, e) = factor (r, p, g, e)
+                 | factor _ = raise exception Can'tFactor
+               and factorRule (r as raw::CLAUSE([p], g, e)) = factor (r, p, g, e)
+                 | factorRule _ = raise exception Can'tFactor
+               and enterRule (r, consName, arg, g, e) =
+                  let rs = h::lookup table consName
+                      r  = raw::CLAUSE([case arg of NULL => raw::WILDCARD_PATTERN
+                                                   | THE p => p], g, e)  
+                  in  h::set table (consName, r . rs)
+                  end 
+               apply factorRule rules
+    
+           in  map (\\ c as raw::CONSTRUCTOR { name, ... } => (c, reverse (h::lookup table name))) cbs
+           end
+
+           fun factoredBody rules =
+                raw::CASE_EXPRESSION (redex, map genFactoredWalk (factorRules rules))
+           fun nonfactoredBody rules =
+                raw::LET_EXPRESSION([raw::VAL_DECL[raw::NAMED_VARIABLE (raw::IDPAT ret, 
+                          raw::CASE_EXPRESSION (redex, map genNonFactoredWalk cbs))]],
+                         [raw::CASE_EXPRESSION (raw::TUPLE_IN_EXPRESSION (map id_fn args), rules)]
+                        )
+
+           body = 
+               if factor then (factoredBody rules except Can'tFactor =>
+                               nonfactoredBody rules)
+               else nonfactoredBody rules
+           fun curriedArg (raw::VARTV id) = raw::IDPAT("parameter"$id)
+             | curriedArg _ = bug "curriedArg"
+           args = [raw::TUPLEPAT (map raw::IDPAT args)] 
+           args = case typevars of
+                        []  => args
+                      | vs  => raw::TUPLEPAT (map curriedArg vs) . args
+       in  raw::FUN (name$"'"$id,[raw::CLAUSE (args, NULL, body)]) 
+       end
+         | genOneRule _ = bug "genOneRule"
+   in  raw::FUN_DECL (map genOneRule ruleSet)
+   end
+end

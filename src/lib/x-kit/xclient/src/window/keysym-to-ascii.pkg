@@ -1,0 +1,341 @@
+## keysym-to-ascii.pkg
+#
+# Translating X keysyms to vanilla ASCII characters.
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+# The implementation of keysym to ASCII-string translation tables.
+#
+# NOTE: we could probably implement the default namings using the red-black tree,
+# and thus avoid the ugly ad hoc Xlib code.	XXX BUGGO FIXME
+
+
+
+###                        "Music is the pleasure that the human mind experiences
+###                         from counting without being aware that it is counting."
+###
+###                                              -- Leibniz
+
+stipulate
+    package kb =  keys_and_buttons;				# keys_and_buttons	is from   src/lib/x-kit/xclient/src/wire/keys-and-buttons.pkg
+    package ks =  keysym;					# keysym		is from   src/lib/x-kit/xclient/src/window/keysym.pkg
+    package xt =  xtypes;					# xtypes		is from   src/lib/x-kit/xclient/src/wire/xtypes.pkg
+herein
+
+
+    package   keysym_to_ascii
+    : (weak)  Keysym_To_Ascii					# Keysym_To_Ascii	is from   src/lib/x-kit/xclient/src/window/keysym-to-ascii.api
+    {
+	exception KEYSYM_NOT_FOUND;
+
+	stipulate
+
+
+	    #  This string maps an ascii character "C" to "^C". 
+	    cntrl_map = "\
+		  \\000\001\002\003\004\005\006\007\
+		  \\008\009\010\011\012\013\014\015\
+		  \\016\017\018\019\020\021\022\023\
+		  \\024\025\026\027\028\029\030\031\
+		  \\000\033\034\035\036\037\038\039\
+		  \\040\041\042\043\044\045\046\031\
+		  \\048\049\000\027\028\029\030\031\
+		  \\127\057\058\059\060\061\062\063\
+		  \\000\001\002\003\004\005\006\007\
+		  \\008\009\010\011\012\013\014\015\
+		  \\016\017\018\019\020\021\022\023\
+		  \\024\025\026\027\028\029\030\031\
+		  \\000\001\002\003\004\005\006\007\
+		  \\008\009\010\011\012\013\014\015\
+		  \\016\017\018\019\020\021\022\023\
+		  \\024\025\026\027\028\029\030\127\
+		  \";
+
+	    fun control x
+		=
+		(string::get (cntrl_map, x))
+                except
+                    _ = (char::from_int x);
+
+	    # Translation tables are implemented as red-black trees 
+	    #
+	    # 2010-01-15 CrT: Why on Earth do we need yet another
+	    #                 implementation of red-black trees?!
+	    #		  Should convert this to use standard
+	    #                 ones. XXX BUGGO FIXME.
+	    Color = RED | BLACK;
+
+	    Tree  = NIL
+		  | NODE  { key:     Int,
+			    color:   Color,
+			    namings: List( (xt::Modifier_Keys_State, String) ),
+			    left:    Tree,
+			    right:   Tree
+			  };
+
+	    fun insert_naming (t, k, state, v)
+		=
+		f t
+		where
+		    fun upd (NODE { key, color, namings, left, right }, c, l, r)
+			    =>
+			    NODE { key, color=>c, namings, left=>l, right=>r };
+
+			upd (NIL, _, _, _) =>   raise exception FAIL "Bug: Unsupported case in insert_naming/upd.";
+		    end;
+
+		    # Insert (state, v) into the naming list of t,
+		    # removing any namings subsumed by state:
+		    #
+		    fun ins (t as NODE { key, color, namings, left, right } )
+			    =>
+			    {   b = case (f namings)
+					#
+					THE b =>  (state, v) ! b;
+					NULL  =>  (state, v) ! namings;
+				    esac
+				    where
+				        fun f ((b as (s, _)) ! r)
+						=>
+						case (kb::modifier_keys_states_match (s, state), f r)
+						    #
+						    (FALSE, NULL  ) =>  NULL;
+						    (TRUE,  NULL  ) =>  THE r;
+						    (FALSE, THE r') =>  THE (b ! r');
+						    (TRUE,  x     ) =>  x;
+						esac;
+
+					    f [] =>  NULL;
+					end;
+				    end;
+
+				NODE { key, color, namings=>b, left, right };
+			    };
+
+			ins NIL =>   raise exception FAIL "Bug: Unsupported case in insert_naming/ins";
+		    end;
+
+		    fun f NIL =>    NODE
+				      { key    => k,
+					color   => RED,
+					namings => [ (state, v) ],
+					#
+					left    => NIL,
+					right   => NIL
+				      };
+
+			f (t as NODE { key, color=>RED, left, right, ... } )
+			    =>
+			    if   (key == k)  ins t;
+			    elif (k < key)   upd (t, RED, f left, right);
+			    else             upd (t, RED, left, f right);
+			    fi;
+
+			f (t as NODE { key, color=>BLACK, left, right, ... } )
+			    =>
+			    if (key == k)
+				  ins t;
+
+			    elif (k < key)
+
+				   case (f left)
+
+				       (l as NODE { color=>RED, left=>ll, right=>(lr as NODE { color=>RED, left=>lrl, right=>lrr, ... } ), ... } )
+					   =>
+					   case right
+						(r as NODE { color=>RED, left=>rl, right=>rr, ... } )
+						    =>
+						    upd (t, RED, upd (l, BLACK, ll, lr), upd (r, BLACK, rl, rr));
+
+						r => upd (lr, BLACK, upd (l, RED, ll, lrl), upd (r, RED, lrr, r));
+					   esac;
+
+				      (l as NODE { color=>RED, right=>lr, left=>(ll as NODE { color=>RED, left=>lll, right=>llr, ... } ), ... } )
+					  =>
+					  case right
+					     (r as NODE { color=>RED, left=>rl, right=>rr, ... } )
+						 =>
+						 upd (t, RED, upd (l, BLACK, ll, lr), upd (r, BLACK, rl, rr));
+
+					      r => upd (l, BLACK, ll, upd (t, RED, lr, r));
+					  esac;
+
+				      l => upd (t, BLACK, l, right);
+				   esac;
+			      else
+				   case (f right)
+
+					(r as NODE { color=>RED, right=>rr, left=>(rl as NODE { color=>RED, left=>rll, right=>rlr, ... } ), ... } )
+					    => 
+					    case left
+
+					       (l as NODE { color=>RED, left=>ll, right=>lr, ... } )
+						   =>
+						   upd (t, RED, upd (l, BLACK, ll, lr), upd (r, BLACK, rl, rr));
+
+						l => upd (rl, BLACK, upd (t, RED, l, rll), upd (r, BLACK, rlr, rr));
+					    esac;
+
+					(r as NODE { color=>RED, left=>rl, right=>(rr as NODE { color=>RED, left=>rrl, right=>rrr, ... } ), ... } )
+					    =>
+					    case left
+						(l as NODE { color=>RED, left=>ll, right=>lr, ... } )
+						    =>
+						    upd (t, RED, upd (l, BLACK, ll, lr), upd (r, BLACK, rl, rr));
+
+						 l => upd (r, BLACK, upd (t, RED, l, rl), rr);
+					    esac;
+
+					 r => upd (t, BLACK, left, r);
+				   esac;
+			      fi;
+		      end;
+		end;		# fun insert_naming
+
+	    fun find_naming (t, k, state)
+		=
+		find t
+		where
+		    fun find NIL
+			    =>
+			    raise exception KEYSYM_NOT_FOUND;
+
+			find (NODE { key, namings, left, right, ... } )
+			    =>
+			    if (key == k)
+				#		          
+				fun get_naming []
+					=>
+					raise exception KEYSYM_NOT_FOUND;
+
+				    get_naming ((s, v) ! r)
+					=>
+					kb::modifier_keys_states_match (state, s)
+					    ##
+					    ??   v
+					    ::   get_naming  r;
+				end;
+
+				get_naming namings;
+			    else
+				key > k   ??   find left
+					  ::   find right;
+			    fi;
+		    end;
+
+		end;
+
+	    fun default_naming (k, state)
+		=
+		{
+		    k' = unt::from_int k;
+		    high_bytes = unt::(<<) (k', 0u8);
+
+		    #  Map Misc keysmys to ascii equivalents 
+
+		    fun standardize 0uxFF80 => 0x20;	#  KP_Space => " " 
+			standardize 0ux00AD => 0x2D;	#  hyphen => "-" 
+			standardize 0uxFF08 => 0x08;	#  Backspace => BS 
+			standardize 0uxFF09 => 0x09;	#  Tab => HT 
+			standardize 0uxFF0A => 0x0A;	#  Linefeed => LF 
+			standardize 0uxFF0B => 0x0B;	#  Clear => VT 
+			standardize 0uxFF0D => 0x0D;	#  Return => CR 
+			standardize 0uxFF1B => 0x1B;	#  Escape => ESC 
+			standardize 0uxFFFF => 0x7F;	#  Delete => DEL 
+			standardize 0uxFF8D => 0x0D;	#  KP_Enter => CR 
+			standardize 0uxFFBD => 0x3D;	#  KP_Equal => "=" 
+			standardize c			#  handle keypad "*+,-./0123456789" 
+			    =>
+			    if   (0uxFFAA <= c   and   c <= 0uxFFB9)
+				 unt::to_int_x (unt::bitwise_and (c, 0ux7f));
+			    else
+				 raise exception KEYSYM_NOT_FOUND;
+			    fi;
+		  end;
+
+		  c = case (unt::(>>) (k', 0u8))
+			  #
+			  0u0   =>  if (k' == 0ux00AD)  0x2D;
+				    else                k;
+				    fi;
+
+			  0uxFF =>  standardize k';
+
+			  _     =>  raise exception KEYSYM_NOT_FOUND;
+		      esac;
+
+		  if (kb::control_key_is_set  state)
+		      #
+		      string::from_char (control c);
+		  else
+		      string::from_char (char::from_int c);
+		  fi;
+	      };
+
+	herein
+
+	    Keysym_To_Ascii_Mapping
+		=
+		KEYSYM_TO_ASCII_MAPPING  Tree;
+
+	    default_keysym_to_ascii_mapping
+		=
+		KEYSYM_TO_ASCII_MAPPING  NIL;
+
+	    fun rebind_keysym (KEYSYM_TO_ASCII_MAPPING t)
+		=
+		\\  (ks::KEYSYM ks, modkeys, v)
+		    =>
+		    {   state =  kb::make_modifier_keys_state modkeys;
+			#
+			KEYSYM_TO_ASCII_MAPPING (insert_naming (t, ks, state, v));
+		    };
+
+		    (ks::NO_SYMBOL, _, _) =>   raise exception FAIL "Bug: Unsupported case in rebind_keysym";
+		end;
+
+
+	    fun map_keysym_to_ascii (KEYSYM_TO_ASCII_MAPPING t)
+		=
+		\\  (ks::KEYSYM k, state)
+		        =>	
+			find_naming (t, k, state)
+			except
+			    _ = default_naming (k, state);
+
+		    (ks::NO_SYMBOL, _) =>   raise exception FAIL "Bug: Unsupported case in map_keysym_to_ascii";
+		end;
+
+	end; 			# stipulate
+
+    };				# keysym_to_ascii 
+
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See SMLNJ-COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## released per terms of SMLNJ-COPYRIGHT.

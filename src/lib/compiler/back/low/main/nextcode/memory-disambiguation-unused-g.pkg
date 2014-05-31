@@ -1,0 +1,390 @@
+#  memory-disambiguation-unused-g.pkg --- generate a table of regions 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+api Memory_Disambiguation {
+    #
+    build:  List( nextcode::Function ) -> (Int -> nextcode_ramregions::Region);
+};
+
+# This generic is nowhere invoked:
+#
+
+stipulate
+    package ncf =  nextcode_form;						# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package p   =  nextcode_form::p;
+    package r   =  nextcode_ramregions;						# nextcode_ramregions	is from   src/lib/compiler/back/low/main/nextcode/nextcode-ramregions.pkg
+herein
+
+    generic package   memory_disambiguation_unused_g   (			# Never invoked.
+	#             ==============================
+	#
+	package rgk:  Registerkinds;						# Registerkinds		is from   src/lib/compiler/back/low/code/registerkinds.api
+    )
+    : (weak) Memory_Disambiguation						# Memory_Disambiguation	is from   src/lib/compiler/back/low/main/nextcode/memory-disambiguation-unused-g.pkg
+    {
+	fun error msg
+	    =
+	    error_message::impossible ("MemDisambiguate." + msg);
+
+	exception MEMORY_DISAMBIGUATION
+	     also FORMALS_TABLE;
+
+	make_region
+	    =
+	    rgk::make_cell  rgk::MEM;
+
+	fun build (frags)
+	    =
+	    {   #  Mapping of lvars to a list of regions that define it.
+		#  Mappings can only be RVAR, COPY, or RECORD.
+
+		my region_table:  intmap::Int_Map( r::Region )
+			      =  intmap::new (16, MEMORY_DISAMBIGUATION);
+
+		enter_region  =   intmap::add region_table;
+		lookup_region =   intmap::map region_table;
+
+		fun peek_region v
+		    =
+		    THE (intmap::map region_table v)
+		    except
+			_ = NULL;
+
+		fun add_region (arg as (x, v))
+		    =
+		    {   intmap::rmv region_table x;
+
+			enter_region arg;
+		    };
+
+		# Compute the size of a nextcode assuming that the
+		# allocation pointer has been appropriately aligned.
+		#	
+		fun size_of (cexp, hp)				# "hp" may be "heap pointer"
+		    =
+		    {   store_list_size =   8;
+
+			fun frecord len
+			    =
+			    {   hp =   unt::bitwise_and (unt::from_int hp, 0w4) != 0w0
+					 ?? hp+4
+					 :: hp;
+
+				hp + 8*len + 4;
+			    };
+
+			fun record len
+			    =
+			    4 + 4*len;
+
+			case cexp 
+			    ncf::DEFINE_RECORD { kind => ncf::rk::FLOAT64_BLOCK, fields, fate, ... } =>  size_of (fate,     frecord (length fields    ));
+			    ncf::DEFINE_RECORD { kind => ncf::rk::FCONT,	 fields, fate, ... } =>  size_of (fate,     frecord (length fields    ));
+			    ncf::DEFINE_RECORD { kind => ncf::rk::VECTOR,	 fields, fate, ... } =>  size_of (fate, hp + record (length fields + 3));
+			    ncf::DEFINE_RECORD { kind => _,			 fields, fate, ... } =>  size_of (fate, hp + record (length fields    ));
+			    #
+			    ncf::GET_FIELD_I		{ fate, ... } => size_of (fate, hp);
+			    ncf::GET_ADDRESS_OF_FIELD_I	{ fate, ... } => size_of (fate, hp);
+
+			    ncf::JUMPTABLE { nexts, ... } => list::fold_forward int::max 0 (map  (\\ e = size_of (e, hp))  nexts);
+
+			    ncf::STORE_TO_RAM   { op => p::update,      fate, ... } => size_of (fate, hp+store_list_size);
+			    ncf::STORE_TO_RAM   { op => p::boxedupdate, fate, ... } => size_of (fate, hp+store_list_size);
+			    ncf::STORE_TO_RAM   { op => _,              fate, ... } => size_of (fate, hp                );
+			    ncf::FETCH_FROM_RAM { op => _,              fate, ... } => size_of (fate, hp                );
+
+			    ncf::PURE { op => p::fwrap,        fate, ... } =>  size_of (fate, hp+frecord (1));
+			    ncf::PURE { op => p::make_special, fate, ... } =>  size_of (fate, hp+8);
+			    ncf::PURE { op => p::makeref,      fate, ... } =>  size_of (fate, hp+8);
+			    ncf::PURE { op => p::i32wrap,      fate, ... } =>  size_of (fate, hp+record (2));
+			    ncf::PURE { op => p::newarray0,    fate, ... } =>  size_of (fate, hp+(4*5));
+			    ncf::PURE { op => _,               fate, ... } =>  size_of (fate, hp);
+
+			    ncf::ARITH r => size_of (r.fate, hp);
+
+			    ncf::IF_THEN_ELSE { then_next, else_next, ... }
+				=>
+				int::max ( size_of (then_next, hp),
+                                           size_of (else_next, hp)
+                                         );
+
+			    ncf::TAIL_CALL _ => hp;
+			    ncf::FIX _ => error "sizeOf: FIX";
+			esac;
+		    };
+
+		offp0 =   ncf::offp 0;
+
+		fun fun_body (_, _, _, _, cexp)
+		    =
+		    iter (cexp, 0)
+		    where
+			region_id_table
+			    = 
+			    rw_vector::from_fn (int::quot (size_of (cexp, 0), 4), \\ _ => make_region(); end );
+
+			fun region_id hp
+			    =
+			    r::RVAR (rw_vector::get (region_id_table, int::quot (hp, 4)));
+
+			fun trace_root (ncf::LABEL _) => r::RO_MEM;
+			    trace_root (ncf::CODETEMP v) => (lookup_region v   except   MEMORY_DISAMBIGUATION = r::RO_MEM);
+			    trace_root _ => r::RO_MEM;
+			end;
+
+			fun iter (cexp, hp)
+			    =
+			    {   fun desc hp
+				    =
+				    ( region_id (hp),
+				      r::RO_MEM,
+				      offp0
+				    );
+
+				fun record (vl, x, e)
+				    =
+				    {
+    # 2009-10-31 CrT: Commented out because it isn't referenced: (?!)
+    #				      fun fields ([], _)
+    #					      =>
+    #					      [];
+    #
+    #					  fields ((v, ap) . vl, hp)
+    #					      => 
+    #					      ( region_id (hp), trace_root v, ap) . fields (vl, hp+4)
+    #						enter_region (x, r::RECORD (desc (hp) . fields (vl, hp+4))
+    #					      );
+    #				      end;
+
+					iter (e, hp + 4 + 4*length vl);
+				    };
+
+				fun frecord (vl, x, e)
+				    =
+				    {   fun region_pair hp
+					    =
+					    r::REGIONS (region_id hp, region_id (hp+4));
+
+					fun fields ([], _)
+						=>
+						[];
+
+					    fields((v, ap) . vl, hp)
+						=>
+						(region_pair hp, trace_root v, ap) . fields (vl, hp+8);
+					end;
+
+					hp =   if (unt::bitwise_and (unt::from_int hp, 0w4) != 0w0)   hp + 4;
+					       else                                                   hp    ;    fi;
+
+					enter_region (x, r::RECORD (desc (hp) . fields (vl, hp+4)));
+
+					iter (e, hp + 4 + 8*length vl);
+				    };
+
+				fun record_slots ((d, r::RECORD vl, _) . rest)
+					=> 
+					r::REGIONS (d, record_slots (vl@rest));
+
+				    record_slots((d, r::OFFSET(_, vl), _) . rest)
+					=>
+					r::REGIONS (d, record_slots (vl@rest));
+
+				    record_slots [(d, _, _)]
+					=>
+					d;
+
+				    record_slots ((d, _, _) . rest)
+					=>
+					r::REGIONS (d, record_slots rest);
+				end;
+
+				fun update (ncf::CODETEMP a, ncf::CODETEMP v, e)
+					=> 
+					{   case ( peek_region a,
+						   peek_region v
+						 )
+
+						 (NULL, NULL)
+						     =>
+						     enter_region (a, r::MUTABLE (r::RW_MEM, r::RO_MEM));
+
+						 (NULL, THE (r::RECORD rl))
+						     => 
+						     enter_region (a, r::MUTABLE (r::RW_MEM, record_slots rl));
+
+						 (THE _, NULL)
+						     =>
+						     ();
+
+						 (THE (r::MUTABLE (def, uses)), THE (r::RECORD rl))
+						     => 
+						     add_region (a, r::MUTABLE (def, r::REGIONS (uses, record_slots rl)));
+					    esac;
+
+
+					    iter (e, hp);
+					};
+
+				    update(_, _, e)
+					=>
+					iter (e, hp);
+				end;
+
+				fun select (ncf::CODETEMP v, i, x, e)
+					=>
+					{   case (peek_region v)
+
+						THE (r::RECORD vl)
+						    =>
+						    {   my  (_, region, ap)
+							    =
+							    list::nth (vl, i+1);
+
+							enter_region (x, r::trace (region, ap));
+						    };
+
+						THE (r::OFFSET (j, vl))
+						    => 
+						    {   my  (_, region, ap)
+							    =
+							    list::nth (vl, i+j+1);
+
+							enter_region (x, r::trace (region, ap));
+						    };
+
+						THE (r::MUTABLE _) => error "select";
+						_ => ();
+					    esac;
+
+					    iter (e, hp);
+					};
+
+				    select(_, _, _, e)
+					=>
+					iter (e, hp);
+				end;
+
+				fun offset (ncf::CODETEMP v, i, x, e)
+					=>
+					{    case (peek_region v)
+						 THE (r::RECORD vl) => enter_region (x, r::OFFSET (i, vl));
+						 THE (r::OFFSET (j, vl)) => enter_region (x, r::OFFSET (i+j, vl));
+						 THE (r::MUTABLE _) => error "offset";
+						 _  => ();
+					     esac;
+
+					     iter (e, hp);
+				       };
+
+				    offset(_, _, _, e)
+					=>
+					iter (e, hp);
+				end;
+
+				case cexp
+				    ncf::DEFINE_RECORD { kind => ncf::rk::FLOAT64_BLOCK,    fields, name, fate } =>  frecord (fields, name, fate);
+				    ncf::DEFINE_RECORD { kind => ncf::rk::FLOAT64_FATE_FN,  fields, name, fate } =>  frecord (fields, name, fate);
+
+				    ncf::DEFINE_RECORD { kind => ncf::rk::VECTOR, fields, name, fate }
+					=>
+					{   y =   highcode_codetemp::make_lambda_variable ();
+
+					    record
+                                              (
+                                                fields,
+                                                y,
+						ncf::DEFINE_RECORD
+						  {
+						    kind   =>  ncf::rk::RECORD,
+						    fields =>  [(ncf::CODETEMP y, offp0), (ncf::INT (length fields), offp0)],
+						    name,
+						    fate
+						  }
+                                              );
+					};
+
+				    ncf::DEFINE_RECORD  { fields, name, fate, ... } =>  record (fields, name, fate);
+				    #
+				    ncf::GET_FIELD_I		{ i, record, name, fate, ... } => select (record, i, name, fate);
+				    ncf::GET_ADDRESS_OF_FIELD_I	{ i, record, name, fate      } => offset (record, i, name, fate);
+				    #
+				    ncf::TAIL_CALL _ => ();
+				    ncf::FIX (fl, e) => error "FIX";
+				    ncf::JUMPTABLE { nexts, ... } => list::apply  (\\ e = iter (e, hp))  nexts;
+				    #
+				    ncf::IF_THEN_ELSE { then_next, else_next, ... }
+					=>
+					{   iter (then_next, hp);
+					    iter (else_next, hp);
+					};
+
+				    ncf::STORE_TO_RAM { op => p::update,                          args => [a, _, v], fate } =>  update (a, v, fate);
+				    ncf::STORE_TO_RAM { op => p::boxedupdate,                     args => [a, _, v], fate } =>  update (a, v, fate);
+				    ncf::STORE_TO_RAM { op => p::numupdate { kind=>p::FLOAT 64 }, args => [a, i, v], fate } =>  update (a, v, fate);
+				    #
+				    ncf::STORE_TO_RAM   r =>  iter (r.fate, hp);
+				    ncf::FETCH_FROM_RAM r =>  iter (r.fate, hp);
+
+				    ncf::ARITH r => iter (r.fate, hp);
+
+				    ncf::PURE { op => p::make_special, args => [i, v], name, fate, ... } =>   record  ([(v, offp0)],                      name, fate);
+				    ncf::PURE { op => p::fwrap,        args => [u],    name, fate, ... } =>  frecord  ([(u, offp0)],                      name, fate);
+				    ncf::PURE { op => p::i32wrap,      args => [u],    name, fate, ... } =>   record  ([(u, offp0), (ncf::INT 0, offp0)], name, fate);
+
+				    ncf::PURE { op => p::makeref, args => [v], name, fate, ... }
+					=>
+					{   uses =
+						case v
+						    ncf::CODETEMP lambda_variable 
+							=> 
+							case (peek_region lambda_variable)
+							    #
+							    NULL => r::RO_MEM;
+							    THE (r::RECORD vl)           =>  record_slots vl;
+							    THE (r::OFFSET(_, vl))       =>  record_slots vl;
+							    THE (r::MUTABLE (def, uses)) =>  def;
+							    THE r => r;
+							esac;
+
+						    _ => r::RO_MEM;
+						esac;
+
+					    defs = r::REGIONS (r::RW_MEM, 
+							     r::REGIONS (region_id (hp), region_id (hp+4)));
+
+					    enter_region (name, r::MUTABLE (defs, uses));
+
+					    iter (fate, hp+8);
+					};
+
+				    ncf::PURE { op => p::newarray0, name, fate, ... }
+					=>
+					{   y =   highcode_codetemp::make_lambda_variable ();
+
+					    iter ( ncf::DEFINE_RECORD { kind => ncf::rk::RECORD, fields => [(ncf::INT 0, offp0)], name => y, fate =>
+						   ncf::DEFINE_RECORD { kind => ncf::rk::RECORD, fields => [(ncf::CODETEMP y, offp0), (ncf::INT 0, offp0)], name, fate } },
+						   hp
+						 );
+					};
+
+				    ncf::PURE r
+					=>
+					iter (r.fate, hp);
+
+				 esac;
+			    };
+		    end;				# fun fun_body 
+
+		apply fun_body frags;
+
+		\\ v
+		   =
+		   lookup_region v
+		   except
+		       _ = r::RO_MEM;
+	  };					# fun build
+    };
+end;

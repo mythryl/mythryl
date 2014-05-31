@@ -1,0 +1,144 @@
+@header@
+  = pkg
+
+    package yyInput:  api
+
+        type stream
+	my mkStream:  (Int -> String) -> stream
+	my fromStream:  file::pio::Input_Stream -> stream
+	my getc:  stream -> Null_Or( char::char * stream )
+	my getpos:  stream -> Int
+	my getlineNo:  stream -> Int
+	my subtract:  stream * stream -> String
+	my eof:  stream -> Bool
+
+      end = pkg
+
+        package TIO = file
+        package TSIO = TIO::pure_io
+	package TPIO = winix_base_text_file_io_driver_for_posix__premicrothread
+
+        enum stream = Stream of {
+            stream:  TSIO::Input_Stream,
+	    id:  Int,  /* track which streams originated 
+			* from the same stream */
+	    pos:  Int,
+	    lineNo:  Int
+          }
+
+	local
+	  next = REF 0
+	in
+	fun nextId() = *next then (next := *next + 1)
+	end
+
+	initPos = 2 #  mythryl-lex bug compatibility 
+
+	fun mkStream read_n = let
+              stream = TSIO::make_instream 
+			   (TPIO::RD {
+			        name = "lexgen",
+				chunkSize = 4096,
+				readVec = THE read_n,
+				readArr = NULL,
+				readVecNB = NULL,
+				readArrNB = NULL,
+				block = NULL,
+				can_read = NULL,
+				avail = (\\ () => NULL),
+				getPos = NULL,
+				setPos = NULL,
+				endPos = NULL,
+				verifyPos = NULL,
+				close = (\\ () => ()),
+				ioDesc = NULL
+			      }, "")
+	      in 
+		Stream { stream = stream, id = nextId(), pos = initPos, lineNo = 1 }
+	      end
+
+	fun fromStream stream = Stream {
+		stream = stream, id = nextId(), pos = initPos, lineNo = 1
+	      }
+
+	fun getc (Stream { stream, pos, id, lineNo } )
+            =
+            (case TSIO::read_one stream
+              of NULL => NULL
+	       | THE (c, stream') => 
+		   THE (c, Stream {
+			        stream = stream', 
+				pos = pos+1, 
+				id = id,
+				lineNo = lineNo + 
+					 (if c == '\n' then 1 else 0)
+			      } )
+	     /* end case*/)
+
+	fun getpos (Stream { pos, ... } ) = pos
+
+	fun getlineNo (Stream { lineNo, ... } ) = lineNo
+
+	fun subtract (new, old) = let
+	      my Stream { stream = stream, pos = oldPos, id = oldId, ... } = old
+	      my Stream { pos = newPos, id = newId, ... } = new
+              my (diff, _) = if newId == oldId and newPos >= oldPos
+			      then TSIO::read_n (stream, newPos - oldPos)
+			      else raise exception FAIL 
+				"BUG: yyInput: attempted to subtract incompatible streams"
+	      in 
+		diff 
+	      end
+
+	fun eof (Stream { stream, ... } ) = TSIO::end_of_stream stream
+
+      end
+
+    enum yymatch X 
+      = yyNO_MATCH
+      | yyMATCH of yyInput::stream * action(X) * yymatch(X)
+    withtype action X = yyInput::stream * X yymatch -> X
+
+    enum yystart_state = 
+@startstates@
+
+    package user_declarations = 
+      pkg
+
+@userdecls@
+
+
+      end
+
+    local
+    fun mk yyins = let
+        #  Current start state 
+          yyss = REF INITIAL
+	  fun yybegin ss = (yyss := ss)
+	#  Current input stream 
+          yystrm = REF yyins
+	#  get one char of input 
+	  yygetc = yyInput::getc 
+	#  Create yytext 
+	  fun yymktext (stream) = yyInput::subtract (stream, *yystrm)
+          use user_declarations
+          fun lex 
+@args@ 
+ = let
+            fun yystuck (yyNO_MATCH) = raise exception FAIL "stuck state"
+	      | yystuck (yyMATCH (stream, action, old)) = 
+		  action (stream, old)
+	    yypos = yyInput::getpos *yystrm
+	    fun continue () = 
+@lexer@
+
+	    in continue() end
+          in 
+            lex 
+          end
+    in
+	fun make_lexer yyinputN = mk (yyInput::mkStream yyinputN)
+	fun make_lexer' ins = mk (yyInput::mkStream ins)
+    end
+
+  end
