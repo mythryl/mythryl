@@ -208,7 +208,7 @@ fun dec (ri as REF i)   =   (ri := i - 1);
 #     can be distinguished and different reductions done
 #     if they are single tokens resolved in the lexer, but
 #     if they are sequences of tokens resolved in the parser,
-#     then they all look like just "foo" for lookahead
+#     then they all look like just "foo" for lookahead-1
 #     purposes, which is to say, identical, and various rules
 #     that now work become shift/reduce errors.
 
