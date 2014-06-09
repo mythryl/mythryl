@@ -70,7 +70,7 @@ Lex_Arg = { line_number_db  : line_number_database::Sourcemap,
 
 Arg = Lex_Arg;
 
-include tokens;						# tokens	is from   src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar.pkg
+include package tokens;						# tokens	is from   src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar.pkg
 							# (architecture-description-language.grammar.pkg is synthesized by mythryl-yacc during compilation.)
 
 comment_level = REF 0;

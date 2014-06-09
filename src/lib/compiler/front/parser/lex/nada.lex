@@ -11,7 +11,7 @@
 ###                       -- Francis Bacon
 
 
-include error_message;
+include package error_message;
 
 package mada_token_table
     =
