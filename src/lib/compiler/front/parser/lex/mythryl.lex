@@ -15,7 +15,7 @@
 
 
 
-include package error_message;
+include package   error_message;
 
 package mythryl_token_table
     =
@@ -757,7 +757,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 		    continue());
 
 
-<lll>[0-9]+                 => (yybegin ll; stringlist := [yytext]; continue());
+<lll>[0-9]+               => (yybegin ll; stringlist := [yytext]; continue());
 <ll>\.                    => (/* cheat: take n > 0 dots */ continue());
 <ll>[0-9]+                => (yybegin llc; add_string(stringlist, yytext); continue());
 <ll>0*               	  => (yybegin llc; add_string(stringlist, "1");    continue()
@@ -825,16 +825,77 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 	     + char::to_int(string::get(yytext,2))*10
 	     + char::to_int(string::get(yytext,3))
 	     - ((char::to_int '0')*111);
-   {  if   (x > 255)
+      if   (x > 255)
            err (yypos,yypos+4) ERROR "illegal ascii escape" null_error_body;
       else add_char(stringlist, char::from_int x);
       fi;
       continue();
-   };
   });
-<string>\\		=> (err (yypos,yypos+1) ERROR "illegal string escape"
-		        null_error_body; 
-		    continue());
+
+<string>\\0	=>
+ ( {  add_char(stringlist, char::from_int 0);
+      continue();
+  });
+
+<string>\\x[0-9][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[0-9][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[0-9][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[a-f][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[a-f][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[a-f][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[A-F][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[A-F][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<string>\\x[A-F][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+
+<string>\\		=> ( err (yypos,yypos+1) ERROR "illegal string escape"
+		                 null_error_body; 
+		             continue()
+                           );
 
 
 <string>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
@@ -1041,6 +1102,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
+
 <char>\\[0-9]{3}	=>
  ( {  x = char::to_int(string::get(yytext,1))*100
 	     + char::to_int(string::get(yytext,2))*10
@@ -1053,12 +1115,75 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
       continue();
    };
   });
-<char>\\		=> (err (yypos,yypos+1) ERROR "illegal string escape"
-		        null_error_body; 
-		    continue());
+
+<char>\\0	=>
+ ( {  add_char(stringlist, char::from_int 0);
+      continue();
+  });
+
+<char>\\x[0-9][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[0-9][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[0-9][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[a-f][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[a-f][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[a-f][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[A-F][0-9]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[A-F][a-f]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
+<char>\\x[A-F][A-F]	=>
+ ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+      add_char(stringlist, char::from_int x);
+      continue();
+  });
 
 
-<char>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
+<char>\\		=> ( err (yypos,yypos+1) ERROR "illegal char escape"
+		                 null_error_body; 
+		             continue()
+                           );
+
+
+<char>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in char" null_error_body;
                     continue());
 <char>([A-Za-z_0-9]|{symbol_sans_backslash}|\[|\]|\(|\)|{backtick}|{hash}|[,.;^{}])+|.  => (add_string(stringlist,yytext); continue());
 

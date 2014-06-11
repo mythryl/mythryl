@@ -25,7 +25,7 @@ Lex_Result = Token( Semantic_Value, Source_Position );
 Lex_Arg = header::Input_Source;
 Arg = Lex_Arg;
 
-include package tokens;
+include package   tokens;
 
 error  = header::error;
 lineno = header::lineno;
