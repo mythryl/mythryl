@@ -258,7 +258,7 @@ sharp="#";
 <qquote>"\\^^"		=> (append_char_to_qquote (char::from_int 30); continue ());
 <qquote>"\\^_"		=> (append_char_to_qquote (char::from_int 31); continue ());
 
-<qquote>"\\"[0-9][0-9][0-9]	=> (append_escaped_char_to_qquote (yytext, yypos); continue ());
+<qquote>"\\"[0-7][0-7][0-7]	=> (append_escaped_char_to_qquote (yytext, yypos); continue ());
 
 <qquote>"\\\""		=> (append_char_to_qquote (char::from_int 34); continue ());
 <qquote>"\\\\"		=> (append_char_to_qquote '\\'; continue ());
