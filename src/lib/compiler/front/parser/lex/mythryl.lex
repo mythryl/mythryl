@@ -804,13 +804,13 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <string>\\{eol}	=> (line_number_db::newline line_number_db (yypos+1);
 		    yybegin stringgap; continue());
 <string>\\{ws} 	=> (yybegin stringgap; continue());
-<string>\\a		=> (add_string(stringlist, "\007"); continue());
-<string>\\b		=> (add_string(stringlist, "\008"); continue());
-<string>\\f		=> (add_string(stringlist, "\012"); continue());
-<string>\\n		=> (add_string(stringlist, "\010"); continue());
-<string>\\r		=> (add_string(stringlist, "\013"); continue());
-<string>\\t		=> (add_string(stringlist, "\009"); continue());
-<string>\\v		=> (add_string(stringlist, "\011"); continue());
+<string>\\a		=> (add_string(stringlist, "\x07"); continue());
+<string>\\b		=> (add_string(stringlist, "\x08"); continue());
+<string>\\f		=> (add_string(stringlist, "\x0c"); continue());
+<string>\\n		=> (add_string(stringlist, "\x0a"); continue());
+<string>\\r		=> (add_string(stringlist, "\x0d"); continue());
+<string>\\t		=> (add_string(stringlist, "\x09"); continue());
+<string>\\v		=> (add_string(stringlist, "\x0b"); continue());
 <string>\\\\		=> (add_string(stringlist, "\\"); continue());
 <string>\\\"		=> (add_string(stringlist, "\""); continue());
 <string>\\\^[@-_]	=> (add_char(stringlist,
@@ -820,13 +820,12 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
-<string>\\[0-9]{3}	=>
- ( {  x = char::to_int(string::get(yytext,1))*100
-	     + char::to_int(string::get(yytext,2))*10
-	     + char::to_int(string::get(yytext,3))
-	     - ((char::to_int '0')*111);
+<string>\\[0-7]{3}	=>
+ ( {  x = (char::to_int(string::get(yytext,1))-(char::to_int '0'))*64
+	+ (char::to_int(string::get(yytext,2))-(char::to_int '0'))*8
+	+ (char::to_int(string::get(yytext,3))-(char::to_int '0'));
       if   (x > 255)
-           err (yypos,yypos+4) ERROR "illegal ascii escape" null_error_body;
+           err (yypos,yypos+4) ERROR "illegal octal \\ooo string escape" null_error_body;
       else add_char(stringlist, char::from_int x);
       fi;
       continue();
@@ -1086,13 +1085,13 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <char>\\{eol}     	=> (line_number_db::newline line_number_db (yypos+1);
 		    yybegin stringgap; continue());
 <char>\\{ws}   	=> (yybegin stringgap; continue());
-<char>\\a		=> (add_string(stringlist, "\007"); continue());
-<char>\\b		=> (add_string(stringlist, "\008"); continue());
-<char>\\f		=> (add_string(stringlist, "\012"); continue());
-<char>\\n		=> (add_string(stringlist, "\010"); continue());
-<char>\\r		=> (add_string(stringlist, "\013"); continue());
-<char>\\t		=> (add_string(stringlist, "\009"); continue());
-<char>\\v		=> (add_string(stringlist, "\011"); continue());
+<char>\\a		=> (add_string(stringlist, "\x07"); continue());
+<char>\\b		=> (add_string(stringlist, "\x08"); continue());
+<char>\\f		=> (add_string(stringlist, "\x0c"); continue());
+<char>\\n		=> (add_string(stringlist, "\x0a"); continue());
+<char>\\r		=> (add_string(stringlist, "\x0d"); continue());
+<char>\\t		=> (add_string(stringlist, "\x09"); continue());
+<char>\\v		=> (add_string(stringlist, "\x0b"); continue());
 <char>\\\\		=> (add_string(stringlist, "\\"); continue());
 <char>\\\'		=> (add_string(stringlist,  "'"); continue());
 <char>\\\^[@-_]	=> (add_char(stringlist,
@@ -1103,13 +1102,12 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
 
-<char>\\[0-9]{3}	=>
- ( {  x = char::to_int(string::get(yytext,1))*100
-	     + char::to_int(string::get(yytext,2))*10
-	     + char::to_int(string::get(yytext,3))
-	     - ((char::to_int '0')*111);
+<char>\\[0-7]{3}	=>
+ ( {  x = (char::to_int(string::get(yytext,1))-(char::to_int '0'))*64
+	+ (char::to_int(string::get(yytext,2))-(char::to_int '0'))*8
+	+ (char::to_int(string::get(yytext,3))-(char::to_int '0'));
    {  if (x>255)
-           err (yypos,yypos+4) ERROR "illegal ascii escape" null_error_body;
+           err (yypos,yypos+4) ERROR "illegal octal \\ooo char escape" null_error_body;
       else add_char(stringlist, char::from_int x);
       fi;
       continue();

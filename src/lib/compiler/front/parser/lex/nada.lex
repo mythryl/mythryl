@@ -411,13 +411,13 @@ hexnum =[0-9A-F]+;
 			    yybegin indent; continue());
 
 <string>\\{whitespace} 	=> (yybegin indent; continue());
-<string>\\a		=> (add_string(charlist, "\007"); continue());
-<string>\\b		=> (add_string(charlist, "\008"); continue());
-<string>\\f		=> (add_string(charlist, "\012"); continue());
-<string>\\n		=> (add_string(charlist, "\010"); continue());
-<string>\\r		=> (add_string(charlist, "\013"); continue());
-<string>\\t		=> (add_string(charlist, "\009"); continue());
-<string>\\v		=> (add_string(charlist, "\011"); continue());
+<string>\\a		=> (add_string(charlist, "\x07"); continue());
+<string>\\b		=> (add_string(charlist, "\x08"); continue());
+<string>\\f		=> (add_string(charlist, "\x0c"); continue());
+<string>\\n		=> (add_string(charlist, "\x0a"); continue());
+<string>\\r		=> (add_string(charlist, "\x0d"); continue());
+<string>\\t		=> (add_string(charlist, "\x09"); continue());
+<string>\\v		=> (add_string(charlist, "\x0b"); continue());
 <string>\\\\		=> (add_string(charlist, "\\"); continue());
 <string>\\\"		=> (add_string(charlist, "\""); continue());
 <string>\\\^[@-_]	=> (add_char(charlist,
@@ -468,13 +468,13 @@ hexnum =[0-9A-F]+;
 			    yybegin indent; continue());
 
 <char>\\{whitespace} 	=> (yybegin indent; continue());
-<char>\\a		=> (add_string(charlist, "\007"); continue());
-<char>\\b		=> (add_string(charlist, "\008"); continue());
-<char>\\f		=> (add_string(charlist, "\012"); continue());
-<char>\\n		=> (add_string(charlist, "\010"); continue());
-<char>\\r		=> (add_string(charlist, "\013"); continue());
-<char>\\t		=> (add_string(charlist, "\009"); continue());
-<char>\\v		=> (add_string(charlist, "\011"); continue());
+<char>\\a		=> (add_string(charlist, "\x07"); continue());
+<char>\\b		=> (add_string(charlist, "\x08"); continue());
+<char>\\f		=> (add_string(charlist, "\x0c"); continue());
+<char>\\n		=> (add_string(charlist, "\x0a"); continue());
+<char>\\r		=> (add_string(charlist, "\x0d"); continue());
+<char>\\t		=> (add_string(charlist, "\x09"); continue());
+<char>\\v		=> (add_string(charlist, "\x0b"); continue());
 <char>\\\\		=> (add_string(charlist, "\\"); continue());
 <char>\\\"		=> (add_string(charlist, "\""); continue());
 <char>\\\^[@-_]	=> (add_char(charlist,
