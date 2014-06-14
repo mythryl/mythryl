@@ -249,9 +249,9 @@ uppercase_id=[A-Z][A-Z'_0-9]*[A-Z][A-Z'_0-9]*;
 mixedcase_id=[A-Z][A-Za-z'_0-9]*[a-z][A-Za-z'_0-9]*;
 lowercase_id=[a-z]('|[a-z_0-9])*;
 id=[A-Za-z]('?{idchars})*'*;
-ws=("\012"|[\t\ ])*;
-nrws=("\012"|[\t\ ])+;
-eol=("\013\010"|"\010"|"\013");
+ws=("\x0c"|[\t\ ])*;
+nrws=("\x0c"|[\t\ ])+;
+eol=("\x0d\x0a"|"\x0a"|"\x0d");
 symbol_sans_backslash=[!%&$+/:<=>?@~|*]|\-|\^;
 symbol={symbol_sans_backslash}|"\\";
 backtick="`";
@@ -516,7 +516,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>\#\!	=> (yybegin comment;  continue());
 <initial>\#\#	=> (yybegin comment;  continue());
 
-<initial>"#DO"{ws}[^;\013\010]+ =>  (tokens::pre_compile_code ((substring::to_string (substring::drop_first 4 (substring::from_string yytext))), yypos+4, yypos + size yytext));
+<initial>"#DO"{ws}[^;\x0d\x0a]+ =>  (tokens::pre_compile_code ((substring::to_string (substring::drop_first 4 (substring::from_string yytext))), yypos+4, yypos + size yytext));
 
 <initial>\h	=> (err (yypos,yypos) ERROR "non-Ascii character"
 		        null_error_body;
@@ -897,7 +897,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                            );
 
 
-<string>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
+<string>[\x00-\x1f]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
                     continue());
 <string>({idchars}|{symbol_sans_backslash}|\[|\]|\(|\)|{backtick}|{hash}|[',.;^{}])+|.  => (add_string(stringlist,yytext); continue());
 
@@ -910,11 +910,11 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 			  );
 
 
-<backticks>({ws}|{eol}|[\000-\031]|{idchars}|{symbol_sans_backslash}|\[|\]|\(|\)|{hash}|[',.;^{}])+|.  => (add_string(stringlist,yytext); continue());
+<backticks>({ws}|{eol}|[\x00-\x1f]|{idchars}|{symbol_sans_backslash}|\[|\]|\(|\)|{hash}|[',.;^{}])+|.  => (add_string(stringlist,yytext); continue());
 
 
 
-<dot_backticks>({ws}|{eol}|[\000-\031]|{idchars}|{symbol}|\[|\]|\(|\)|{hash}|[',.;^{}'"])+
+<dot_backticks>({ws}|{eol}|[\x00-\x1f]|{idchars}|{symbol}|\[|\]|\(|\)|{hash}|[',.;^{}'"])+
     =>
     (add_string(stringlist,yytext); continue());
 
@@ -933,7 +933,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_qquotes>({ws}|{eol}|[\000-\031]|{backtick}|{idchars}|{symbol}|\[|\]|\(|\)|{hash}|[',.;^{}'])+
+<dot_qquotes>({ws}|{eol}|[\x00-\x1f]|{backtick}|{idchars}|{symbol}|\[|\]|\(|\)|{hash}|[',.;^{}'])+
     =>
     (add_string(stringlist,yytext); continue());
 
@@ -952,7 +952,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_quotes>({ws}|{eol}|[\000-\031]|{backtick}|[A-Za-z_0-9]|{symbol}|\[|\]|\(|\)|{hash}|[,.;^{}"])+
+<dot_quotes>({ws}|{eol}|[\x00-\x1f]|{backtick}|[A-Za-z_0-9]|{symbol}|\[|\]|\(|\)|{hash}|[,.;^{}"])+
     =>
     (add_string(stringlist,yytext); continue());
 
@@ -971,7 +971,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_brokets>({ws}|{eol}|[\000-\031]|{backtick}|{idchars}|[!%&$+/:<=?@~|*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
+<dot_brokets>({ws}|{eol}|[\x00-\x1f]|{backtick}|{idchars}|[!%&$+/:<=?@~|*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
     =>
     (add_string(stringlist,yytext); continue());
 
@@ -990,7 +990,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_barets>({ws}|{eol}|[\000-\031]|{backtick}|{idchars}|[!%&$+/:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
+<dot_barets>({ws}|{eol}|[\x00-\x1f]|{backtick}|{idchars}|[!%&$+/:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
     =>
     ( { add_string(stringlist,yytext);
         continue();
@@ -1015,7 +1015,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_slashets>({ws}|{eol}|[\000-\031]|{backtick}|{idchars}|[!%&$+|:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
+<dot_slashets>({ws}|{eol}|[\x00-\x1f]|{backtick}|{idchars}|[!%&$+|:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|{hash}|[',.;^{}"])+
     =>
     ( { add_string(stringlist,yytext);
         continue();
@@ -1040,7 +1040,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 
 
 
-<dot_hashets>({ws}|{eol}|[\000-\031]|{backtick}|{idchars}|[!%&$+|/:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|[',.;^{}"])+
+<dot_hashets>({ws}|{eol}|[\x00-\x1f]|{backtick}|{idchars}|[!%&$+|/:<=>?@~*]|\-|\\|\^|\[|\]|\(|\)|[',.;^{}"])+
     =>
     ( { add_string(stringlist,yytext);
         continue();
@@ -1181,7 +1181,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                            );
 
 
-<char>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in char" null_error_body;
+<char>[\x00-\x1f]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in char" null_error_body;
                     continue());
 <char>([A-Za-z_0-9]|{symbol_sans_backslash}|\[|\]|\(|\)|{backtick}|{hash}|[,.;^{}])+|.  => (add_string(stringlist,yytext); continue());
 

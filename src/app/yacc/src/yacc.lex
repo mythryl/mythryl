@@ -86,7 +86,7 @@ generic package lex_mlyacc_g (package tokens : Mlyacc_Tokens;
 %arg (input_source);
 %s aaa code fff comment linecomment string emptycomment;
 ws = [\t\ ]+;
-eol=("\n"|"\013\n"|"\013");
+eol=("\n"|"\x0d\n"|"\x0d");
 idchars = [A-Za-z_'0-9];
 id=[A-Za-z]{idchars}*;
 tyvar="'"{idchars}*;
@@ -103,7 +103,7 @@ qualid ={id}"::";
 
 <code>"/*"[*=#-]* => (add yytext; yybegin comment; comment_level := 1;
 		    continue() then yybegin code);
-<initial>[^%\013\n]+ => (add yytext; continue());
+<initial>[^%\x0d\n]+ => (add yytext; continue());
 <initial>"%%"	 => (yybegin aaa; header (cat (reverse *text),*lineno,*lineno));
 <initial,code,comment,fff,emptycomment>{eol}  => (add yytext; inc lineno; continue());
 <initial>.	 => (add yytext; continue());
@@ -145,7 +145,7 @@ qualid ={id}"::";
                     fi
                    );
 <code>"\""	=> (add yytext; yybegin string; continue());
-<code>[^()"\n\013]+ => (add yytext; continue());
+<code>[^()"\n\x0d]+ => (add yytext; continue());
 
 <comment>"*/"	=> (add yytext; dec comment_level;
 		    if (*comment_level==0)
@@ -155,7 +155,7 @@ qualid ={id}"::";
                     fi
 		   );
 <comment>"/*"[*=#-]* => (add yytext; inc comment_level; continue());
-<comment>[^*()\n\013]+ => (add yytext; continue());
+<comment>[^*()\n\x0d]+ => (add yytext; continue());
 
 <emptycomment>[(*)]  => (continue());
 <emptycomment>"*/"   => (dec comment_level;
@@ -164,13 +164,13 @@ qualid ={id}"::";
                           fi;
 			  continue ());
 <emptycomment>"/*"[*=#-]*  => (inc comment_level; continue());
-<emptycomment>[^*()\n\013]+ => (continue());
+<emptycomment>[^*()\n\x0d]+ => (continue());
 
 <string>"\""	=> (add yytext; yybegin code; continue());
 <string>\\	=> (add yytext; continue());
 <string>{eol}	=> (add yytext; error input_source *lineno "unclosed string";
  	            inc lineno; yybegin code; continue());
-<string>[^"\\\n\013]+ => (add yytext; continue());
+<string>[^"\\\n\x0d]+ => (add yytext; continue());
 <string>\\\"	=> (add yytext; continue());
 <string>\\{eol} => (add yytext; inc lineno; yybegin fff; continue());
 <string>\\[\ \t] => (add yytext; yybegin fff; continue());

@@ -53,7 +53,7 @@ highAscii = SIS::interval(0w128, 0w255)
 %s DEFS RE RECB CHARILK LEXSTATES ACTION STRING;
 %count
 
-ws	= [\ \n\t\013];
+ws	= [\ \n\t\x0d];
 alpha	= [a-zA-Z];
 num	= [0-9];
 hex	= {num} | [a-fA-F];

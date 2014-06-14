@@ -215,9 +215,9 @@ idchars  =[A-Za-z_0-9];
 valueid  =[a-z]{idchars}*[']*;
 
 
-whitespace         =("\012"|[\t\ ])*;
-nonempty_whitespace =("\012"|[\t\ ])+;
-eol                =("\013\010"|"\010"|"\013");
+whitespace         =("\x0c"|[\t\ ])*;
+nonempty_whitespace =("\x0c"|[\t\ ])+;
+eol                =("\x0d\x0a"|"\x0a"|"\x0d");
 
 someSym   =[!%&$+/:<=>?@~|#*]|\-|\^;
 symbol     ={someSym}|"\\";
@@ -442,7 +442,7 @@ hexnum =[0-9A-F]+;
 		            continue());
 
 
-<string>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
+<string>[\x00-\x1f]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
                     continue());
 <string>({idchars}|{someSym}|\[|\]|\(|\)|{backquote}|[,.;^{}])+|.  => (add_string(charlist,yytext); continue());
 
@@ -501,7 +501,7 @@ hexnum =[0-9A-F]+;
 		            continue());
 
 
-<char>[\000-\031]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
+<char>[\x00-\x1f]  => (err (yypos,yypos+1) ERROR "illegal non-printing character in string" null_error_body;
                     continue());
 <char>({idchars}|{someSym}|\[|\]|\(|\)|{backquote}|[,.;^{}])+|.  => (add_string(charlist,yytext); continue());
 
