@@ -1779,46 +1779,6 @@ nb {. sprintf "do_packed_widget/FLOAT doing look_imps += %d   -- guiboss-imp.pkg
 
 
 
-		#
-		fun guievent_sink
-		      (
-			route:		a2r::Envelope_Route,
-			event:		evt::x::Event
-		      )
-		    =
-		    {   
-# XXX SUCKO FIXME at this point we should be analysing
-# the event and shipping it to the appropriate widget
-# but none of that has been written yet.
-
-#
-case event
-    #
-    evt::x::EXPOSE { exposed_window_id:  evt::Window_Id,							# The exposed window. 
-		     boxes:              List( xg::Box ),						# The exposed rectangle.  The list is
-													# so  that multiple events can be packed. 
-		     count:              Int								# Number of subsequent expose events.
-		   }
-	=>  {
-		printf "guivent_sink()/guiboss: EXPOSE { exposed_window_id d=%d count d=%d list::length boxes d=%d     -- xclient-unit-test.pkg\n"
-		    (evt::xid_to_int exposed_window_id)
-		    count
-		    (list::length boxes)
-		;
-
-# XXX QUERO FIXME Should we have a 'window_id' value here...?
-#                 This code is copied from 243:src/lib/x-kit/widget/xkit/app/windowsystem-imp-for-x.pkg
-#		if (evt::same_xid (exposed_window_id, window_id))
-#		    #
-#		    put_in_oneshot (window_has_received_first_expose_xevent_oneshot, ());
-#		fi;
-	    };
-
-    _   =>  printf "guievent_sink()/guiboss: ignoring '%s' x event     -- xclient-unit-test.pkg\n" (gts::gui_event_to_string event);
-
-esac;
-		    };
-
 		#################################################################################
 		# guiboss interface fns::
 		#
@@ -1829,10 +1789,67 @@ esac;
 			#
 			put_in_mailqueue  (guiboss_q,
 			    #
-			    \\ ({ imports, ... }: Runstate)
+			    \\ (me as { imports, ... }: Runstate)
 				=
-				{   topwindow =  imports.guiboss_to_windowsystem.make_topwindow  (hints, guievent_sink);			# XXX SUCKO FIXME we're blocking until we get the result from windowsystem.
+				{   # We have to do an awkward little dance here because we
+				    # must hand a guievent_sink() TO make_topwindow() but we
+				    # want guievent_sink() to lock in the 'topwindow' result
+				    # FROM make_topwindow():
+
+				    saved_events = REF ([]: List( (a2r::Envelope_Route, evt::x::Event) ) );			# Somewhere for initial_guievent_sink to save any events it gets.
+
+				    fun initial_guievent_sink (arg as (route: a2r::Envelope_Route, event: evt::x::Event))	# An initial version which just saves events in 'saved_events' until we're ready to process them, since we don't yet have 'topwindow' available.
+					=
+					saved_events :=  arg ! *saved_events;
+
+				    guievent_sink_fn   = REF initial_guievent_sink;
+
+				    fun guievent_sink_wrapper (arg as (route: a2r::Envelope_Route, event: evt::x::Event))	# A wrapper which initially calls initial_guievent_sink but almost immediately switches to calling the production guievent_sink.
+					=
+					*guievent_sink_fn  arg;
+
+				    # Do the actual work for this fn:
 				    #
+				    topwindow =  imports.guiboss_to_windowsystem.make_topwindow  (hints, guievent_sink_wrapper);		# XXX SUCKO FIXME we're blocking until we get the result from windowsystem.
+
+				    fun guievent_sink (arg as (route: a2r::Envelope_Route, event: evt::x::Event))		# The production Gui_Event handling routine, which locks in the value of 'topwindow'.
+					=
+					put_in_mailqueue  (guiboss_q,								# Incoming Gui_Event values MUST be run through the guiboss_q to guarantee mutual exclusion on access to internal guiboss datastructures.
+					    #
+					    \\ (me as { imports, ... }: Runstate)
+						=
+						{
+case event
+    #
+    evt::x::EXPOSE { exposed_window_id:  evt::Window_Id,							# The exposed window. 
+		     boxes:              List( xg::Box ),						# The exposed rectangle.  The list is
+													# so  that multiple events can be packed. 
+		     count:              Int								# Number of subsequent expose events.
+		   }
+	=>  {
+		printf "guivent_sink()/guiboss: EXPOSE { exposed_window_id d=%d count d=%d list::length boxes d=%d     -- guiboss-imp.pkg\n"
+		    (evt::xid_to_int exposed_window_id)
+		    count
+		    (list::length boxes)
+		;
+	    };
+
+    _   =>  printf "guievent_sink()/guiboss: ignoring '%s' Gui_Event     -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+
+esac;
+						}
+					);
+
+				    guievent_sink_fn  :=  guievent_sink;							# Switch guievent_sink_wrapper() over from using initial_guievent_sink() to using guievent_sink().
+
+				    case *saved_events
+					[] =>   ();										# Having any saved events is extremely unlikely, I think -- maybe impossible.
+					_  =>   {   events = reverse *saved_events;						# Somehow X event(s) sneaked in between window creation and return to this point. (!)
+						    saved_events := [];
+						    apply guievent_sink events;							# Queue up the X event(s) for processing. XXX BUGGO FIXME: There's a tiny but nonzero chance additional events could sneak through and be queued out-of-order before we complete this. Is there a clean fix? Could it ever matter?
+						};
+				    esac;
+
 				    put_in_oneshot (reply_oneshot, topwindow);
 				}
 		        );
