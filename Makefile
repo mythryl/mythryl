@@ -624,6 +624,7 @@ somewhat-clean:	ppless
 	@find . -type f -name '*.skeleton' -print | xargs rm -f;
 	@find . -type f -name '*.log' -print | xargs rm -f;
 	@find . -type f -name '*.o' -print | xargs rm -f;
+	@find . -type f -name '*.a' -print | xargs rm -f;
 #	@find . -type f -name '*.codemade.*' -print | xargs rm -f;
 	@find . -type f -name 'tmp-makelib-pid-*' -print | xargs rm -f;
 	@rm -rf sh/edit;
