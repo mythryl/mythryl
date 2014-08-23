@@ -26,6 +26,7 @@ stipulate
     package dy  =  display;					# display			is from   src/lib/x-kit/xclient/src/wire/display.pkg
     package exa =  exercise_x_appwindow;			# exercise_x_appwindow		is from   src/lib/x-kit/widget/xkit/app/exercise-x-appwindow.pkg
     package w2x =  windowsystem_to_xserver;			# windowsystem_to_xserver	is from   src/lib/x-kit/xclient/src/window/windowsystem-to-xserver.pkg
+    package fb  =  font_base;					# font_base			is from   src/lib/x-kit/xclient/src/window/font-base.pkg
 #   package fil =  file__premicrothread;			# file__premicrothread		is from   src/lib/std/src/posix/file--premicrothread.pkg
     package fti =  font_index;					# font_index			is from	  src/lib/x-kit/xclient/src/window/font-index.pkg
     package gd  =  gui_displaylist;				# gui_displaylist		is from   src/lib/x-kit/widget/theme/gui-displaylist.pkg
@@ -435,7 +436,9 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 	    # the latter uses 'pens' to represent color etc,	 pen is from   src/lib/x-kit/xclient/src/window/pen.pkg
 	    # so we need to construct those as we go along:
 	    #
-	    {   ops = do_ops (pen::default_pen, ops, []);
+	    {   font = [ "fixed" ];		# A safe default.  For a list of standard X short font names do   find /usr -name fonts.alias   -- look for one in a directory named "misc".
+		pen  = pen::default_pen;
+		ops  = do_ops (pen, font, ops, []);
 		#
 		reverse ops;			# do_ops produces a result list in reverse order of original 'ops' list, so here we reverse to restore original order.
 	    }
@@ -444,6 +447,17 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 		#
 		to = window.window_id;
 		#
+		fun find_or_open_font [] =>   NULL;
+		    #
+		    find_or_open_font (font ! rest)
+			=>
+			case (window.windowsystem_to_xserver.find_else_open_font  font)
+			    #
+			    NULL =>  find_or_open_font  rest;
+			    font =>  font;
+			esac;
+		end;
+
 		fun do_arc ({ row, col, high, wide, start_angle, stop_angle }: g2d::Arc)
 		    =
 		    { row, col, high, wide,
@@ -453,11 +467,11 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 		    }
 		    : g2d::Arc64;
 
-		fun do_ops (pen,        [], result) =>			                result  ;
-		    do_ops (pen, op ! rest, result) =>  do_ops (pen, rest, do_op(pen,op,result));
+		fun do_ops (pen, font,        [], result) =>			                         result  ;
+		    do_ops (pen, font, op ! rest, result) =>  do_ops (pen, font, rest, do_op(pen,font,op,result));
 		end
 		also
-		fun do_op (pen, op, result)
+		fun do_op (pen, font, op, result)
 		    =
 		    case op
 			#
@@ -475,6 +489,36 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 			#
 #			gd::CLEAR_AREA     (box:         g2d::Box   ) =>  { to, pen, op => w2x::x::CLEAR_AREA    (                                 box   ) }  !  result;
 			#
+			gd::TEXT
+				  ( point:	g2d::Point,								# Where to draw the text.
+				    text:	String									# Text to draw.
+				  )
+			    =>
+			    case (find_or_open_font (font @ [ "fixed" ]))						# 
+				#
+				NULL     => result;									# No font found, ignore.  Probably should log a warning here, but X server is required to have "fixed", so the probability of arriving here is very low. XXX SUCKO FIXME.
+				#
+				THE font => {   font ->   fb::FONT { id => font_id, ... };
+						#
+						fun do_text (text, result)						# Break 'text' up into a list of   w2x::t::TEXT(0,text)   elements, where each 'text' has length <= 254.
+						    =
+						    if (string::length text < 255)					# Max allowed w2x::t::TEXT length for X protocol is 254, see check in   encode_poly_text8/encode  in   src/lib/x-kit/xclient/src/wire/value-to-wire-pith.pkg
+							#
+							reverse (w2x::t::TEXT (0, text) ! result);			# The 'reverse' returns the parts of the string to original order.
+						    else								# The '0' is 'delta', extra space inserted before text:  See PolyText8 page in  http://mythryl.org/pub/exene/X-protocol-R6.pdf
+							first =  string::substring (text,   0, 250);			# First part of string: Must be <= 254 bytes in length.
+							rest  =  string::extract   (text, 250, NULL);			# Rest of string.
+							#
+							do_text (rest, (w2x::t::TEXT (0, first)) ! result);
+						    fi;
+
+						op =   w2x::x::POLY_TEXT8 (font_id, point, do_text(text,[]));
+						#
+
+						{ to, pen, op }  ! result;
+					    };
+			    esac;						
+
 			gd::COLOR ( color:	r64::Rgb,								# Use this color
 				    ops:	List(gd::Draw_Op)							# when drawing these ops.
 				  )
@@ -483,7 +527,7 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 			    	#
 				pen = pen::clone_pen (pen, [ pen::p::FOREGROUND color ]);				# Construct a new pen identical to the previous one except for using the new color.
 
-				do_ops (pen, ops, result);								# Process the sublist with the new pen.
+				do_ops (pen, font, ops, result);							# Process the sublist with the new pen.
 			    };
 
 			gd::CLIP_TO
@@ -493,7 +537,7 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 			    =>
 			    {   pen = pen::clone_pen (pen, [ pen::p::CLIP_MASK_UNSORTED_BOXES [ box ] ]);		# Construct a new pen identical to the previous one except for using the new line clip box.
 				#
-				do_ops (pen, ops, result);								# Process the sublist with the new pen.
+				do_ops (pen, font, ops, result);							# Process the sublist with the new pen.
 			    };
 
 			gd::LINE_THICKNESS
@@ -503,7 +547,7 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 			    =>
 			    {   pen = pen::clone_pen (pen, [ pen::p::LINE_WIDTH thickness ]);				# Construct a new pen identical to the previous one except for using the new line thickness.
 				#
-				do_ops (pen, ops, result);								# Process the sublist with the new pen.
+				do_ops (pen, font, ops, result);							# Process the sublist with the new pen.
 			    };
 		    esac;
 	    end;
