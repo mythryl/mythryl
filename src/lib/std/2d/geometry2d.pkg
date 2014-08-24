@@ -24,8 +24,9 @@
 
 										# Geometry2d		is from   src/lib/std/2d/geometry2d.api
 stipulate
-    package rc  = range_check;							# range_check		is from   src/lib/std/2d/range-check.pkg
-    package ebf = eight_byte_float;						# eight_byte_float	is from   src/lib/std/eight-byte-float.pkg
+    package rc  =  range_check;							# range_check		is from   src/lib/std/2d/range-check.pkg
+    package ebf =  eight_byte_float;						# eight_byte_float	is from   src/lib/std/eight-byte-float.pkg
+    package lms =  list_mergesort;						# list_mergesort	is from   src/lib/src/list-mergesort.pkg
     #
     nb =  log::note_on_stderr;							# log			is from   src/lib/std/src/log.pkg
 herein
@@ -147,6 +148,98 @@ herein
 			    end;
 			end;
 		end;
+
+
+		fun convex_hull (points: List(Point))						# http://en.wikibooks.org/wiki/Algorithm_Implementation/Geometry/Convex_hull/Monotone_chain
+		    =
+		    # This is a nice little algorithm by the late				# We can check for "turns to the right" by		
+		    # Alex M Andrew, an interesting fellow working				# computing the cross-product of the vectors formed	
+		    # mostly in early AI, particularly neural nets:				# by the last three points, O,A,B. The cross-product	
+		    #										# computes the area bounded by the parallelogram	
+                    #     http://cyberneticzoo.com/tag/dr-alex-andrew/				# defined by the two vectors:				
+		    #										#                   A ---- B				
+                    # The idea: A convex hull is (obviously!) *convex*,				#                    /  /				
+                    # meaning that if we walk counterclockwise around a				#                 O ----				
+		    # convex hull, at each point we will turn left, never			# The area will be positive for a left turn and		
+		    # right.									# negative for a right turn.				
+		    #     So if we sort the points in X and then scan				                                                        
+		    # linearly through them successively adding each point			# We could also just compute the slope of each vector	
+		    # to our candidate convex hull sequence, any time we			# and verify that the slope always increases, but	
+		    # find our candidate solution turning to the right,				# the slope requires a division, which is usually	
+		    # something is wrong.							# much slower than multiplication on today's hardware.	
+		    #     We can fix this by, before we add a new point,			#     (If we multiply out the slope comparison formula	
+		    # checking to see if doing so will make the convex				# to eliminate the divisions we arrive back at the	
+		    # hull candidate sequence turn to the right:  If so,			# cross-product formula.)                               
+		    # we drop trailing points off the candidate until the
+		    # problem goes away.							# This fn is exercised in:
+		    #     When we're done with our scan, we'll have the				#     src/lib/x-kit/widget/widget-unit-test.pkg
+		    # lower half of the convex hull;  repeating the				
+		    # the procedure in the opposite direction gives us				
+		    # the upper half.  Glue them together and we're done.			# Note that result from each scan will always contain
+		    #     We'll never do more work per point than adding			# the first and last point in the sorted input. Thus
+		    # it to the candidate solution, computing a cross product,			# if we naively glue together the two results, the
+		    # and later removing it again -- all O(1) operations -- so			# first and last points will be duplicated in the
+		    # the time to do the scan is O(N).						# final result.
+		    #     The time to sort the points on X is O(N*log(N)),			#   We fix this simply by dropping the final point
+		    # so the algorithm as a whole is thus     O(N*log(N)),			# from each scan result before concatenating them to
+		    #     log(N) grows so slowly that for all practical				# produce the final result.
+		    # purposes O(N*log(N)) == O(N), which is the fastest
+		    # we can construct a sequence of N points.
+		    {
+			fun point_gt (p1: Point, p2: Point)					# Comparison fn to sort points by X (and by Y when X coords match).
+			    =
+			    if       (p1.col == p2.col)
+				if   (p1.row == p2.row)	EQUAL;
+				elif (p1.row >  p2.row)	GREATER;
+				else			LESS;		fi;
+			    elif     (p1.col >  p2.col)	GREATER;
+			    else			LESS;
+			    fi;
+
+			points =  lms::sort_list_and_drop_duplicates  point_gt  points;		# Do this before next because we might have a lot of duplicate points.
+
+			if (list::length points < 3)
+			    #
+			    points;								# Convex hull of two points is easy. :-)
+			else
+			    {
+				result1 = build_halfhull ((        points), []);		# Build left-to-right lower half of convex hull.
+				result2 = build_halfhull ((reverse points), []);		# Build right-to-left upper half of convex hull.
+				#
+				reverse (tail result2 @ tail result1);				# 'tail' because otherwise first and last points in input get duplicated.
+			    }									# 'reverse' just to give conventional counter-clockwise result ordering.
+			    where								# Obviously we could fiddle the sort ordering to eliminate the 'reverse'
+												# if efficiency was critical, but here we stay with simple and intuitive.
+												# If efficiency was critical we'd probably do it in C with arrays. :-)
+
+				nonfix my o ;							# Make 'o' not infix so we can use it as a plain variable.
+				#
+				fun cross_product (o: Point, a: Point, b: Point)		# 2D cross product of OA and OB vectors, i.e. z-component of their 3D cross product.
+				    =								# Returns a positive value if OAB makes a counter-clockwise turn,
+				    (a.col - o.col) * (b.row - o.row)				# negative for clockwise turn, and zero if the points are collinear.
+				    -
+				    (a.row - o.row) * (b.col - o.col);				# I'm presuming we're working in pixel coordinates on a screen; if not, these multiplies might overflow.
+
+
+			    fun drop_kinks (p, r1 as (p1 ! (r2 as (p2 ! rest))))		# If (p ! r1) kinks right, drop points from r1 until it no longer kinks right.
+				    =>								#
+				    if (cross_product (p2, p1, p) <= 0)	  drop_kinks (p, r2);	# Drop last result point and loop.
+				    else				  r1;			#
+				    fi;								#
+												#
+				drop_kinks (_, result) =>  result;				#
+			    end;
+
+
+			    fun build_halfhull ([], result) =>  result;
+				#
+				build_halfhull (input as p ! rest, result)
+				    =>
+				    build_halfhull (rest, p ! (drop_kinks (p, result)));
+			    end;
+			end;
+		    fi;
+		};
 	    };
 
 	    package size {
@@ -249,7 +342,18 @@ herein
 		    fi;
 
 
-		fun in_box
+		fun point_in_box
+		    ( { col, row },
+		      { col=> box_col, row=> box_row, wide, high }
+		    )
+		    =
+		    col >= box_col	    and				# The >= < pattern here is intended to ensure that
+		    row >= box_row	    and				# if we have a grid of boxes sharing vertices that
+		    col <  box_col + wide   and				# any given point is in exactly one box in the grid.
+		    row <  box_row + high;
+
+
+		fun box_in_box
 		    ( { col=>col1, row=>row1, wide=>w1, high=>h1 },
 		      { col=>col2, row=>row2, wide=>w2, high=>h2 }
 		    )
