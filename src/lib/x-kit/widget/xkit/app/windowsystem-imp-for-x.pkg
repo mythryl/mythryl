@@ -99,11 +99,18 @@ herein
 
 	Windowsystem_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
+	Offscreen_Rgb_Buffer_Info
+	  =
+	  { id:		Id,												# This is the gui-level id.
+	    rw_pixmap:	xj::Rw_Pixmap											# X-level pixmap description, including X-level id.
+	  };
+
 	Appwindow_State													# Holds all nonephemeral mutable state maintained by shape.
 	  =
 	  { id:			Id,
-	    state:		Ref( Windowsystem_Needs )
-	  };
+	    state:		Ref( Windowsystem_Needs ),
+	    rw_pixmaps:		Ref (im::Map( Offscreen_Rgb_Buffer_Info ))						# We'll use this to track all currently-existing Xserver-side Rw_Pixmaps. These are created in
+	  };														# response to guiboss requests and used as backing store for windows and scrollable subwindows.
 
 	Me_Slot = Mailslot( { imports:			Imports,
 			      me:			Appwindow_State,
@@ -133,17 +140,6 @@ herein
 
 	Appwindow_Q    = Mailqueue( Runstate -> Void );
 	#
-
-
-	Offscreen_Rgb_Buffer_Info
-	  =
-	  { id:		Id,												# This is the gui-level id
-	    size:	g2d::Size											# Size of buffer. Since it is offscreen, it doesn't have a location.
-	  };
-
-	empty_im = im::empty
-		 : im::Map( Offscreen_Rgb_Buffer_Info );
-
 
 
 	fun start_xsession ()												# Private. Called only from startup().
@@ -449,8 +445,9 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 	#
 	fun convert_displaylist_to_drawoplist
 	      (
-		to:		xt::Window_Id,			# This will currently be either   window.window_id   or   (the window.backing_pixmap).
-		window:		xj::Window,
+		to:		xt::Window_Id,			# This will currently be either   window.window_id   or   (the window.backing_pixmap).pixmap_id.
+#		window:		xj::Window,
+		root_window:	rw::Root_Window,
 		ops:		gd::Gui_Displaylist
 	      )
 	    =
@@ -478,7 +475,7 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 		    #
 		    find_or_open_font (font ! rest)
 			=>
-			case (window.windowsystem_to_xserver.find_else_open_font  font)
+			case (root_window.screen.xsession.windowsystem_to_xserver.find_else_open_font  font)
 			    #
 			    NULL =>  find_or_open_font  rest;
 			    font =>  font;
@@ -541,7 +538,7 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 
 				draw_op =  cpt::make_clientside_pixmat_to_pixmap_copy_drawop 				# cs_pixmat			is from   src/lib/x-kit/xclient/src/window/cs-pixmat.pkg
 					      to
-					      window
+					      root_window.screen.xsession.xdisplay
 					      { from, from_box, to_point };
 
 				draw_op ! result;									# 
@@ -694,7 +691,8 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 		guiboss_to_windowsystem
 		    =
 		    { id,
-		      make_topwindow
+		      make_topwindow,
+		      make_rw_pixmap
 		    };
 
 		to          =  make_replyqueue();
@@ -754,6 +752,79 @@ if (*log::debugging) log::note {. "xevent_sink calling guievent_sink -- windowsy
 		    );
 
 
+
+		#
+		fun make_rw_pixmap (size: g2d::Size)
+		    =
+		    {
+			reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( gws::Guiboss_To_Rw_Pixmap );
+			#
+			put_in_mailqueue  (appwindow_q,
+			    #
+			    \\ ({ me, root_window, key_mapping, ... }: Runstate)
+				=
+				{
+				    stipulate
+					depth = 24;											# Currently we hardwire this.
+				    herein
+					rw_pixmap =  rwp::make_readwrite_pixmap  root_window.screen  (size, depth);			# Make an Xserver-side readwrite pixmap for use by guiboss as backing store for a scrollable area or such.
+				    end;
+
+				    fun draw_displaylist (displaylist:  gd::Gui_Displaylist)						# PUBLIC.
+					=	
+					{
+					    put_in_mailqueue  (appwindow_q,
+						#
+						\\ (r: Runstate)
+						    =
+						    root_window.screen.xsession.windowsystem_to_xserver.draw_ops
+							#
+							(convert_displaylist_to_drawoplist
+							    (rw_pixmap.pixmap_id, root_window, displaylist))
+					    );
+					};
+
+#				    fun get_pixel_rectangle (window_rectangle_to_read: g2d::Box)
+#					=
+#					{
+#					    rw_matrix_rgb8
+#						=
+#						cpt::make_clientside_pixmat_from_window (window_rectangle_to_read, window);		# Read selected part of our window from X server.
+#					    #
+#					    rw_matrix_rgb8;
+#					};
+#
+#				    fun pass_pixel_rectangle
+#					    #
+#					    (window_rectangle_to_read:	g2d::Box)
+#					    (to:			Replyqueue)
+#					    (sink_fn:			mtx::Rw_Matrix(r8::Rgb8) -> Void)
+#					=
+#					{
+#					    cpt::pass_clientside_pixmat_from_window							# Read selected part of our window from X server.
+#						(window_rectangle_to_read, window)
+#						to
+#						sink_fn;
+#					};
+
+				    guiboss_to_rw_pixmap
+					=
+					{ id	=> issue_unique_id(),									# We want every guiboss_to_rw_pixmap.id value to be unique within the running Mythryl process (address space).
+					  #												# Consequently we don't use our microthread 'id' here because we will typically have multiple topwindows per windowsystem imp.
+					  #												# Similarly    We don't use window.window_id here because we might have multiple windowsystem imps talking to different
+					  #												# X servers, two of which might issue identical window.window_id values.
+#					   get_pixel_rectangle,
+#					  pass_pixel_rectangle
+					  draw_displaylist
+					};
+
+				    
+				    put_in_oneshot (reply_oneshot, guiboss_to_rw_pixmap);
+				}
+			);
+
+			get_from_oneshot reply_oneshot;
+		    };
 		#
 		fun make_topwindow
 		      (
@@ -942,14 +1013,14 @@ if (*log::debugging) log::note {. "draw_displaylist/AAA -- windowsystem-imp-for-
 						    {   window.windowsystem_to_xserver.draw_ops
 							    #
 							    (convert_displaylist_to_drawoplist
-								(window.window_id, window, displaylist));
+								(window.window_id, root_window, displaylist));
 
 							case window.backing_pixmap							# If we have a backing_pixmap, draw same stuff to it.
 							    #										# (This lets us later respond to EXPOSE events by
 							    THE pixmap =>   window.windowsystem_to_xserver.draw_ops			# copying to the window from the backing pixmap.)
 									    #								# We do this second so the visible update happens asap.
 									    (convert_displaylist_to_drawoplist				#    Is it possible to do this more efficiently
-										(pixmap.pixmap_id, window, displaylist));		# via X backing store? Anyhow this works for now.	XXX QUERO FIXME
+										(pixmap.pixmap_id, root_window, displaylist));		# via X backing store? Anyhow this works for now.	XXX QUERO FIXME
 							    NULL => ();
 							esac;
 						    }
@@ -966,7 +1037,7 @@ if (*log::debugging) log::note {. "draw_displaylist/AAA -- windowsystem-imp-for-
 						    {   window.windowsystem_to_xserver.draw_ops
 							    #
 							    (convert_displaylist_to_drawoplist
-								(window.window_id, window, displaylist));
+								(window.window_id, root_window, displaylist));
 						    }
 					    );
 					};
@@ -1262,7 +1333,8 @@ if (*log::debugging) log::note {. "draw_displaylist/AAA -- windowsystem-imp-for-
 		    fi;
 
 		me =  { id,
-			state =>  REF needs
+			state      =>  REF needs,
+			rw_pixmaps =>  REF (im::empty:  im::Map( Offscreen_Rgb_Buffer_Info ))
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
