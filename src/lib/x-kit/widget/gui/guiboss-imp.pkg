@@ -401,6 +401,33 @@ nb {. sprintf "running_gui__to__stopped_gui/ZZZ -- called  do_packed_widget..." 
 					    );
 				    end;	
 
+			rg::VIEWPORT
+				{ widgets: List(  { widget:		rg::Packed_Widget,
+#						    cooked_hints:	rg::Packed_Layout_Hints,
+#						    raw_hints:		List(plh::Packedspace_Layout_Hint),
+						    pixmap_size:	g2d::Size
+						  }
+					       ),
+				  pixels_high_min:	Ref(Int),
+				  pixels_wide_min:	Ref(Int),
+				  pixels_high_cut:	Ref(Float),
+				  pixels_wide_cut:	Ref(Float)
+				}
+			    =>
+			    sg::VIEWPORT (map  do_widget  widgets)
+				    where
+					fun do_widget { widget: 	rg::Packed_Widget,
+#							cooked_hints:	rg::Packed_Layout_Hints,
+#							raw_hints:	List(plh::Packedspace_Layout_Hint),
+						  	pixmap_size:	g2d::Size
+						      }
+
+					    =
+					    ( pixmap_size,
+					      do_packed_widget  widget
+					    );
+				    end;	
+
 			rg::WIDGET r
 			    =>
 			    sg::WIDGET (get_from_oneshot   r.endstate_oneshot);			# Read and return final state of widget-imp -- incidentally confirming that it has completed its shutdown.
@@ -752,9 +779,9 @@ printf "restart_gui'/BBB\n";
 					      {										# Just redrawing gui_displaylist a second time would be another strategy.
 						rw_pixmap  => topwindow_for_gui.backing_pixmap.id,			# The blit has the advantage that the worst case is pretty fast, whereas
 						from_box   => clip_box,							# the worst case for redrawing gui_displaylist can be arbitrarily slow.
-						to_point   => { row => clip_box.row, col => clip_box.col }		# We could try to be clever and redraw gui_displaylist when that would
-					      }										# clearly be faster than blitting, but why bother?  Blitting is so fast
-					  ];										# on contemporary hardware that it is rarely worth the code complexity.
+						to_point   => { row => clip_box.row, col => clip_box.col }		# Also, draw-offscreen-and-blit completely eliminates redraw flicker
+					      }										# where "flicker" == partly-redrawn widget being visible momentarily:
+					  ];										# it is essentially a primitive form of double-buffering.
 
 			topwindow_for_gui.draw_displaylist  gui_displaylist;						# Blit updated gadget appearance to visible window for user to see.
 		    };
@@ -1275,6 +1302,41 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 						};
 				    };
 
+			        sg::VIEWPORT	(pairs:	 List( (g2d::Size, sg::Packed_Widget) ))			# A viewport, typically onto a scrollable pixmap or a set of alternate pixmaps for tabbed viewing.
+				    =>
+				    {
+					widgets =   map  do_pair  pairs
+						    where
+							fun do_pair
+							    (
+							      size:		g2d::Size,
+							      packed_widget:	sg::Packed_Widget
+							    )
+							    =
+							    { widget		=>  do_packed_widget  (packed_widget, widget_to_packedspace),
+#							      cooked_hints	=>  digest_packedspace_layout_hints  layout_hints  { cut => NULL, min => NULL },
+#							      raw_hints		=>  layout_hints,
+							      pixmap_size	=>  size	
+							    };
+						    end;
+
+					pixels_high_min	=  REF 0;							# We'll set the real value for this later in re_site_packed_widget_tree() in  src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
+					pixels_wide_min	=  REF 0;							# We'll set the real value for this later in re_site_packed_widget_tree() in  src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
+					#
+					pixels_high_cut	=  REF 1.0;							# We'll set the real value for this later in re_site_packed_widget_tree() in  src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
+					pixels_wide_cut	=  REF 1.0;							# We'll set the real value for this later in re_site_packed_widget_tree() in  src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
+
+					rg::VIEWPORT
+					        { widgets,
+						  #
+						  pixels_high_min,
+						  pixels_wide_min,
+						  #
+						  pixels_high_cut,
+						  pixels_wide_cut
+						};
+				    };
+
 			        sg::WIDGET
 				      (
 					(gt::PACKED_WIDGET_START_FN packed_widget_start_fn):		gt::Packed_Widget_Start_Fn,
@@ -1403,7 +1465,7 @@ nb {. sprintf "do_packed_widget/WIDGET doing gadget_imps += %d   -- guiboss-imp.
 			    =
 			    case bounce_widget
 				#
-			        gp::SPRITE a =>  sg::SPRITE (a, NULL);
+			        gp::SPRITE a =>  sg::SPRITE (a, NULL);										# SUBSTANTIVE CHANGE
 			    esac
 
 			also
@@ -1421,11 +1483,11 @@ nb {. sprintf "do_packed_widget/WIDGET doing gadget_imps += %d   -- guiboss-imp.
 					sg::PACKEDSPACE (packedspace_arg,  packed_widget);
 				    };
 
-			        gp::OBJECT a =>  sg::OBJECT (a, NULL);
+			        gp::OBJECT a =>  sg::OBJECT (a, NULL);										# SUBSTANTIVE CHANGE
 			    esac
 
 			also
-			fun do_packed_widget (packed_widget: gp::Packed_Widget)				# 'packed_widget' can be a tree of widgets with ROW and COL internal nodes.
+			fun do_packed_widget (packed_widget: gp::Packed_Widget)									# 'packed_widget' can be a tree of widgets with ROW and COL internal nodes.
 			    =
 			    case packed_widget
 				#
@@ -1471,8 +1533,27 @@ nb {. sprintf "do_packed_widget/WIDGET doing gadget_imps += %d   -- guiboss-imp.
 					sg::COL  packed_widgets;
 				    };
 
-			        gp::WIDGET   a =>  sg::WIDGET (a, NULL);									# The NULL is the saved_widget_state: Null_Or(Exception) used by arrowbutton etc to preserve state across gui stop/restart cycles.
+			        gp::VIEWPORT (a:	List( (g2d::Size, gp::Packed_Widget) ))
+				    =>
+				    {
+					pairs = map do_pair a
+						where
+						    fun do_pair
+							(
+							  pixmap_size:		g2d::Size,
+							  packed_widget:	gp::Packed_Widget
+							)
+							=
+							( pixmap_size,
+							  do_packed_widget  packed_widget
+							);
+						end;
+					
+					sg::VIEWPORT pairs;
+				    };
 
+			        gp::WIDGET   a =>  sg::WIDGET (a, NULL);									# SUBSTANTIVE CHANGE
+																		# The NULL is the saved_widget_state: Null_Or(Exception) used by arrowbutton etc to preserve state across gui stop/restart cycles.
 			        gp::CANVASSPACE
 				    ( canvasspace_arg:	cs::Canvasspace_Arg,
 				      canvas_widgets:	List((List(clh::Canvasspace_Layout_Hint),  gp::Canvas_Widget))
