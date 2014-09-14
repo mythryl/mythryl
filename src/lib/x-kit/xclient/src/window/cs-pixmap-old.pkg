@@ -421,147 +421,148 @@ herein
 	#
 	fun copy_from_clientside_pixmap_to_pixmap pm { from=>CS_PIXMAP { size, data }, from_box, to_point }
 	    =
-	    {   #  Clip from_box to clientside window:
+	    case (g2d::box::intersection (from_box, g2d::box::make (g2d::point::zero, size)))			# Clip from_box to clientside window.
 		#
-		from_box' = g2d::box::intersection (from_box, g2d::box::make (g2d::point::zero, size));
-
-		delta
-		    =
-		    g2d::point::subtract
-		      ( g2d::box::upperleft  from_box',
-			g2d::box::upperleft  from_box
-		      );
-
-		depth =  list::length data;
-
-		pm  ->  { pixmap_id, screen, per_depth_imps => { to_screen_drawimp, ... }: sn::Per_Depth_Imps, ... }: dt::Rw_Pixmap;
-
-		screen ->  { xsession=>{ xdisplay as (dpy_info: dy::Xdisplay), ... }: sn::Xsession, ... }: sn::Screen ;
-
-		scanline_pad  =  dpy_info.bitmap_scanline_pad;
-		scanline_unit =  dpy_info.bitmap_scanline_unit;
-
-		# Minimum no. of 4-byte words needed for PutImage.
-		# There should be a function in XRequest to provide this.	XXX BUGGO FIXME
+		NULL => ();											# No intersection so nothing to do.
 		#
-		request_size = 6;
+		THE from_box'
+		    =>
+		    {   delta =	g2d::point::subtract
+				  (
+				    g2d::box::upperleft  from_box',
+				    g2d::box::upperleft  from_box
+				  );
 
-		# Number of image bytes per request:
-		#
-		available = (int::min (dpy_info.max_request_length, 65536) - request_size) * 4;
+			depth =  list::length data;
 
-		fun copy_from_clientside_pixmap_to_pixmap_request (r as { col, row, wide, high }, to_point)
-		    =
-		    {
-			left_pad =  unt::to_int_x (
-					unt::bitwise_and (unt::from_int col, pad_to_bits scanline_unit - 0u1)
-				    );
+			pm  ->  { pixmap_id, screen, per_depth_imps => { to_screen_drawimp, ... }: sn::Per_Depth_Imps, ... }: dt::Rw_Pixmap;
 
-			byte_offset = (col - left_pad) / 8;
+			screen ->  { xsession=>{ xdisplay as (dpy_info: dy::Xdisplay), ... }: sn::Xsession, ... }: sn::Screen ;
 
-			num_bytes   = round_up (wide + left_pad, xt::RAW08) / 8;
+			scanline_pad  =  dpy_info.bitmap_scanline_pad;
+			scanline_unit =  dpy_info.bitmap_scanline_unit;
 
-			adjust      = adjust_image_data xdisplay;
-
-			# Given the list of data for a plane, extract a list of substrings
-			# corresponding to given rectangle, to the nearest byte.
+			# Minimum no. of 4-byte words needed for PutImage.
+			# There should be a function in XRequest to provide this.	XXX BUGGO FIXME
 			#
-			fun extract_box (rows:  List( w8v::Vector ))
+			request_size = 6;
+
+			# Number of image bytes per request:
+			#
+			available = (int::min (dpy_info.max_request_length, 65536) - request_size) * 4;
+
+			fun copy_from_clientside_pixmap_to_pixmap_request (r as { col, row, wide, high }, to_point)
 			    =
 			    {
-				fun skip (0, r) => r;
-				    skip (i, _ ! r) => skip (i - 1, r);
-				    skip (i, []) => xgripe::impossible "cs_pixmap_old: extract_box (skip)";
-				end;
+				left_pad =  unt::to_int_x (
+						unt::bitwise_and (unt::from_int col, pad_to_bits scanline_unit - 0u1)
+					    );
+
+				byte_offset = (col - left_pad) / 8;
+
+				num_bytes   = round_up (wide + left_pad, xt::RAW08) / 8;
+
+				adjust      = adjust_image_data xdisplay;
+
+				# Given the list of data for a plane, extract a list of substrings
+				# corresponding to given rectangle, to the nearest byte.
+				#
+				fun extract_box (rows:  List( w8v::Vector ))
+				    =
+				    {
+					fun skip (0, r) => r;
+					    skip (i, _ ! r) => skip (i - 1, r);
+					    skip (i, []) => xgripe::impossible "cs_pixmap_old: extract_box (skip)";
+					end;
 
 
-				fun extract_row (0, _)
-					=>
-					[];
+					fun extract_row (0, _)
+						=>
+						[];
 
-				    extract_row (i, my_row ! rest)
-					=>
-					if (   byte_offset == 0
-					   and num_bytes == w8v::length my_row
-					   )
+					    extract_row (i, my_row ! rest)
+						=>
+						if (   byte_offset == 0
+						   and num_bytes == w8v::length my_row
+						   )
 
-					     my_row ! (extract_row (i - 1, rest));
-					else
-					     (w8vextract (my_row, byte_offset, THE num_bytes))
-					     !
-					     (extract_row (i - 1, rest));
-					fi;
+						     my_row ! (extract_row (i - 1, rest));
+						else
+						     (w8vextract (my_row, byte_offset, THE num_bytes))
+						     !
+						     (extract_row (i - 1, rest));
+						fi;
 
-				    extract_row (i,[])
-					=>
-					xgripe::impossible "cs_pixmap_old: extract_row";
-				end;
+					    extract_row (i,[])
+						=>
+						xgripe::impossible "cs_pixmap_old: extract_row";
+					end;
 
-				extract_row (high, skip (row, rows));
+					extract_row (high, skip (row, rows));
+				    };
+
+				xdata =  map  extract_box  data;
+
+				to_screen_drawimp
+				    (di::d::DRAW
+				      {
+					to  => pixmap_id,
+					pen => pn::default_pen,
+					op  => di::o::PUT_IMAGE {
+					    to_point,
+					    size => { wide, high },
+					    depth,
+					    lpad => left_pad,
+					    format => xt::XYPIXMAP,
+		  /*** THIS SHOULD BE
+					    data = w8v::cat (list::cat (map adjust xdata))
+		  ***/
+					    data => w8v::cat (map (w8v::cat o adjust) xdata)
+					  }
+				      }
+				    );
+			      };					# fun copy_from_clientside_pixmap_to_pixmap_request
+
+			# Decompose copy_from_clientside_pixmap_to_pixmap
+			# into multiple requests smaller than max size.
+			#
+			# First try to use as many rows as possible;
+			# if there is only one row left and it is
+			# still too large, decompose by columns:
+			#
+			fun put_sub_image (r as { col, row, wide, high }, pt as { col=>dx, row=>dy } )
+			    =
+			    {   left_pad
+				    =
+				    unt::to_int_x (unt::bitwise_and (unt::from_int col,  pad_to_bits scanline_unit - 0u1));
+
+				bytes_per_row
+				    =
+				    (round_up (wide + left_pad, scanline_pad) / 8) * depth;
+
+				if ((bytes_per_row * high) <= available)
+				    #
+				    copy_from_clientside_pixmap_to_pixmap_request (r, pt);
+				else
+				    if (high > 1)
+					#
+					high' = int::max (1, available / bytes_per_row);
+
+					put_sub_image ({ col, row, wide, high=>high' }, pt);
+					put_sub_image ({ col, row=>row+high', wide, high=>high-high' }, { col=>dx, row=>dy+high' } );
+				    else
+					wide' = round_down (available * 8, scanline_pad) - left_pad;
+
+					put_sub_image ({ col, row, wide=>wide', high=>1 }, pt);
+					put_sub_image ({ col=>col+wide', row, wide=>wide-wide', high=>1 }, { col=>dx+wide', row=>dy } );
+				    fi;
+				fi;
 			    };
 
-			xdata =  map  extract_box  data;
+			put_sub_image (from_box', g2d::point::add (to_point, delta));
 
-			to_screen_drawimp
-			    (di::d::DRAW
-			      {
-				to  => pixmap_id,
-				pen => pn::default_pen,
-				op  => di::o::PUT_IMAGE {
-				    to_point,
-				    size => { wide, high },
-				    depth,
-				    lpad => left_pad,
-				    format => xt::XYPIXMAP,
-	  /*** THIS SHOULD BE
-				    data = w8v::cat (list::cat (map adjust xdata))
-	  ***/
-				    data => w8v::cat (map (w8v::cat o adjust) xdata)
-				  }
-			      }
-			    );
-		      };					# fun copy_from_clientside_pixmap_to_pixmap_request
-
-		# Decompose copy_from_clientside_pixmap_to_pixmap
-		# into multiple requests smaller than max size.
-		#
-		# First try to use as many rows as possible;
-		# if there is only one row left and it is
-		# still too large, decompose by columns:
-		#
-		fun put_sub_image (r as { col, row, wide, high }, pt as { col=>dx, row=>dy } )
-		    =
-		    {   left_pad
-			    =
-			    unt::to_int_x (unt::bitwise_and (unt::from_int col,  pad_to_bits scanline_unit - 0u1));
-
-			bytes_per_row
-			    =
-			    (round_up (wide + left_pad, scanline_pad) / 8) * depth;
-
-			if ((bytes_per_row * high) <= available)
-			    #
-			    copy_from_clientside_pixmap_to_pixmap_request (r, pt);
-			else
-			    if (high > 1)
-				#
-				high' = int::max (1, available / bytes_per_row);
-
-				put_sub_image ({ col, row, wide, high=>high' }, pt);
-				put_sub_image ({ col, row=>row+high', wide, high=>high-high' }, { col=>dx, row=>dy+high' } );
-			    else
-				wide' = round_down (available * 8, scanline_pad) - left_pad;
-
-				put_sub_image ({ col, row, wide=>wide', high=>1 }, pt);
-				put_sub_image ({ col=>col+wide', row, wide=>wide-wide', high=>1 }, { col=>dx+wide', row=>dy } );
-			    fi;
-			fi;
-		    };
-
-		put_sub_image (from_box', g2d::point::add (to_point, delta));
-
-	    };				# fun copy_from_clientside_pixmap_to_pixmap 
-
+		    };				# fun copy_from_clientside_pixmap_to_pixmap 
+	    esac;
 
 
 	#  Create image data from an ascii representation 
