@@ -229,28 +229,16 @@ herein
 
 	Guiboss_Q    = Mailqueue( Runstate -> Void );
 
-	fun compute_visible_part_of_gadget										# Because we allow nested scrollable subwindows of main topwindow for app,
+	fun compute_gadget_redraw_op											# Because we allow nested scrollable subwindows of main topwindow for app,
 	      (														# figuring out where on the topwindow a given gadget is visible -- if it
-		gadget_info:			Gadget_Info								# is visible at all! -- takes some work.  That's our job here.
-	      )	 
+		gadget_info:			Gadget_Info								# is visible at all! -- and how much is visible takes some work.
+	      )	 													# That's our job here.
 	    =
 	    {
-#	Gadget_Info													# The per-gadget information we track.  (This is private to guiboss-imp.)
-#	  =														# Here 'gadget' refers indifferently to widget-imps, sprite-imps and object-imps.
-#	  {
-#	    site:			Site,										# Where to draw this widget, in topwindow coordinates.
-#	    backing_pixmap:		Ref(s2g::Backing_Pixmap),
-#	    #
-#	    guiboss_to_gadget:		b2g::Guiboss_To_Gadget,								# We use this to make requests of visible widgets.
-#	    gadget_mode:		Ref( g2g::Gadget_Mode ),
-#	    #
-#	    may_have_visibly_changed:	Ref( Bool ),									# 
-#	    #
-#	    point_in_gadget:		Ref( Null_Or( g2d::Point -> Bool ))						# Optional fn to decide if a mouseclick actually hit the gadget itself, or just somewhere near it in the screenspace assigned to it.
-#	  };  
 		fun compute_gadget_redraw_transform
 		      (
-			s2g::TOPWINDOW_PIXMAP (gadget_to_rw_pixmap: g2p::Gadget_To_Rw_Pixmap),
+			s2g::TOPWINDOW_PIXMAP _,
+			#
 			from_box:	g2d::Box,
 			to_point:	g2d::Point
 		      )
@@ -263,7 +251,6 @@ herein
 						parent:		s2g::Backing_Pixmap,
 						viewport:	g2d::Box,						# Size and location of subwindow viewport in parent Backing_Pixmap coordinates.
 						#
-# ORIGIN SHOULD BE LOCATION OF SUBVIEW RELATIVE TO VIEWPORT SITE -- NOT RELATIVE TO PARENT PIXMAP ORIGIN. Because we want it to be unchanged if viewport is repositioned on parent.
 						origin:	Ref(g2d::Point)							# Used to scroll subwindow contents around in parent viewport
 					      },
 			from_box:	g2d::Box,									# From-box in gadget's home pixmap.
@@ -286,36 +273,47 @@ herein
 				#
 				THE from_box'
 				    =>
-				    if (g2d::box::eq (from_box', from_box))
-					#
-#					from_point =  g2d::box::upperleft( from_box );
-#					site'      =  g2d::box::clone_box_at (site, g2d::point::subtract(from_point,to_point));
+				    {
+					my (to_point, from_box)								# Update to_point and from_box to account for clipping due
+					    =										# to intersection between viewport and old from_box value.
+					    if (g2d::box::eq (from_box', from_box))
+						#
+						(to_point, from_box);							# No actual clipping (from_box must be completely visible in viewport) so nothing to do here.
 
-					# Compute where from_box should be drawn in current sub/window:
-					#
-#					to_point = g2d::point::add (to_point, g2d::box::upperleft(site));		# Account for location of viewport relative to parent pixmap.
-#					to_point = g2d::point::add (to_point, *origin);					# Account for location of subview  relative to viewport.
+					    elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),			# Is origin of from_box' different from origin or from_box?
+								   g2d::box::upperleft( from_box  )
+						 ) 		   )
 
+						(to_point, from_box');							# No, so to_point stays the same, we just replace from_box with from_box'.
+					    else
+															# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
+						frombox_displacement
+						    =
+						    g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
+									  g2d::box::upperleft( from_box  )
+									);
 
-# HERE WE NEED TO RECOMPUTE from_box AND to_point APPROPRIATELY.  XXX BUGGO FIXME.
-# NOW WE NEED TO POSSIBLY RESTRICT from_box IF NOT ALL OF IT IS VISIBLE
+						to_point'   = g2d::point::add (to_point, frombox_displacement);		# Apply it.
 
-#					from_box =  g2d::box::intersect (from_box, ???)
-#					except
-#					    g2d::INTERESCT = ???
+						(to_point', from_box');							# Done.
+					    fi;
 
-					compute_gadget_redraw_transform (parent, from_box, to_point);
-				    else
-					compute_gadget_redraw_transform (parent, from_box, to_point);
-				    fi;
+															# Now we just need to compute where from_box should be drawn in
+															# current sub/window, then update to_point and continue recursively.
+					
+					to_point = g2d::point::add (to_point, *origin);					# Account for location of subview  relative to viewport.
+					to_point = g2d::point::add (to_point, g2d::box::upperleft(viewport));		# Account for location of viewport relative to parent pixmap.
+
+					compute_gadget_redraw_transform (parent, from_box, to_point);			# Continue recursively to next level of viewport nesting.
+				    };
 			    esac;
 			};
 		end;
 
-		from_box  = *gadget_info.site;										# Where should we copy pixels from, on gadget's home pixmap?  We initialize this to the full site for the gadget.
+		from_box  = *gadget_info.site;										# Where should we copy pixels from, on gadget's home pixmap?  We initialize this to the full site for the gadget; later it may get clipped by viewports.
 		to_point  = g2d::box::upperleft  from_box;								# Where should we copy pixels to, on the visible topwindow?   We initialize this to the null transform, correct for simple case of no VIEWPORTs.
 
-		case (compute_gadget_redraw_transform  (*gadget_info.backing_pixmap, from_box, to_point))
+		case (compute_gadget_redraw_transform  (*gadget_info.backing_pixmap, from_box, to_point))		# See how much (if anything) of gadget is visible through viewports (if it is on a scrollable subview or such).
 		    #
 		    NULL => NULL;											# No part of the gadget is currently visible on topwindow, so no update operation is required.
 		    #
@@ -323,7 +321,7 @@ herein
 			  to_point											# This is the topwindow point to which from_box should copied to properly update topwindow.
 			) 
 			=>
-			{   rw_pixmap =  s2g::backing_pixmap_id_of  *gadget_info.backing_pixmap;
+			{   rw_pixmap =  s2g::backing_pixmap_id_of  *gadget_info.backing_pixmap;			# This is the pixmap holding the up-to-date offscreen image of the gadget.
 			    #
 			    THE { from_box, to_point, rw_pixmap };							# Return the required arg for gd::COPY_FROM_RW_PIXMAP to update topwindow with visible part of given gadget.
 			};
