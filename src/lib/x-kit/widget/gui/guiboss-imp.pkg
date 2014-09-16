@@ -229,104 +229,136 @@ herein
 
 	Guiboss_Q    = Mailqueue( Runstate -> Void );
 															# Nomenclature: "blit" is from "BitBLT" == "bit-boundary block transfer" -- originally a Xerox Alto graphics op, now informal jargon term. For more info:   http://en.wikipedia.org/wiki/Bit_blit
-	fun compute_gadget_redraw_blit											# Because we allow nested scrollable subwindows of main topwindow for app,
-	      (														# it is nontrivial to figure out where on the topwindow a given gadget is
-		gadget_info:			Gadget_Info								# visible -- if it is visible at all! -- and how much is visible, and what
-	      )	 													# pixel rectangle to copy from where to where to update the gadget's on-
-	    =														# screen image.  That's our job here.
+															# Because we allow nested scrollable subwindows of main topwindow for app,
+															# it is nontrivial to figure out where on the topwindow a given gadget is
+															# visible -- if it is visible at all! -- and how much is visible, and what
+		 													# pixel rectangle to copy from where to where to update the gadget's on-
+															# screen image.  That's our job here.
+	fun update_offscreen_parent_pixmaps_and_then_topwindow
+	      (
+		gadget_info:			Gadget_Info,
+		topwindow_for_gui:		gws::Guiboss_To_Topwindow
+	      )
+	    =
 	    {
-		fun compute_gadget_redraw_transform
+		from_box  = *gadget_info.site;										# Where should we copy pixels from, on gadget's home pixmap?  We initialize this to the full site for the gadget; later it may get clipped by viewports.
+		from_id   =  s2g::backing_pixmap_id_of  *gadget_info.backing_pixmap;					# This is the pixmap holding the up-to-date offscreen image of the gadget.
+		to_point  = g2d::box::upperleft  from_box;								# Where should we copy pixels to, on the visible topwindow?   We initialize this to the null transform, correct for simple case of no VIEWPORTs.
+
+		do_blits  (*gadget_info.backing_pixmap, from_id, from_box, to_point);					# Copy visible part of gadget to the backing pixmap for the viewport containing it, the backing pixmap for the viewport containing that viewport etc and finally the visible topwindow itself.
+	    }														# Typically there will be no viewports involved, so this will be just a blit to the topwindow.
+	    where
+		fun do_blits
 		      (
 			s2g::TOPWINDOW_PIXMAP _,
 			#
-			from_box:	g2d::Box,
-			to_point:	g2d::Point
+			from_id:	Id,										# 
+			from_box:	g2d::Box,									# This is the visible part of the gadget, in pixel coords on its home backing pixmap.
+			to_point:	g2d::Point									# This is the topwindow point to which from_box should copied to properly update topwindow.
 		      )
 			=>
-			THE (from_box, to_point);
+			{   from_id =  s2g::backing_pixmap_id_of  *gadget_info.backing_pixmap;				# This is the pixmap holding the up-to-date offscreen image of the gadget.
+			    #
+			    topwindow_for_gui.draw_displaylist								# Blit visible part of gadget (maybe all) to visible window for user to see.
+			      [
+				gd::COPY_FROM_RW_PIXMAP { from_box, to_point, from_id }
+			      ];
+			};
 
-		    compute_gadget_redraw_transform
+		    do_blits
 		      (
 			s2g::VIEWPORT_PIXMAP  { pixmap:		g2p::Gadget_To_Rw_Pixmap,
-						parent:		s2g::Backing_Pixmap,
-						viewport:	g2d::Box,						# Size and location of subwindow viewport in parent Backing_Pixmap coordinates.
-						#
-						subview_origin:	Ref(g2d::Point)						# Used to scroll subwindow contents around in parent viewport: subview origin in viewport coordinates.
+						viewports:	Ref( List( s2g::Viewport ) )				# We make this a Re(List(...)) to allow for adding additional viewports opening onto the same underlying pixmap.
 					      },
+			from_id:	Id,										# 
 			from_box:	g2d::Box,									# From-box in gadget's home pixmap.
 			to_point:	g2d::Point									# To-point in current window's coordinates.
 		      )
 			=>
 			{
-			    viewport' = g2d::box::clone_box_at (viewport, *subview_origin);				# If the from_box is not entirely visible in the viewport
-															# then we need to clip it to the viewport.  Since we want
-															# the clipped from_box to be in the gadget's home pixmap,
-															# the most straightforward approach is to transform the
-															# viewport into home pixmap space.  If *subview_origin is 0,0
-															# then viewport is at (0,0) in home pixmap, otherwise
-															# it is offset by *subview_origin, so in general we want the
-															# viewport cloned at *subview_origin.
-															#
-			    case (g2d::box::intersection (viewport', from_box))
-				#
-				NULL => NULL;										# No intersection between from_box and viewport' means no part of gadget is visible, so just return NULL.
-				#
-				THE from_box'
-				    =>
-				    {
-					my (to_point, from_box)								# Update to_point and from_box to account for clipping due
-					    =										# to intersection between viewport and old from_box value.
-					    if (g2d::box::eq (from_box', from_box))
+			    apply   do_viewport  *viewports
+				    where
+					fun do_viewport
+					      {	parent_pixmap:	s2g::Backing_Pixmap,
+						viewport_site:	g2d::Box,								# Size and location of subwindow viewport in parent Backing_Pixmap coordinates.
 						#
-						(to_point, from_box);							# No actual clipping (from_box must be completely visible in viewport) so nothing to do here.
+						subview_origin:	Ref(g2d::Point)								# Used to scroll subwindow contents around in parent viewport: subview origin in viewport coordinates.
+					      }
+					    =
+					    {
+						viewport' = g2d::box::clone_box_at (viewport_site, *subview_origin);			# If the from_box is not entirely visible in the viewport
+																	# then we need to clip it to the viewport.  Since we want
+																	# the clipped from_box to be in the gadget's home pixmap,
+																	# the most straightforward approach is to transform the
+																	# viewport into home pixmap space.  If *subview_origin is 0,0
+																	# then viewport is at (0,0) in home pixmap, otherwise
+																	# it is offset by *subview_origin, so in general we want the
+																	# viewport cloned at *subview_origin.
+						case (g2d::box::intersection (viewport', from_box))
+						    #
+						    NULL => ();										# No intersection between from_box and viewport' means no part of gadget is visible, so just return NULL.
+						    #
+						    THE from_box'
+							=>
+							{
+							    my (to_point, from_box)							# Update to_point and from_box to account for clipping due
+								=									# to intersection between viewport and old from_box value.
+								if (g2d::box::eq (from_box', from_box))
+								    #
+								    (to_point, from_box);						# No actual clipping (from_box must be completely visible in viewport) so nothing to do here.
 
-					    elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),			# Is origin of from_box' different from origin or from_box?
-								   g2d::box::upperleft( from_box  )
-						 ) 		   )
+								elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),		# Is origin of from_box' different from origin or from_box?
+										       g2d::box::upperleft( from_box  )
+								     ) 		   )
 
-						(to_point, from_box');							# No, so to_point stays the same, we just replace from_box with from_box'.
-					    else
-															# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
-						frombox_displacement
-						    =
-						    g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
-									  g2d::box::upperleft( from_box  )
-									);
+								    (to_point, from_box');						# No, so to_point stays the same, we just replace from_box with from_box'.
+								else
+																	# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
+								    frombox_displacement
+									=
+									g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
+											      g2d::box::upperleft( from_box  )
+											    );
 
-						to_point'   = g2d::point::add (to_point, frombox_displacement);		# Apply it.
+								    to_point'   = g2d::point::add (to_point, frombox_displacement);	# Apply it.
 
-						(to_point', from_box');							# Done.
-					    fi;
+								    (to_point', from_box');						# Done.
+								fi;
 
-															# Now we just need to compute where from_box should be drawn in
-															# current sub/window, then update to_point and continue recursively.
-					
-					to_point = g2d::point::add (to_point, *subview_origin);				# Account for location of subview  relative to viewport.
-					to_point = g2d::point::add (to_point, g2d::box::upperleft(viewport));		# Account for location of viewport relative to parent pixmap.
+																	# Now we just need to compute where from_box should be drawn in
+																	# current sub/window, then update to_point and continue recursively.
 
-					compute_gadget_redraw_transform (parent, from_box, to_point);			# Continue recursively to next level of viewport nesting.
-				    };
-			    esac;
+							    to_point = g2d::point::add (to_point, *subview_origin);			# Account for location of subview  relative to viewport.
+							    to_point = g2d::point::add (to_point, g2d::box::upperleft(viewport_site));	# Account for location of viewport relative to parent pixmap.
+
+							    parent_rw_pixmap =  s2g::gadget_to_rw_pixmap__of  parent_pixmap;		# Find off-screen backing pixmap containing viewport onto us.
+							    from_id		 =  pixmap.id;						# Pixmap to copy rectangle from (as Id).
+							    gui_displayop   =  gd::COPY_FROM_RW_PIXMAP { from_box, to_point, from_id }; # The actual copy from our pixmap to viewport area in parent pixmap.
+							    parent_rw_pixmap.draw_displaylist [ gui_displayop ];			# Draw updated gadget appearance into its off-screen backing-pixmap home site.
+
+
+# THE KEYS TO MAKING THIS AIRTIGHT ARE
+#  1) Pass from_id down the recursion stack -- should always be the previous pixmap.
+#  2) Update from_box to be on the parent.
+# The point is that by updating from_id on parent
+# and setting from_box to be on parent, we restore
+# the initial condition that they are from immediate
+# parent pixmap, thus making for clean recursion.
+#
+# Right now we're copying from gadget pixmap each
+# recursive cycle, so relationship between from and to
+# pixmaps gets steadily more complex.  We could make
+# that work, but it is simpler to Just Say No to that idea.
+
+
+							    do_blits (parent_pixmap, from_id, from_box, to_point);			# Continue recursively to next level of viewport nesting.
+							};
+						esac;
+					    };
+				    end;	
 			};
 		end;
-
-		from_box  = *gadget_info.site;										# Where should we copy pixels from, on gadget's home pixmap?  We initialize this to the full site for the gadget; later it may get clipped by viewports.
-		to_point  = g2d::box::upperleft  from_box;								# Where should we copy pixels to, on the visible topwindow?   We initialize this to the null transform, correct for simple case of no VIEWPORTs.
-
-		case (compute_gadget_redraw_transform  (*gadget_info.backing_pixmap, from_box, to_point))		# See how much (if anything) of gadget is visible through viewports (if it is on a scrollable subview or such).
-		    #
-		    NULL => NULL;											# No part of the gadget is currently visible on topwindow, so no update operation is required.
-		    #
-		    THE	( from_box,											# This is the visible part of the gadget, in pixel coords on its home backing pixmap.
-			  to_point											# This is the topwindow point to which from_box should copied to properly update topwindow.
-			) 
-			=>
-			{   rw_pixmap =  s2g::backing_pixmap_id_of  *gadget_info.backing_pixmap;			# This is the pixmap holding the up-to-date offscreen image of the gadget.
-			    #
-			    THE  (gd::COPY_FROM_RW_PIXMAP { from_box, to_point, rw_pixmap });				# Return a draw-op to update topwindow with visible part of given gadget.
-			};
-		esac;
-	    };
+	    end;
 
 	fun run ( guiboss_q:			Guiboss_Q,								# 
 		  #
@@ -884,11 +916,7 @@ printf "restart_gui'/BBB\n";
 															# Also, draw-offscreen-and-blit completely eliminates redraw flicker
 															# where "flicker" == partly-redrawn widget being visible momentarily:
 															# it is essentially a primitive form of double-buffering.
-			case (compute_gadget_redraw_blit  gadget_info)
-			    #
-			    NULL	    =>  ();									# No part of gadget is visible on topwindow, so nothing to do here.
-			    THE redraw_blit =>  topwindow_for_gui.draw_displaylist  [ redraw_blit ];			# Blit visible part of gadget (maybe all) visible window for user to see.
-			esac;
+			update_offscreen_parent_pixmaps_and_then_topwindow  (gadget_info, topwindow_for_gui);
 		    };
 
 		#
