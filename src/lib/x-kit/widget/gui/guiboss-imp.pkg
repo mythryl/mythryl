@@ -23,7 +23,6 @@ stipulate
 #   package fti =  font_index;					# font_index			is from	  src/lib/x-kit/xclient/src/window/font-index.pkg
 #   package r2k =  xevent_router_to_keymap;			# xevent_router_to_keymap	is from   src/lib/x-kit/xclient/src/window/xevent-router-to-keymap.pkg
 #   package mtx =  rw_matrix;					# rw_matrix			is from   src/lib/std/src/rw-matrix.pkg
-#   package rgb =  rgb;						# rgb				is from   src/lib/x-kit/xclient/src/color/rgb.pkg
 #   package rop =  ro_pixmap;					# ro_pixmap			is from   src/lib/x-kit/xclient/src/window/ro-pixmap.pkg
 #   package rw  =  root_window;					# root_window			is from   src/lib/x-kit/widget/lib/root-window.pkg
 #   package rwv =  rw_vector;					# rw_vector			is from   src/lib/std/src/rw-vector.pkg
@@ -98,6 +97,7 @@ stipulate
 #   package is  =  int_red_black_set;				# int_red_black_set		is from   src/lib/src/int-red-black-set.pkg
 
     package r8  =  rgb8;					# rgb8				is from   src/lib/x-kit/xclient/src/color/rgb8.pkg
+    package r64 =  rgb;						# rgb				is from   src/lib/x-kit/xclient/src/color/rgb.pkg
     package g2d =  geometry2d;					# geometry2d			is from   src/lib/std/2d/geometry2d.pkg
 
     tracefile   =  "widget-unit-test.trace.log";
@@ -228,6 +228,23 @@ herein
 		      };
 
 	Guiboss_Q    = Mailqueue( Runstate -> Void );
+
+
+	fun clear_viewport												# Clear a viewport to black, mostly to avoid undefined values etc.
+	      (
+		  { parent_pixmap:	s2g::Backing_Pixmap,								# pixmap holding the viewport.
+		    viewport_site:	Ref(g2d::Box),									# Site of viewport on pixmap.
+		    ...
+		  }
+		  :			s2g::Viewport
+	      )
+	    =
+	    case parent_pixmap
+		#
+		s2g::TOPWINDOW_PIXMAP { pixmap:	g2p::Gadget_To_Rw_Pixmap      } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ *viewport_site ]]) ];
+		s2g::VIEWPORT_PIXMAP  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ *viewport_site ]]) ];
+	    esac;
+
 															# Nomenclature: "blit" is from "BitBLT" == "bit-boundary block transfer" -- originally a Xerox Alto graphics op, now informal jargon term. For more info:   http://en.wikipedia.org/wiki/Bit_blit
 															# Because we allow nested scrollable subwindows of main topwindow for app,
 															# it is nontrivial to figure out where on the topwindow a given gadget is
@@ -1523,23 +1540,23 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 
 					viewport	=  REF { row => 0, col => 0, high => 0, wide => 0 };		# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
 
+					viewport_record = { parent_pixmap =>  current_backing_pixmap,			# The backing_pixmap we were doing before diving recursively into this subview.
+							    subview_origin => pixmap_origin,
+							    viewport_site => viewport					# Site of subview on parent.
+														      # XXX SUCKO FIXME Currently we store 'site' both here and in rg::VIEWPORT.
+														      #           We'll probably wind up using only one;  (???)  BTW, SHOULDN'T THIS BE A REF so WE CAN UPDATE SITE WHEN DOING RE-LAYOUT?
+														      #		  we should delete the unused one.
+							  };
+
 					backing_pixmap  = s2g::VIEWPORT_PIXMAP
 							    {
-							      pixmap    => gadget_to_rw_pixmap,						# The backing pixmap for this subview.
-							      viewports =>  REF [								# Initially at least subview_pixmap is visible through only this one viewport.
-									      { parent_pixmap =>  current_backing_pixmap,			# The backing_pixmap we were doing before diving recursively into this subview.
-										subview_origin => pixmap_origin,
-										viewport_site => viewport					# Site of subview on parent.
-																	  # XXX SUCKO FIXME Currently we store 'site' both here and in rg::VIEWPORT.
-																	  #           We'll probably wind up using only one;  (???)  BTW, SHOULDN'T THIS BE A REF so WE CAN UPDATE SITE WHEN DOING RE-LAYOUT?
-																	  #		  we should delete the unused one.
-									      }
-									    ]	
+							      pixmap    =>  gadget_to_rw_pixmap,			# The backing pixmap for this subview.
+							      viewports =>  REF [ viewport_record ]			# Initially at least subview_pixmap is visible through only this one viewport.
 							    };
 
 					widget		= do_packed_widget  (packed_widget, widget_to_packedspace, backing_pixmap);	# Process widget in new backing_pixmap not current_backing_pixmap!
 
-					viewport_scroller
+					viewport_scroller									# Define the get/set fns client code uses to scroll the viewport.
 					    =
 					    { get_viewport_origin,
 					      set_viewport_origin
@@ -1547,11 +1564,11 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 					    where
 						fun get_viewport_origin ()
 						    =
-						    *pixmap_origin;
+						    *pixmap_origin;								# Origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
 
 						fun set_viewport_origin (p: g2d::Point)
 						    =
-						    {   pixmap_origin := p;
+						    {   pixmap_origin := p;							# Note new origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
 							#
 																    # XXX BUGGO COMPLETEME 
 																    # Here we need to somehow use
@@ -1560,15 +1577,49 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 			
 
 
-							pixmap_box   = g2d::box::clone_box_at (*viewport, *pixmap_origin);				# Box with size of pimap, at pixmap origin in viewport coordinates.
-							viewport_box = *viewport; 									# Viewport site in  parent window coordinates.
-# XXX BUGGO FIXME totally bogus from_box definition
-							from_box = viewport_box;
-#																			from_box = g2d::box::intersection (from_box, 
+							pixmap_box =  g2d::box::make
+									(
+									  g2d::point::zero, 
+									  gadget_to_rw_pixmap.size
+									);
 
-# Here gadget_to_rw_pixmap is   gadget_to_pixmap::Gadget_To_Rw_Pixmap
-# but it needs to be       space_to_gui::Backing_Pixmap
-#							update_offscreen_parent_pixmaps_and_then_topwindow  (gadget_to_rw_pixmap, from_box, topwindow_for_gui);
+
+							viewport_box_in_parent_pixmap = *viewport; 				# Viewport site in  parent window coordinates.
+
+							viewport_origin_in_pixmap_coordinates
+							    =
+							    { row => -p.row,
+							      col => -p.col
+							    };
+
+							viewport_box_in_our_pixmap
+							    =
+							    g2d::box::clone_box_at
+							      (
+								viewport_box_in_parent_pixmap,
+								viewport_origin_in_pixmap_coordinates
+							      );
+
+							if (not (g2d::box::box_in_box (viewport_box_in_our_pixmap, pixmap_box)))	# Does our pixmap fill the viewport on parent pixmap?
+							    #										# No, so we have to clear the remainder of the viewport.
+							    clear_viewport  viewport_record;						# Clear a viewport to black, mostly to avoid undefined values etc.background = [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ background_box ]]) ];
+							fi;
+
+							from_box = g2d::box::intersection						# We want to draw on parent only that part which is visible and which exists.
+								      (
+									viewport_box_in_our_pixmap,					# This is the part that is visible.
+									pixmap_box							# This is what exists.
+								      );	
+
+							case from_box
+							    #
+							    NULL         => ();								# No intersection means nothing to draw. Pixmap must be scrolled completely out of sight...
+							    #
+							    THE from_box => update_offscreen_parent_pixmaps_and_then_topwindow		# Draw visible part pixmap on parent.
+									        #
+										(backing_pixmap, from_box, topwindow_for_gui);
+							esac;
+
 																    #
 																    # to get all parents pixmaps updated.
 																    # DON'T FORGET TO PROPERLY HANDLE AREAS NOT COVERED BY PIXMAP!
@@ -1669,8 +1720,6 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 					    ->
 					    { guiboss_to_gadget, packedspace_to_widget };
 
-
-# XXX BUGGO FIXME   This can't be right, not every widget is on the topwindow pixmap:
 
 					gadget_info  =  make_gadget_info  (guiboss_to_gadget, current_backing_pixmap);
 nb {. sprintf "do_packed_widget/WIDGET doing gadget_imps += %d   -- guiboss-imp.pkg" (iul::id_to_int guiboss_to_gadget.id); };
