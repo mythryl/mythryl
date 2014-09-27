@@ -230,23 +230,20 @@ herein
 	Guiboss_Q    = Mailqueue( Runstate -> Void );
 
 
-	fun clear_viewport												# Clear a viewport to black, mostly to avoid undefined values etc.
+	fun clear_box_in_pixmap												# Clear a box to black, mostly to avoid undefined values etc.
 	      (
-		  { parent_pixmap:	s2g::Backing_Pixmap,								# pixmap holding the viewport.
-		    viewport_site:	Ref(g2d::Box),									# Site of viewport on pixmap.
-		    ...
-		  }
-		  :			s2g::Viewport
+		pixmap:			s2g::Backing_Pixmap,								# pixmap holding the viewport.
+		box:			g2d::Box									# Box in view coordinates.
 	      )
 	    =
-{
-nb {. sprintf "clear_viewport: viewport_site = { row => %d, col => %d, high => %d, wide => %d }" (*viewport_site).row (*viewport_site).col (*viewport_site).high (*viewport_site).wide; };
-	    case parent_pixmap
+	    {
 		#
-		s2g::TOPWINDOW_PIXMAP { pixmap:	g2p::Gadget_To_Rw_Pixmap      } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ *viewport_site ]]) ];
-		s2g::VIEWPORT_PIXMAP  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ *viewport_site ]]) ];
-	    esac;
-};
+		case pixmap
+		    #
+		    s2g::TOPWINDOW_PIXMAP { pixmap:	g2p::Gadget_To_Rw_Pixmap      } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		    s2g::VIEWPORT_PIXMAP  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		esac;
+	    };
 
 															# Nomenclature: "blit" is from "BitBLT" == "bit-boundary block transfer" -- originally a Xerox Alto graphics op, now informal jargon term. For more info:   http://en.wikipedia.org/wiki/Bit_blit
 															# Because we allow nested scrollable subwindows of main topwindow for app,
@@ -553,7 +550,7 @@ nb {. sprintf "running_gui__to__stopped_gui/ZZZ -- called  do_packed_widget..." 
 # Should we delete packing_pixmap at this point?  If not, when does it get recycled? 			*** XXX QUERO FIXME ***
 
 				  gadget_to_rw_pixmap:	g2p::Gadget_To_Rw_Pixmap,
-				  pixmap_origin:	Ref(g2d::Point),						# Origin of backing_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
+				  view_origin:		Ref(g2d::Point),						# Origin of backing_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
 				  callback:		gt::Viewport_Scroller_Callback,
 #				  viewport:		Ref(g2d::Box),							# The actual site assigned to the viewport on its home pixmap.  This gets set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
 				  backing_pixmap:	s2g::Backing_Pixmap,						# 
@@ -1518,7 +1515,7 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 									pixmap_size;
 
 
-					pixmap_origin   =   REF { row => 0,						# Subview origin in viewport coordinates. Controls which part of subview is visible in viewport.  guiboss-imp.pkg will update this in response to scrollbar motions etc.
+					view_origin   =   REF { row => 0,						# Subview origin in viewport coordinates. Controls which part of subview is visible in viewport.  guiboss-imp.pkg will update this in response to scrollbar motions etc.
 								  col => 0
 								};
 
@@ -1531,7 +1528,7 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 					viewport	=  REF g2d::box::zero;						# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/packed/packedspace-imp.pkg
 
 					viewport_record = { parent_pixmap  => current_backing_pixmap,			# The backing_pixmap we were doing before diving recursively into this subview.
-							    subview_origin => pixmap_origin,
+							    subview_origin => view_origin,
 							    viewport_site  => viewport					# Site of subview on parent.
 														      # XXX SUCKO FIXME Currently we store 'site' both here and in rg::SCROLLABLE_VIEW.
 														      #           We'll probably wind up using only one;  (???)
@@ -1555,58 +1552,91 @@ nb {. sprintf "do_packed_widget/ROW bottom  -- guiboss-imp.pkg"; };
 					    where
 						fun get_viewport_origin ()
 						    =
-						    *pixmap_origin;								# Origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
+						    *view_origin;								# Origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
 
-						fun set_viewport_origin (p: g2d::Point)
+						fun set_viewport_origin (view_origin_in_viewport_coordinates: g2d::Point)
 						    =
-						    {   pixmap_origin := p;							# Note new origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
-nb {. sprintf "set_viewport_origin/AAA: p = { row => %d, col => %d }" p.row p.col; };
-							#
-																    # XXX BUGGO COMPLETEME 
-																    # Here we need to somehow use
-																    #     update_offscreen_parent_pixmaps_and_then_topwindow()
-																    #
-			
+						    {										# In this routine we must clearly distinguish three different coordinate systems.
+																# We are dealing with a backing_pixmap for a scrollable view which is visible
+																# through a viewport which is located on a parent backing_pixmap.
+																# Thus, we have:
+																#  o  The coordinate system of the view itself, with 0,0 at upper-left of the view's backing pixmap.
+																#  o  The coordinate system of the parent,      with 0,0 at upper-left of its own    backing pixmap.
+																#  o  The coordinate system of the viewport,    with 0,0 at upper-left of the viewport.
+																# These three coordinate systems are related by
+																#  o  viewport_site, which gives the viewport origin (and size) in parent   coordinates.
+																#  o  view_origin,   which gives the view     origin            in viewport coordinates.
+																# We have boxes in all three coordinate systems here, so we must track carefully which box is in which coordinate system.
 
+							view_origin := view_origin_in_viewport_coordinates;			# Note new origin of gadget_to_rw_pixmap in viewport coordinates, used for scrolling pixmap in viewport.
 
-							pixmap_box =  g2d::box::make
-									(
-									  g2d::point::zero, 
-									  gadget_to_rw_pixmap.size
-									);
-nb {. sprintf "set_viewport_origin/BBB: pixmap_box = { row => %d, col => %d, high => %d, wide => %d }" pixmap_box.row pixmap_box.col pixmap_box.high pixmap_box.wide; };
-
-
-							viewport_box_in_parent_pixmap = *viewport; 				# Viewport site in  parent window coordinates.
-nb {. sprintf "set_viewport_origin/CCC: viewport_box_in_parent_pixmap = { row => %d, col => %d, high => %d, wide => %d }" viewport_box_in_parent_pixmap.row viewport_box_in_parent_pixmap.col viewport_box_in_parent_pixmap.high viewport_box_in_parent_pixmap.wide; };
-
-							viewport_origin_in_pixmap_coordinates
+							viewport_site_in_parent_coordinates
 							    =
-							    g2d::point::zero - p;
-nb {. sprintf "set_viewport_origin/DDD: viewport_origin_in_pixmap_coordinates = { row => %d, col => %d }" viewport_origin_in_pixmap_coordinates.row viewport_origin_in_pixmap_coordinates.col; };
+							    *viewport;
 
-							viewport_box_in_our_pixmap
+							viewport_origin_in_parent_coordinates
+							    =
+							    g2d::box::upperleft  viewport_site_in_parent_coordinates;
+
+							view_site_in_parent_coordinates
+							    =
+							    g2d::box::make
+							      (
+								view_origin_in_viewport_coordinates + viewport_origin_in_parent_coordinates,
+								gadget_to_rw_pixmap.size
+							      );
+
+							view_site_in_view_coordinates
+							    =
+							    g2d::box::make
+							      (
+								g2d::point::zero,
+								gadget_to_rw_pixmap.size
+							      );
+
+
+							viewport_origin_in_view_coordinates
+							    =
+							    g2d::point::zero - view_origin_in_viewport_coordinates;
+
+							viewport_site_in_view_coordinates
 							    =
 							    g2d::box::clone_box_at
 							      (
-								viewport_box_in_parent_pixmap,
-								viewport_origin_in_pixmap_coordinates
+								viewport_site_in_parent_coordinates,
+								viewport_origin_in_view_coordinates
 							      );
-nb {. sprintf "set_viewport_origin/EEE: viewport_box_in_our_pixmap = { row => %d, col => %d, high => %d, wide => %d }" viewport_box_in_our_pixmap.row viewport_box_in_our_pixmap.col viewport_box_in_our_pixmap.high viewport_box_in_our_pixmap.wide; };
 
-							if (not (g2d::box::box_a_in_box_b { a => viewport_box_in_our_pixmap,		# Does our pixmap fill the viewport on parent pixmap?
-											    b => pixmap_box
+							if (not (g2d::box::box_a_in_box_b { a => viewport_site_in_view_coordinates,	# Does our pixmap fill the viewport on parent pixmap?
+											    b => view_site_in_view_coordinates
 											  }
 							   )    )
 							    #										# No, so we have to clear the remainder of the viewport.
-nb {. "set_viewport_origin/FFF: calling clear_viewport"; };
-							    clear_viewport  viewport_record;						# Clear a viewport to black, mostly to avoid undefined values etc.background = [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ background_box ]]) ];
+							    #
+							    boxes_to_clear =  g2d::box::subtract_box_b_from_box_a			# Express area to be cleared as a list of non-overlapping rectangles.
+										{
+										  a => viewport_site_in_parent_coordinates,
+										  b => view_site_in_parent_coordinates
+										};
+
+							    apply do_box boxes_to_clear							# For each box to be cleared ...
+								where
+								    fun do_box (box: g2d::Box)
+									=
+									{
+									    clear_box_in_pixmap (viewport_record.parent_pixmap, box);	# ... fill it with black, then ...
+									    #
+									    update_offscreen_parent_pixmaps_and_then_topwindow		# ... copy that blackness all the way up the viewport chain to visible topwindow.
+										#
+										(viewport_record.parent_pixmap, box, topwindow_for_gui);
+									};
+								end;
 							fi;
 
 							from_box = g2d::box::intersection						# We want to draw on parent only that part which is visible and which exists.
 								      (
-									viewport_box_in_our_pixmap,					# This is the part that is visible.
-									pixmap_box							# This is what exists.
+									viewport_site_in_view_coordinates,				# This is the part that is visible.
+									view_site_in_view_coordinates					# This is what exists.
 								      );	
 
 							case from_box
@@ -1617,22 +1647,12 @@ nb {. "set_viewport_origin/FFF: calling clear_viewport"; };
 									        #
 										(backing_pixmap, from_box, topwindow_for_gui);
 							esac;
-
-																    #
-																    # to get all parents pixmaps updated.
-																    # DON'T FORGET TO PROPERLY HANDLE AREAS NOT COVERED BY PIXMAP!
-																    # Actually, maybe we should just clip 'p' so that this never happens?
-																    # That would mean enforcing that pixmap is always large enough to cover
-																    # viewport...?
-																    # Maybe we should just clear viewport to known value before drawing
-																    # the pixmap?  Actually, we should be able to check cheaply to see
-																    # if this is necessary.
 						    };	
 					    end;
 
 					callback (THE viewport_scroller);						# Give app client code a handle with which to gadget_to_rw_pixmap in viewport.
 
-					rg::SCROLLABLE_VIEW { callback, widget, gadget_to_rw_pixmap, pixmap_origin, backing_pixmap, site => viewport };
+					rg::SCROLLABLE_VIEW { callback, widget, gadget_to_rw_pixmap, view_origin, backing_pixmap, site => viewport };
 				    };
 
 				sg::TABBED_VIEWS									# A viewport onto a set of alternate pixmaps for tabbed viewing.
@@ -2152,7 +2172,7 @@ nb {. sprintf "do_packed_widget/WIDGET doing gadget_imps += %d   -- guiboss-imp.
 						rg::SCROLLABLE_VIEW r
 						    =>
 						    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into          view coordinate system.
-							point = point - *r.pixmap_origin;						# Transform mouseclick point into scrolled view coordinate system.
+							point = point - *r.view_origin;							# Transform mouseclick point into scrolled view coordinate system.
 							#
 							find_gadget_info (r.widget, point);						# Recursively search for target widget of mouseclick among widgets in scrollable view.
 						    };	
