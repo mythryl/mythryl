@@ -162,16 +162,34 @@ herein
 	    point_in_gadget:		Ref( Null_Or( g2d::Point -> Bool ))						# Optional fn to decide if a mouseclick actually hit the gadget itself, or just somewhere near it in the screenspace assigned to it.
 	  };  
 
+	fun same_gadget_info
+	      (
+		gadget_info1:		Gadget_Info,	
+		gadget_info2:		Gadget_Info
+	      )
+	    =
+	    iul::same_id ( gadget_info1.guiboss_to_gadget.id,
+			   gadget_info2.guiboss_to_gadget.id
+			 );
+
 	Gadget_Imps
 	  =
 	  Ref( im::Map( Gadget_Info ) );										# We use this to make requests of visible gadgets.	Index is  (id_to_int guiboss_to_gadget.id).
 
-	Drag_State
-	  =
-	  { gadget_info:		Gadget_Info,									# This is the gadget on which the drag started.  It gets all the motion events until drag terminates.
-	    start_point:		g2d::Point,									# This is the window coordinate of the downclick which started this drag.
-	    last_point:			g2d::Point									# This is the window coordinate of the last motion event for this drag.
-	  };
+	Mouse_Is													# Support for mouse drag operations.
+	  #
+	  = CROSSING_NONWIDGET												# Mouse is not currently to be on any gadget.
+	  #
+	  | CROSSING_WIDGET												# Mosue is currently on a gadget. Eventually we should issue ENTER and LEAVE events based on this. 	
+	      { gadget_info:		Gadget_Info									# This is the gadget on which the mouse is currently located. We send a LEAVE event when the mouse leaves it.
+	      }
+	  #
+	  | DRAGGING_WIDGET												# Mouse is being dragged on this gadget.
+	      { gadget_info:		Gadget_Info,									# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+		start_point:		g2d::Point,									# This is the window coordinate of the downclick which started this drag.
+		last_point:		g2d::Point									# This is the window coordinate of the last motion event for this drag.
+	      }
+	  ;
 
 	Topwindow_Info
 	  =
@@ -187,7 +205,7 @@ herein
 	    # The remainder are valid only while a gui is running,
 	    # which is to say, between restart_gui' and stop_gui':
 
-	    current_drag:			Ref(Null_Or(Drag_State)),
+	    mouse_is:			Ref( Mouse_Is ),								# Support for mouse drag operations.
 
 	    # These three are set by restart_gui'()
 	    # and reset to NULL by stop_gui'     
@@ -806,7 +824,7 @@ printf "restart_gui'/BBB\n";
 		current_frame_number		=  topwindow_info.current_frame_number;
 		seconds_per_frame		=  topwindow_info.seconds_per_frame;
 
-		current_drag			=  topwindow_info.current_drag;
+		mouse_is			=  topwindow_info.mouse_is;						# Support for mouse drag operations.
 
 		done_extra_startframe_this_frame=  topwindow_info.done_extra_startframe_this_frame;
 
@@ -2066,6 +2084,12 @@ printf "restart_gui'/BBB\n";
 		#
 		#
 		stipulate
+		    Appropriate_Gadget_Info
+		      #
+		      =    APPROPRIATE_GADGET (Gadget_Info, g2d::Point)	
+		      | NO_APPROPRIATE_GADGET               g2d::Point
+		      ;
+
 		    fun find_appropriate_gadget_info											# Which widget did the user click on?  This is usually easy but it might be in a scrollable view in a tabbed view in another scrollable view, say.
 			  (
 			    topwindow_info:		Topwindow_Info,
@@ -2080,13 +2104,13 @@ printf "restart_gui'/BBB\n";
 				where
 				    fun try_all_row_or_col_widgets ([]: List(rg::Row_Widget),  point: g2d::Point)
 					    =>
-					    NULL;
+					    NO_APPROPRIATE_GADGET point;
 
 					try_all_row_or_col_widgets (row_or_col_widget ! rest,  point)
 					    =>
 					    case (find_gadget_info  (row_or_col_widget.widget, point))
 						#
-						NULL =>  try_all_row_or_col_widgets (rest,  point);		# Try the remaining widgets in ROW/COL.
+						NO_APPROPRIATE_GADGET _ =>  try_all_row_or_col_widgets (rest,  point);		# Try the remaining widgets in ROW/COL.
 						info =>  info;							# Got it.
 					    esac;
 				    end
@@ -2128,29 +2152,29 @@ printf "restart_gui'/BBB\n";
 
 						        case (im::get (imps, id))
 							    #
-							    THE gadget_info =>  THE (gadget_info, point);				# Return event_point transformed into correct coordinate system for widget.
-							    NULL	    =>  NULL;
+							    THE gadget_info =>     APPROPRIATE_GADGET (gadget_info, point);				# Return event_point transformed into correct coordinate system for widget.
+							    NULL	    =>  NO_APPROPRIATE_GADGET               point ;
 							esac;
 						    };
 
 						rg::CANVASSPACE r
 						    =>
-NULL; # TBD
+NO_APPROPRIATE_GADGET point; # TBD
 
 						rg::BOUNCESPACE r
 						    =>
-NULL; # TBD
+NO_APPROPRIATE_GADGET point; # TBD
 
 						rg::NULL_PACKED_WIDGET
 						    =>
-						    NULL;
+						    NO_APPROPRIATE_GADGET point;
 					    esac;
 					else
-					    NULL;
+					    NO_APPROPRIATE_GADGET point;
 					fi;
 				end;
 			    #	 
-			    NULL => NULL;											# Maybe we should do:   log::fatal "find_appropriate_gadget_info' called while gui not running!";
+			    NULL => NO_APPROPRIATE_GADGET event_point;											# Maybe we should do:   log::fatal "find_appropriate_gadget_info' called while gui not running!";
 			esac;
 		herein
 
@@ -2164,23 +2188,116 @@ NULL; # TBD
 			=
 			case (find_appropriate_gadget_info (topwindow_info, motion_xevtinfo.event_point))
 			    #
-			    THE (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
+			    APPROPRIATE_GADGET (gadget_info, event_point)						# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
 				=>
-				{
-				    gadget_info.guiboss_to_gadget.note_mouse_move_event
-				      (
-					motion_xevtinfo.modifier_keys_state,
-					motion_xevtinfo.mousebuttons_state,
-					event_point,
-				       *gadget_info.site,
-					imports.theme
-				      );
+				{   mouse_is = topwindow_info.mouse_is;
+				    #
+				    case *mouse_is
+					#
+					CROSSING_NONWIDGET
+					    =>
+					    {   mouse_is := CROSSING_WIDGET { gadget_info };				# Remember which widget mouse is in. SHOULD GENERATE AN 'ENTER' HERE.
+						#
+						gadget_info.guiboss_to_gadget.note_mouse_move_event			# Note that buttons are always all up in a mouse-move event -- otherwise it is a mouse-drag event.
+						  (
+						    motion_xevtinfo.modifier_keys_state,
+						    event_point,
+						   *gadget_info.site,
+						    imports.theme
+						  );
+					    };	
+
+					CROSSING_WIDGET  { gadget_info => gadget_info2 }
+					    =>
+					    if (same_gadget_info (gadget_info, gadget_info2))
+						#									#
+						gadget_info.guiboss_to_gadget.note_mouse_move_event			# Note that buttons are always all up in a mouse-move event -- otherwise it is a mouse-drag event.
+						  (
+						    motion_xevtinfo.modifier_keys_state,
+						    event_point,
+						   *gadget_info.site,
+						    imports.theme
+						  );
+					    else									# We should generate a LEAVE for gadget_info1 and an ENTER for gadget_info2.
+						mouse_is := CROSSING_WIDGET { gadget_info => gadget_info2 };
+						#
+						gadget_info2.guiboss_to_gadget.note_mouse_move_event			# Note that buttons are always all up in a mouse-move event -- otherwise it is a mouse-drag event.
+						  (
+						    motion_xevtinfo.modifier_keys_state,
+						    event_point,
+						   *gadget_info.site,
+						    imports.theme
+						  );
+					    fi;
+
+					DRAGGING_WIDGET									# Mouse is being dragged on this gadget.
+					    {
+					      gadget_info,								# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+					      start_point,								# This is the window coordinate of the downclick which started this drag.
+					      last_point								# This is the window coordinate of the last motion event for this drag.
+					    }
+					    =>
+					    {
+						gadget_info.guiboss_to_gadget.note_mouse_drag_event				# We ignore the actual gadget and always signal the gadget which was originally downclicked.
+						  (										# Note that buttons are always all up in a mouse-move event -- otherwise it is a mouse-drag event.
+						    motion_xevtinfo.modifier_keys_state,
+						    motion_xevtinfo.mousebuttons_state,
+						    event_point,
+						   *gadget_info.site,
+						    imports.theme
+						  );
+
+						mouse_is := DRAGGING_WIDGET								# Mouse is being dragged on this gadget.
+							      {
+								gadget_info,								# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+								start_point,								# This is the window coordinate of the downclick which started this drag.
+								last_point => event_point						# This is the window coordinate of the last drag event for this drag.
+							      };
+					    };
+				    esac;
 				};
 
-			    NULL => {
-#					nb {. "guievent_sink()/guiboss/do_motion_notify: NO candidate found."; };
-					();
-				    };
+			    NO_APPROPRIATE_GADGET event_point
+				=> 
+				{   mouse_is = topwindow_info.mouse_is;
+				    #
+				    case *mouse_is
+					#
+					CROSSING_NONWIDGET
+					    =>
+					    ();										# Nothing to do in this case.
+
+					CROSSING_WIDGET  { gadget_info }						# Should sent LEAVE event in this case.
+					    =>
+					    mouse_is := CROSSING_NONWIDGET;
+
+					DRAGGING_WIDGET									# Mouse is being dragged on this gadget.
+					    {
+					      gadget_info,								# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+					      start_point,								# This is the window coordinate of the downclick which started this drag.
+					      last_point								# This is the window coordinate of the last motion event for this drag.
+					    }
+					    =>
+					    {	
+						gadget_info.guiboss_to_gadget.note_mouse_drag_event				# We continue to signal the gadget which was originally downclicked.
+						  (										# Note that buttons are always all up in a mouse-move event -- otherwise it is a mouse-drag event.
+						    motion_xevtinfo.modifier_keys_state,
+						    motion_xevtinfo.mousebuttons_state,
+						    event_point,
+						   *gadget_info.site,
+						    imports.theme
+						  );
+
+						mouse_is := DRAGGING_WIDGET								# Mouse is being dragged on this gadget.
+							      {
+								gadget_info,								# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+								start_point,								# This is the window coordinate of the downclick which started this drag.
+								last_point => event_point						# This is the window coordinate of the last drag event for this drag.
+							      };
+
+					    };
+				    esac;
+				};
 			esac;
 
 		    fun do_button_press												# 
@@ -2194,10 +2311,44 @@ NULL; # TBD
 			{
 			    case (find_appropriate_gadget_info (topwindow_info, button_xevtinfo.event_point))
 				#
-				THE (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
+				APPROPRIATE_GADGET (gadget_info, event_point)						# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
 				    =>
-				    {
-#					printf "guievent_sink()/guiboss/do_button_press: FOUND CANDIDATE!\n";
+				    {   mouse_is = topwindow_info.mouse_is;
+					#
+					case *mouse_is
+					    #
+					    CROSSING_NONWIDGET
+						=>
+						{   mouse_is := DRAGGING_WIDGET { gadget_info,
+										  start_point =>event_point,
+										  last_point  => event_point
+										};				# Remember which widget mouse is in. SHOULD GENERATE AN 'ENTER' HERE.
+						    #
+						};	
+
+					    CROSSING_WIDGET  { gadget_info => gadget_info2 }
+						=>
+						{   mouse_is := DRAGGING_WIDGET { gadget_info,
+										  start_point =>event_point,
+										  last_point  => event_point
+										};				# Remember which widget mouse is in. SHOULD GENERATE AN 'ENTER' HERE.
+						    #
+						};	
+
+					    DRAGGING_WIDGET									# Mouse is being dragged on this gadget.
+						{
+						  gadget_info,								# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+						  start_point,								# This is the window coordinate of the downclick which started this drag.
+						  last_point								# This is the window coordinate of the last motion event for this drag.
+						}
+						=>
+						{   mouse_is := DRAGGING_WIDGET { gadget_info,
+										  start_point,
+										  last_point  => event_point
+										};				# Remember which widget mouse is in. SHOULD GENERATE AN 'ENTER' HERE.
+						    #
+						};	
+					esac;
 					#	
 
 					# The mouseclick hit the window site assigned to this gadget.
@@ -2246,7 +2397,14 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 					fi;
 				    };
 
-				NULL =>  printf "guievent_sink()/guiboss/do_button_press: NO candidate found.\n";
+				NO_APPROPRIATE_GADGET _
+				    =>
+				    {   mouse_is = topwindow_info.mouse_is;
+					#
+					mouse_is := CROSSING_NONWIDGET;
+
+					printf "guievent_sink()/guiboss/do_button_press: NO candidate found.\n";
+				    };
 			    esac;
 			};
 
@@ -2261,9 +2419,35 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 			{
 			    case (find_appropriate_gadget_info (topwindow_info, button_xevtinfo.event_point))
 				#
-				THE (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
+				APPROPRIATE_GADGET (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
 				    =>
-				    {
+				    {   mouse_is = topwindow_info.mouse_is;
+					#
+					case *mouse_is
+					    #
+					    CROSSING_NONWIDGET
+						=>
+						{   mouse_is := CROSSING_WIDGET { gadget_info };
+						    #
+						};	
+
+					    CROSSING_WIDGET  { gadget_info => gadget_info2 }
+						=>
+						{   mouse_is := CROSSING_WIDGET { gadget_info };
+						    #
+						};	
+
+					    DRAGGING_WIDGET									# Mouse is being dragged on this gadget.
+						{
+						  gadget_info => gadget_info2,						# This is the gadget on which the drag started.  It gets all the motion events until drag terminates, even if mouse leaves the window area owned by the gadget.
+						  start_point,								# This is the window coordinate of the downclick which started this drag.
+						  last_point								# This is the window coordinate of the last motion event for this drag.
+						}
+						=>
+						{   mouse_is := CROSSING_WIDGET { gadget_info };
+						    #
+						};	
+					esac;
 #					printf "guievent_sink()/guiboss/do_button_release: FOUND CANDIDATE!\n";
 					#	
 					gadget_info.guiboss_to_gadget.note_mousebutton_release_event
@@ -2280,7 +2464,14 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 					gadget_info.may_have_visibly_changed :=  TRUE;
 				    };
 
-				NULL =>  printf "guievent_sink()/guiboss/do_button_release: NO candidate found.\n";
+				NO_APPROPRIATE_GADGET _
+				    =>
+				    {   mouse_is = topwindow_info.mouse_is;
+					#
+					mouse_is := CROSSING_NONWIDGET;
+
+					printf "guievent_sink()/guiboss/do_button_release: NO candidate found.\n";
+				    };
 			    esac;
 			};
 
@@ -2295,7 +2486,7 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 			{
 			    case (find_appropriate_gadget_info (topwindow_info, key_xevtinfo.event_point))
 				#
-				THE (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
+				APPROPRIATE_GADGET (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
 				    =>
 				    {   printf "guievent_sink()/guiboss/do_key_press: FOUND CANDIDATE!\n";
 					#	
@@ -2315,7 +2506,9 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 					gadget_info.may_have_visibly_changed :=  TRUE;
 				    };
 
-				NULL =>  printf "guievent_sink()/guiboss/do_key_press: NO candidate found.\n";
+				NO_APPROPRIATE_GADGET _
+				    =>
+				    printf "guievent_sink()/guiboss/do_key_press: NO candidate found.\n";
 			    esac;
 			};
 
@@ -2330,7 +2523,7 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 			{
 			    case (find_appropriate_gadget_info (topwindow_info, key_xevtinfo.event_point))
 				#
-				THE (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
+				APPROPRIATE_GADGET (gadget_info, event_point)									# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
 				    =>
 				    {   printf "guievent_sink()/guiboss/do_key_release: FOUND CANDIDATE!\n";
 					#	
@@ -2350,7 +2543,9 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 					gadget_info.may_have_visibly_changed :=  TRUE;
 				    };
 
-				NULL =>  printf "guievent_sink()/guiboss/do_key_release: NO candidate found.\n";
+				NO_APPROPRIATE_GADGET _
+				    =>
+				    printf "guievent_sink()/guiboss/do_key_release: NO candidate found.\n";
 			    esac;
 			};
 
@@ -2402,7 +2597,7 @@ if (*log::debugging) log::note {. sprintf "do_button_press sending a note_mouseb
 								current_frame_number		=>  (REF 1),				# We count frames for convenience of widgets and debugging.
 								seconds_per_frame		=>  (REF 0.01),				# Let's initially assume a nominal ten frames per second. Passed to widgets primarily so widgets can do motion blurring if they wish.
 								#
-								current_drag			=>  (REF NULL), 			# No mouse drag currently in progress.
+								mouse_is			=>  (REF CROSSING_NONWIDGET), 		# Mouse is not current dragging, and in fact not currently known to be on any particular widget.
 								#
 								done_extra_startframe_this_frame=>  (REF FALSE), 
 								#
