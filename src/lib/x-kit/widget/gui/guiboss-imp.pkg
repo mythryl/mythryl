@@ -128,9 +128,6 @@ herein
 	  ;	
 
 	Guiboss_Arg =  List(Guiboss_Option);										# Currently no required component.
-#	include package   client_to_guiboss;										# client_to_guiboss	is from   src/lib/x-kit/widget/gui/client-to-guiboss.pkg
-	#
-#	Running_Gui = gt::Running_Gui;											# We export this as an opaque type to clients. 
 
 	Imports = {													# Ports we use, provided by other imps.
 		    int_sink:			Int -> Void,
@@ -715,7 +712,7 @@ herein
 						#
 						gt::RG_OBJECT r
 						    =>
-						    gt::SG_OBJECT (get_from_oneshot   r.endstate_oneshot);	# Read and return final state of object-imp -- incidentally confirming that it has completed its shutdown.
+						    gt::SG_OBJECT (get_from_oneshot   r.endstate_oneshot);		# Read and return final state of object-imp -- incidentally confirming that it has completed its shutdown.
 
 						gt::RG_PACKEDSPACE
 						      { packedspace_id:		gt::Packedspace_Id,
@@ -730,7 +727,7 @@ herein
 
 							gt::SG_PACKEDSPACE
 							  (
-							    get_from_oneshot   endstate_oneshot,		# Read and return final state of packedspace-imp -- incidentally confirming that it has completed its shutdown.
+							    get_from_oneshot   endstate_oneshot,			# Read and return final state of packedspace-imp -- incidentally confirming that it has completed its shutdown.
 							    packed_widget''
 							  );
 						    };
@@ -747,6 +744,49 @@ herein
 			widgets'';
 		    };													# fun do_canvas_widgets
 	    end;
+
+
+	fun make_base_backing_pixmap (pixmap: g2p::Gadget_To_Rw_Pixmap): s2g::Backing_Pixmap				# Make the base Backing_Pixmap instance for a GUI. (There will be an additional Backing_Pixmap for each viewport and active popup in the gui.)
+	    =
+	    s2g::TOPWINDOW_PIXMAP
+	      {
+		pixmap,
+		popups =>   REF ([]: List( s2g::Backing_Pixmap)),
+		parent =>   NULL: Null_Or( s2g::Backing_Pixmap ),
+		origin =>   REF { row => 0, col => 0 },
+		#
+		stacking_order => 1
+	      };
+
+	fun make_backing_pixmap_for_popup
+	      (
+		make_rw_pixmap:			g2d::Size -> g2p::Gadget_To_Rw_Pixmap,
+		next_stacking_order: 		Ref(Int),
+		parent:				s2g::Backing_Pixmap,
+		site:				g2d::Box
+	      )	
+	    =
+	    {   stacking_order = *next_stacking_order;
+		#
+		next_stacking_order := stacking_order + 1;
+
+		(g2d::box::upperleft_and_size site)
+		    ->
+		    (origin, size); 
+
+		pixmap =  make_rw_pixmap  size;						# We're blocking for a round-trip here, which is not great.  We probably should implement imports.guiboss_to_windowsystem.pass_new_rw_pixmap to allow this to be nonblocking. XXX SUCKO FIXME
+
+		s2g::TOPWINDOW_PIXMAP
+		  {
+		    pixmap,
+		    popups =>   REF ([]: List( s2g::Backing_Pixmap)),
+		    parent =>   THE parent,
+		    origin =>   REF origin,
+		    #
+		    stacking_order
+		  };
+	    };
+
 	#
 	fun restart_gui'
 	      (
@@ -760,6 +800,8 @@ herein
 		  }:				Runstate,
 	
 		topwindow_for_gui:		gws::Guiboss_To_Topwindow,
+# SHOULD PROBABLY RENAME THIS TO base_pixmap or such, since it may be for a popup rather than the real base.
+		topwindow_pixmap:		s2g::Backing_Pixmap,
 		paused_gui:			gt::Paused_Gui,
 
 		gui_startup_complete':		Oneshot_Maildrop( gt::Client_To_Guiwindow ),
@@ -767,14 +809,8 @@ herein
 		pause_gui:			(gt::Running_Gui, Bounce_Imps, Canvas_Imps, Packed_Imps, Gadget_Imps, Topwindow_Info) -> gt::Paused_Gui
 	      )
 	    =
-	    {
-
-		#
-		running_gui = paused_gui__to__running_gui  paused_gui;							# Starts up all widget look-imps and state-imps plus the canvas- bounce- and packedspace imps,
-															# and populates our bounce_imps, canvas_imps, packed_imps and gadget_imps maps.
-
-		topwindow_info.running_gui :=  THE running_gui;								# Remember that we now have a gui running on this topwindow.
-
+	    {	topwindow_info.running_gui :=  THE running_gui;								# Remember that we now have a gui running on this topwindow.
+		#													# (running_gui is created below in our 'where' clause just above make_popup(), so as to be available in make_popup().)
 		fire_run_gun ();
 
 		topwindow_for_gui.pass_window_site to
@@ -1072,116 +1108,6 @@ printf "restart_gui'/BBB\n";
 
 		first_frame = REF TRUE;
 																    foo = REF 19;
-		fun make_popup								# Create popup pane on given window in given site.  Given site is adjusted to lie entirely within parent (if necessary) and returned.
-		      (
-			requested_site:		g2d::Box,
-			gui_plan:		gt::Gui_Plan
-		      )
-		    : (
-			g2d::Box,
-			Void -> gt::Client_To_Guiwindow
-		      )
-		    =
-		    (
-		      requested_site,
-# XXX BUGGO FIX TBD, this is a placeholder value of type Void -> gt::Client_To_Guiwindow
-		      {. { id        => issue_unique_id(),
-			   pause_gui => {. ([], gt::SG_NULL_PACKED_WIDGET); },
-			   kill_gui  => {. (); }
-			 };
-		      }
-		    );
-
-
-		fun display_one_frame ({ me, imports, ... }: Runstate)
-		    =
-		    {
-			current_frame_number := *current_frame_number + 1;
-			#
-			done_extra_startframe_this_frame	:= FALSE;							# See Note[1].
-
-			imps =  im::vals_list  *gadget_imps;
-
-			if *first_frame
-			    first_frame := FALSE;
-			    apply' imps  {.
-				#imp -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, site, gadget_mode, may_have_visibly_changed, ... };
-
-				guiboss_to_gadget.before_first_frame  { site		=> *site,
-								        theme		=>  imports.theme,
-									 get_font	=>  topwindow_for_gui.get_font,
-									pass_font	=>  topwindow_for_gui.pass_font,
-									make_rw_pixmap	=>  imports.guiboss_to_windowsystem.make_rw_pixmap,
-									make_popup
-								      };
-
-				may_have_visibly_changed  := TRUE;
-			    };
-			fi;
-
-			apply' imps  {.
-			    #imp -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, site, gadget_mode, may_have_visibly_changed, ... };
-				#
-
-			    if (*may_have_visibly_changed)
-				#
-			        guiboss_to_gadget.start_of_frame
-				  {
-				    frame_number => *current_frame_number,
-				    site => *site,
-				    visible => TRUE,
-				    duration_in_seconds => 0.0,
-				    this_gadget_mode => *gadget_mode,
-				    theme => imports.theme
-				  };
-
-				may_have_visibly_changed := FALSE;
-			    fi;
-			};
-
-#			apply' imps  {.
-#			    #
-#			    #imp -> { may_have_visibly_changed,
-#				      guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget,
-#				      site,	
-#				      ...
-#                                    };
-#			};
-		    };	
-
-# XXX SUCKO FIXME we should probably just use the 50HZ timeslicing clock.
-		# This fn provides the body for a little microthread which just
-		# loops ten times a second telling our main thread to disply frame:
-		#
-		fun frameclock end_gun'
-		    =
-		    loop ()
-		    where
-			count = REF 19;
-			#
-			fun loop ()
-			    =
-			    {
-				do_one_mailop [
-				    #
-				    end_gun'
-					==>
-					{.
-					    thread_exit { success => TRUE };
-					},
-				    #
-				    timeout_in' *seconds_per_frame
-					==>
-					{.
-					    put_in_mailqueue  (guiboss_q, display_one_frame);
-					}
-				];
-
-				loop ();
-			    };
-		    end;
-
-		make_thread'  [ THREAD_NAME "frameclock" ]  frameclock  end_gun';					# Start up frameclock thread which tells us when it is time to draw a new frame.
 
 		#
 		fun digest_packedspace_layout_hints  (options: List(plh::Packedspace_Layout_Hint))  { cut, min }
@@ -1221,16 +1147,6 @@ printf "restart_gui'/BBB\n";
 			packedspace_id   =  ps.id;
 
 			packed_imps     :=  im::set (*packed_imps, (id_to_int packedspace_id), stuff);
-
-			topwindow_pixmap =  s2g::TOPWINDOW_PIXMAP
-					      {
-						pixmap =>   topwindow_for_gui.backing_pixmap,
-						popups =>   REF ([]: List( g2p::Gadget_To_Rw_Pixmap)),
-						parent =>   NULL: Null_Or( g2p::Gadget_To_Rw_Pixmap ),
-						origin =>   REF { row => 0, col => 0 },
-						#
-						stacking_order => 1
-					      };
 
 			(do_packed_widget (packed_widget, widget_to_packedspace, topwindow_pixmap))
 			    ->
@@ -1350,15 +1266,15 @@ printf "restart_gui'/BBB\n";
 			        gt::SG_SPRITE
 				      (
 					(gt::BOUNCE_SPRITE_START_FN bounce_sprite_start_fn):	gt::Bounce_Sprite_Start_Fn,
-					saved_sprite_state:					Null_Or(Exception)				# Used by arrowbutton etc to preserve state across gui stop/restart cycles.
+					saved_sprite_state:					Null_Or(Exception)			# Used by arrowbutton etc to preserve state across gui stop/restart cycles.
 				      )
 				    =>
-				    {   endstate_oneshot											# When endgun fires we'll read back final widget state via this oneshot.
+				    {   endstate_oneshot										# When endgun fires we'll read back final widget state via this oneshot.
 					    =
 					    make_oneshot_maildrop()
 					    :
 					    Oneshot_Maildrop  ( ( gt::Bounce_Sprite_Start_Fn,
-								  Null_Or(Exception)								# saved_sprite_state, used by arrowbutton etc to preserve state across gui stop/restart cycles.
+								  Null_Or(Exception)							# saved_sprite_state, used by arrowbutton etc to preserve state across gui stop/restart cycles.
 							      ) );
 					#
 					(bounce_sprite_start_fn { gadget_to_guiboss, sprite_to_bouncespace, run_gun', end_gun', endstate_oneshot, saved_sprite_state })
@@ -1888,7 +1804,139 @@ printf "restart_gui'/BBB\n";
 				    =>
 				    gt::RG_NULL_PACKED_WIDGET;
 			    esac;
-		    end;	
+		    end;														# fun paused_gui__to__running_gui
+
+
+
+		#
+		running_gui = paused_gui__to__running_gui  paused_gui;							# Starts up all widget look-imps and state-imps plus the canvas- bounce- and packedspace imps,
+															# and populates our bounce_imps, canvas_imps, packed_imps and gadget_imps maps.
+
+		fun make_popup								# Create popup pane on given window in given site.  Given site is adjusted to lie entirely within parent (if necessary) and returned.
+		      (
+			requested_site:		g2d::Box,
+			gui_plan:		gt::Gui_Plan
+		      )
+		    : (
+			g2d::Box,
+			Void -> gt::Client_To_Guiwindow
+		      )
+		    =
+		    {
+			backing_pixmap
+			    =
+			    make_backing_pixmap_for_popup
+			      (
+				imports.guiboss_to_windowsystem.make_rw_pixmap,		# To allocate the actual rw_pimap for the Backing_Pixmap.
+				running_gui.next_stacking_order,			# To allocate a 'stacking_order' value for Backing_Pixmap.
+				topwindow_pixmap,					# Our parent Backing_Pixmap.
+				requested_site						# Where to put popup on parent Backing_Pixmap.
+			      );
+
+			(
+			  requested_site,
+# XXX BUGGO FIX TBD, this is a placeholder value of type Void -> gt::Client_To_Guiwindow
+			  {. { id        => issue_unique_id(),
+			       pause_gui => {. ([], gt::SG_NULL_PACKED_WIDGET); },
+			       kill_gui  => {. (); }
+			     };
+			  }
+			);
+		    };
+
+		make_thread'  [ THREAD_NAME "frameclock" ]  frameclock  end_gun'							# Start up frameclock thread which tells us when it is time to draw a new frame.
+		    where
+			fun display_one_frame ({ me, imports, ... }: Runstate)
+			    =
+			    {
+				current_frame_number := *current_frame_number + 1;
+				#
+				done_extra_startframe_this_frame	:= FALSE;							# See Note[1].
+
+				imps =  im::vals_list  *gadget_imps;
+
+				if *first_frame
+				    first_frame := FALSE;
+				    apply' imps  {.
+					#imp -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, site, gadget_mode, may_have_visibly_changed, ... };
+
+					guiboss_to_gadget.before_first_frame  { site		=> *site,
+										theme		=>  imports.theme,
+										 get_font	=>  topwindow_for_gui.get_font,
+										pass_font	=>  topwindow_for_gui.pass_font,
+										make_rw_pixmap	=>  imports.guiboss_to_windowsystem.make_rw_pixmap,
+										make_popup
+									      };
+
+					may_have_visibly_changed  := TRUE;
+				    };
+				fi;
+
+				apply' imps  {.
+				    #imp -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, site, gadget_mode, may_have_visibly_changed, ... };
+					#
+
+				    if (*may_have_visibly_changed)
+					#
+					guiboss_to_gadget.start_of_frame
+					  {
+					    frame_number => *current_frame_number,
+					    site => *site,
+					    visible => TRUE,
+					    duration_in_seconds => 0.0,
+					    this_gadget_mode => *gadget_mode,
+					    theme => imports.theme
+					  };
+
+					may_have_visibly_changed := FALSE;
+				    fi;
+				};
+
+	#			apply' imps  {.
+	#			    #
+	#			    #imp -> { may_have_visibly_changed,
+	#				      guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget,
+	#				      site,	
+	#				      ...
+	#                                    };
+	#			};
+			    };	
+
+
+# XXX SUCKO FIXME we should probably just use the 50HZ timeslicing clock.
+			# This fn provides the body for a little microthread which just
+			# loops ten times a second telling our main thread to disply frame:
+			#
+			fun frameclock end_gun'
+			    =
+			    loop ()
+			    where
+				count = REF 19;
+				#
+				fun loop ()
+				    =
+				    {
+					do_one_mailop [
+					    #
+					    end_gun'
+						==>
+						{.
+						    thread_exit { success => TRUE };
+						},
+					    #
+					    timeout_in' *seconds_per_frame
+						==>
+						{.
+						    put_in_mailqueue  (guiboss_q, display_one_frame);
+						}
+					];
+
+					loop ();
+				    };
+			    end;
+
+		    end;
+
 	    end;
 
 	#
@@ -1904,9 +1952,11 @@ printf "restart_gui'/BBB\n";
 		pause_gui:		(gt::Running_Gui, Bounce_Imps, Canvas_Imps, Packed_Imps, Gadget_Imps, Topwindow_Info) -> gt::Paused_Gui
 	      )
 	    =
-	    {   paused_gui =  gui_plan__to__paused_gui  gui_plan;
+	    {	paused_gui =  gui_plan__to__paused_gui  gui_plan;
 		#
-	        restart_gui' (runstate, topwindow_for_gui, paused_gui, gui_startup_complete', guiboss_q, pause_gui);
+		topwindow_pixmap =  make_base_backing_pixmap  topwindow_for_gui.backing_pixmap;
+
+	        restart_gui' (runstate, topwindow_for_gui, topwindow_pixmap, paused_gui, gui_startup_complete', guiboss_q, pause_gui);
 	    }
 	    where
 		fun gui_plan__to__paused_gui
@@ -3476,7 +3526,10 @@ printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *t
 			    #
 			    \\ (runstate: Runstate)
 				=
-				restart_gui' (runstate, topwindow, paused_gui, gui_startup_complete', guiboss_q, pause_gui)
+				{   topwindow_pixmap =  make_base_backing_pixmap topwindow.backing_pixmap;
+				    #
+				    restart_gui' (runstate, topwindow, topwindow_pixmap, paused_gui, gui_startup_complete', guiboss_q, pause_gui);
+				}
 		        );
 
 			{.   get_from_oneshot  gui_startup_complete';   };
