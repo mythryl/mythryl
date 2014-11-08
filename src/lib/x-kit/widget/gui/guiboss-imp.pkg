@@ -226,7 +226,8 @@ herein
 	    # These three are set by restart_gui'()
 	    # and reset to NULL by pause_gui'     
 	    #
-	    running_gui:		Ref( Null_Or( gt::Running_Gui  ) ),
+	    backing_pixmap:		Ref( Null_Or( gt::Backing_Pixmap ) ),
+#	    running_gui:		Ref( Null_Or( gt::Running_Gui  ) ),
 	    gadget_to_guiboss:		Ref( Null_Or( gt::Gadget_To_Guiboss ) ),					# Interface for gadget-imps to contact us.
 	    space_to_gui:		Ref( Null_Or( s2g::Space_To_Gui) ),						# Interface for  space-imps to contact us.
 
@@ -631,7 +632,8 @@ nb {. sprintf "redraw_all_popups/ZZZ -- guiboss-imp.pkg"; };
 # XXX SUCKO FIXME This stuff needs to change to support popups!!
 
 # This needs to move into Backing_Pixmap/TOPWINDOW_PIXMAP
-		topwindow_info.running_gui	    := NULL;
+#		topwindow_info.running_gui	    := NULL;
+		topwindow_info.backing_pixmap	    := NULL;
 
 # These two need to be nulled out only if we're shuttind down the base running_gui:
 		topwindow_info.gadget_to_guiboss    := NULL;
@@ -902,6 +904,7 @@ nb {. sprintf "redraw_all_popups/ZZZ -- guiboss-imp.pkg"; };
 	    =
 	    gt::TOPWINDOW_PIXMAP
 	      {
+		running_gui => REF NULL,
 		pixmap,
 		popups =>   REF ([]: List( gt::Backing_Pixmap)),
 		parent =>   NULL: Null_Or( gt::Backing_Pixmap ),
@@ -959,6 +962,7 @@ nb {. sprintf "redraw_all_popups/ZZZ -- guiboss-imp.pkg"; };
 		    =
 		    gt::TOPWINDOW_PIXMAP
 		      {
+			running_gui => REF NULL,
 			pixmap,
 			popups =>   REF ([]: List( gt::Backing_Pixmap)),
 			parent =>   THE parent,
@@ -997,8 +1001,22 @@ nb {. sprintf "redraw_all_popups/ZZZ -- guiboss-imp.pkg"; };
 		pause_gui:			(gt::Running_Gui, Bounce_Imps, Canvas_Imps, Packed_Imps, Gadget_Imps, Topwindow_Info) -> gt::Paused_Gui
 	      )
 	    =
-	    {	topwindow_info.running_gui :=  THE running_gui;								# Remember that we now have a gui running on this topwindow.
-		#													# (running_gui is created below in our 'where' clause just above make_popup(), so as to be available in make_popup().)
+	    {
+		topwindow_info.backing_pixmap :=  THE topwindow_pixmap;						# Remember that we now have a gui running on this topwindow.
+
+		case topwindow_pixmap
+		    #
+		    gt::TOPWINDOW_PIXMAP r
+			=>												# running_gui is from
+			r.running_gui := THE running_gui;								#      running_gui = paused_gui__to__running_gui  paused_gui;
+															# in below 'where' clause. so as to be available in make_popup().)
+		    gt::VIEWPORT_PIXMAP _
+			=>
+			{   msg = "topwindow_pixmap should not be VIEWPORT_PIXMAP! -- restart_gui'";
+			    log::fatal msg;
+			    raise exception FAIL msg;
+			};
+		esac;
 		fire_run_gun ();
 
 nb {. sprintf "restart_gui'/MMM -- guiboss-imp.pkg"; };
@@ -2441,100 +2459,111 @@ nb {. sprintf "make_popup/ZZZ -- guiboss-imp.pkg"; };
 		      | NO_APPROPRIATE_GADGET               g2d::Point
 		      ;
 
+# XXX BUGGO FIXME We're not handling popups here.
+# It might suffice to
+#   1) Make the topwindow_info arg into a backing_pixmap
+#   2) Recursively process popup backing_pixmaps
+#      before their parent backing pixmap.
 		    fun find_appropriate_gadget_info											# Which widget did the user click on?  This is usually easy but it might be in a scrollable view in a tabbed view in another scrollable view, say.
 			  (
 			    topwindow_info:		Topwindow_Info,
 			    event_point
 			  )
 			=
-			case (*topwindow_info.running_gui)
+			case (*topwindow_info.backing_pixmap)
 			    #
-			    THE (running_gui:	gt::Running_Gui)
+			    THE (gt::TOPWINDOW_PIXMAP r)
 				=>
-				find_gadget_info (running_gui.packed_widget, event_point)
-				where
-				    fun try_all_row_or_col_widgets ([]: List(gt::Row_Widget),  point: g2d::Point)
-					    =>
-					    NO_APPROPRIATE_GADGET point;
-
-					try_all_row_or_col_widgets (row_or_col_widget ! rest,  point)
-					    =>
-					    case (find_gadget_info  (row_or_col_widget.widget, point))
-						#
-						NO_APPROPRIATE_GADGET _ =>  try_all_row_or_col_widgets (rest,  point);		# Try the remaining widgets in ROW/COL.
-						info =>  info;							# Got it.
-					    esac;
-				    end
-
-				    also	
-				    fun find_gadget_info
-					  (
-					    packed_widget:	gt::Rg_Packed_Widget,
-					    point:		g2d::Point
-					  )
-					=
-					if (g2d::box::point_in_box (point, gt::packed_widget_site packed_widget))
-					    #
-					    case packed_widget
-						#
-						gt::RG_ROW r =>   try_all_row_or_col_widgets (r.widgets, point);
-						gt::RG_COL r =>   try_all_row_or_col_widgets (r.widgets, point);
-
-						gt::RG_SCROLLABLE_VIEW r
-						    =>
-						    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into          view coordinate system.
-							point = point - *r.view_origin;							# Transform mouseclick point into scrolled view coordinate system.
-							#
-							find_gadget_info (r.widget, point);						# Recursively search for target widget of mouseclick among widgets in scrollable view.
-						    };	
-
-						gt::RG_TABBED_VIEWS r
-						    =>
-						    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into view coordinate system.
-							#
-							find_gadget_info ((*r.visible_widget).widget, point);				# Recursively search for target widget of mouseclick among widgets in current tabbed view.
-						    };
-
-						gt::RG_WIDGET (r as { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... })
-						    =>
-						    {   imps = *topwindow_info.gadget_imps;
-							#
-							id   = iul::id_to_int guiboss_to_gadget.id;
-
-						        case (im::get (imps, id))
-							    #
-							    NULL =>  NO_APPROPRIATE_GADGET point ;
-							    #
-							    THE gadget_info								# Return 'point' transformed into correct coordinate system for widget.
-								=>
-								case (*gadget_info.point_in_gadget)
-								    #
-								    NULL   =>                 APPROPRIATE_GADGET (gadget_info, point);	# No   point_in_gadget fn supplied by gadget, so count mouseclick as having hit the gadget.
-								    THE fn =>	if (fn point) APPROPRIATE_GADGET (gadget_info, point);	# Have point_in_gadget fn supplied by the gadget decide whether the mouseclick was close enough to count.
-										else  	   NO_APPROPRIATE_GADGET (             point);
-										fi;
-								esac;
-							esac;
-						    };
-
-						gt::RG_CANVASSPACE r
-						    =>
-NO_APPROPRIATE_GADGET point; # TBD
-
-						gt::RG_BOUNCESPACE r
-						    =>
-NO_APPROPRIATE_GADGET point; # TBD
-
-						gt::RG_NULL_PACKED_WIDGET
+				case (*r.running_gui)
+				    #
+				    THE (running_gui:	gt::Running_Gui)
+					=>
+					find_gadget_info (running_gui.packed_widget, event_point)
+					where
+					    fun try_all_row_or_col_widgets ([]: List(gt::Row_Widget),  point: g2d::Point)
 						    =>
 						    NO_APPROPRIATE_GADGET point;
-					    esac;
-					else
-					    NO_APPROPRIATE_GADGET point;
-					fi;
-				end;
-			    #	 
-			    NULL => NO_APPROPRIATE_GADGET event_point;							# Maybe we should do:   log::fatal "find_appropriate_gadget_info' called while gui not running!";
+
+						try_all_row_or_col_widgets (row_or_col_widget ! rest,  point)
+						    =>
+						    case (find_gadget_info  (row_or_col_widget.widget, point))
+							#
+							NO_APPROPRIATE_GADGET _ =>  try_all_row_or_col_widgets (rest,  point);		# Try the remaining widgets in ROW/COL.
+							info =>  info;							# Got it.
+						    esac;
+					    end
+
+					    also	
+					    fun find_gadget_info
+						  (
+						    packed_widget:	gt::Rg_Packed_Widget,
+						    point:		g2d::Point
+						  )
+						=
+						if (g2d::box::point_in_box (point, gt::packed_widget_site packed_widget))
+						    #
+						    case packed_widget
+							#
+							gt::RG_ROW r =>   try_all_row_or_col_widgets (r.widgets, point);
+							gt::RG_COL r =>   try_all_row_or_col_widgets (r.widgets, point);
+
+							gt::RG_SCROLLABLE_VIEW r
+							    =>
+							    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into          view coordinate system.
+								point = point - *r.view_origin;							# Transform mouseclick point into scrolled view coordinate system.
+								#
+								find_gadget_info (r.widget, point);						# Recursively search for target widget of mouseclick among widgets in scrollable view.
+							    };	
+
+							gt::RG_TABBED_VIEWS r
+							    =>
+							    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into view coordinate system.
+								#
+								find_gadget_info ((*r.visible_widget).widget, point);				# Recursively search for target widget of mouseclick among widgets in current tabbed view.
+							    };
+
+							gt::RG_WIDGET (r as { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... })
+							    =>
+							    {   imps = *topwindow_info.gadget_imps;
+								#
+								id   = iul::id_to_int guiboss_to_gadget.id;
+
+								case (im::get (imps, id))
+								    #
+								    NULL =>  NO_APPROPRIATE_GADGET point ;
+								    #
+								    THE gadget_info								# Return 'point' transformed into correct coordinate system for widget.
+									=>
+									case (*gadget_info.point_in_gadget)
+									    #
+									    NULL   =>                 APPROPRIATE_GADGET (gadget_info, point);	# No   point_in_gadget fn supplied by gadget, so count mouseclick as having hit the gadget.
+									    THE fn =>	if (fn point) APPROPRIATE_GADGET (gadget_info, point);	# Have point_in_gadget fn supplied by the gadget decide whether the mouseclick was close enough to count.
+											else  	   NO_APPROPRIATE_GADGET (             point);
+											fi;
+									esac;
+								esac;
+							    };
+
+							gt::RG_CANVASSPACE r
+							    =>
+	NO_APPROPRIATE_GADGET point; # TBD
+
+							gt::RG_BOUNCESPACE r
+							    =>
+	NO_APPROPRIATE_GADGET point; # TBD
+
+							gt::RG_NULL_PACKED_WIDGET
+							    =>
+							    NO_APPROPRIATE_GADGET point;
+						    esac;
+						else
+						    NO_APPROPRIATE_GADGET point;
+						fi;
+					end;
+				    #	 
+				    NULL => NO_APPROPRIATE_GADGET event_point;							# Maybe we should do:   log::fatal "find_appropriate_gadget_info' called while gui not running!";
+				esac;
+			    _ => NO_APPROPRIATE_GADGET event_point;							# Maybe we should do:   log::fatal "find_appropriate_gadget_info' called while gui not running!";
 			esac;
 		herein
 
@@ -2542,6 +2571,8 @@ NO_APPROPRIATE_GADGET point; # TBD
 			  (
 			    { me, imports, ... }:	Runstate,
 			    topwindow_info:		Topwindow_Info,
+# This arg probably should not be here (because we have multiple running_guis now and passing just one cannot be right)
+# but it appears unused: 
 			    running_gui:		gt::Running_Gui,
 			    motion_xevtinfo:		evt::Motion_Xevtinfo
 			  )
@@ -2704,6 +2735,8 @@ nb {. sprintf "do_motion_notify/ZZZ -- guiboss-imp.pkg"; };
 			  (
 			    { me, imports, ... }:	Runstate,
 			    topwindow_info:		Topwindow_Info,
+# This arg probably should not be here (because we have multiple running_guis now and passing just one cannot be right)
+# but it is apparently unused at present anyhow:
 			    running_gui:		gt::Running_Gui,
 			    button_xevtinfo:		evt::Button_Xevtinfo
 			  )
@@ -2940,6 +2973,7 @@ nb {. sprintf "do_button_press/ZZZ -- guiboss-imp.pkg"; };
 			  (
 			    { me, imports, ... }:	Runstate,
 			    topwindow_info:		Topwindow_Info,
+# This arg probably should not be here (because we have multiple running_guis now and passing just one cannot be right) but it appears unused:
 			    running_gui:		gt::Running_Gui,
 			    button_xevtinfo:		evt::Button_Xevtinfo
 			  )
@@ -3173,6 +3207,7 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 			  (
 			    { me, imports, ... }:	Runstate,
 			    topwindow_info:		Topwindow_Info,
+# This arg probably should not be here (because we have multiple running_guis now and passing just one cannot be right) but it appears unused:
 			    running_gui:		gt::Running_Gui,
 			    key_xevtinfo:		evt::Key_Xevtinfo
 			  )
@@ -3212,6 +3247,7 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 			  (
 			    { me, imports, ... }:	Runstate,
 			    topwindow_info:		Topwindow_Info,
+# This arg probably should not be here (because we have multiple running_guis now and passing just one cannot be right) but it appears unused:
 			    running_gui:		gt::Running_Gui,
 			    key_xevtinfo:		evt::Key_Xevtinfo
 			  )
@@ -3319,6 +3355,7 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 
 		fun make_guievent_sink
 		      (
+# XXX is this arg right? Or should it be a backing_pixmap?
 			topwindow_info:		Topwindow_Info,
 			saved_events:		Ref (List( (a2r::Envelope_Route, evt::x::Event) ) )				# Somewhere for initial_guievent_sink to save any events it gets.
 		      )
@@ -3332,290 +3369,306 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 				\\ (runstate as { me, imports, ... }: Runstate)							# Now we're running in our own thread, with mutual exclusion and access to our core datastructures.
 				    =
 				    {
-					case *topwindow_info.running_gui
+					case *topwindow_info.backing_pixmap
 					    #
 					    NULL => {   saved_events := arg ! *saved_events;					# When no GUI is running, all we can do is save user input for later processing. (Or maybe discard it?)
 printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *topwindow_info.running_gui is NULL.    -- guiboss-imp.pkg\n"
     (gts::gui_event_to_string event);
 						    };
+					    THE (gt::VIEWPORT_PIXMAP _)
+						=>
+						{   msg = "VIEWPORT_PIXMAP unsupported in make_guievent_sinkg";
+						    log::fatal msg;
+						    raise exception FAIL msg;
+						};
 
-					    THE running_gui
-						 =>	{
-							case *saved_events
-							    #
-							    [] =>   {
-									case event
-									    #
-									    evt::x::KEY_PRESS       (key_xevtinfo: evt::Key_Xevtinfo)
-										=>
-										do_key_press (runstate, topwindow_info, running_gui, key_xevtinfo);
+					    THE (gt::TOPWINDOW_PIXMAP r)
+						=>
+						case *r.running_gui
+						    #
+						    NULL => {   saved_events := arg ! *saved_events;					# When no GUI is running, all we can do is save user input for later processing. (Or maybe discard it?)
+	printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *topwindow_info.running_gui is NULL.    -- guiboss-imp.pkg\n"
+	    (gts::gui_event_to_string event);
+							    };
 
-									    evt::x::KEY_RELEASE     (key_xevtinfo: evt::Key_Xevtinfo)
-										=>
-										do_key_release (runstate, topwindow_info, running_gui, key_xevtinfo);
+						    THE running_gui
+							 =>	{
+								case *saved_events
+								    #
+								    [] =>   {
+										case event
+										    #
+										    evt::x::KEY_PRESS       (key_xevtinfo: evt::Key_Xevtinfo)
+											=>
+											do_key_press (runstate, topwindow_info, running_gui, key_xevtinfo);
 
-									    evt::x::BUTTON_PRESS    (button_xevtinfo: evt::Button_Xevtinfo)
-										=>
-										do_button_press (runstate, topwindow_info, running_gui, button_xevtinfo);
+										    evt::x::KEY_RELEASE     (key_xevtinfo: evt::Key_Xevtinfo)
+											=>
+											do_key_release (runstate, topwindow_info, running_gui, key_xevtinfo);
 
-									    evt::x::BUTTON_RELEASE  (button_xevtinfo: evt::Button_Xevtinfo)
-										=>
-										do_button_release (runstate, topwindow_info, running_gui, button_xevtinfo);
+										    evt::x::BUTTON_PRESS    (button_xevtinfo: evt::Button_Xevtinfo)
+											=>
+											do_button_press (runstate, topwindow_info, running_gui, button_xevtinfo);
 
-									    evt::x::MOTION_NOTIFY   (motion_xevtinfo: evt::Motion_Xevtinfo)
-										=>
-										do_motion_notify (runstate, topwindow_info, running_gui, motion_xevtinfo);
+										    evt::x::BUTTON_RELEASE  (button_xevtinfo: evt::Button_Xevtinfo)
+											=>
+											do_button_release (runstate, topwindow_info, running_gui, button_xevtinfo);
 
-									    evt::x::ENTER_NOTIFY    (inout_xevtinfo: evt::Inout_Xevtinfo)
-										=>
-										{
-#    												printf "guievent_sink()/ENTER_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
-										};
+										    evt::x::MOTION_NOTIFY   (motion_xevtinfo: evt::Motion_Xevtinfo)
+											=>
+											do_motion_notify (runstate, topwindow_info, running_gui, motion_xevtinfo);
 
-									    evt::x::LEAVE_NOTIFY    (inout_xevtinfo: evt::Inout_Xevtinfo)
-										=>
-										{
-#    												printf "guievent_sink()/LEAVE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
-										};
+										    evt::x::ENTER_NOTIFY    (inout_xevtinfo: evt::Inout_Xevtinfo)
+											=>
+											{
+	#    												printf "guievent_sink()/ENTER_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+											};
 
-									    evt::x::FOCUS_IN	(focus_xevtinfo: evt::Focus_Xevtinfo)
-										=>
-										printf "guievent_sink()/FOCUS_IN: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::LEAVE_NOTIFY    (inout_xevtinfo: evt::Inout_Xevtinfo)
+											=>
+											{
+	#    												printf "guievent_sink()/LEAVE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+											};
 
-									    evt::x::FOCUS_OUT	(focus_xevtinfo:  evt::Focus_Xevtinfo)
-										=>
-										printf "guievent_sink()/FOCUS_OUT: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::FOCUS_IN	(focus_xevtinfo: evt::Focus_Xevtinfo)
+											=>
+											printf "guievent_sink()/FOCUS_IN: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::KEYMAP_NOTIFY    { }
-										=>
-										printf "guievent_sink()/KEYMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::FOCUS_OUT	(focus_xevtinfo:  evt::Focus_Xevtinfo)
+											=>
+											printf "guievent_sink()/FOCUS_OUT: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::EXPOSE           (expose_record:         evt::x::Expose_Record)
-										=>
-										printf "guievent_sink()/EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::KEYMAP_NOTIFY    { }
+											=>
+											printf "guievent_sink()/KEYMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::GRAPHICS_EXPOSE  (graphics_expose_record: evt::x::Graphics_Expose_Record)
-										=>
-										printf "guievent_sink()/GRAPHICS_EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::EXPOSE           (expose_record:         evt::x::Expose_Record)
+											=>
+											printf "guievent_sink()/EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::NO_EXPOSE
-									      { drawable:		evt::Drawable_Id,
-										major_opcode:		Unt,						# The graphics operation code.
-										minor_opcode:		Unt						# Always 0 for core protocol.
-									      }
-										=>
-										printf "guievent_sink()/NO_EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::GRAPHICS_EXPOSE  (graphics_expose_record: evt::x::Graphics_Expose_Record)
+											=>
+											printf "guievent_sink()/GRAPHICS_EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::VISIBILITY_NOTIFY
-									      { changed_window_id:	evt::Window_Id,					# The window with changed visibility state.
-										state:			evt::Visibility					# The new visibility state.
-									      }
-										=>
-										printf "guievent_sink()/VISIBILITY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::NO_EXPOSE
+										      { drawable:		evt::Drawable_Id,
+											major_opcode:		Unt,						# The graphics operation code.
+											minor_opcode:		Unt						# Always 0 for core protocol.
+										      }
+											=>
+											printf "guievent_sink()/NO_EXPOSE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CREATE_NOTIFY
-									      { parent_window_id:	evt::Window_Id,					# The created window's parent.
-										created_window_id:	evt::Window_Id,					# The created window.
-										box:			g2d::Box,					# The window's rectangle.
-										border_wid:		Int,						# The width of the border.
-										override_redirect:	Bool						#  
-									      }
-										=>
-										printf "guievent_sink()/CREATE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::VISIBILITY_NOTIFY
+										      { changed_window_id:	evt::Window_Id,					# The window with changed visibility state.
+											state:			evt::Visibility					# The new visibility state.
+										      }
+											=>
+											printf "guievent_sink()/VISIBILITY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::DESTROY_NOTIFY
-									      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										destroyed_window_id:	evt::Window_Id					# The destroyed window.
-									      }
-										=>
-										printf "guievent_sink()/DESTROY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CREATE_NOTIFY
+										      { parent_window_id:	evt::Window_Id,					# The created window's parent.
+											created_window_id:	evt::Window_Id,					# The created window.
+											box:			g2d::Box,					# The window's rectangle.
+											border_wid:		Int,						# The width of the border.
+											override_redirect:	Bool						#  
+										      }
+											=>
+											printf "guievent_sink()/CREATE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::UNMAP_NOTIFY
-									      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										unmapped_window_id:	evt::Window_Id,					# The window being unmapped.
-										from_config:		Bool						# TRUE if parent was resized.
-									      }
-										=>
-										printf "guievent_sink()/UNMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::DESTROY_NOTIFY
+										      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											destroyed_window_id:	evt::Window_Id					# The destroyed window.
+										      }
+											=>
+											printf "guievent_sink()/DESTROY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::MAP_NOTIFY
-									      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										mapped_window_id:	evt::Window_Id,					# The window being mapped.
-										override_redirect:	Bool						#  
-									      }
-										=>
-										printf "guievent_sink()/MAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::UNMAP_NOTIFY
+										      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											unmapped_window_id:	evt::Window_Id,					# The window being unmapped.
+											from_config:		Bool						# TRUE if parent was resized.
+										      }
+											=>
+											printf "guievent_sink()/UNMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::MAP_REQUEST
-									      { parent_window_id:	evt::Window_Id,					# The parent.
-										mapped_window_id:	evt::Window_Id					# The mapped window.
-									      }
-										=>
-										printf "guievent_sink()/MAP_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::MAP_NOTIFY
+										      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											mapped_window_id:	evt::Window_Id,					# The window being mapped.
+											override_redirect:	Bool						#  
+										      }
+											=>
+											printf "guievent_sink()/MAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::REPARENT_NOTIFY
-									      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										parent_window_id:      	evt::Window_Id,					# The new parent.
-										rerooted_window_id:    	evt::Window_Id,					# The re-rooted window.
-										upperleft_corner:	g2d::Point,					# The upper-left corner.
-										override_redirect:	Bool						#  
-									      }
-										=>
-										printf "guievent_sink()/REPARENT_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::MAP_REQUEST
+										      { parent_window_id:	evt::Window_Id,					# The parent.
+											mapped_window_id:	evt::Window_Id					# The mapped window.
+										      }
+											=>
+											printf "guievent_sink()/MAP_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CONFIGURE_NOTIFY
-									      { event_window_id:       	evt::Window_Id,					# The window on which this was generated.
-										configured_window_id:	evt::Window_Id,					# The reconfigured window.
-										sibling_window_id:	Null_Or(evt::Window_Id),			# The sibling that window is above (if any).
-										box:			g2d::Box,					# The window's rectangle.
-										border_wid:  		Int,						# The width of the border.
-										override_redirect:	Bool						#  
-									      }
-										=>
-										{
-										    printf "guievent_sink()/CONFIGURE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
-										};
+										    evt::x::REPARENT_NOTIFY
+										      { event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											parent_window_id:      	evt::Window_Id,					# The new parent.
+											rerooted_window_id:    	evt::Window_Id,					# The re-rooted window.
+											upperleft_corner:	g2d::Point,					# The upper-left corner.
+											override_redirect:	Bool						#  
+										      }
+											=>
+											printf "guievent_sink()/REPARENT_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CONFIGURE_REQUEST
-									      { parent_window_id:	evt::Window_Id,					# The parent.
-										configure_window_id:	evt::Window_Id,					# The window to reconfigure.
-										sibling_window_id:  	Null_Or(evt::Window_Id),			# The new sibling (if any).
-										x:           		Null_Or(Int),					# The window's rectangle.
-										y:           		Null_Or(Int),
-										wide:        		Null_Or(Int),
-										high:        		Null_Or(Int),
-										border_wid:  		Null_Or(Int),					# The width of the border.
-										stack_mode: 		Null_Or(evt::Stack_Mode)			# The mode for stacking windows.
-									      }
-										=>
-										printf "guievent_sink()/CONFIGURE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CONFIGURE_NOTIFY
+										      { event_window_id:       	evt::Window_Id,					# The window on which this was generated.
+											configured_window_id:	evt::Window_Id,					# The reconfigured window.
+											sibling_window_id:	Null_Or(evt::Window_Id),			# The sibling that window is above (if any).
+											box:			g2d::Box,					# The window's rectangle.
+											border_wid:  		Int,						# The width of the border.
+											override_redirect:	Bool						#  
+										      }
+											=>
+											{
+											    printf "guievent_sink()/CONFIGURE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+											};
 
-									    evt::x::GRAVITY_NOTIFY
-									      {
-										event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										moved_window_id:   	evt::Window_Id,					# The window being moved.
-										upperleft_corner:	g2d::Point					# Upper-left corner of window.
-									      }		
-										=>
-										printf "guievent_sink()/GRAVITY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CONFIGURE_REQUEST
+										      { parent_window_id:	evt::Window_Id,					# The parent.
+											configure_window_id:	evt::Window_Id,					# The window to reconfigure.
+											sibling_window_id:  	Null_Or(evt::Window_Id),			# The new sibling (if any).
+											x:           		Null_Or(Int),					# The window's rectangle.
+											y:           		Null_Or(Int),
+											wide:        		Null_Or(Int),
+											high:        		Null_Or(Int),
+											border_wid:  		Null_Or(Int),					# The width of the border.
+											stack_mode: 		Null_Or(evt::Stack_Mode)			# The mode for stacking windows.
+										      }
+											=>
+											printf "guievent_sink()/CONFIGURE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::RESIZE_REQUEST
-									      {
-										resize_window_id:	evt::Window_Id,					# The window to resize.
-										req_size:		g2d::Size					# The requested new size.
-									      }
-										=>
-										printf "guievent_sink()/RESIZE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::GRAVITY_NOTIFY
+										      {
+											event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											moved_window_id:   	evt::Window_Id,					# The window being moved.
+											upperleft_corner:	g2d::Point					# Upper-left corner of window.
+										      }		
+											=>
+											printf "guievent_sink()/GRAVITY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CIRCULATE_NOTIFY
-									      {
-										event_window_id:	evt::Window_Id,					# The window on which this was generated.
-										circulated_window_id:	evt::Window_Id,					# The window being circulated.
-										parent_window_id:	evt::Window_Id,					# The parent.
-										place:			evt::Stack_Pos					# The new place.
-									      }
-										=>
-										printf "guievent_sink()/CIRCULATE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::RESIZE_REQUEST
+										      {
+											resize_window_id:	evt::Window_Id,					# The window to resize.
+											req_size:		g2d::Size					# The requested new size.
+										      }
+											=>
+											printf "guievent_sink()/RESIZE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CIRCULATE_REQUEST
-									      {
-										parent_window_id:	evt::Window_Id,					# The parent.
-										circulate_window_id:	evt::Window_Id,					# The window to circulate.
-										place:			evt::Stack_Pos					# The place to circulate the window to.
-									      }
-										=>
-										printf "guievent_sink()/CIRCULATE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CIRCULATE_NOTIFY
+										      {
+											event_window_id:	evt::Window_Id,					# The window on which this was generated.
+											circulated_window_id:	evt::Window_Id,					# The window being circulated.
+											parent_window_id:	evt::Window_Id,					# The parent.
+											place:			evt::Stack_Pos					# The new place.
+										      }
+											=>
+											printf "guievent_sink()/CIRCULATE_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::PROPERTY_NOTIFY
-									      {
-										changed_window_id:	evt::Window_Id,					# The window with the changed property.
-										atom:        		evt::Atom,					# The affected property.
-										timestamp:  		evt::t::Xserver_Timestamp,			# When the property was changed.
-										deleted:     		Bool						# TRUE if the property was deleted.
-									      }
-										=>
-										printf "guievent_sink()/PROPERTY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CIRCULATE_REQUEST
+										      {
+											parent_window_id:	evt::Window_Id,					# The parent.
+											circulate_window_id:	evt::Window_Id,					# The window to circulate.
+											place:			evt::Stack_Pos					# The place to circulate the window to.
+										      }
+											=>
+											printf "guievent_sink()/CIRCULATE_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::SELECTION_CLEAR
-									      {
-										owning_window_id:	evt::Window_Id,					# The current owner of the selection.
-										selection:		evt::Atom,					# The selection.
-										timestamp:		evt::t::Xserver_Timestamp			# The last-change time.
-									      }		
-										=>
-										printf "guievent_sink()/SELECTION_CLEAR: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::PROPERTY_NOTIFY
+										      {
+											changed_window_id:	evt::Window_Id,					# The window with the changed property.
+											atom:        		evt::Atom,					# The affected property.
+											timestamp:  		evt::t::Xserver_Timestamp,			# When the property was changed.
+											deleted:     		Bool						# TRUE if the property was deleted.
+										      }
+											=>
+											printf "guievent_sink()/PROPERTY_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::SELECTION_REQUEST
-									      {
-										owning_window_id:	evt::Window_Id,					# The owner of the selection.
-										selection:		evt::Atom,					# The selection.
-										target:			evt::Atom,					# The requested type for the selection.
-										requesting_window_id:	evt::Window_Id,					# The requesting window.
-										property:		Null_Or( evt::Atom ),				# The property to store the selection in. 
-										timestamp:		evt::Timestamp					#  
-									      }
-										=>
-										printf "guievent_sink()/SELECTION_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::SELECTION_CLEAR
+										      {
+											owning_window_id:	evt::Window_Id,					# The current owner of the selection.
+											selection:		evt::Atom,					# The selection.
+											timestamp:		evt::t::Xserver_Timestamp			# The last-change time.
+										      }		
+											=>
+											printf "guievent_sink()/SELECTION_CLEAR: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::SELECTION_NOTIFY
-									      {
-										requesting_window_id:	evt::Window_Id,					# The requestor of the selection.
-										selection:		evt::Atom,					# The selection.
-										target:			evt::Atom, 					# The requested type of the selection.
-										property:		Null_Or( evt::Atom ),				# The property to store the selection in.
-										timestamp:		evt::Timestamp  				#  
-									      }
-										=>
-										printf "guievent_sink()/SELECTION_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::SELECTION_REQUEST
+										      {
+											owning_window_id:	evt::Window_Id,					# The owner of the selection.
+											selection:		evt::Atom,					# The selection.
+											target:			evt::Atom,					# The requested type for the selection.
+											requesting_window_id:	evt::Window_Id,					# The requesting window.
+											property:		Null_Or( evt::Atom ),				# The property to store the selection in. 
+											timestamp:		evt::Timestamp					#  
+										      }
+											=>
+											printf "guievent_sink()/SELECTION_REQUEST: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::COLORMAP_NOTIFY
-									      {
-										window_id:		evt::Window_Id,					# The affected window.
-										cmap:			Null_Or( evt::Colormap_Id ),			# The colormap.
-										new:			Bool,						# TRUE, if the colormap attribute is changed.
-										installed: 		Bool						# TRUE, if the colormap is installed.
-									      }
-										=>
-										printf "guievent_sink()/COLORMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::SELECTION_NOTIFY
+										      {
+											requesting_window_id:	evt::Window_Id,					# The requestor of the selection.
+											selection:		evt::Atom,					# The selection.
+											target:			evt::Atom, 					# The requested type of the selection.
+											property:		Null_Or( evt::Atom ),				# The property to store the selection in.
+											timestamp:		evt::Timestamp  				#  
+										      }
+											=>
+											printf "guievent_sink()/SELECTION_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::CLIENT_MESSAGE
-									      {
-										window_id:		evt::Window_Id,					#  
-										type:			evt::Atom,					# The type of the message.
-										value:			evt::Raw_Data					# The message value.
-									      }
-										=>
-										printf "guievent_sink()/CLIENT_MESSAGE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::COLORMAP_NOTIFY
+										      {
+											window_id:		evt::Window_Id,					# The affected window.
+											cmap:			Null_Or( evt::Colormap_Id ),			# The colormap.
+											new:			Bool,						# TRUE, if the colormap attribute is changed.
+											installed: 		Bool						# TRUE, if the colormap is installed.
+										      }
+											=>
+											printf "guievent_sink()/COLORMAP_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::MODIFIER_MAPPING_NOTIFY						# Really a MappingNotify event.
-										=>
-										printf "guievent_sink()/MODIFIER_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::CLIENT_MESSAGE
+										      {
+											window_id:		evt::Window_Id,					#  
+											type:			evt::Atom,					# The type of the message.
+											value:			evt::Raw_Data					# The message value.
+										      }
+											=>
+											printf "guievent_sink()/CLIENT_MESSAGE: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::KEYBOARD_MAPPING_NOTIFY						# Really a MappingNotify event.
-									      {
-										first_keycode:  	evt::Keycode,
-										count:          	Int
-									      }
-										=>
-										printf "guievent_sink()/KEYBOARD_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::MODIFIER_MAPPING_NOTIFY						# Really a MappingNotify event.
+											=>
+											printf "guievent_sink()/MODIFIER_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									    evt::x::POINTER_MAPPING_NOTIFY						# Really a MappingNotify event.
-										=>
-										printf "guievent_sink()/POINTER_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
+										    evt::x::KEYBOARD_MAPPING_NOTIFY						# Really a MappingNotify event.
+										      {
+											first_keycode:  	evt::Keycode,
+											count:          	Int
+										      }
+											=>
+											printf "guievent_sink()/KEYBOARD_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-									esac;										# NB: We avoid a '_' case here because if an event is added to evt::x::Event we want a compile error as a reminder to handle it.
+										    evt::x::POINTER_MAPPING_NOTIFY						# Really a MappingNotify event.
+											=>
+											printf "guievent_sink()/POINTER_MAPPING_NOTIFY: ignoring '%s' Gui_Event    -- guiboss-imp.pkg\n" (gts::gui_event_to_string event);
 
-								    };
+										esac;										# NB: We avoid a '_' case here because if an event is added to evt::x::Event we want a compile error as a reminder to handle it.
 
-							    _  =>   {											# Woops, we have prior events that came in before we were ready to process them.
-									saved_events := arg ! *saved_events;						# Add latest event to saved-events list.
-									events = reverse *saved_events;							# Reverse saved-events list so we process them in first-in-first-out order.
-									saved_events := [];								# Clear saved-events so  we don't process any of them twice.
-									apply guievent_sink events;							# Recursively process all saved events in order.  NB: Any new events that arrive during this will just accumulate on guiboss_q. That's fine.
-								    };											# 
-							esac;
-						    };
+									    };
 
+								    _  =>   {											# Woops, we have prior events that came in before we were ready to process them.
+										saved_events := arg ! *saved_events;						# Add latest event to saved-events list.
+										events = reverse *saved_events;							# Reverse saved-events list so we process them in first-in-first-out order.
+										saved_events := [];								# Clear saved-events so  we don't process any of them twice.
+										apply guievent_sink events;							# Recursively process all saved events in order.  NB: Any new events that arrive during this will just accumulate on guiboss_q. That's fine.
+									    };											# 
+								esac;
+							    };
+
+						esac;
 					esac;
 				    }															# In-private-thread part of fun guievent_sink.
 			    );																# fun guievent_sink
@@ -3663,7 +3716,7 @@ printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *t
 
 
 				    topwindow_info       =    { guiboss_to_topwindow,									# Remember our handle for the topwindow.
-								running_gui			=>   REF NULL,						# Remember that we do not yet have a GUI running on the topwindow.
+								backing_pixmap			=>   REF NULL,						# Remember that we do not yet have a GUI running on the topwindow.
 								#
 								bounce_imps			=>  (REF im::empty): Bounce_Imps,			# Holds our gt::Guiboss_To_Bouncespace instances -- can't put them directly in Running_Gui due to circularity.
 								canvas_imps			=>  (REF im::empty): Canvas_Imps,			# Holds our gt::Guiboss_To_Canvasspace instances -- can't put them directly in Running_Gui due to circularity.
