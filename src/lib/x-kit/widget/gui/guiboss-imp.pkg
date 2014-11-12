@@ -218,6 +218,9 @@ herein
 
 	    done_extra_startframe_this_frame:	Ref(Bool),								# See Note[1].
 
+	    next_stacking_order:		Ref(Int),								# Next Backing_Pixmap.stacking_order value to issue.
+	    
+
 	    # The remainder are valid only while a gui is running,
 	    # which is to say, between restart_gui' and pause_gui':
 
@@ -289,7 +292,23 @@ nb {. sprintf "clear_box_in_pixmap/AAA box = %s -- guiboss-imp.pkg" (g2j::box_to
 		    gt::VIEWPORT_PIXMAP  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
 		esac;
 	    };
-
+															# The high-level architectural ideas here are:
+															#  o  Every running gui has an associated offscreen backing_pixmap containing a complete image of its window.
+															#     We have one running gui for the main visible window plus one for each visible popup.
+															#     (Popups do not have separate X windows; they are implemented entirely client-side, drawing into the main window.)
+															#     The popups cover less screen space than the main visible window, so they have smaller offscreen backing_pixmaps.
+															#  o  Gadgets always draw to the offscreen backing_pixmap for the running gui with which they are associated.
+															#  o  We update the visible window by copying rectangles from the backing_pixmaps to the visible window.
+															#     These copies need to respect the popup hierarchy, e.g. the main running_gui must not write over screenspace belonging to any popup.
+															#     We never do text drawing ops or such directly onto the visible window.
+															#  o  Scrollable views introduce an additional level of indirection:
+															#      *  Each scrollable view has its own offscreen backing_pixmap.
+															#      *  Widgets located on a scrollable view draw to its backing_pixmap.
+															#      *  We copy rectangles from the scrollable-view backing_pixmap to its parent backing_pixmap.
+															#         (We never copy directly from the scrollable-view backing_pixmap to the visible window.)
+															#      *  Scrollable-view stuff then becomes visible when the parent backing_pixmap is copied to the visible window.
+															#      *  It is reasonable for a scrollable view to contain another scrollable view, so the above should be understood recursively.
+															#
 															# Nomenclature: "blit" is from "BitBLT" == "bit-boundary block transfer" -- originally a Xerox Alto graphics op, now informal jargon term. For more info:   http://en.wikipedia.org/wiki/Bit_blit
 															# Because we allow nested scrollable subwindows of main topwindow for app,
 															# it is nontrivial to figure out where on the topwindow a given gadget is
@@ -389,10 +408,10 @@ nb {. sprintf "find_frombox_parts_not_hidden_by_popups/DDD visible_parts_of_from
 
 		fun propagate_frombox_changes_to_all_parents_in_which_they_are_visible					# Caller has just changed contents of from_box in backing_pixmap:  We need to propagate these changes to all parents in which it is visible.
 		      (
-			backing_pixmap
-			as
-			gt::TOPWINDOW_PIXMAP bp,
-
+			backing_pixmap											# A gt::TOPWINDOW_PIXMAP contains the complete offscreen image of one running gui, either the main window one or a popup.
+			as												# Consequently in the gt::TOPWINDOW_PIXMAP case we are always copying from the offscreen backing_pixmap to the visible screen,
+			gt::TOPWINDOW_PIXMAP bp,									# never from one offscreen backing_pixmap to another.  When copying to the visible screen we do need to be careful not to
+															# overwrite screen space belonging to any popup which is above us in the stacking order.
 			from_box:	g2d::Box									# From-box in source pixmap coordinates.
 		      )
 			=>
@@ -436,9 +455,9 @@ nb {. sprintf "propagate_frombox_changes_to_all_parents_in_which_they_are_visibl
 
 		    propagate_frombox_changes_to_all_parents_in_which_they_are_visible
 		      (
-			backing_pixmap
-			as
-			gt::VIEWPORT_PIXMAP  { is_visible:	Ref( Bool ),
+			backing_pixmap											# A gt::VIEWPORT_PIXMAP contains the offscreen image of one scrollable viewport embedded within a parent backing_pixmap.
+			as												# Consequently in the gt::VIEWPORT_PIXMAP case we are always copying from one offscreen backing_pixmap to another.
+			gt::VIEWPORT_PIXMAP  { is_visible:	Ref( Bool ),						# We do not have to worry about popups blocking our copies, since they are entirely internal to one running_gui.
 						pixmap:		g2p::Gadget_To_Rw_Pixmap,
 						viewports:	Ref( List( gt::Viewport ) )				# We make this a Ref(List(...)) to allow for adding additional viewports opening onto the same underlying pixmap.
 					      },
@@ -452,8 +471,6 @@ nb {. sprintf "propagate_frombox_changes_to_all_parents_in_which_they_are_visibl
 			if (*is_visible)												# Do not propagate if we are one of multiple TABBED_VIEWS and we are not visible.
 			    #	
 			    from_id   =  gt::backing_pixmap_id_of  backing_pixmap;							# The Id for the source pixmap for the copy.
-
-			    to_point  = g2d::box::upperleft  from_box;									# Where should we copy pixels to, on our parent pixmap?   We initialize this to the null transform -- we'll add in appropriate offsets to this momentarily.
 
 			    apply   do_viewport  *viewports										# We may be visible in multiple viewports, each of which may be visible in multiple viewports, so potentially we need to update a tree of parents.
 				    where
@@ -472,6 +489,10 @@ nb {. sprintf "propagate_frombox_changes_to_all_parents_in_which_they_are_visibl
 						viewport' = g2d::box::clone_box_at (*viewport_site, viewport_origin_in_view);		# 0,0 then viewport is at (0,0) in home pixmap, otherwise
 																	# it is offset by -*view_origin, so in general we want
 																	# the viewport cloned at -*view_origin.
+
+
+
+						to_point  = g2d::box::upperleft  from_box;						# Where should we copy pixels to, on our parent pixmap?   We initialize this to the null transform -- we'll add in appropriate offsets to this momentarily.
 
 # PLUGH
 nb {. sprintf "propagate_frombox_changes_to_all_parents_in_which_they_are_visible/do_viewport/AAA viewport' = %s -- guiboss-imp.pkg" (g2j::box_to_string viewport'); };
@@ -527,6 +548,7 @@ nb {. sprintf "propagate_frombox_changes_to_all_parents_in_which_they_are_visibl
 								(parent_pixmap, from_box);
 							};
 						esac;
+
 					    };
 				    end;	
 			fi;
@@ -705,8 +727,8 @@ nb {. sprintf "redraw_all_popups/ZZZ -- guiboss-imp.pkg"; };
 					    packedspace_id:		gt::Packedspace_Id,				# Runtime GUI state synthesized locally per client spec.
 					    packed_widget:		gt::Rg_Packed_Widget,				# "                                       ".
 					    topwindow:			gws::Guiboss_To_Topwindow,
-					    topwindow_pixmap:		gt::Backing_Pixmap,				# Holds toplevel gt::TOPWINDOW_PIXMAP for gui.
-					    next_stacking_order:	Ref(Int)					# Next space_to_gui::Backing_Pixmap.stacking_order value to issue.
+					    topwindow_pixmap:		gt::Backing_Pixmap				# Holds toplevel gt::TOPWINDOW_PIXMAP for gui.
+#					    next_stacking_order:	Ref(Int)					# Next space_to_gui::Backing_Pixmap.stacking_order value to issue.
 					  };
 
 			packed_widget''
@@ -1052,7 +1074,7 @@ nb {. sprintf "make_backing_pixmap_for_popup/MMM origin s=%s size = %s-- guiboss
 	      )
 	    =
 	    {
-		topwindow_info.backing_pixmap :=  THE topwindow_pixmap;						# Remember that we now have a gui running on this topwindow.
+		topwindow_info.backing_pixmap :=  THE topwindow_pixmap;							# Remember that we now have a gui running on this topwindow.
 
 		case topwindow_pixmap
 		    #
@@ -1317,7 +1339,7 @@ nb {. sprintf "restart_gui'/BBB -- guiboss-imp.pkg"; };
 		      {
 			id:			iul::Id,
 			displaylist:		gd::Gui_Displaylist,
-			point_in_gadget:	Null_Or( g2d::Point -> Bool )
+			point_in_gadget:	Null_Or( g2d::Point -> Bool )						# Optional function deciding if (e.g.) a mouseclick location is within the gadget. This allows more geometric accuracy than a simple bounding box or such.
 		      }
 		    =
 		    # The point of this call is to update the appearance
@@ -1437,8 +1459,8 @@ nb {. sprintf "restart_gui'/BBB -- guiboss-imp.pkg"; };
 			  packedspace_id,
 			  packed_widget,
 			  topwindow_pixmap,
-			  topwindow	      =>  topwindow_for_gui,
-			  next_stacking_order =>  REF 2								# We use this to issue successive TOPWINDOW_PIXMAP.stacking_order values for popup panes.
+			  topwindow	      =>  topwindow_for_gui
+#			  next_stacking_order =>  REF 2								# We use this to issue successive TOPWINDOW_PIXMAP.stacking_order values for popup panes.
 			};
 		    }
 		    where
@@ -2129,7 +2151,7 @@ nb {. sprintf "make_popup/CCC -- guiboss-imp.pkg"; };
 				    (make_backing_pixmap_for_popup									# Make a new rw_pixmap, wrap it in a TOPWINDOW_PIXMAP, enter latter into the TOPWINDOW_PIXMAP popup hierarchy for this gui.
 				      (
 					imports.guiboss_to_windowsystem.make_rw_pixmap,							# To allocate the actual rw_pimap for the Backing_Pixmap.
-					running_gui.next_stacking_order,								# To allocate a 'stacking_order' value for Backing_Pixmap.
+					topwindow_info.next_stacking_order,								# To allocate a 'stacking_order' value for Backing_Pixmap.
 					topwindow_pixmap,										# Our parent Backing_Pixmap.
 					requested_site											# Where to put popup on parent Backing_Pixmap.
 				      )
@@ -2163,17 +2185,17 @@ nb {. sprintf "make_popup/VVV -- guiboss-imp.pkg"; };
 			client_to_guiwindow =  get_from_oneshot  gui_startup_complete'; 						# Wait until popup startup is complete.  We do this in caller's thread to reduce risk of lockup -- caller is typically a button that can afford to sleep a bit.
 
 nb {. sprintf "make_popup/WWW -- guiboss-imp.pkg"; };
-			put_in_mailqueue  (guiboss_q,											# make_popup() is intended to be called by widget code, so our first task is to transition from caller's microthread to the guiboss-imp microthread.
-			    #
-			    \\ (runstate as { me, imports, ... }: Runstate)								# Once into the body of this fn we are running in the guiboss-imp microthread.
-				=
-				{
-nb {. sprintf "make_popup/XXX calling redraw_all_popups() -- guiboss-imp.pkg"; };
-#				    redraw_all_popups (backing_pixmap, topwindow_for_gui);						# Update user's on-screen window to show new popup GUI.
-				    redraw_all_popups (topwindow_pixmap, topwindow_for_gui);						# Update user's on-screen window to show new popup GUI.
-nb {. sprintf "make_popup/YYY called  redraw_all_popups() -- guiboss-imp.pkg"; };
-				}
-			);
+# 			put_in_mailqueue  (guiboss_q,											# make_popup() is intended to be called by widget code, so our first task is to transition from caller's microthread to the guiboss-imp microthread.
+# 			    #
+# 			    \\ (runstate as { me, imports, ... }: Runstate)								# Once into the body of this fn we are running in the guiboss-imp microthread.
+# 				=
+# 				{
+# nb {. sprintf "make_popup/XXX calling redraw_all_popups() -- guiboss-imp.pkg"; };
+# #				    redraw_all_popups (backing_pixmap, topwindow_for_gui);						# Update user's on-screen window to show new popup GUI.
+# 				    redraw_all_popups (topwindow_pixmap, topwindow_for_gui);						# Update user's on-screen window to show new popup GUI.
+# nb {. sprintf "make_popup/YYY called  redraw_all_popups() -- guiboss-imp.pkg"; };
+# 				}
+# 			);
 # actual_site = requested_site;
 # client_to_guiwindow # Dummy
 # 	  =
@@ -2655,7 +2677,7 @@ nb {. sprintf "make_popup/ZZZ actual_site == { row => %d, col => %d, high => %d,
 			  )
 			=
 {
-nb {. sprintf "do_motion_notify/AAA -- guiboss-imp.pkg"; };
+# nb {. sprintf "do_motion_notify/AAA -- guiboss-imp.pkg"; };
 
 			case (find_appropriate_gadget_info (topwindow_info, motion_xevtinfo.event_point))
 			    #
@@ -2804,7 +2826,7 @@ nb {. sprintf "do_motion_notify/AAA -- guiboss-imp.pkg"; };
 				    esac;
 				};
 			esac;
-nb {. sprintf "do_motion_notify/ZZZ -- guiboss-imp.pkg"; };
+# nb {. sprintf "do_motion_notify/ZZZ -- guiboss-imp.pkg"; };
 };
 
 
@@ -3803,9 +3825,11 @@ printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *t
 								current_frame_number		=>  (REF 1),						# We count frames for convenience of widgets and debugging.
 								seconds_per_frame		=>  (REF 0.01),						# Let's initially assume a nominal ten frames per second. Passed to widgets primarily so widgets can do motion blurring if they wish.
 								#
-								mouse_is			=>  (REF CROSSING_NONGADGET), 				# Mouse is not current dragging, and in fact not currently known to be on any particular widget.
+								mouse_is			=>  (REF CROSSING_NONGADGET), 				# Mouse is not currently dragging, and in fact not currently known to be on any particular widget.
 								#
-								done_extra_startframe_this_frame=>  (REF FALSE), 
+								done_extra_startframe_this_frame=>  (REF FALSE),
+								#
+								next_stacking_order		=>  (REF 2), 
 								#
 								gadget_to_guiboss		=>  (REF (NULL: Null_Or( gt::Gadget_To_Guiboss ))),	# 
 								space_to_gui			=>  (REF (NULL: Null_Or( s2g::Space_To_Gui)))
