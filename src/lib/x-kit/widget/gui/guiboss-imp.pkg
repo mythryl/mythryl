@@ -1437,8 +1437,6 @@ herein
 		fun set__needs_redraw_request__flag (i: gt::Gadget_Info)
 		    =
 		    {
-i.guiboss_to_gadget -> gt::GUIBOSS_TO_GADGET g;
-nb {. sprintf "set__needs_redraw_request__flag (id=%d) setting   needs_redraw_request := TRUE   -- guiboss-imp.pkg" (iul::id_to_int g.id); };
 			i.needs_redraw_request :=  TRUE;
 		    };
 
@@ -1504,32 +1502,32 @@ nb {. sprintf "set__needs_redraw_request__flag (id=%d) setting   needs_redraw_re
 		    #
 		    {   put_in_mailqueue  (guiboss_q,
 			    #
-			    \\ (runstate: Runstate)
+			    \\ (runstate as { me, imports, ... }:	Runstate)
 				=
-				{
-				    i = get_gadget_info (gadget_imps, id);
+				{   i = get_gadget_info (gadget_imps, id);
 				    #
-				    set__needs_redraw_request__flag i;
+				    if *done_extra_redraw_request_this_frame
+					#
+					set__needs_redraw_request__flag i;						# This is the "normal" codepath -- we just remember that this gadget needs a redraw. We'll send it a redraw_gadget_request next time "frameclock" nudges us to run display_one_frame().
+				    else
+					#										# This is a special codepath intended to reduce user-input response latency in the common case of only one mouseclick or such per frametime (10-100 ms).  For background see Note[3].
+					done_extra_redraw_request_this_frame := TRUE;					# Throttle this codepath to at most once per "frameclock" tick, to prevent runaway gadgets from overwhelming the CPU+GPU with redraw_gadget() calls.
+					#
+					i -> { guiboss_to_gadget
+                                               as
+                                               gt::GUIBOSS_TO_GADGET g2g, site, gadget_mode, needs_redraw_request, ...
+                                             };
 
-# Actually, I don't think this is a good idea,
-# I just want to do this on mouseclick and keypress.
-#
-#				    if (not *done_extra_redraw_request_this_frame)
-#					#
-#					# Send a startframe to the gadget:
-#
-#					i -> { guiboss_to_gadget, site, gadget_mode, needs_redraw_request, ... };
-#
-#					guiboss_to_gadget.redraw_gadget_request
-#					  {
-#					    frame_number => *current_frame_number,
-#					    site	 => *site,
-#					    visible	 	=> TRUE,
-#					    duration_in_seconds => 0.0,
-#					    this_gadget_mode => *gadget_mode,
-#					    theme => imports.theme
-#					  };
-#				    fi;
+					g2g.redraw_gadget_request							# Give the gadget an instant redraw_gadget_request() in response to its needs_redraw_gadget_request() call to us, instead of making it wait until start of next frame (== next time "frameclock" microthread wakes up).
+					  {
+					    frame_number	=> *current_frame_number,
+					    site		=> *site,
+					    visible	 	=> TRUE,
+					    duration_in_seconds => 0.0,
+					    this_gadget_mode	=> *gadget_mode,
+					    theme		=> imports.theme
+					  };
+				    fi;
 				}
 		        );
 		    };
@@ -1537,7 +1535,6 @@ nb {. sprintf "set__needs_redraw_request__flag (id=%d) setting   needs_redraw_re
 		fun draw_gadget (clip_box, gui_displaylist, gadget_info: gt::Gadget_Info)
 		    =
 		    {
-nb {. sprintf "draw_gadget/AAA frame_number d=%d site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" *current_frame_number (g2j::box_to_string *gadget_info.site); };
 			gui_displaylist = [ gd::CLIP_TO (clip_box, gui_displaylist) ];					# Clip gadget's displaylist to its assigned site so it won't traspass on neighboring gadgets if it gets sloppy.
 			#
 			gadget_to_rw_pixmap =  gt::gadget_to_rw_pixmap__of  *gadget_info.backing_pixmap;		# Find gadget's assigned off-screen backing pixmap.
@@ -1581,7 +1578,6 @@ nb {. sprintf "draw_gadget/AAA frame_number d=%d site = %s -- not *topwindow_inf
 			    \\ (runstate: Runstate)
 				=
 				{   i = get_gadget_info (gadget_imps, id);
-nb {. sprintf "redraw_gadget/AAA frame_number d=%d site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" *current_frame_number (g2j::box_to_string *i.site); };
 				    #
 				    i.point_in_gadget := point_in_gadget; 
 
@@ -2433,7 +2429,7 @@ nb {. sprintf "redraw_gadget/AAA frame_number d=%d site = %s -- not *topwindow_i
 		    #
 		    make_thread'  [ THREAD_NAME "frameclock" ]  frameclock  end_gun'							# Start up frameclock thread which tells us when it is time to draw a new frame.
 			where
-			    fun display_one_frame ({ me, imports, ... }: Runstate)
+			    fun display_one_frame ({ me, imports, ... }: Runstate)							# THIS FUNCTION RUNS IN THE REGULAR GUIBOSS_IMP MICROTHREAD, NOT THE "frameclock" MICROTHREAD.
 				=
 				{
 				    current_frame_number := *current_frame_number + 1;
@@ -2477,7 +2473,6 @@ nb {. sprintf "redraw_gadget/AAA frame_number d=%d site = %s -- not *topwindow_i
 										    make_popup
 										  };
 
-nb {. sprintf "frameclock/initialize_gadget  (id=%d) setting   needs_redraw_request := TRUE   -- guiboss-imp.pkg" (iul::id_to_int guiboss_to_gadget.id); };
 					    sent__initialize_gadget := TRUE;
 					    needs_redraw_request    := TRUE;
 					fi;
@@ -2489,7 +2484,6 @@ nb {. sprintf "frameclock/initialize_gadget  (id=%d) setting   needs_redraw_requ
 
 					if (*needs_redraw_request  and  *site != g2d::box::zero)					# If *site==g2d::box::zero then packedspace_imp has not yet done layout and we cannot yet call redraw_gadget_request because it requires a valid site.
 					    #
-nb {. sprintf "frameclock (*needs_redraw_request == TRUE) calling guiboss_to_gadget.redraw_gadget_request, gadget.id=%d frame_number d=%d site = %s -- frameclock thread, guiboss-imp.pkg" *current_frame_number  (iul::id_to_int guiboss_to_gadget.id)  (g2j::box_to_string *site); };
 					    guiboss_to_gadget.redraw_gadget_request
 					      {
 						frame_number => *current_frame_number,
@@ -2500,19 +2494,9 @@ nb {. sprintf "frameclock (*needs_redraw_request == TRUE) calling guiboss_to_gad
 						theme => imports.theme
 					      };
 
-nb {. sprintf "frameclock setting   needs_redraw_request := FALSE   frame_number d=%d  gadget.id=%d  site = %s -- frameclock thread, guiboss-imp.pkg" *current_frame_number (iul::id_to_int guiboss_to_gadget.id)  (g2j::box_to_string *site); };
 					    needs_redraw_request := FALSE;
 					fi;
 				    };
-
-# 				    apply' imps  {.
-# 					#
-# 					#imp -> { needs_redraw_request,
-# 						  guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget,
-# 						  site,	
-# 						  ...
-# 						};
-# 				    };
 				};	
 
 
@@ -2520,7 +2504,7 @@ nb {. sprintf "frameclock setting   needs_redraw_request := FALSE   frame_number
 			    # This fn provides the body for a little microthread which just
 			    # loops ten times a second telling our main thread to disply frame:
 			    #
-			    fun frameclock end_gun'
+			    fun frameclock end_gun'													# THIS FUNCTION RUNS IN THE "frameclock" MICROTHREAD.
 				=
 				loop ()
 				where
@@ -2957,9 +2941,6 @@ nb {. sprintf "frameclock setting   needs_redraw_request := FALSE   frame_number
 			    motion_xevtinfo:		evt::Motion_Xevtinfo
 			  )
 			=
-{
-nb {. sprintf "do_motion_notify/AAA -- guiboss-imp.pkg"; };
-
 			case (find_appropriate_gadget_info (topwindow_info, motion_xevtinfo.event_point))
 			    #
 			    APPROPRIATE_GADGET (gadget_info, event_point)						# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
@@ -2973,7 +2954,6 @@ nb {. sprintf "do_motion_notify/AAA -- guiboss-imp.pkg"; };
 					CROSSING_NONGADGET								# Here the mouse is crossing from non-gadget pixels into gadget pixels.
 					    =>
 					    {
-nb {. sprintf "do_motion_notive calling guiboss_to_gadget.note_mouse_transit/CAME, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 					        guiboss_to_gadget.note_mouse_transit					# Notify gadget that mouse has entered its space.
 						  {
 						    transit		=> gt::CAME,
@@ -2982,7 +2962,6 @@ nb {. sprintf "do_motion_notive calling guiboss_to_gadget.note_mouse_transit/CAM
 						    site		=> *gadget_info.site,
 						    theme		=>  imports.theme
 						  };
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/MOVE,  site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_transit					# Notify gadget that mouse has entered its space.
 						  {
 						    transit		=> gt::MOVE,					# We send a MOVE after every CAME, for the convenience of handlers interested only in coordinates -- they can process all MOVE events and ignore CAME and LEFT events.
@@ -3000,7 +2979,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/MOV
 					    =>
 					    if (gt::same_gadget_info (gadget_info, last_gadget_info))
 						#									# Here mouse is continuing to move on same gadget it was on at last report.
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/CAME II, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_transit					# Notify gadget that mouse has entered its space.
 						  {
 						    transit		=> gt::MOVE,								# 
@@ -3012,7 +2990,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/CAM
 
 					    else									# Here mouse has crossed from one gadget to another.
 
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/LEFT, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 						last_guiboss_to_gadget.note_mouse_transit				# Notify last gadget that mouse has left its space.
 						  {
 						    transit		=> gt::LEFT,
@@ -3024,7 +3001,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/LEF
 
 						mouse_is := CROSSING_GADGET { gadget_info };				# Remember that we're now on the new gadget.
 						#
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/CAME III,  site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_transit					# Notify new gadget that mouse has entered its space.
 						  {
 						    transit		=> gt::CAME,
@@ -3033,7 +3009,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/CAM
 						    site		=> *gadget_info.site,
 						    theme		=> imports.theme
 						  };
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/MOVE III,  site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_transit					# Notify gadget that mouse has entered its space.
 						  {
 						    transit		=> gt::MOVE,					# We send a MOVE after every CAME, for the convenience of handlers interested only in coordinates -- they can process all MOVE events and ignore CAME and LEFT events.
@@ -3053,7 +3028,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/MOV
 					    =>
 					    if (gt::same_gadget_info (gadget_info, dragged_gadget_info))		# If cursor is outside gadget in which drag started, we do absolutely nothing.
 						#
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_drag_event/DRAG, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_drag_event					# 
 						  {									# 
 						    phase		=> gt::DRAG,
@@ -3091,7 +3065,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_drag_event/
 					    =>
 					    {	gadget_info -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... };
 						#
-nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/LEFT IV, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						guiboss_to_gadget.note_mouse_transit					# Notify the gadget that we were on that mouse has left its space.
 						  {
 						    transit		=> gt::LEFT,
@@ -3115,8 +3088,6 @@ nb {. sprintf "do_motion_notify calling guiboss_to_gadget.note_mouse_transit/LEF
 				    esac;
 				};
 			esac;
-nb {. sprintf "do_motion_notify/ZZZ -- guiboss-imp.pkg"; };
-};
 
 
 		    fun do_button_press											# 
@@ -3130,16 +3101,16 @@ nb {. sprintf "do_motion_notify/ZZZ -- guiboss-imp.pkg"; };
 			  )
 			=
 			{
-nb {. sprintf "do_button_press/AAA -- guiboss-imp.pkg"; };
-{ button_xevtinfo.mouse_button -> evt::MOUSEBUTTON mousebutton;
-  nb {. sprintf "do_button_press mousebutton %d pressed" mousebutton; };
-  buttons = button_xevtinfo.mousebuttons_state;
-  nb {. sprintf "do_button_press mousebutton_1_was_down = %B" buttons.mousebutton_1_was_down; };
-  nb {. sprintf "do_button_press mousebutton_2_was_down = %B" buttons.mousebutton_2_was_down; };
-  nb {. sprintf "do_button_press mousebutton_3_was_down = %B" buttons.mousebutton_3_was_down; };
-  nb {. sprintf "do_button_press mousebutton_4_was_down = %B" buttons.mousebutton_4_was_down; };
-  nb {. sprintf "do_button_press mousebutton_5_was_down = %B" buttons.mousebutton_5_was_down; };
-};
+# nb {. sprintf "do_button_press/AAA -- guiboss-imp.pkg"; };
+# { button_xevtinfo.mouse_button -> evt::MOUSEBUTTON mousebutton;
+#   nb {. sprintf "do_button_press mousebutton %d pressed" mousebutton; };
+#   buttons = button_xevtinfo.mousebuttons_state;
+#   nb {. sprintf "do_button_press mousebutton_1_was_down = %B" buttons.mousebutton_1_was_down; };
+#   nb {. sprintf "do_button_press mousebutton_2_was_down = %B" buttons.mousebutton_2_was_down; };
+#   nb {. sprintf "do_button_press mousebutton_3_was_down = %B" buttons.mousebutton_3_was_down; };
+#   nb {. sprintf "do_button_press mousebutton_4_was_down = %B" buttons.mousebutton_4_was_down; };
+#   nb {. sprintf "do_button_press mousebutton_5_was_down = %B" buttons.mousebutton_5_was_down; };
+# };
 			    case (find_appropriate_gadget_info (topwindow_info, button_xevtinfo.event_point))
 				#
 				APPROPRIATE_GADGET (gadget_info, event_point)						# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
@@ -3154,7 +3125,6 @@ nb {. sprintf "do_button_press/AAA -- guiboss-imp.pkg"; };
 					    CROSSING_NONGADGET
 						=>
 						{
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/CAME V, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_transit				# Tell gadget that mouse has entered its space.
 						      {
 							transit		    => gt::CAME,
@@ -3164,7 +3134,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/CAME
 							theme		    => imports.theme
 						      };
 
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/OPEN V, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_drag_event				# Tell gadget that user just started a drag operation on it.
 						      {									# 
 							phase		    => gt::OPEN,
@@ -3177,7 +3146,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/OPEN
 							theme		    => imports.theme
 						      };
 
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/DRAG V, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_drag_event				# We send a DRAG after every OPEN, for the convenience of handlers interested only in coordinates -- they can process all DRAG events and ignore OPEN and DONE events.
 						      {									# 
 							phase		    => gt::DRAG,
@@ -3204,7 +3172,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/DRAG
 						{
 						    if (not (gt::same_gadget_info (gadget_info, last_gadget_info)))	# If we just left a gadget, tell it so.
 							#
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/LEFT VI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							last_guiboss_to_gadget.note_mouse_transit			# Notify last gadget that we were on that mouse has left its space.
 							  {
 							    transit		=> gt::LEFT,
@@ -3214,7 +3181,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/LEFT
 							    theme		=> imports.theme
 							  };
 
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/CAME VI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 							guiboss_to_gadget.note_mouse_transit				# Notify new gadget that mouse has entered its space.
 							  {
 							    transit		=> gt::CAME,
@@ -3225,7 +3191,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/CAME
 							  };
 						    fi;
 
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/OPEN VI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_drag_event				# Tell gadget that user just started a drag operation on it.
 						      {									# 
 							phase		    => gt::OPEN,
@@ -3237,7 +3202,7 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/O
 						        site		    => *gadget_info.site,
 							theme		    => imports.theme
 						      };
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/DRAG VI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg"  (g2j::box_to_string *gadget_info.site); };
+
 						    guiboss_to_gadget.note_mouse_drag_event				# We send a DRAG after every OPEN, for the convenience of handlers interested only in coordinates -- they can process all DRAG events and ignore OPEN and DONE events.
 						      {									# 
 							phase		    => gt::DRAG,
@@ -3268,7 +3233,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/D
 						=>
 						if (gt::same_gadget_info (gadget_info, dragged_gadget_info))		# If we are still on the gadget being dragged...
 						    #
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/DRAG VII, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_drag_event				# Tell the gadget where the mouse now is.
 						      {									# 
 							phase		    => gt::DRAG,
@@ -3293,7 +3257,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_drag_event/D
 
 					# Following note_mousebutton_event stuff is completely independent of drag/motion stuff.
 
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mousebutton_event/MOUSEBUTTON_PRESS IX, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 					guiboss_to_gadget.note_mousebutton_event
 					  {
 					    mousebutton_event	=> gt::MOUSEBUTTON_PRESS,
@@ -3303,31 +3266,7 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mousebutton_event/
 					    event_point,
 					    site		=> *gadget_info.site,
 					    theme		=> imports.theme
-					  };	
-
-nb {. sprintf "do_button_press  (id=%d) setting   needs_redraw_request := TRUE   -- guiboss-imp.pkg" (iul::id_to_int guiboss_to_gadget.id); };
-					gadget_info.needs_redraw_request :=  TRUE;
-
-					if (not *topwindow_info.done_extra_redraw_request_this_frame)			# In general we try to draw only one frame per 50HZ SIGALRM clock tick, but to reduce latency we allow one exceptional gadget redraw per tick.
-					    #										# 
-					    topwindow_info.done_extra_redraw_request_this_frame := TRUE;
-
-					    # Send a startframe to the gadget:						# See Note[3]
-					    #	
-					    topwindow_info -> { current_frame_number, ... };
-					    gadget_info    -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, site, gadget_mode, needs_redraw_request, ... };
-					    #
-nb {. sprintf "do_button_press calling guiboss_to_gadget.redraw_gadget_request, frame_number d=%d  gadget.id=%d  site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" *current_frame_number  (iul::id_to_int guiboss_to_gadget.id)  (g2j::box_to_string *site); };
-					    guiboss_to_gadget.redraw_gadget_request
-					      {
-						frame_number => *current_frame_number,
-						site => *site,
-						visible => TRUE,
-						duration_in_seconds => 0.0,
-						this_gadget_mode => *gadget_mode,
-						theme => imports.theme
-					      };
-					fi;
+					  };
 				    };
 
 				NO_APPROPRIATE_GADGET event_point
@@ -3345,7 +3284,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.redraw_gadget_request, 
 						=>
 						{   gadget_info -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... };
 						    #
-nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/LEFT X, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_transit				# Notify last gadget that we were on that mouse has left its space.
 						      {
 							transit		    => gt::LEFT,
@@ -3369,7 +3307,6 @@ nb {. sprintf "do_button_press calling guiboss_to_gadget.note_mouse_transit/LEFT
 					esac;
 				    };
 			    esac;
-nb {. sprintf "do_button_press/ZZZ -- guiboss-imp.pkg"; };
 			};
 
 		    fun do_button_release												# Private.
@@ -3382,16 +3319,6 @@ nb {. sprintf "do_button_press/ZZZ -- guiboss-imp.pkg"; };
 			  )
 			=
 			{
-nb {. sprintf "do_button_release/AAA -- guiboss-imp.pkg"; };
-{ button_xevtinfo.mouse_button -> evt::MOUSEBUTTON mousebutton;
-  nb {. sprintf "do_button_release mousebutton %d released" mousebutton; };
-  buttons = button_xevtinfo.mousebuttons_state;
-  nb {. sprintf "do_button_release mousebutton_1_was_down = %B" buttons.mousebutton_1_was_down; };
-  nb {. sprintf "do_button_release mousebutton_2_was_down = %B" buttons.mousebutton_2_was_down; };
-  nb {. sprintf "do_button_release mousebutton_3_was_down = %B" buttons.mousebutton_3_was_down; };
-  nb {. sprintf "do_button_release mousebutton_4_was_down = %B" buttons.mousebutton_4_was_down; };
-  nb {. sprintf "do_button_release mousebutton_5_was_down = %B" buttons.mousebutton_5_was_down; };
-};
 			    case (find_appropriate_gadget_info (topwindow_info, button_xevtinfo.event_point))
 				#
 				APPROPRIATE_GADGET (gadget_info, event_point)						# 'event_point' is button_xevtinfo.event_point transformed into correct coordinate system for gadget (null transform if no viewports are involved).
@@ -3406,7 +3333,6 @@ nb {. sprintf "do_button_release/AAA -- guiboss-imp.pkg"; };
 						=>
 						{   gadget_info -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... };
 						    #
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CAME X, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_transit				# Notify new gadget that mouse has entered its space.
 						      {
 							transit		    => gt::CAME,
@@ -3426,7 +3352,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CA
 						    #
 						    gadget_info2 -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget2, ... };
 
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LEFT X, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget2.note_mouse_transit				# Notify last gadget that we were on that mouse has left its space.
 						      {
 							transit	        => gt::LEFT,
@@ -3436,7 +3361,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LE
 							theme		=> imports.theme
 						      };
 
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CAME X, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_transit				# Notify new gadget that mouse has entered its space.
 						      {
 							transit		=> gt::CAME,
@@ -3463,7 +3387,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CA
 							#								# All mouse buttons are now released, so drag operation is over
 							gadget_info2 -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget2, ... };
 
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_drag_event/DONE XI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							guiboss_to_gadget2.note_mouse_drag_event			# Tell the drag gadget that drag operation is complete.
 							  {								# 
 							    phase		=> gt::DONE,
@@ -3478,7 +3401,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_drag_event
 
 							if (not (gt::same_gadget_info (gadget_info, gadget_info2)))	# If we just left a gadget, tell it so.
 							    #
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LEFT XI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							    guiboss_to_gadget2.note_mouse_transit			# Notify drag gadget that we were on that mouse has left its space.
 							      {
 								transit		    => gt::LEFT,
@@ -3488,7 +3410,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LE
 								theme		    => imports.theme
 							      };
 
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CAME XI, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							    guiboss_to_gadget.note_mouse_transit			# Notify new gadget that mouse has entered its space.
 							      {
 								transit		    => gt::CAME,
@@ -3505,7 +3426,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/CA
 
 							if (gt::same_gadget_info (gadget_info, gadget_info2))		# If we are still on the drag gadget
 							    #
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/DRAG XII, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							    guiboss_to_gadget.note_mouse_drag_event			# Update the drag gadget with mouse location and buttonstate.
 							      {								# 
 								phase		    => gt::DRAG,
@@ -3529,7 +3449,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/DR
 						};	
 					esac;
 					#	
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mousebutton_event/MOUSEBUTTON_RELEASE XIII, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 					guiboss_to_gadget.note_mousebutton_event					# note_mousebutton_event is completely independent of drag/motion stuff.
 					  {
 					    mousebutton_event		=> gt::MOUSEBUTTON_RELEASE,
@@ -3540,9 +3459,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mousebutton_even
 					    site			=> *gadget_info.site,
 					    theme			=> imports.theme
 					  };
-
-nb {. sprintf "do_button_release  (id=%d) setting   needs_redraw_request := TRUE   -- guiboss-imp.pkg" (iul::id_to_int guiboss_to_gadget.id); };
-					gadget_info.needs_redraw_request :=  TRUE;
 				    };
 
 				NO_APPROPRIATE_GADGET event_point
@@ -3560,7 +3476,6 @@ nb {. sprintf "do_button_release  (id=%d) setting   needs_redraw_request := TRUE
 						=>
 						{   gadget_info -> { guiboss_to_gadget => gt::GUIBOSS_TO_GADGET guiboss_to_gadget, ... };
 						    #
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LEFT XIV, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 						    guiboss_to_gadget.note_mouse_transit				# Notify last gadget that we were on that mouse has left its space.
 						      {
 							transit	        => gt::LEFT,
@@ -3586,7 +3501,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LE
 
 						    if (evt::pressed_mousebutton_count buttons == 1)			# Tell the drag gadget that drag operation is complete.
 							#
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mousebutton_drag_event/DONE XIV, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							guiboss_to_gadget.note_mouse_drag_event				# Notify the drag gadget that the drag operation is now complete.
 							  {								# 
 							    phase		=> gt::DONE,
@@ -3599,7 +3513,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mousebutton_drag
 							    theme		=> imports.theme
 							  };
 
-nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LEFT XIV, site = %s -- not *topwindow_info.done_extra_redraw_request_this_frame, guiboss-imp.pkg" (g2j::box_to_string *gadget_info.site); };
 							guiboss_to_gadget.note_mouse_transit				# Notify drag gadget that mouse has left its space.
 							  {
 							    transit	        => gt::LEFT,
@@ -3615,7 +3528,6 @@ nb {. sprintf "do_button_release calling guiboss_to_gadget.note_mouse_transit/LE
 					esac;
 				    };											# NO_APPROPRIATE_GADGET case._
 			    esac;
-nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 			};
 
 		    fun do_key_press											# Private.
@@ -3648,8 +3560,6 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 					    site		=> *gadget_info.site,
 					    theme		=> imports.theme
 					  };	
-
-					gadget_info.needs_redraw_request :=  TRUE;
 				    };
 
 				NO_APPROPRIATE_GADGET _
@@ -3688,8 +3598,6 @@ nb {. sprintf "do_button_release/ZZZ -- guiboss-imp.pkg"; };
 					    site		=> *gadget_info.site,
 					    theme		=> imports.theme
 					  };	
-
-					gadget_info.needs_redraw_request :=  TRUE;
 				    };
 
 				NO_APPROPRIATE_GADGET _
@@ -4397,16 +4305,26 @@ end;
 #         gadget_to_guiboss.redraw_gadget							#   without risking runaway redraws.
 #     call to actually redraw itself.								#   This mechanism is implemented via
 #												#       done_extra_redraw_request_this_frame:	Ref(Bool),
-# The only exception to this above sequence is that at GUI startup,
-# to establish the initial GUI appeararance, guiboss_imp sends a
-#      guiboss_to_gadget.redraw_gadget_request ()
-# call to every gadget without waiting for a redraw_gadget_request().
+# In general it is the gadget's responsibility to call
+#     gadget_to_guiboss.needs_redraw_gadget_request
+# when it needs to be redrawn.  There are exactly two
+# situations in which guiboss_imp will send a
+#     guiboss_to_gadget.redraw_gadget_request
+# without such prompting:
 #
+#  1) At GUI startup guiboss_imp sends a redraw_gadget_request
+#     to every gadget in the GUI, to establish the initial
+#     visual appearance of the GUI.
+#
+#  2) When a widget's assigned site changes (say, due to the					# Window resizing is actually not supported as of 2014-11-28
+#     user resizing the window).
+# 
 # Originally, to be helpful, guiboss_imp would spontaneously send a
 # a redraw_gadget_request() to any gadget receiving a mouse event
 # or such, but I eventually concluded that this was more confusing
 # than helpful, and retreated to the above simple, easy-to-remember
-# policy.
+# policy.  (Also, spontaneous redraw_gadget_requests() could cause
+# needless redraws, which for some gadgets might be quite expensive.)
 #
 # Note that there is no actual logic or interlock in place to
 # prevent a gadget from ignoring the 
