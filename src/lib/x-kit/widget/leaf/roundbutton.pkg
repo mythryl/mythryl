@@ -108,6 +108,14 @@ relief: pt::Relief,
 		| STATE_WATCHER		(Bool -> Void)				# Widget's current state              will be sent to these fns each time state changes.
 		| PORT_WATCHER		(App_To_Roundbutton -> Void)  		# Widget's app port                   will be sent to these fns at widget startup.
 		| SITE_WATCHER		(g2d::Box -> Void)			# Widget's site in window coordinates will be sent to these fns each time it changes.
+		| POPUP_WATCHER		((g2d::Box, gt::Gui_Plan)
+							    -> ( g2d::Box,
+                                                                 gt::Client_To_Guiwindow
+                                                               )
+					) -> Void
+
+		| MOUSE_TRANSIT_FN	wi::Mouse_Transit_Fn			# Application-specific handler for mouse enter/leave.
+		| MOUSE_DRAG_FN		wi::Mouse_Drag_Fn			# Application-specific handler for mouse drags.
 		;								# To help prevent deadlock, watcher fns should be fast and nonblocking, typically just setting a var or entering something into a mailqueue.
 		
 fun next_relief pt::FLAT   => pt::RAISED;	
@@ -236,6 +244,9 @@ displaylist = displaylist @ textlist @ greenlist;
 		      #
 		port_watchers,
 		state_watchers,
+		popup_watchers,
+		mouse_transit_fn,
+		mouse_drag_fn,
 		site_watchers
 	      }
 	    )
@@ -252,6 +263,10 @@ displaylist = displaylist @ textlist @ greenlist;
 		my_port_watchers	=  REF  port_watchers;
 		my_state_watchers	=  REF  state_watchers;
 		my_site_watchers	=  REF  site_watchers;
+		my_popup_watchers	=  REF  popup_watchers;
+		#
+		my_mouse_transit_fn	=  REF  mouse_transit_fn;
+		my_mouse_drag_fn	=  REF  mouse_drag_fn;
 
 		apply  do_option  options
 		where
@@ -266,6 +281,10 @@ displaylist = displaylist @ textlist @ greenlist;
 			do_option (PORT_WATCHER			c) =>	my_port_watchers	:=  c ! *my_port_watchers;
 			do_option (STATE_WATCHER		c) =>	my_state_watchers	:=  c ! *my_state_watchers;
 			do_option (SITE_WATCHER			c) =>	my_site_watchers	:=  c ! *my_site_watchers;
+			do_option (POPUP_WATCHER		c) =>	my_popup_watchers	:=  c ! *my_popup_watchers;
+			#
+			do_option (MOUSE_TRANSIT_FN		c) =>	my_mouse_transit_fn	:=  c;
+			do_option (MOUSE_DRAG_FN		c) =>	my_mouse_drag_fn	:=  c;
 			#
 			do_option (PIXELS_HIGH_MIN		i) =>   my_widget_options	:=  (wi::PIXELS_HIGH_MIN i) ! *my_widget_options;
 			do_option (PIXELS_WIDE_MIN		i) =>   my_widget_options	:=  (wi::PIXELS_WIDE_MIN i) ! *my_widget_options;
@@ -292,6 +311,11 @@ displaylist = displaylist @ textlist @ greenlist;
 		  #
 		  port_watchers		=>  *my_port_watchers,
 		  state_watchers	=>  *my_state_watchers,
+		  popup_watchers	=>  *my_popup_watchers,
+		  #
+		  mouse_transit_fn	=>  *my_mouse_transit_fn,
+		  mouse_drag_fn		=>  *my_mouse_drag_fn,
+		  #	
 		  site_watchers		=>  *my_site_watchers
 		};
 	    };
@@ -320,10 +344,13 @@ displaylist = displaylist @ textlist @ greenlist;
 		      initial_state		=>  FALSE,
 		      initially_active		=>  TRUE,
 		      #
-		      widget_options	=>  [],
+		      widget_options		=>  [],
 		      #
 		      port_watchers		=>  [],
 		      state_watchers		=>  [],
+		      popup_watchers		=>  [],
+		      mouse_transit_fn	=>  (\\ _ = ()),
+		      mouse_drag_fn	=>  (\\ _ = ()),
 		      site_watchers		=>  []
 		    }
 		) )
@@ -340,6 +367,11 @@ displaylist = displaylist @ textlist @ greenlist;
 		      #
 		      port_watchers,
 		      state_watchers,
+		      popup_watchers,
+		      #
+		      mouse_transit_fn,
+		      mouse_drag_fn,
+		      #
 		      site_watchers
 		    };
 
@@ -437,6 +469,24 @@ relief => *button_relief,
 				    state_watcher state;
 			    end;
 		    fi;
+
+		Make_Popup
+		    =
+		    ( g2d::Box,											# Requested site for popup.
+		      gt::Gui_Plan										# GUI to run in popup.
+		    )
+		      -> ( g2d::Box,										# Actual site for popup.
+			   gt::Client_To_Guiwindow								# Port allowing popup to be closed down etc.
+			 );
+
+		fun note_popup_maker (make_popup: Make_Popup)
+		    =
+		    apply notify_watcher popup_watchers
+			where
+			    fun notify_watcher popup_watcher
+				=
+				popup_watcher make_popup;
+			end;
 
 		#
 		# End of state variable section
@@ -559,6 +609,7 @@ nb {. "startup_fn called!   -- roundbutton.pkg"; };
 		    }
 		    =
 		    {	note_site site;
+			note_popup_maker make_popup;
 nb {. "initialize_gadget_fn called!   -- roundbutton.pkg"; };
 
 			();
@@ -646,6 +697,43 @@ relief => *button_relief,
 		       ();
 		    };
 
+		fun mouse_transit_fn_wrapper
+		      #
+		      ( arg as
+			{
+			  id:				iul::Id,						# Unique id.
+			  event_point:			g2d::Point,
+			  site:		 		g2d::Box,						# Widget's assigned area in window coordinates.
+			  transit:			gt::Gadget_Transit,					# Mouse is entering (CAME) or leaving (LEFT) widget, or moving (MOVE) across it.
+			  modifier_keys_state:	        evt::Modifier_Keys_State,				# State of the modifier keys (shift, ctrl...).
+			  gadget_to_guiboss:		gt::Gadget_To_Guiboss,
+			  widget_to_widgetspace:		w2p::Widget_To_Widgetspace,
+			  theme:				pt::Widget_Theme
+			}
+		      )	
+		    = 
+		    {
+# foo =	case transit
+# 	    #
+# 	    gt::CAME =>	"CAME";
+# 	    gt::MOVE =>	"MOVE";
+# 	    gt::LEFT =>	"LEFT";
+# 	esac;
+# nb {. sprintf "mouse_transit_fn/AAA %s { row => %d, col => %d }... -- arrowbutton.pkg" foo event_point.row event_point.col; };
+# 			case transit
+# 			    #
+# 			    gt::CAME =>	nb {. sprintf "mouse_transit_fn called: CAME { row => %d, col => %d }  -- arrowbutton.pkg" event_point.row event_point.col; };
+# 			    gt::MOVE =>	nb {. sprintf "mouse_transit_fn called: MOVE { row => %d, col => %d }  -- arrowbutton.pkg" event_point.row event_point.col; };
+# 			    gt::LEFT =>	nb {. sprintf "mouse_transit_fn called: LEFT { row => %d, col => %d }  -- arrowbutton.pkg" event_point.row event_point.col; };
+# 			esac;
+
+			note_site site;
+
+			mouse_transit_fn  arg;
+
+			();
+		    };
+
 		fun key_event_fn
 		      {
 			id:				iul::Id,						# Unique id.
@@ -679,7 +767,9 @@ nb {. "key_event_fn called!   -- roundbutton.pkg"; };
 		    wi::INITIALIZE_GADGET_FN		initialize_gadget_fn,
 		    wi::REDRAW_GADGET_REQUEST_FN	redraw_gadget_request_fn,
 		    wi::MOUSEBUTTON_FN			mousebutton_fn,
-		    wi::KEY_EVENT_FN			key_event_fn
+		    wi::KEY_EVENT_FN			key_event_fn,
+		    wi::MOUSE_TRANSIT_FN		mouse_transit_fn_wrapper,
+		    wi::MOUSE_DRAG_FN			mouse_drag_fn
 		  ]
 		  @
 		  widget_options
