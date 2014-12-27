@@ -215,7 +215,7 @@ benchmarks:
 # Re/build everything but the compiler
 # and core compiler-critical libraries:
 #
-rest:	backends  save_yacc_and_lex  rest2  summary
+rest:	rest-unfrozen backends  save_yacc_and_lex  rest2  summary
 r:	rest					# I'm a lazy typist.
 
 # Three 'subroutines' for 'rest':
