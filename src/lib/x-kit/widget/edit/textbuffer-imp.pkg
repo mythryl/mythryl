@@ -77,7 +77,7 @@ stipulate
 
     package s2g =   space_to_gui;				# space_to_gui			is from   src/lib/x-kit/widget/gui/space-to-gui.pkg
 #   package g2g =  gadget_to_guiboss;				# gadget_to_guiboss		is from   src/lib/x-kit/widget/gui/gadget-to-guiboss.pkg
-#    package c2g =  guiboss_to_editboss;			# guiboss_to_editboss		is from   src/lib/x-kit/widget/gui/client-to-guiboss.pkg
+#   package c2g =  gadget_to_editboss;				# gadget_to_editboss		is from   src/lib/x-kit/widget/gui/client-to-guiboss.pkg
     package g2p =  gadget_to_pixmap;				# gadget_to_pixmap		is from   src/lib/x-kit/widget/theme/gadget-to-pixmap.pkg
 
     package frm =  frame;					# frame				is from   src/lib/x-kit/widget/leaf/frame.pkg
@@ -94,7 +94,7 @@ stipulate
 
     package ebt =  editboss_types;				# editboss_types		is from   src/lib/x-kit/widget/edit/editboss-types.pkg
 
-    package g2e =  guiboss_to_editboss;				# guiboss_to_editboss		is from   src/lib/x-kit/widget/edit/guiboss-to-editboss.pkg
+#   package g2e =  gadget_to_editboss;				# gadget_to_editboss		is from   src/lib/x-kit/widget/edit/guiboss-to-editboss.pkg
     package e2g =  editboss_to_guiboss;				# editboss_to_guiboss		is from   src/lib/x-kit/widget/edit/editboss-to-guiboss.pkg
 
     package e2t =  editboss_to_textbuffer;			# editboss_to_textbuffer	is from   src/lib/x-kit/widget/edit/editboss-to-textbuffer.pkg
@@ -118,7 +118,7 @@ herein
 	Textbuffer_State															# Holds all nonephemeral mutable state maintained by package.
 	  =
 	  { state:		Ref(t2t::Textstate),												# Current visible state of textbuffer.
-	    history:		Ref(que::Queue(t2t::Textstate)),										# Recent visible states of textbuffer, to support undo functionality.
+	    history:		Ref(que::Queue(t2t::Undostate)),										# Recent visible states of textbuffer, to support undo functionality.
 	    history_len:	Ref(Int),													# Max length of 'history' list.
 	    history_max:	Ref(Int),													# Max length of 'history' list.
 	    filename:		Ref(String),													# Name of file being edited in buffer, or NULL if no file is associated with buffer contents.
@@ -127,16 +127,6 @@ herein
 	  };
 
 
-	Textbuffer_Option
-	  #
-	  =  MICROTHREAD_NAME	String														# 
-	  |  ID			Id														# Stable, unique id for imp.
-	  |  STATEWATCHER	(Id, (t2t::Statechange -> Void))										# 'Id' should be freshly allocated via issue_unique_id.   Textbuffer's statechanges will be sent to given fn.  Equivalent to t2t::Texteditor_To_Textbuffer.note_statewatcher().
-	  |  FILENAME		String														# 
-	  ;	
-
-	Textbuffer_Arg =  (String, List(Textbuffer_Option));											# Required argument is buffername.
-
 	Imports = {																# Ports we use, provided by other imps.
 		    textbuffer_to_editboss:	t2e::Textbuffer_To_Editboss
 		  };
@@ -144,7 +134,7 @@ herein
 
 	Me_Slot = Mailslot( { imports:		Imports,
 			      me:		Textbuffer_State,
-			      textbuffer_arg:	Textbuffer_Arg,
+			      textbuffer_arg:	t2t::Textbuffer_Arg,
 			      statewatchers:	Ref(im::Map( (Id, t2t::Statechange -> Void) )),
 			      run_gun':		Run_Gun,
 			      end_gun':		End_Gun
@@ -159,11 +149,10 @@ herein
 
 	Textbuffer_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
 
-
 	Runstate =    {																# These values will be statically globally visible throughout the code body for the imp.
 			id:			Id,
 			me:			Textbuffer_State,										# State which is preserved across imp shutdown/restart cycles.
-			textbuffer_arg:		Textbuffer_Arg,
+			textbuffer_arg:		t2t::Textbuffer_Arg,
 			imports:		Imports,											# Imps to which we send requests.
 			to:			Replyqueue,											# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 			statewatchers:		Ref(im::Map( (Id, t2t::Statechange -> Void ))),
@@ -178,7 +167,7 @@ herein
 		  runstate as
 		  {																# These values will be statically globally visible throughout the code body for the imp.
 		    me:				Textbuffer_State,										# State which is preserved across imp shutdown/restart cycles.
-		    textbuffer_arg:		Textbuffer_Arg,
+		    textbuffer_arg:		t2t::Textbuffer_Arg,
 		    imports:			Imports,											# Imps to which we send requests.
 		    to:				Replyqueue,											# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    statewatchers:		Ref(im::Map( (Id, t2t::Statechange -> Void ))),
@@ -248,7 +237,6 @@ herein
 		    pass_change_textstate,
 
 		    undo,
-		    pass_undo,
 
 		    get_dirty,
 		    pass_dirty,
@@ -368,27 +356,53 @@ herein
 		fun do_change_textstate
 		      (
 			{ id, me, statewatchers, ... }:	Runstate,
-			fn:					t2t::Textstate -> t2t::Textstate
+			#
+			arg as
+			{ change_fn:		t2t::Textstate -> t2t::Textstate,
+			  #
+			  undo_info:		Null_Or ( { cursor: 		g2d::Point,							# The 'cursor' and 'mark' values are saved for benefit of undo, so texteditor.pkg will know what part of buffer to show in window after an undo.
+							    mark:	Null_Or(g2d::Point)							# If unfo_info is NULL no entry will be made in the undo history.
+							  }
+						        )
+			}
 		      )
 		    =
 		    {   old = *me.state;
 			#
-			(fn old) -> { textlines, cursor, mark, ... };
+			(change_fn old) -> { textlines => new_textlines, ... };
 
-			new = { textlines, cursor, mark, editcount => old.editcount + 1 };
+			new     = { textlines =>  new_textlines,
+				    editcount =>  old.editcount + 1
+				  };
 
 			me.state   :=  new;
 			me.dirty   :=  TRUE;
-			me.history :=  que::push (*me.history, old);
 
-			if (*me.history_len < *me.history_max)
+			case undo_info
 			    #
-			    me.history_len := *me.history_len + 1;
-			else
-			    (que::pull *me.history) -> (newhistory, _);
-			    #
-			    me.history     := newhistory;
-			fi;
+			    NULL => ();														# No undo_info, so do not make a history entry.
+
+			    THE { cursor, mark }
+				=>
+				{
+				    old'    = { textlines =>  old.textlines,									# History entry for 'old'.
+						cursor,
+						mark,
+						editcount =>  old.editcount
+					      };
+
+				    me.history :=  que::push (*me.history, old');								# Add previous state to history.
+
+				    if (*me.history_len < *me.history_max)									# Maybe we should have a bounded-queue.pkg that handles all this stuff internally?
+					#
+					me.history_len := *me.history_len + 1;									# History is under max allowed, so let it get one longer.
+				    else
+					(que::pull *me.history) -> (newhistory, _);								# History is at max allowed, pull an entry to keep it under limit.
+					#
+					me.history     := newhistory;
+				    fi;
+				};
+			esac;
 
 			tell_statewatchers  (*statewatchers,  t2t::TEXTSTATE  (id, new));
 
@@ -397,22 +411,22 @@ herein
 
 		fun do_undo ({ id, me, statewatchers, ... }:	Runstate)
 		    =
-		    if (*me.history_len == 0)
-			#
-			NULL;
-		    else
+		    if (*me.history_len > 0)
+
 			(*me.state)             -> (             was);
 			(que::pull *me.history) -> (new_history, now);
 
-			now = the now;								# Should not be NULL because we checked for history_len==0 above.
+			now 	= the now;													# Should not be NULL because we checked for history_len==0 above.
+
+			now'	= { textlines => now.textlines,											# Convert from Undostate to Textstate format.
+				    editcount => now.editcount
+				  };	
 
 			me.history	:=  new_history;
 			me.history_len  := *me.history_len - 1;
-			me.state	:=  now;
+			me.state	:=  now';
 
 			tell_statewatchers  (*statewatchers,  t2t::UNDO (id, { was, now }));
-
-			THE { was, now };
 		    fi;
 
 
@@ -427,7 +441,7 @@ herein
 		#
 		#
 
-		fun get_maxline ()															# PUBLIC.
+		fun get_maxline ()														# PUBLIC.
 		    =
 		    {	reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Int );
 			#
@@ -560,7 +574,7 @@ herein
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
 
-		fun change_textstate (fn: t2t::Textstate -> t2t::Textstate)									# PUBLIC.
+		fun change_textstate (arg: t2t::Changestate_Arg)										# PUBLIC.
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( t2t::Textstate );
 			#
@@ -568,7 +582,7 @@ herein
 			    #
 			    \\ (r: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, do_change_textstate (r, fn))
+				put_in_oneshot (reply_oneshot, do_change_textstate (r, arg))
 			);
 
 			get_from_oneshot  reply_oneshot;
@@ -577,7 +591,7 @@ herein
 		fun pass_change_textstate													# PUBLIC.
 			#
 		        (replyqueue:	Replyqueue)
-			(fn:		t2t::Textstate -> t2t::Textstate)
+			(arg:		t2t::Changestate_Arg)
 			(reply_handler: t2t::Textstate -> Void)
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( t2t::Textstate );
@@ -586,7 +600,7 @@ herein
 			    #
 			    \\ (r: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, do_change_textstate (r, fn))
+				put_in_oneshot (reply_oneshot, do_change_textstate (r, arg))
 			);
  
 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
@@ -594,33 +608,12 @@ herein
 
 		fun undo ()															# PUBLIC.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or({ was: t2t::Textstate, now: t2t::Textstate }) );
-			#
-			put_in_mailqueue  (textbuffer_q,
+		    {   put_in_mailqueue  (textbuffer_q,
 			    #
 			    \\ (r: Runstate)
 				=
-				put_in_oneshot (reply_oneshot, do_undo r)
+				do_undo r
 			);
-
-			get_from_oneshot  reply_oneshot;
-		    };
-		    #
-		fun pass_undo															# PUBLIC.
-			#
-		        (replyqueue:	Replyqueue)
-			(reply_handler: Null_Or({ was: t2t::Textstate, now: t2t::Textstate }) -> Void)
-		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or({ was: t2t::Textstate, now: t2t::Textstate }) );
-			#
-			put_in_mailqueue  (textbuffer_q,
-			    #
-			    \\ (r: Runstate)
-				=
-				put_in_oneshot (reply_oneshot, do_undo r)
-			);
- 
-			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
 		    };
 
 
@@ -797,7 +790,7 @@ herein
 	#
 	fun process_options
 	      (
-		options: List(Textbuffer_Option),
+		options: List(t2t::Textbuffer_Option),
 		#
 		{ name,
 		  id,
@@ -813,16 +806,16 @@ herein
 	#
 		apply  do_option  options
 		where
-		    fun do_option (MICROTHREAD_NAME	n) =>   my_name		  :=  n;
-			do_option (ID			i) =>   my_id		  :=  i;
-			do_option (STATEWATCHER  (id, w)) =>	my_statewatchers :=  im::set (*my_statewatchers, id_to_int id, (id, w));
-			do_option (FILENAME		n) =>	my_filename       :=  n;
+		    fun do_option (t2t::MICROTHREAD_NAME	n)  =>  my_name		 :=  n;
+			do_option (t2t::ID			i)  =>  my_id		 :=  i;
+			do_option (t2t::STATEWATCHER       (id, w)) =>	my_statewatchers :=  im::set (*my_statewatchers, id_to_int id, (id, w));
+			do_option (t2t::INITIAL_FILENAME	n)  =>	my_filename      :=  n;
 		    end;
 		end;
 
 		{ name		 =>  *my_name,
 		  id 		 =>  *my_id,
-		  statewatchers =>   my_statewatchers,											# Leave the REF on it.
+		  statewatchers =>   my_statewatchers,												# Leave the REF on it.
 		  filename       =>  *my_filename
 		};
 	    };
@@ -832,7 +825,7 @@ herein
 	# PUBLIC.
 	#
 	fun make_textbuffer_egg
-	      (textbuffer_arg:		Textbuffer_Arg)												# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
+	      (textbuffer_arg:		t2t::Textbuffer_Arg)											# PUBLIC. PHASE 1: Construct our state and initialize from 'options'.
 	    =
 	    {	textbuffer_arg ->  (buffername, textbuffer_options);
 		#
@@ -855,7 +848,7 @@ herein
 		    =
 		    if (id_to_int(id) == 0)
 			id = issue_unique_id();													# Allocate unique imp id.
-			(id, ID id ! textbuffer_options);											# Make our id stable across stop/restart cycles.
+			(id, t2t::ID id ! textbuffer_options);											# Make our id stable across stop/restart cycles.
 		    else
 			(id, textbuffer_options);
 		    fi;
@@ -870,8 +863,6 @@ herein
 			}
 			where
 			    textstate =   { textlines =>  nl::singleton "",
-					    cursor    =>  { row => 0, col => 0 },
-					    mark      =>  { row => 0, col => 0 },
 					    editcount =>  0
 					  };
 			end;
