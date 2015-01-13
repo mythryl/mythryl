@@ -85,6 +85,7 @@ stipulate
 
     package im  =  int_red_black_map;				# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
 #   package is  =  int_red_black_set;				# int_red_black_set		is from   src/lib/src/int-red-black-set.pkg
+    package sm  =  string_map;					# string_map			is from   src/lib/src/string-map.pkg
 
     package r8  =  rgb8;					# rgb8				is from   src/lib/x-kit/xclient/src/color/rgb8.pkg
     package r64 =  rgb;						# rgb				is from   src/lib/x-kit/xclient/src/color/rgb.pkg
@@ -126,9 +127,20 @@ herein
 		  };
 
 
+	Textbuffer_Info
+	    	=
+		{ id:				Id,
+		  editboss_to_textbuffer:	e2t::Editboss_To_Textbuffer,
+		  texteditor_to_textbuffer:	t2t::Texteditor_To_Textbuffer,
+		  buffername:			Ref(String),
+		  end_gun':			End_Gun
+		};
+
 	Editboss_State													# Holds all nonephemeral mutable state maintained by package.
 	  =
 	  {
+	    textbuffers_by_name:		Ref( sm::Map( Textbuffer_Info ) ),					# All currently active textbuffers, by name.
+	    textbuffers_by_id:			Ref( im::Map( Textbuffer_Info ) )					# All currently active textbuffers, by id.
 	  };
 
 	Me_Slot = Mailslot( { imports:		Imports,
@@ -157,6 +169,7 @@ herein
 		      };
 
 	Editboss_Q    = Mailqueue( Runstate -> Void );
+
 
 
 	fun run ( editboss_q:			Editboss_Q,								# 
@@ -244,6 +257,39 @@ herein
 		  };
 
 
+		fun note_textbuffer_statechange (statechange: t2t::Statechange)
+		    =
+		    case statechange
+			#
+			t2t::BUFFERNAME (id, { was: String, now: String })
+			    =>
+			    put_in_mailqueue  (editboss_q,
+				#
+				\\ ({ me, ... }: Runstate)
+				    =
+				    case (im::get  (*me.textbuffers_by_id,  id_to_int id))
+					#
+					THE textbuffer_info
+					    =>
+					    {	textbuffer_info.buffername := now;							# Remember new name of textbuffer.
+						me.textbuffers_by_name     := sm::drop (*me.textbuffers_by_name, was);			# Forget   old name of textbuffer.
+						me.textbuffers_by_name     := sm::set  (*me.textbuffers_by_name, now, textbuffer_info);	# Remember textbuffer under its new buffername.
+					    };
+
+					NULL =>
+					    {   msg =  sprintf "BUFFERNAME.id (%d) not in *me.textbuffers_by_id!" (id_to_int id);
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+				    esac
+			    );	
+
+
+			t2t::TEXTSTATE _ =>  ();											# List rest explicitly so as to draw a compile error if a new one gets added without us being updated.
+			t2t::UNDO      _ =>  ();
+			t2t::FILENAME  _ =>  ();
+		    esac;
+
 		#################################################################################
 		# guiboss interface fns::
 		#
@@ -258,28 +304,59 @@ herein
 			):		t2t::Textbuffer_Arg
 		      )
 		    =
-		    {   egg =  tbi::make_textbuffer_egg  textbuffer_arg;
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( t2t::Texteditor_To_Textbuffer );
 			#
-			(egg ())
-			    ->
-			    ( textbuffer_exports:	tbi::Exports,
-			      egg':		       (tbi::Imports, Run_Gun, End_Gun) -> Void
-			    );
+			put_in_mailqueue  (editboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				case (sm::get (*me.textbuffers_by_name, buffername))
+				    #
+				    THE textbuffer_info
+					=> 
+					put_in_oneshot (reply_oneshot, textbuffer_info.texteditor_to_textbuffer);
 
-			textbuffer_imports
-			  =
-			  { textbuffer_to_editboss };
+				    NULL =>
+					{   egg =  tbi::make_textbuffer_egg  textbuffer_arg;
+					    #
+					    (egg ())
+						->
+						( textbuffer_exports:	tbi::Exports,
+						  egg':		       (tbi::Imports, Run_Gun, End_Gun) -> Void
+						);
 
-			(make_run_gun ()) ->   { run_gun', fire_run_gun };
-			(make_end_gun ()) ->   { end_gun', fire_end_gun };
+					    textbuffer_imports
+					      =
+					      { textbuffer_to_editboss };
 
-			egg' (textbuffer_imports, run_gun', end_gun');
+					    (make_run_gun ()) ->   { run_gun', fire_run_gun };
+					    (make_end_gun ()) ->   { end_gun', fire_end_gun };
 
-			fire_run_gun ();
+					    egg' (textbuffer_imports, run_gun', end_gun');
 
-			textbuffer_exports -> { editboss_to_textbuffer, texteditor_to_textbuffer };
+					    fire_run_gun ();
 
-			texteditor_to_textbuffer;
+					    textbuffer_exports -> { editboss_to_textbuffer, texteditor_to_textbuffer };
+
+					    textbuffer_info = { id         =>  texteditor_to_textbuffer.id,
+								buffername =>  REF buffername,
+								#
+								editboss_to_textbuffer,
+								texteditor_to_textbuffer,
+								end_gun'
+							      };
+
+					    me.textbuffers_by_name := sm::set (*me.textbuffers_by_name, buffername,                             textbuffer_info);
+					    me.textbuffers_by_id   := im::set (*me.textbuffers_by_id,   id_to_int texteditor_to_textbuffer.id,  textbuffer_info);
+
+					    texteditor_to_textbuffer.note_statewatcher (id, note_textbuffer_statechange);
+
+					    put_in_oneshot (reply_oneshot, texteditor_to_textbuffer);
+					};
+				esac
+			);
+
+			get_from_oneshot  reply_oneshot;
 		    };
 	    end;
 
@@ -333,6 +410,8 @@ herein
 		editboss_arg = (editboss_options);													# Currently no guiboss_needs component, so this is a no-op.
 
 		me =  {
+			textbuffers_by_name =>  REF sm::empty,												# All currently active textbuffers, by name.
+			textbuffers_by_id   =>  REF im::empty												# All currently active textbuffers, by id.
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );						# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
