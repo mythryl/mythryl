@@ -430,7 +430,8 @@ herein
 		      (
 			subwindow_or_view										# A gt::VIEWABLE_INFO contains the offscreen image of one scrollable scrollport embedded within a parent subwindow_or_view.
 			as												# Consequently in the gt::VIEWABLE_INFO case we are always copying from one offscreen subwindow_or_view to another.
-			gt::VIEWABLE_INFO { is_visible:	Ref( Bool ),							# We do not have to worry about popups blocking our copies, since they are entirely internal to one running_gui.
+			gt::VIEWABLE_INFO { id:		Id,
+					    is_visible:	Ref( Bool ),							# We do not have to worry about popups blocking our copies, since they are entirely internal to one running_gui.
 					    rg_widget:	Ref( gt::Rg_Widget ),
 					    pixmap:	g2p::Gadget_To_Rw_Pixmap,
 					    ports:	Ref( List( gt::Scrollport_Or_Tabport ) )				# Scrollports/Tabports in which this viewable is (potentially) visible.  We make this a Ref(List(...)) to allow for adding additional scrollports opening onto the same underlying pixmap.
@@ -439,7 +440,7 @@ herein
 			from_box:	g2d::Box											# From-box in source pixmap.
 		      )
 			=>
-			if (*is_visible)												# Do not propagate if we are one of multiple TABBED_VIEWS and we are not visible.
+			if (*is_visible)												# Do not propagate if we are one of multiple TABPORT and we are not visible.
 			    #	
 			    from_id   =  gt::subwindow_or_view_id_of  subwindow_or_view;						# The Id for the source pixmap for the copy.
 
@@ -1026,11 +1027,18 @@ herein
 			    =>
 			    {	callback NULL;										# Tell app code that our scrollport_scroller is no longer active.
 				#
-				pg_widget      =  do_rg_widget  *viewable_info.rg_widget;
+				pg_widget	  = do_rg_widget  *viewable_info.rg_widget;
 
-				pixmap_size =  viewable_info.pixmap.size;
-				#
-			        gt::PG_SCROLLABLE_VIEW (callback, pixmap_size, pg_widget);
+				pixmap_size	  = viewable_info.pixmap.size;
+
+				scroller_callback = callback;
+
+				scrollable        = gt::PG_SCROLLABLE {	id => viewable_info.id,
+									pixmap_size,
+									pg_widget
+								      };
+
+			        gt::PG_SCROLLPORT { scroller_callback, scrollable };
 			    };
 
 			gt::RG_TABPORT
@@ -1043,7 +1051,7 @@ herein
 			    =>
 			    {   callback NULL;										# Tell app code that our tabbed_view_picker is no longer active.
 				#
-				gt::PG_TABBED_VIEWS (callback,  pixmap_size,  map  do_tab  tabs)
+				gt::PG_TABPORT (callback,  pixmap_size,  map  do_tab  tabs)
 					where
 					    fun do_tab (tab: gt::Viewable_Info)
 						=
@@ -1353,14 +1361,17 @@ herein
 				)
 				to
 				{.
-				    gt::running_gui_postorder_apply							# If a view pixmap is too small to fill its scrollport there will be undefined pixels showing in the scrollport.
+				    gt::map_running_gui									# If a view pixmap is too small to fill its scrollport there will be undefined pixels showing in the scrollport.
 				      (											# By setting the origin to its default 0,0 we trigger the logic to black out these undefined areas.
 					running_gui,									# Does doing so result in a double-draw of views at GUI startup?  If so, that might someday prove problematic: XXX QUERO FIXME
 					[ gt::SCROLLPORT_FN
-					    {.
-						(#scrollable_view).scroller.set_scrollport_origin
-						    { row => 0, col => 0 };
-					    }
+					    (\\ (arg: gt::Rg_Scrollport)
+						=
+						{   arg.scroller.set_scrollport_origin
+						        { row => 0, col => 0 };
+						    arg;
+						}
+					    )
 					]
 				      );
 
@@ -1779,6 +1790,7 @@ herein
 			#
 			arg:				Pg_Widget__To__Rg_Widget__Arg,
 		        subwindow_info:			gt::Subwindow_Data,
+			scrollables:			im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget } ),
 			#
 			gadget_imps_for_gui: 		Ref (im::Map(      gt::Gadget_Imp_Info )),					# Holds our gt::Gadget_Imp_Info        instances for this running gui.
 			spritespace_imps_for_gui:	Ref (im::Map( gt::Spritespace_Imp_Info )),					# Holds our gt::Guiboss_To_Spritespace instances for this running gui.
@@ -2143,16 +2155,38 @@ herein
 						    };
 				    };
 
-				gt::PG_SCROLLABLE_VIEW									# A scrollport onto a scrollable pixmap
-				  (
-				    w
-				    as
-				    ( callback:		gt::Scroller_Callback,
-				      pixmap_size:	g2d::Size,
-				      pg_widget:	gt::Pg_Widget
-				  ) )
+				gt::PG_SCROLLPORT									# A scrollport onto a scrollable pixmap
+				  { scroller_callback:	gt::Scroller_Callback,
+				    scrollable:		gt::Pg_Scrollable
+				  }
 				    =>
 				    {
+					my (callback, id, pixmap_size, pg_widget)
+					    =
+					    case scrollable
+						#
+						gt::PG_SCROLLABLE { id, pixmap_size, pg_widget }
+						    =>
+						    (scroller_callback, id, pixmap_size, pg_widget);
+
+						gt::PG_SCROLLABLE_ID id
+						    =>
+						    case (im::get (scrollables, id_to_int id))
+							#
+							THE { id:		Id,
+							      pixmap_size:	g2d::Size,
+							      pg_widget:	gt::Pg_Widget
+							    }
+							     => 
+							    (scroller_callback, id, pixmap_size, pg_widget);
+
+							NULL => {   msg = sprintf "PG_SCROLLABLE_ID: id %d is not defined anywhere in gui plan -- guiboss-imp.pkg" (id_to_int id);
+								    log::fatal msg;
+								    raise exception FAIL msg;
+								};
+						    esac;
+					    esac;
+
 					gadget_to_rw_pixmap	=   imports.guiboss_to_guishim.make_rw_pixmap
 									#
 									pixmap_size;
@@ -2184,15 +2218,16 @@ herein
 					  { parent_subwindow_or_view  => current_subwindow_or_view,			# The subwindow_or_view we were doing before diving recursively into this view.
 					    origin,
 					    site									# Site of view on parent.
-															# XXX SUCKO FIXME Currently we store 'site' both here and in gt::SCROLLABLE_VIEW.
+															# XXX SUCKO FIXME Currently we store 'site' both here and in gt::SCROLLPORT.
 															#           We'll probably wind up using only one;  (???)
 															#		  we should delete the unused one.
 					  };
 
-					viewable_info =   { pixmap     =>  gadget_to_rw_pixmap,				# The backing pixmap for this view.
-							    rg_widget  =>  REF gt::RG_NULL_WIDGET,
-							    ports      =>  REF [ scrollport_record ],			# Initially at least view_pixmap is visible through only this one scrollport.
-							    is_visible =>  REF TRUE	
+					viewable_info =   { id,								# Name for this viewable.
+							    pixmap	=>  gadget_to_rw_pixmap,			# The backing pixmap for this viewable.
+							    rg_widget	=>  REF gt::RG_NULL_WIDGET,
+							    ports	=>  REF [ scrollport_record ],			# Initially at least view_pixmap is visible through only this one scrollport.
+							    is_visible	=>  REF TRUE	
 						          };
 
 					subwindow_or_view = gt::VIEWABLE_INFO viewable_info;				# Widgets use this to track what subwindow/view they are on.
@@ -2319,17 +2354,17 @@ herein
 						    };											# fun set_scrollport_origin
 					    end;
 
-					callback (THE scrollport_scroller);						# Give app client code a handle with which to scroll gadget_to_rw_pixmap in scrollport.
+					callback (THE scrollport_scroller);								# Give app client code a handle with which to scroll gadget_to_rw_pixmap in scrollport.
 
 					gt::RG_SCROLLPORT { scroller => scrollport_scroller,
-							  callback,
-							  origin,
-							  viewable_info,
-							  site
-						        };
+							    callback,
+							    origin,
+							    viewable_info,
+							    site
+							  };
 				    };
 
-				gt::PG_TABBED_VIEWS									# A scrollport onto a set of alternate pixmaps for tabbed viewing.
+				gt::PG_TABPORT												# A scrollport onto a set of alternate pixmaps for tabbed viewing.
 				      (
 					callback:	gt::Tab_Picker_Callback,
 					pixmap_size:	g2d::Size,
@@ -2337,14 +2372,14 @@ herein
 				      )
 				    =>
 				    {
-					if ((list::length widgets) == 0)						# We could be more robust by supporting empty 'tabs', but that would give us special
-					    log::fatal "TABBED_VIEWS needs at least one view! -- guiboss-imp.pkg";	# cases in the code every time we access visible_tab.  Maybe it is worth it?
-					    ();										# We'd have to make visible_tabs be Ref(Null_Or(Tabview)) instead of just Ref(Tabview).
+					if ((list::length widgets) == 0)								# We could be more robust by supporting empty 'tabs', but that would give us special
+					    log::fatal "TABBED_VIEWS needs at least one view! -- guiboss-imp.pkg";			# cases in the code every time we access visible_tab.  Maybe it is worth it?
+					    ();												# We'd have to make visible_tabs be Ref(Null_Or(Tabview)) instead of just Ref(Tabview).
 					fi;
 
-					scrollport	=  REF g2d::box::zero;						# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
+					scrollport	=  REF g2d::box::zero;								# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
 
-					visible		=  REF TRUE;							# We'll default this to TRUE for first widget, FALSE for the rest.
+					visible		=  REF TRUE;									# We'll default this to TRUE for first widget, FALSE for the rest.
 
 					tabs    =   map  do_widget  widgets
 						    where
@@ -2366,7 +2401,7 @@ herein
 										       col => 0
 										     };
 
-								viewable_info  =    {
+								viewable_info  =    { id	 => issue_unique_id (),							# We don't support multiple tabports opening onto one viewable, so the 'id' here is purely pro forma.
 										      is_visible => REF *visible,
 										      rg_widget  => REF  widget,
 										      pixmap     => gadget_to_rw_pixmap,						# The backing pixmap for this view.
@@ -2375,7 +2410,7 @@ herein
 													  { parent_subwindow_or_view => current_subwindow_or_view,	# The subwindow_or_view we were doing before diving recursively into this view.
 													    origin,
 													    site => scrollport						# Site of view on parent.
-																					# XXX SUCKO FIXME Currently we store 'site' both here and in gt::SCROLLABLE_VIEW.
+																					# XXX SUCKO FIXME Currently we store 'site' both here and in gt::SCROLLPORT.
 																					#           We'll probably wind up using only one;  (???)  BTW, SHOULDN'T THIS BE A REF so WE CAN UPDATE SITE WHEN DOING RE-LAYOUT?
 																					#		  we should delete the unused one.
 
@@ -2587,6 +2622,8 @@ herein
 
 		fun paused_gui__to__running_gui
 		    (
+		      paused_gui
+		      as	
 		      ( widgetspace_arg:	gt::Widgetspace_Arg,
 		        pg_widget:		gt::Pg_Widget
 		      )
@@ -2598,6 +2635,30 @@ herein
 			objectspace_imps_for_gui	=  REF (im::empty: im::Map( gt::Objectspace_Imp_Info ));			# Holds our gt::Guiboss_To_Objectspace instances for this running gui.
 			widgetspace_imps_for_gui	=  REF (im::empty: im::Map( gt::Widgetspace_Imp_Info ));			# Holds our gt::Guiboss_To_Widgetspace instances for this running gui.
 
+
+			# Find in paused_gui all instances of
+			#     PG_SCROLLPORT.scrollable.PG_SCROLLABLE
+			# and index them by id, so we can resolve
+			#     PG_SCROLLPORT_ID id
+			# references as we encounter them:
+			#
+			scrollables =  REF  (im::empty:  im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget }  ));
+			#
+			gt::paused_gui_postorder_apply
+			  (
+			    paused_gui,
+			    [ gt::PG_SCROLLPORT_FN  do_pg_scrollport ]
+			  )
+			    where
+				fun do_pg_scrollport ({ scrollable => (gt::PG_SCROLLABLE r): gt::Pg_Scrollable,  scroller_callback: gt::Scroller_Callback })
+					=>
+					scrollables :=  im::set (*scrollables,  id_to_int r.id,  r);
+
+				    do_pg_scrollport _ =>  ();
+				end;
+			    end;
+
+
 			(pg_widget__to__rg_widget
 			  (
 			    pg_widget,
@@ -2605,6 +2666,7 @@ herein
 			    PRIMARY { widgetspace_arg, widgetspace_imps },
 
 			    subwindow_info,
+			    *scrollables,
 
 			    gadget_imps_for_gui,
 			    spritespace_imps_for_gui,
@@ -2998,33 +3060,39 @@ herein
 				gt::PG_GRID  pg_widgets;
 			    };
 
-			gt::SCROLLABLE_VIEW ( triple
-					      as
-						( callback:		gt::Scroller_Callback,
-						  pixmap_size:		g2d::Size,
-						  gp_widget:		gt::Gp_Widget
-					    )   )
+			gt::SCROLLPORT  { scroller_callback:		gt::Scroller_Callback,
+					  scrollable:			gt::Gp_Scrollable
+					}	
 			    =>
 			    {
-				triple = do_pair (callback, pixmap_size, gp_widget)
-					where
-					    fun do_pair
-						(
-						  callback:		gt::Scroller_Callback,
-						  pixmap_size:		g2d::Size,
-						  gp_widget:		gt::Gp_Widget
-						)
-						=
-						( callback,
-						  pixmap_size,
-						  do_gp_widget  gp_widget
-						);
-					end;
+				scrollable
+				    =
+				    case scrollable
+					#
+					gt::SCROLLABLE  { id:		Id,
+							  pixmap_size:	g2d::Size,
+							  widget:	gt::Gp_Widget
+							}
+					    =>
+					    gt::PG_SCROLLABLE
+							{ id,
+							  pixmap_size,
+							  pg_widget	=> do_gp_widget widget
+							};
 
-				gt::PG_SCROLLABLE_VIEW triple;
+					gt::SCROLLABLE_ID id
+					    =>
+# XXX SUCKO FIXME TBD
+					    {   msg = "PG_SCRILLABLE_ID not yet supported in do_gp_widget -- guiboss-imp.pkg";
+						log::fatal msg;
+						raise exception FAIL msg;
+					    };
+				    esac; 
+
+				gt::PG_SCROLLPORT { scroller_callback, scrollable };
 			    };
 
-			gt::TABBED_VIEWS
+			gt::TABPORT
 			      (
 				callback:	gt::Tab_Picker_Callback,
 				pixmap_size:	g2d::Size,
@@ -3042,7 +3110,7 @@ herein
 						do_gp_widget  gp_widget;
 					end;
 
-				gt::PG_TABBED_VIEWS (callback, pixmap_size, widgets);
+				gt::PG_TABPORT (callback, pixmap_size, widgets);
 			    };
 
 			gt::FRAME
