@@ -49,7 +49,7 @@ stipulate
     package wt  =  widget_theme;							# widget_theme				is from   src/lib/x-kit/widget/theme/widget/widget-theme.pkg
     package evt =  gui_event_types;							# gui_event_types			is from   src/lib/x-kit/widget/gui/gui-event-types.pkg
 
-    package w2p =  widget_to_widgetspace;						# widget_to_widgetspace			is from   src/lib/x-kit/widget/space/widget/widget-to-widgetspace.pkg   
+    package w2g =  widget_to_guiboss;							# widget_to_guiboss			is from   src/lib/x-kit/widget/space/widget/widget-to-guiboss.pkg   
     package p2w =  widgetspace_to_widget;						# widgetspace_to_widget			is from   src/lib/x-kit/widget/space/widget/widgetspace-to-widget.pkg
 
     package o2c =  object_to_objectspace;						# object_to_objectspace			is from   src/lib/x-kit/widget/space/object/object-to-objectspace.pkg   
@@ -454,6 +454,7 @@ herein
 	  = SUBWINDOW_INFO  Subwindow_Info										# 
 	  #	
 	  | VIEWABLE_INFO   Viewable_Info										# 
+	  | TABBABLE_INFO   Tabbable_Info										# 
 
 
 	also														# 
@@ -556,7 +557,8 @@ herein
 	      { id:			Id,										# Unique id to facilitate storing guiboss_to_objectspace instances in indexed datastructures like red-black trees.
 		#
 		pass_something:		Replyqueue -> (Int -> Void) -> Void,
-		do_something:		Int -> Void
+		do_something:		Int  -> Void,
+		die:			Void -> Void									# Equivalent to firing end_gun', but affects only one gadget.
 	      }
 
 	also
@@ -564,8 +566,9 @@ herein
 	    =
 	      { id:			Id,										# Unique id to facilitate storing guiboss_to_spritespace instances in indexed datastructures like red-black trees.
 		#
-		pass_something:	Replyqueue -> (Int -> Void) -> Void,
-		do_something:	Int -> Void
+		pass_something:		Replyqueue -> (Int -> Void) -> Void,
+		do_something:		Int  -> Void,
+		die:			Void -> Void									# Equivalent to firing end_gun', but affects only one gadget.
 	      }
 
 	also
@@ -593,7 +596,8 @@ herein
 		  -> (Void -> Void)											# this handler.
 		  -> Void,
 
-	      do_something:		Int -> Void
+	      do_something:		Int  -> Void,
+	      die:			Void -> Void									# Equivalent to firing end_gun', but affects only one gadget.
 	    }
 
 	also
@@ -748,9 +752,15 @@ herein
 	also
 	Widgetspace_Imp_Info
 	  =
-	  { widget_to_widgetspace:	w2p::Widget_To_Widgetspace,							# 
+	  {
 	    guiboss_to_widgetspace: 	Guiboss_To_Widgetspace,
 	    endstate_oneshot:		Oneshot_Maildrop( Widgetspace_Arg )
+	  }
+
+	also
+	Widget_Imp_Info													# The per-widget information we track.  (This is private to guiboss-imp.)
+	  =														# 
+	  { widget_layout_hint:		w2g::Widget_Layout_Hint
 	  }
 
 	also
@@ -785,7 +795,8 @@ herein
 	also	Spritespace_Imps = Ref( im::Map( Spritespace_Imp_Info ) )						# 
 	also	Objectspace_Imps = Ref( im::Map( Objectspace_Imp_Info ) )
 	also	Widgetspace_Imps = Ref( im::Map( Widgetspace_Imp_Info ) )
-	also	Gadget_Imps      = Ref( im::Map(      Gadget_Imp_Info ) )						# We use this to make requests of visible gadgets.	Index is  (id_to_int guiboss_to_gadget.id).
+	also	Gadget_Imps      = Ref( im::Map(      Gadget_Imp_Info ) )						# Index is  (id_to_int guiboss_to_gadget.id).
+	also	Widget_Imps      = Ref( im::Map(      Widget_Imp_Info ) )						# Index is  (id_to_int guiboss_to_gadget.id).
 
 	also
 	Running_Gui =	      {	fire_end_gun:		Void -> Void,							# Calling this fn will cause all state and look imps in the gui to exit, saving their state to their oneshots.
@@ -831,7 +842,24 @@ herein
 	    #														# rg_widget is a Ref not because we intend to change it, but to work around a technical difficulty in guiboss-imp.pkg:do_pg_widget:PG_SCROLLPORT where  viewable_data and rg_widget each want to be created first.
 	    pixmap:		g2p::Gadget_To_Rw_Pixmap,								# Viewable_Info values appear only in RG_SCROLLPORT.viewable_info,
 															#                                     RG_TABPORT.tabs
-															#		                      RG_TABPORT.visible_tab
+															#		                      
+	    ports:		Ref( List( Scrollport_Or_Tabport ) ),							# We make this a Ref(List(...)) to allow for adding additional scrollports/tabports opening onto the same underlying viewable pixmap.
+															# WARNING: We don't currently use multiple ports onto one pixmap; if we start doing so we'll probably find that *VIEWABLE_INFO.is_visible doesn't work right with them.
+
+	    is_visible:		Ref( Bool )										# This will be FALSE only if we are one of several alternate views in a TABPORT set.
+															# We need this so that   update_offscreen_parent_pixmaps_and_then_topwindow()   in   src/lib/x-kit/widget/gui/guiboss-imp.pkg
+															# can know when to stop propagating widget updates up the scrollport tree.
+	  }			
+
+	also
+	Tabbable_Info													# A 'viewable' is something which can be visible in a scrollport or tabport. It has a widget-tree 'rg_widget' defining its appearance which gets rendered into 'pixmap' (and thence copied elsewhere) for display.
+	  =														# It has a list of backlinks 'scrollports' to the scrollports+tabports in which it is (potentially) visible. These are logically redundant with the port->viewable links, but handy in practice.
+	  { id:			Id,											# The 'id' field names us, letting multiple scrollports refer to one viewable.
+	    rg_widget:		Ref( Rg_Widget ),									# Widget-tree visible in this viewable, which gets rendered onto 'pixmap' here.
+	    #														# rg_widget is a Ref not because we intend to change it, but to work around a technical difficulty in guiboss-imp.pkg:do_pg_widget:PG_SCROLLPORT where  viewable_data and rg_widget each want to be created first.
+	    pixmap:		g2p::Gadget_To_Rw_Pixmap,								# Viewable_Info values appear only in RG_SCROLLPORT.viewable_info,
+															#                                     RG_TABPORT.tabs
+															#		                      
 	    ports:		Ref( List( Scrollport_Or_Tabport ) ),							# We make this a Ref(List(...)) to allow for adding additional scrollports/tabports opening onto the same underlying viewable pixmap.
 															# WARNING: We don't currently use multiple ports onto one pixmap; if we start doing so we'll probably find that *VIEWABLE_INFO.is_visible doesn't work right with them.
 
@@ -933,13 +961,15 @@ herein
 	  =
 	  {														# Here we provide support for selection between alternate views in scrollport.  Actually providing tabs happens at a higher level; here we handle pixmap state maintenance and redraw support.
 #	    id:				Id,	
-	    pixmap_size:		g2d::Size,									# Size of alternate pixmaps visible in scrollport.  We require them to all be the same size; we intend that the scrollport be the same size.
-	    #
-	    tabs:			List( Viewable_Info ),								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
-	    visible_tab:		Ref ( Viewable_Info ),								# Which of 'tabs' is currently visible?  This refcell holds one element from 'tabs';  it supports switching between the tabbed views.
-	    #
+# This should become just an int:
+	    visible_tab:		Ref ( Int ),									# Which of 'tabs' is currently visible?  This refcell references one element from 'tabs';  it supports switching between the tabbed views.
 	    callback:			Tab_Picker_Callback,								# This is how we pass our Tab_Picker to app client code, which basically lets it set 'visible_tab' above.
-	    site:			Ref(g2d::Box)									# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
+	    site:			Ref(g2d::Box),									# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
+	    #
+# These should move into Tabbable_Info and be here replaced by just
+#	    tabble_info:		Tabble_Info
+	    pixmap_size:		g2d::Size,									# Size of alternate pixmaps visible in scrollport.  We require them to all be the same size; we intend that the scrollport be the same size.
+	    tabs:			List( Tabbable_Info )								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
 	  }
 
 	also
@@ -1067,7 +1097,7 @@ herein
 	Widget_Imports
 	  =
 	  { gadget_to_guiboss:		Gadget_To_Guiboss,								# 
-	    widget_to_widgetspace:	w2p::Widget_To_Widgetspace,							# 
+	    widget_to_guiboss:		w2g::Widget_To_Guiboss,								# 
 	    run_gun':			Run_Gun,									#
 	    end_gun':			End_Gun,									# Used by widget subthreads to exit when main widget microthread exits.									#
 	    endstate_oneshot:		Oneshot_Maildrop( ( Widget_Start_Fn,
@@ -1177,6 +1207,7 @@ herein
 
 	    subwindow_info:				Ref( Null_Or( Subwindow_Data ) ),
 
+	    widget_imps:				Widget_Imps,							# Holds info on our gt::Widget_Imp_Info        instances -- basically, all running widgets                      in topwindow.
 	    gadget_imps:				Gadget_Imps,							# Holds info on our gt::Gadget_Imp_Info        instances -- basically, all running widgets, sprites and objects in topwindow.
 	    spritespace_imps:				Spritespace_Imps,						# Holds info on our gt::Guiboss_To_Spritespace instances -- all spritespace-imp.pkg instances for this topwindow.
 	    objectspace_imps:				Objectspace_Imps,						# Holds info on our gt::Guiboss_To_Objectspace instances -- all objectspace-imp.pkg instances for this topwindow.
@@ -1205,6 +1236,7 @@ herein
 
 	fun subwindow_or_view_id_of    (SUBWINDOW_INFO r) =>  r.pixmap.id;
 	    subwindow_or_view_id_of    (VIEWABLE_INFO  r) =>  r.pixmap.id;
+	    subwindow_or_view_id_of    (TABBABLE_INFO  r) =>  r.pixmap.id;
 	end; 
 
 	fun subwindow_info_id_of    (SUBWINDOW_DATA r) =   r.pixmap.id;
@@ -1212,6 +1244,7 @@ herein
 
 	fun gadget_to_rw_pixmap__of (SUBWINDOW_INFO r) =>  r.pixmap;
 	    gadget_to_rw_pixmap__of (VIEWABLE_INFO  r) =>  r.pixmap;
+	    gadget_to_rw_pixmap__of (TABBABLE_INFO  r) =>  r.pixmap;
 	end; 
 
 
@@ -1223,6 +1256,30 @@ herein
 		TRUE;													# SUBWINDOW_INFO is by definition visible.
 
 	    subwindow_or_view_is_visible (VIEWABLE_INFO r)								# A VIEWABLE_INFO is visible if it has *is_visible==TRUE and some chain of parents leading to a SUBWINDOW_INFO are also visible.
+		=>
+		if (not *r.is_visible)
+		    #
+		    FALSE;
+		else
+		    visible_in_at_least_one_parent  *r.ports								# This stab at supporting multiple scrollports/tabports onto a single pixmap probably doesn't work.  But we're not doing that yet anyhow.
+		    where
+			fun visible_in_at_least_one_parent ([]: List(Scrollport_Or_Tabport))
+				=>
+				FALSE;
+
+			    visible_in_at_least_one_parent (r ! rest)
+				=>
+				if (subwindow_or_view_is_visible  r.parent_subwindow_or_view)
+				    #
+				    TRUE;
+				else
+				    visible_in_at_least_one_parent  rest;
+				fi;
+			end;
+		    end;
+		fi;
+
+	    subwindow_or_view_is_visible (TABBABLE_INFO r)								# A VIEWABLE_INFO is visible if it has *is_visible==TRUE and some chain of parents leading to a SUBWINDOW_INFO are also visible.
 		=>
 		if (not *r.is_visible)
 		    #
@@ -1266,6 +1323,12 @@ herein
 				  }
 		    =>
 		    sprintf "VIEWABLE_INFO with pixmap.id => %d  pixmap.size => %s"  (id_to_int pixmap.id)  (g2j::size_to_string pixmap.size);
+
+		TABBABLE_INFO     { pixmap:		g2p::Gadget_To_Rw_Pixmap,					# The pixmap visible in the tabport.
+				    ...
+				  }
+		    =>
+		    sprintf "TABBABLE_INFO with pixmap.id => %d  pixmap.size => %s"  (id_to_int pixmap.id)  (g2j::size_to_string pixmap.size);
 	    esac;
 
 	fun subwindow_info_id (bp: Subwindow_Data)
@@ -1355,6 +1418,18 @@ herein
 			    [ r ]  =>   {   subwindow_info_of_subwindow_or_view  r.parent_subwindow_or_view; };
 			    #
 			    _	   =>   {   msg = "Unsupported case in subwindow_info_of_subwindow_or_view/VIEWABLE_INFO --guiboss-types.pkg";
+					    log::fatal msg;
+					    raise exception FAIL msg;
+					};
+			esac;
+		    #
+		    TABBABLE_INFO r
+			=>
+			case *r.ports											# List of scrollports/tabports in which viewable is (potentially) visible.
+			    #
+			    [ r ]  =>   {   subwindow_info_of_subwindow_or_view  r.parent_subwindow_or_view; };
+			    #
+			    _	   =>   {   msg = "Unsupported case in subwindow_info_of_subwindow_or_view/TABBABLE_INFO --guiboss-types.pkg";
 					    log::fatal msg;
 					    raise exception FAIL msg;
 					};
@@ -1455,6 +1530,22 @@ herein
 				    port.parent_subwindow_or_view;
 
 			    []  =>  {   msg = "Empty scrollport/tabport list not supported in VIEWABLE_INFO -- find_all_subwindow_infos_above_given_subwindow_or_view_in_stacking_order";
+					log::fatal msg;
+					raise exception FAIL msg;
+				    };
+			esac;
+
+		    TABBABLE_INFO { ports => REF ports, ... }								# A scrollport/tabport does not have an independent stacking order, it lies at the same stacking order as its parent. (Every scrollport/tabport has a non-port ancestor.)
+			=>
+			case ports
+			    #
+			    (port ! _)
+				=>
+				find_all_subwindow_infos_above_given_subwindow_or_view_in_stacking_order		# XXX SUCKO FIXME As yet we're not actually supporting multiple ports opening onto one shared viewable.
+				    #
+				    port.parent_subwindow_or_view;
+
+			    []  =>  {   msg = "Empty tabport list not supported in VIEWABLE_INFO -- find_all_subwindow_infos_above_given_subwindow_or_view_in_stacking_order";
 					log::fatal msg;
 					raise exception FAIL msg;
 				    };
@@ -2880,7 +2971,7 @@ herein
 					    #														# rg_widget is a Ref not because we intend to change it, but to work around a technical difficulty in guiboss-imp.pkg:do_pg_widget:PG_SCROLLPORT where  viewable_data and rg_widget each want to be created first.
 					    pixmap:		g2p::Gadget_To_Rw_Pixmap,								# Viewable_Info values appear only in RG_SCROLLPORT.viewable_info,
 																			#                                     RG_TABPORT.tabs
-																			#		                      RG_TABPORT.visible_tab
+																			#		                      
 					    ports:		Ref( List( Scrollport_Or_Tabport ) ),							# We make this a Ref(List(...)) to allow for adding additional scrollports/tabports opening onto the same underlying viewable pixmap.
 																			# WARNING: We don't currently use multiple ports onto one pixmap; if we start doing so we'll probably find that *VIEWABLE_INFO.is_visible doesn't work right with them.
 
@@ -2914,32 +3005,16 @@ herein
 			    =>
 			    {   arg ->	  { pixmap_size:		g2d::Size,									# Size of alternate pixmaps visible in scrollport.  We require them to all be the same size; we intend that the scrollport be the same size.
 					    #
-					    tabs:			List( Viewable_Info ),								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
-					    visible_tab:		Ref ( Viewable_Info ),								# Which of 'tabs' is currently visible?  This refcell holds one element from 'tabs';  it supports switching between the tabbed views.
+					    tabs:			List( Tabbable_Info ),								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
+					    visible_tab:		Ref ( Int ),									# Which of 'tabs' is currently visible?  This refcell references one element from 'tabs';  it supports switching between the tabbed views.
 					    #
 					    callback:			Tab_Picker_Callback,								# This is how we pass our Tab_Picker to app client code, which basically lets it set 'visible_tab' above.
 					    site:			Ref(g2d::Box)									# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
 					  };
 	
-				number_of_visible_tab
-				    =
-				    number_of_active_widget (tabs, 0)
-				    where
-					fun number_of_active_widget  ([]: List(Viewable_Info),  i: Int)
-						=>
-						0;
-
-					    number_of_active_widget ((widget ! rest), i)
-						=>
-						if (id_to_int widget.pixmap.id == id_to_int (*visible_tab).pixmap.id)   i;
-						else							                number_of_active_widget (rest, i+1);
-						fi;
-					end;
-				    end;
-
 				tabs =  map  do_tab  tabs
 					where
-					    fun do_tab (arg: Viewable_Info)
+					    fun do_tab (arg: Tabbable_Info)
 						=
 						{   arg ->    { id:		Id,
 								rg_widget:	Ref( Rg_Widget ),
@@ -2964,7 +3039,7 @@ herein
 				arg =	  { pixmap_size,
 					    #
 					    tabs,
-					    visible_tab => REF (list::nth (tabs, number_of_visible_tab)),
+					    visible_tab => REF *visible_tab,
 					    #
 					    callback,
 					    site
@@ -3225,7 +3300,7 @@ herein
 					    #														# rg_widget is a Ref not because we intend to change it, but to work around a technical difficulty in guiboss-imp.pkg:do_pg_widget:PG_SCROLLPORT where  viewable_data and rg_widget each want to be created first.
 					    pixmap:		g2p::Gadget_To_Rw_Pixmap,								# Viewable_Info values appear only in RG_SCROLLPORT.viewable_info,
 																			#                                     RG_TABPORT.tabs
-																			#		                      RG_TABPORT.visible_tab
+																			#		                      
 					    ports:		Ref( List( Scrollport_Or_Tabport ) ),							# We make this a Ref(List(...)) to allow for adding additional scrollports/tabports opening onto the same underlying viewable pixmap.
 																			# WARNING: We don't currently use multiple ports onto one pixmap; if we start doing so we'll probably find that *VIEWABLE_INFO.is_visible doesn't work right with them.
 
@@ -3243,8 +3318,8 @@ herein
 			    =>
 			    {   arg ->	  { pixmap_size:		g2d::Size,									# Size of alternate pixmaps visible in scrollport.  We require them to all be the same size; we intend that the scrollport be the same size.
 					    #
-					    tabs:			List( Viewable_Info ),								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
-					    visible_tab:		Ref ( Viewable_Info ),								# Which of 'tabs' is currently visible?  This refcell holds one element from 'tabs';  it supports switching between the tabbed views.
+					    tabs:			List( Tabbable_Info ),								# This record holds one of the alternate views which may be made visible in the scrollport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
+					    visible_tab:		Ref ( Int ),									# Which of 'tabs' is currently visible?  This refcell references one element from 'tabs';  it supports switching between the tabbed views.
 					    #
 					    callback:			Tab_Picker_Callback,								# This is how we pass our Tab_Picker to app client code, which basically lets it set 'visible_tab' above.
 					    site:			Ref(g2d::Box)									# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
@@ -3252,7 +3327,7 @@ herein
 	
 				apply   do_tab  tabs
 					where
-					    fun do_tab (arg: Viewable_Info)
+					    fun do_tab (arg: Tabbable_Info)
 						=
 						{   arg ->    { id:		Id,
 								rg_widget:	Ref( Rg_Widget ),
@@ -4551,8 +4626,8 @@ herein
 					{												# Here we provide support for selection between alternate views in scrollport.  Actually providing tabs happens at a higher level; here we handle pixmap state maintenance and redraw support.
 					  pixmap_size:		g2d::Size,								# Size of alternate pixmaps visible in scrollport.  We require them to all be the same size; we intend that the scrollport be the same size.
 
-					  tabs:			List( Viewable_Info ),							# Each record holds one of the alternate tabs which may be made visible in the tabport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
-					  visible_tab:		Ref ( Viewable_Info ),							# Which of 'tabs' is currently visible?  This refcell holds one element from 'tabs';  it supports switching between the tabbed views.
+					  tabs:			List( Tabbable_Info ),							# Each record holds one of the alternate tabs which may be made visible in the tabport.  *** WE REQUIRE AT LEAST ONE ENTRY IN THE LIST! *** 
+					  visible_tab:		Ref ( Int ),								# Which of 'tabs' is currently visible?  This refcell references one element from 'tabs';  it supports switching between the tabbed views.
 
 					  callback:		Tab_Picker_Callback,							# This is how we pass our Tab_Picker to app client code, which basically lets it set 'visible_tab' above.
 					  site:			Ref(g2d::Box)								# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg

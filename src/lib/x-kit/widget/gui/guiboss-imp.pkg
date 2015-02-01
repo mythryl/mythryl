@@ -111,7 +111,7 @@ stipulate
 
     package s2s =  sprite_to_spritespace;			# sprite_to_spritespace		is from   src/lib/x-kit/widget/space/sprite/sprite-to-spritespace.pkg
     package o2o =  object_to_objectspace;			# object_to_objectspace		is from   src/lib/x-kit/widget/space/object/object-to-objectspace.pkg
-    package w2w =  widget_to_widgetspace;			# widget_to_widgetspace		is from   src/lib/x-kit/widget/space/widget/widget-to-widgetspace.pkg
+    package w2g =  widget_to_guiboss;				# widget_to_guiboss		is from   src/lib/x-kit/widget/space/widget/widget-to-guiboss.pkg
 
 #   package s2g =   space_to_gui;				# space_to_gui			is from   src/lib/x-kit/widget/gui/space-to-gui.pkg
     package g2p =  gadget_to_pixmap;				# gadget_to_pixmap		is from   src/lib/x-kit/widget/theme/gadget-to-pixmap.pkg
@@ -289,6 +289,7 @@ herein
 		#
 		gt::SUBWINDOW_INFO { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
 		gt::VIEWABLE_INFO  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		gt::TABBABLE_INFO  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
 	    esac;
 
 															# The high-level architectural ideas here are:
@@ -522,6 +523,101 @@ herein
 					    };
 				    end;	
 			fi;
+
+		    propagate_frombox_changes_to_all_parents_in_which_they_are_visible							# 
+		      (
+			subwindow_or_view												# 
+			as														# 
+			gt::TABBABLE_INFO { id:		Id,
+					    is_visible:	Ref( Bool ),									# We do not have to worry about popups blocking our copies, since they are entirely internal to one running_gui.
+					    rg_widget:	Ref( gt::Rg_Widget ),
+					    pixmap:	g2p::Gadget_To_Rw_Pixmap,
+					    ports:	Ref( List( gt::Scrollport_Or_Tabport ) )					# Scrollports/Tabports in which this viewable is (potentially) visible.  We make this a Ref(List(...)) to allow for adding additional scrollports opening onto the same underlying pixmap.
+					  },
+
+			from_box:	g2d::Box											# From-box in source pixmap.
+		      )
+			=>
+			if (*is_visible)												# Do not propagate if we are one of multiple TABPORT and we are not visible.
+			    #	
+			    from_id   =  gt::subwindow_or_view_id_of  subwindow_or_view;						# The Id for the source pixmap for the copy.
+
+			    apply   do_port  *ports											# We may be visible in multiple scrollports/tabports, each of which may be visible in multiple scrollports, so potentially we need to update a tree of parents.
+				    where
+					fun do_port											# Handle update of our image as visible via one parent scrollport.
+					      {	parent_subwindow_or_view:	gt::Subwindow_Or_View,
+						site:				Ref(g2d::Box),						# Size and location of subwindow scrollport in parent Subwindow_Or_View coordinates.
+						#
+						origin:				Ref(g2d::Point)						# Used to scroll subwindow contents around in parent scrollport: view origin in scrollport coordinates.
+					      }
+					    =
+					    {	scrollport_origin_in_view									# If the from_box is not entirely visible in the scrollport
+						    =											# then we need to clip it to the scrollport.  Since we want
+						    g2d::point::zero - *origin;								# the clipped from_box to be in the gadget's home pixmap,
+																	# the most straightforward approach is to transform the
+																	# scrollport into home pixmap space.  If *origin is
+						scrollport' = g2d::box::clone_box_at (*site, scrollport_origin_in_view);			# 0,0 then scrollport is at (0,0) in home pixmap, otherwise
+																	# it is offset by -*origin, so in general we want
+																	# the port cloned at -*origin.
+
+
+
+						to_point  = g2d::box::upperleft  from_box;						# Where should we copy pixels to, on our parent pixmap?   We initialize this to the null transform -- we'll add in appropriate offsets to this momentarily.
+
+						case (g2d::box::intersection (scrollport', from_box))
+						    #
+						    NULL => ();										# No intersection between from_box and scrollport' means no part of gadget is visible, so just return NULL.
+						    #
+						    THE from_box'
+							=>
+							{
+							    my (to_point, from_box)							# Update to_point and from_box to account for clipping due
+								=									# to intersection between scrollport and old from_box value.
+								if (g2d::box::eq (from_box', from_box))
+								    #
+								    (to_point, from_box);						# No actual clipping (from_box must be completely visible in scrollport) so nothing to do here.
+
+								elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),		# Is origin of from_box' different from origin or from_box?
+										       g2d::box::upperleft( from_box  )
+								     ) 		   )
+
+								    (to_point, from_box');						# No, so to_point stays the same, we just replace from_box with from_box'.
+								else
+																	# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
+								    frombox_displacement
+									=
+									g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
+											      g2d::box::upperleft( from_box  )
+											    );
+
+								    to_point'   = g2d::point::add (to_point, frombox_displacement);	# Apply it.
+
+								    (to_point', from_box');						# Done.
+								fi;
+
+																	# Now we just need to compute where from_box should be drawn in
+																	# current sub/window, then update to_point and continue recursively.
+
+							    to_point = g2d::point::add (to_point, *origin);				# Account for location of view  relative to scrollport.
+							    to_point = g2d::point::add (to_point, g2d::box::upperleft(*site));		# Account for location of scrollport relative to parent pixmap.
+
+							    parent_pixmap' = gt::gadget_to_rw_pixmap__of  parent_subwindow_or_view;	# Find off-screen backing pixmap containing scrollport onto us.
+							    from_id	   = pixmap.id;							# Pixmap to copy rectangle from (as Id).
+							    gui_displayop  = gd::COPY_FROM_RW_PIXMAP { from_box, to_point, from_id };	# The actual copy from our pixmap to scrollport area in parent pixmap.
+							    #										#
+							    parent_pixmap'.draw_displaylist [ gui_displayop ];				# Draw updated gadget appearance into its off-screen backing-pixmap home site.
+
+							    from_box = g2d::box::clone_box_at (from_box, to_point);			# Our to-box is from_box for the next level of recursion.
+
+							    propagate_frombox_changes_to_all_parents_in_which_they_are_visible		# Continue recursively to next level of scrollport nesting.
+								#
+								(parent_subwindow_or_view, from_box);
+							};
+						esac;
+
+					    };
+				    end;	
+			fi;
 		end;
 	    end;
 
@@ -531,7 +627,21 @@ herein
 		running_gui:			gt::Running_Gui
 	      }
 	    =
-	    {	apply do_imp (im::keys_list      *running_gui.gadget_imps_for_gui)  where  fun do_imp (id: Int) =       topwindow_info.gadget_imps := im::drop (     *topwindow_info.gadget_imps, id);  end;
+	    {
+# We need to convert these to use something else if we want to sliminated *imps_for_gui.
+# This appears to be the only place we use them.  We make an entry in 
+#  o  widgetspace_imps_for_gui in pg_widget__to__rg_widget / do_widgetspace  => gt::RG_WIDGETSPACE
+#  o  spritespace_imps_for_gui in pg_widget__to__rg_widget / do_spritespace  => gt::RG_SPRITESPACE
+#  o  objectspace_imps_for_gui in pg_widget__to__rg_widget / do_objectspace  => gt::RG_OBJECTSPACE
+#  o       gadget_imps_for_gui in pg_widget__to__rg_widget / do_pg_sprite    => gt::RG_SPRITE
+#  o       gadget_imps_for_gui in pg_widget__to__rg_widget / do_pg_object    => gt::RG_OBJECT
+#  o       gadget_imps_for_gui in pg_widget__to__rg_widget / do_pg_widget    => gt::RG_WIDGET
+#
+# ? Looks like probably  pg_widget__to__rg_widget/PRIMARY SHOULD be making a widgetspace_imps_for_gui entry
+# ! We're ok if kill_gui' kills widgetspace_imps[ id_to_int running_gui.widgetspace_id ]
+#   or if we let endgun' take care of it.
+
+		apply do_imp (im::keys_list      *running_gui.gadget_imps_for_gui)  where  fun do_imp (id: Int) =       topwindow_info.gadget_imps := im::drop (     *topwindow_info.gadget_imps, id);  end;
 		apply do_imp (im::keys_list *running_gui.spritespace_imps_for_gui)  where  fun do_imp (id: Int) =  topwindow_info.spritespace_imps := im::drop (*topwindow_info.spritespace_imps, id);  end;
 		apply do_imp (im::keys_list *running_gui.objectspace_imps_for_gui)  where  fun do_imp (id: Int) =  topwindow_info.objectspace_imps := im::drop (*topwindow_info.objectspace_imps, id);  end;
 		apply do_imp (im::keys_list *running_gui.widgetspace_imps_for_gui)  where  fun do_imp (id: Int) =  topwindow_info.widgetspace_imps := im::drop (*topwindow_info.widgetspace_imps, id);  end;
@@ -611,7 +721,7 @@ herein
 
 							    (im::get_or_raise_exception_not_found (*widgetspace_imps, (id_to_int running_gui.widgetspace_id)))
 								->
-								{ widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+								{ guiboss_to_widgetspace, endstate_oneshot };
 
 
 							    site =  { col => 0,  high,									# Allocate all of window pixel area to widgets in running_gui.rg_widget widget-tree.
@@ -782,6 +892,8 @@ herein
 		esac;
 		
 
+# XXX SUCKO FIXME we need to replace this if we are going to phase out endgun for widgets.
+#
 		running_gui.fire_end_gun ();										# Shut down GUI impnet.
 
 
@@ -928,6 +1040,7 @@ herein
 						topwindow_info.objectspace_imps	    :=  im::empty;
 						topwindow_info.widgetspace_imps	    :=  im::empty;
 						topwindow_info.gadget_imps	    :=  im::empty;
+						topwindow_info.widget_imps	    :=  im::empty;
 					    };
 
 				THE _ =>    ();										# We're pausing a secondary popup gui for this topwindow.
@@ -966,7 +1079,7 @@ herein
 
 			(im::get_or_raise_exception_not_found (*topwindow_info.widgetspace_imps, (id_to_int widgetspace_id)))
 			    ->
-			    { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };	
+			    { guiboss_to_widgetspace, endstate_oneshot };	
 
 			( get_from_oneshot   endstate_oneshot,								# Read final state of widgetspace-imp -- incidentally confirming that it has completed its shutdown.
 			  rg_widget''
@@ -1051,7 +1164,7 @@ herein
 			gt::RG_TABPORT
 				{ callback:		gt::Tab_Picker_Callback,
 				  tabs:			List(gt::Viewable_Info),
-				  visible_tab:		Ref( gt::Viewable_Info),
+				  visible_tab:		Ref( Int ),
 				  pixmap_size:		g2d::Size,
 				  site:			Ref(g2d::Box)
 				}
@@ -1191,7 +1304,7 @@ herein
 							#
 							(im::get_or_raise_exception_not_found (*topwindow_info.widgetspace_imps, (id_to_int widgetspace_id)))
 							    ->
-							    { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+							    { guiboss_to_widgetspace, endstate_oneshot };
 
 							gt::PG_WIDGETSPACE
 							  (
@@ -1353,7 +1466,7 @@ herein
 
 			    (im::get_or_raise_exception_not_found (*widgetspace_imps, (id_to_int running_gui.widgetspace_id)))
 				->
-				{ widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+				{ guiboss_to_widgetspace, endstate_oneshot };
 
 
 			    site =  { col => 0,  high,									# Allocate all of window pixel area to widgets in running_gui.rg_widget widget-tree.
@@ -1424,6 +1537,7 @@ herein
 		objectspace_imps		=  topwindow_info.objectspace_imps;					# Holds info on all objectspace-imp.pkg                               instances for topwindow -- base gui plus all popup guis for topwindow.
 		widgetspace_imps		=  topwindow_info.widgetspace_imps;					# Holds info on all widgetspace-imp.pkg                               instances for topwindow -- base gui plus all popup guis for topwindow.
 		gadget_imps			=  topwindow_info.gadget_imps;						# Holds info on all widget-imp.pkg, sprite-imp.pkg and object-imp.pkg instances for topwindow -- base gui plus all popup guis for topwindow.
+		widget_imps			=  topwindow_info.widget_imps;						# Holds info on all widget-imp.pkg				      instances for topwindow -- base gui plus all popup guis for topwindow.
 
 		current_frame_number		=  topwindow_info.current_frame_number;
 		seconds_per_frame		=  topwindow_info.seconds_per_frame;
@@ -1506,6 +1620,23 @@ herein
 					#										# here ensures a unique id per space_to_gui. It also makes space_to_gui.id stable across gui stop/restart cycles.
 					note_widget_site
 				      };
+
+
+		#################################################################################
+		# widget_to_guiboss interface fns:
+		#
+
+		fun note_widget_layout_hint
+		      {
+			id:			Id,
+			widget_layout_hint:	w2g::Widget_Layout_Hint
+		      }
+		    :				Void
+		    =
+		    {
+# XXX SUCKO FIXME TBD
+		    };
+
 
 
 		#################################################################################
@@ -1753,6 +1884,11 @@ herein
 			);
 		    };
 
+		widget_to_guiboss =       { id => topwindow_for_gui.id,									# Since each topwindow has a unique id and we will have only one widget_to_guiboss per topwindow, using topwindow_for_gui.id
+					    #												# here ensures a unique id per widget_to_guiboss. It also makes widget_to_guiboss.id stable across gui stop/restart cycles.
+					    note_widget_layout_hint
+					  };
+
 		gadget_to_guiboss =       { id => topwindow_for_gui.id,									# Since each topwindow has a unique id and we will have only one gadget_to_guiboss per topwindow, using topwindow_for_gui.id
 					    #												# here ensures a unique id per gadget_to_guiboss. It also makes gadget_to_guiboss.id stable across gui stop/restart cycles.
 					    needs_redraw_gadget_request,
@@ -1782,8 +1918,7 @@ herein
 		  = PRIMARY   { widgetspace_arg:		    gt::Widgetspace_Arg,
 			    	widgetspace_imps:		    gt::Widgetspace_Imps
 			      }	
-		  | SECONDARY { stuff:  { widget_to_widgetspace:    w2w::Widget_To_Widgetspace,
-					  guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
+		  | SECONDARY { stuff:  { guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
 					  endstate_oneshot:	    Oneshot_Maildrop( gt::Widgetspace_Arg  )
 					}
 			      }	
@@ -1805,15 +1940,13 @@ herein
 		      )
 		    )
 		    : ( gt::Rg_Widget,
-			{ widget_to_widgetspace:	w2w::Widget_To_Widgetspace,
-			  guiboss_to_widgetspace:	gt::Guiboss_To_Widgetspace,
+			{ guiboss_to_widgetspace:	gt::Guiboss_To_Widgetspace,
 			  endstate_oneshot:		Oneshot_Maildrop( gt::Widgetspace_Arg  )
 			}
 		      )	
 		    =
 		    {
-			my stuff as { widget_to_widgetspace:    w2w::Widget_To_Widgetspace,
-				      guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
+			my stuff as { guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
 				      endstate_oneshot:		Oneshot_Maildrop( gt::Widgetspace_Arg  )
 				    }
 			    =
@@ -1825,7 +1958,7 @@ herein
 				    =>
 				    {	(do_widgetspace  widgetspace_arg)
 					    ->
-					    stuff as { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+					    stuff as { guiboss_to_widgetspace, endstate_oneshot };
 
 					widgetspace_id   =  guiboss_to_widgetspace.id;
 
@@ -1842,7 +1975,7 @@ herein
 			subwindow_info -> gt::SUBWINDOW_DATA subwindow_info;
 			subwindow_info =  gt::SUBWINDOW_INFO subwindow_info;
 
-			(do_pg_widget (pg_widget, widget_to_widgetspace, subwindow_info))						# "_pg_" == "_pausedgui_" throughout this section.
+			(do_pg_widget (pg_widget, subwindow_info))						# "_pg_" == "_pausedgui_" throughout this section.
 			    ->
 			    rg_widget;
 
@@ -1885,17 +2018,17 @@ herein
 				    ->
 				    (exports, widgetspace_egg');
 
-				exports ->  { widget_to_widgetspace, guiboss_to_widgetspace };
+				exports ->  { guiboss_to_widgetspace };
 
-				widgetspace_imps         :=  im::set (*widgetspace_imps,         (id_to_int guiboss_to_widgetspace.id), { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot });
-				widgetspace_imps_for_gui :=  im::set (*widgetspace_imps_for_gui, (id_to_int guiboss_to_widgetspace.id), { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot });
+				widgetspace_imps         :=  im::set (*widgetspace_imps,         (id_to_int guiboss_to_widgetspace.id), { guiboss_to_widgetspace, endstate_oneshot });
+				widgetspace_imps_for_gui :=  im::set (*widgetspace_imps_for_gui, (id_to_int guiboss_to_widgetspace.id), { guiboss_to_widgetspace, endstate_oneshot });
 
 # NOT VERY SOON add gadget_to_guiboss to imports:
 				widgetspace_imports =  { int_sink => \\ (i: Int) = (), space_to_gui };
 
 				widgetspace_egg' (widgetspace_imports, run_gun', end_gun');
 
-				{ widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+				{ guiboss_to_widgetspace, endstate_oneshot };
 			    }
 
 			also
@@ -2006,12 +2139,12 @@ herein
 				    {
 					(do_widgetspace  widgetspace_arg)
 					    ->
-					    stuff as { widget_to_widgetspace, guiboss_to_widgetspace, endstate_oneshot };
+					    stuff as { guiboss_to_widgetspace, endstate_oneshot };
 
 					widgetspace_imps         :=  im::set (*widgetspace_imps,         (id_to_int guiboss_to_widgetspace.id), stuff);
 					widgetspace_imps_for_gui :=  im::set (*widgetspace_imps_for_gui, (id_to_int guiboss_to_widgetspace.id), stuff);
 
-					(do_pg_widget (pg_widget, widget_to_widgetspace, current_subwindow_or_view))
+					(do_pg_widget (pg_widget, current_subwindow_or_view))
 					    ->
 					    rg_widget;
 
@@ -2051,7 +2184,6 @@ herein
 			fun do_pg_widget
 			      (
 				pg_widget:			 gt::Pg_Widget,								# 'pg_widget' can be a tree of widgets with ROW and COL internal nodes.
-				widget_to_widgetspace:		w2w::Widget_To_Widgetspace,
 				current_subwindow_or_view:	 gt::Subwindow_Or_View							# This will be a VIEWABLE_INFO when we're processing widgets displayed in a scrollport.
 			      )
 			    =
@@ -2067,7 +2199,7 @@ herein
 							      pg_widget:	gt::Pg_Widget
 							    )
 							    =
-							    do_pg_widget  (pg_widget, widget_to_widgetspace, current_subwindow_or_view);
+							    do_pg_widget  (pg_widget, current_subwindow_or_view);
 						    end;
 
 					pixels_high_min	=  REF 0;									# We'll set the real value for this later in re_site_widget_tree() in  src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
@@ -2099,7 +2231,7 @@ herein
 							      pg_widget:	gt::Pg_Widget
 							    )
 							    =
-							    do_pg_widget  (pg_widget, widget_to_widgetspace, current_subwindow_or_view);
+							    do_pg_widget  (pg_widget, current_subwindow_or_view);
 						    end;
 
 					pixels_high_min	=  REF 0;									# We'll set the real value for this later in re_site_widget_tree() in  src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
@@ -2138,7 +2270,7 @@ herein
 								      pg_widget:	gt::Pg_Widget
 								    )
 								    =
-								    do_pg_widget  (pg_widget, widget_to_widgetspace, current_subwindow_or_view);
+								    do_pg_widget  (pg_widget, current_subwindow_or_view);
 							    end;
 						    end;
 
@@ -2244,7 +2376,6 @@ herein
 					    do_pg_widget										# Process widget-tree in new subwindow_or_view not current_subwindow_or_view!
 					      (
 						pg_widget,
-						widget_to_widgetspace,
 						subwindow_or_view
 					      );
 
@@ -2381,7 +2512,7 @@ herein
 				    {
 					if ((list::length widgets) == 0)								# We could be more robust by supporting empty 'tabs', but that would give us special
 					    log::fatal "TABBED_VIEWS needs at least one view! -- guiboss-imp.pkg";			# cases in the code every time we access visible_tab.  Maybe it is worth it?
-					    ();												# We'd have to make visible_tabs be Ref(Null_Or(Tabview)) instead of just Ref(Tabview).
+					    ();												# 
 					fi;
 
 					scrollport	=  REF g2d::box::zero;								# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
@@ -2396,7 +2527,6 @@ herein
 							    )
 							    =
 							    {	widget		= do_pg_widget	( pg_widget,
-												  widget_to_widgetspace,
 												  current_subwindow_or_view
 												);
 								#
@@ -2431,7 +2561,7 @@ herein
 							    };
 						    end;
 
-					visible_tab	=  REF (head tabs);								# Default to displaying first tab, if there is more than one.
+					visible_tab	=  REF 0;									# Default to displaying first tab, if there is more than one.
 
 					tabbed_view_picker
 					    =
@@ -2439,47 +2569,39 @@ herein
 					      set_active_tab
 					    }
 					    where
-						fun number_of_active_widget  ([]: List(gt::Viewable_Info),  i: Int)
-							=>
-							0;
-
-						    number_of_active_widget ((widget ! rest), i)
-						        =>
-							if (id_to_int widget.pixmap.id == id_to_int (*visible_tab).pixmap.id)   i;
-							else							                number_of_active_widget (rest, i+1);
-							fi;
-						end;
-
 						fun get_active_tab ()
 						    =
-						    number_of_active_widget (tabs, 0);
+						    *visible_tab;
 
 						fun set_active_tab (i: Int)
 						    =
 						    {   tab_count = list::length tabs;
 							#
-							if (i != get_active_tab ())							# Do nothing if client code is re-selecting already-active tabview.
+							if (i != *visible_tab)								# Do nothing if client code is re-selecting already-active tabview.
 							    #
 							    if (i >= 0  and  i < tab_count)
 								#
-								(*visible_tab).is_visible := FALSE;					# Remember previously visible view is now not visible.
+								this_tab = list::nth (tabs, *visible_tab);
+								this_tab.is_visible := FALSE;						# Remember previously visible view is now not visible.
 
-								visible_tab :=  list::nth (tabs, i);
+								visible_tab :=  i;
 
-								(*visible_tab).is_visible := TRUE;					# Remember newly visible view is now visible.
+								this_tab = list::nth (tabs, *visible_tab);
+								this_tab.is_visible := TRUE;						# Remember newly visible view is now visible.
 							    else
 								log::note_on_stderr {. sprintf "set_active_view: arg = %d not in range 0 -> %d\n" i tab_count; };
 							    fi;
 
+							    this_tab = list::nth (tabs, *visible_tab);
 							    from_box =    g2d::box::make						# We want to update the whole pixmap. (A tabview should always be the same size as the scrollport, and all of it needs updating.)
 									    (
 									      g2d::point::zero, 
-									      (*visible_tab).pixmap.size
+									      this_tab.pixmap.size
 									    );
 
 							    update_offscreen_parent_pixmaps_and_then_topwindow				# Draw pixmap on parent.
 								#
-								( gt::VIEWABLE_INFO (*visible_tab),
+								( gt::VIEWABLE_INFO this_tab,
 								  from_box,
 								  topwindow_for_gui
 								);
@@ -2505,7 +2627,7 @@ herein
 					      pg_widget:	gt::Pg_Widget
 					    )
 					    =
-					    do_pg_widget  (pg_widget, widget_to_widgetspace, current_subwindow_or_view);
+					    do_pg_widget  (pg_widget, current_subwindow_or_view);
 
 					widget		=  do_widget  widget;
 					frame_widget	=  do_widget  frame_widget;
@@ -2548,7 +2670,7 @@ herein
 								  Null_Or(Exception)							# saved_widget_state, used by arrowbutton etc to preserve state across gui stop/restart cycles.
 							      ) );
 					#
-					(widget_start_fn { gadget_to_guiboss, widget_to_widgetspace, run_gun', end_gun', endstate_oneshot, saved_widget_state })
+					(widget_start_fn { gadget_to_guiboss, widget_to_guiboss, run_gun', end_gun', endstate_oneshot, saved_widget_state })
 					    ->
 					    { guiboss_to_gadget, widgetspace_to_widget };
 
@@ -2683,8 +2805,7 @@ herein
 			)
 			 -> ( rg_widget,
 			      #	
-			      { widget_to_widgetspace:    w2w::Widget_To_Widgetspace,
-				guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
+			      {	guiboss_to_widgetspace:   gt::Guiboss_To_Widgetspace,
 				endstate_oneshot:	  Oneshot_Maildrop( gt::Widgetspace_Arg  )
 			      }
 			    );
@@ -3393,7 +3514,9 @@ herein
 							    =>
 							    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into view coordinate system.
 								#
-								find_gadget_imp_info (*(*r.visible_tab).rg_widget, point);			# Recursively search for target widget of mouseclick among widgets on visible tab.
+								this_tab = list::nth (r.tabs, *r.visible_tab);
+
+								find_gadget_imp_info (*this_tab.rg_widget, point);				# Recursively search for target widget of mouseclick among widgets on visible tab.
 							    };
 
 							gt::RG_FRAME r
@@ -4557,7 +4680,8 @@ printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *t
 								spritespace_imps			=>  (REF im::empty): gt::Spritespace_Imps,	# Holds our gt::Guiboss_To_Spritespace instances.
 								objectspace_imps			=>  (REF im::empty): gt::Objectspace_Imps,	# Holds our gt::Guiboss_To_Objectspace instances.
 								widgetspace_imps			=>  (REF im::empty): gt::Widgetspace_Imps,	# Holds our gt::Guiboss_To_Widgetspace instances.
-								gadget_imps				=>  (REF im::empty): gt::Gadget_Imps,		# Holds look-imps for all the widgets in our gui.
+								gadget_imps				=>  (REF im::empty): gt::Gadget_Imps,		# 
+								widget_imps				=>  (REF im::empty): gt::Widget_Imps,		# 
 								#
 								current_frame_number			=>  (REF 1),					# We count frames for convenience of widgets and debugging.
 								seconds_per_frame			=>  (REF 0.01),					# Let's initially assume a nominal ten frames per second. Passed to widgets primarily so widgets can do motion blurring if they wish.
