@@ -285,9 +285,9 @@ herein
 	    =
 	    case pixmap
 		#
-		gt::SUBWINDOW_INFO { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
-		gt::VIEWABLE_INFO  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
-		gt::TABBABLE_INFO  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		gt::SUBWINDOW_INFO  { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		gt::SCROLLABLE_INFO { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
+		gt::TABBABLE_INFO   { pixmap:	g2p::Gadget_To_Rw_Pixmap, ... } => pixmap.draw_displaylist [ gd::COLOR (r64::black,  [ gd::FILLED_BOXES [ box ]]) ];
 	    esac;
 
 															# The high-level architectural ideas here are:
@@ -427,100 +427,91 @@ herein
 				end;
 			};
 
-		    propagate_frombox_changes_to_all_parents_in_which_they_are_visible					# This gt::VIEWABLE_INFO case will happen when we have a scrollport located on a scrollport.
+		    propagate_frombox_changes_to_all_parents_in_which_they_are_visible					# This gt::SCROLLABLE_INFO case will happen when we have a scrollport located on a scrollport.
 		      (
-			subwindow_or_view										# A gt::VIEWABLE_INFO contains the offscreen image of one scrollable scrollport embedded within a parent subwindow_or_view.
-			as												# Consequently in the gt::VIEWABLE_INFO case we are always copying from one offscreen subwindow_or_view to another.
-			gt::VIEWABLE_INFO { id:		Id,
-					    is_visible:	Ref( Bool ),							# We do not have to worry about popups blocking our copies, since they are entirely internal to one running_gui.
-					    rg_widget:	Ref( gt::Rg_Widget ),
-					    pixmap:	g2p::Gadget_To_Rw_Pixmap,
-					    ports:	Ref( List( gt::Scrollport_Or_Tabport ) )				# Scrollports/Tabports in which this viewable is (potentially) visible.  We make this a Ref(List(...)) to allow for adding additional scrollports opening onto the same underlying pixmap.
+			subwindow_or_view										# A gt::SCROLLABLE_INFO contains the offscreen image of one scrollable scrollport embedded within a parent subwindow_or_view.
+			as												# Consequently in the gt::SCROLLABLE_INFO case we are always copying from one offscreen subwindow_or_view to another.
+			gt::SCROLLABLE_INFO {
+					    origin:		Ref(g2d::Point),					# Origin of view's subwindow_or_view in scrollport coordinates, used for scrolling pixmap in scrollport.
+					    scroller:		Ref(gt::Scroller),						# Client-code interface for controlling view_origin.
+					    callback:		gt::Scroller_Callback,					# This is how we pass our Scroller to app client code, which basically lets it set 'pixmap_origin' above.
+					    site:		Ref(g2d::Box),						# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
+					    rg_widget:		Ref( gt::Rg_Widget ),
+					    pixmap:		g2p::Gadget_To_Rw_Pixmap,
+					    parent_subwindow_or_view:	gt::Subwindow_Or_View				# This can be a SCROLLABLE_INFO if we have a scrollport located on a scrollport.
 					  },
 
-			from_box:	g2d::Box											# From-box in source pixmap.
+			from_box:	g2d::Box									# From-box in source pixmap.
 		      )
 			=>
-			if (*is_visible)												# Do not propagate if we are one of multiple TABPORT and we are not visible.
-			    #	
-			    from_id   =  gt::subwindow_or_view_id_of  subwindow_or_view;						# The Id for the source pixmap for the copy.
+			{
+			    from_id   =  gt::subwindow_or_view_id_of  subwindow_or_view;				# The Id for the source pixmap for the copy.
 
-			    apply   do_port  *ports											# We may be visible in multiple scrollports/tabports, each of which may be visible in multiple scrollports, so potentially we need to update a tree of parents.
-				    where
-					fun do_port											# Handle update of our image as visible via one parent scrollport.
-					      {	parent_subwindow_or_view:	gt::Subwindow_Or_View,
-						site:				Ref(g2d::Box),						# Size and location of subwindow scrollport in parent Subwindow_Or_View coordinates.
+						scrollport_origin_in_view						# If the from_box is not entirely visible in the scrollport
+						    =									# then we need to clip it to the scrollport.  Since we want
+						    g2d::point::zero - *origin;						# the clipped from_box to be in the gadget's home pixmap,
+															# the most straightforward approach is to transform the
+															# scrollport into home pixmap space.  If *origin is
+			    scrollport' = g2d::box::clone_box_at (*site, scrollport_origin_in_view);			# 0,0 then scrollport is at (0,0) in home pixmap, otherwise
+															# it is offset by -*origin, so in general we want
+															# the port cloned at -*origin.
+
+
+
+			    to_point  = g2d::box::upperleft  from_box;							# Where should we copy pixels to, on our parent pixmap?   We initialize this to the null transform -- we'll add in appropriate offsets to this momentarily.
+
+			    case (g2d::box::intersection (scrollport', from_box))
+				#
+				NULL => ();										# No intersection between from_box and scrollport' means no part of gadget is visible, so just return NULL.
+				#
+				THE from_box'
+				    =>
+				    {
+					my (to_point, from_box)								# Update to_point and from_box to account for clipping due
+					    =										# to intersection between scrollport and old from_box value.
+					    if (g2d::box::eq (from_box', from_box))
 						#
-						origin:				Ref(g2d::Point)						# Used to scroll subwindow contents around in parent scrollport: view origin in scrollport coordinates.
-					      }
-					    =
-					    {	scrollport_origin_in_view									# If the from_box is not entirely visible in the scrollport
-						    =											# then we need to clip it to the scrollport.  Since we want
-						    g2d::point::zero - *origin;								# the clipped from_box to be in the gadget's home pixmap,
-																	# the most straightforward approach is to transform the
-																	# scrollport into home pixmap space.  If *origin is
-						scrollport' = g2d::box::clone_box_at (*site, scrollport_origin_in_view);			# 0,0 then scrollport is at (0,0) in home pixmap, otherwise
-																	# it is offset by -*origin, so in general we want
-																	# the port cloned at -*origin.
+						(to_point, from_box);							# No actual clipping (from_box must be completely visible in scrollport) so nothing to do here.
 
+					    elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),			# Is origin of from_box' different from origin or from_box?
+								   g2d::box::upperleft( from_box  )
+						 ) 		   )
 
+						(to_point, from_box');							# No, so to_point stays the same, we just replace from_box with from_box'.
+					    else
+															# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
+						frombox_displacement
+						    =
+						    g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
+									  g2d::box::upperleft( from_box  )
+									);
 
-						to_point  = g2d::box::upperleft  from_box;						# Where should we copy pixels to, on our parent pixmap?   We initialize this to the null transform -- we'll add in appropriate offsets to this momentarily.
+						to_point'   = g2d::point::add (to_point, frombox_displacement);		# Apply it.
 
-						case (g2d::box::intersection (scrollport', from_box))
-						    #
-						    NULL => ();										# No intersection between from_box and scrollport' means no part of gadget is visible, so just return NULL.
-						    #
-						    THE from_box'
-							=>
-							{
-							    my (to_point, from_box)							# Update to_point and from_box to account for clipping due
-								=									# to intersection between scrollport and old from_box value.
-								if (g2d::box::eq (from_box', from_box))
-								    #
-								    (to_point, from_box);						# No actual clipping (from_box must be completely visible in scrollport) so nothing to do here.
+						(to_point', from_box');							# Done.
+					    fi;
 
-								elif (g2d::point::eq ( g2d::box::upperleft( from_box' ),		# Is origin of from_box' different from origin or from_box?
-										       g2d::box::upperleft( from_box  )
-								     ) 		   )
+															# Now we just need to compute where from_box should be drawn in
+															# current sub/window, then update to_point and continue recursively.
 
-								    (to_point, from_box');						# No, so to_point stays the same, we just replace from_box with from_box'.
-								else
-																	# Yes, so we need to move to_point to reflect displacement between from_box and from_box'.
-								    frombox_displacement
-									=
-									g2d::point::subtract( g2d::box::upperleft( from_box' ),		# Compute that displacement.
-											      g2d::box::upperleft( from_box  )
-											    );
+					to_point = g2d::point::add (to_point, *origin);					# Account for location of view  relative to scrollport.
+					to_point = g2d::point::add (to_point, g2d::box::upperleft(*site));		# Account for location of scrollport relative to parent pixmap.
 
-								    to_point'   = g2d::point::add (to_point, frombox_displacement);	# Apply it.
+					parent_pixmap' = gt::gadget_to_rw_pixmap__of  parent_subwindow_or_view;		# Find off-screen backing pixmap containing scrollport onto us.
+					from_id	   = pixmap.id;								# Pixmap to copy rectangle from (as Id).
+					gui_displayop  = gd::COPY_FROM_RW_PIXMAP { from_box, to_point, from_id };	# The actual copy from our pixmap to scrollport area in parent pixmap.
+					#										#
+					parent_pixmap'.draw_displaylist [ gui_displayop ];				# Draw updated gadget appearance into its off-screen backing-pixmap home site.
 
-								    (to_point', from_box');						# Done.
-								fi;
+					from_box = g2d::box::clone_box_at (from_box, to_point);				# Our to-box is from_box for the next level of recursion.
 
-																	# Now we just need to compute where from_box should be drawn in
-																	# current sub/window, then update to_point and continue recursively.
+					propagate_frombox_changes_to_all_parents_in_which_they_are_visible		# Continue recursively to next level of scrollport nesting.
+					    #
+					    (parent_subwindow_or_view, from_box);
+				    };
+			    esac;
 
-							    to_point = g2d::point::add (to_point, *origin);				# Account for location of view  relative to scrollport.
-							    to_point = g2d::point::add (to_point, g2d::box::upperleft(*site));		# Account for location of scrollport relative to parent pixmap.
-
-							    parent_pixmap' = gt::gadget_to_rw_pixmap__of  parent_subwindow_or_view;	# Find off-screen backing pixmap containing scrollport onto us.
-							    from_id	   = pixmap.id;							# Pixmap to copy rectangle from (as Id).
-							    gui_displayop  = gd::COPY_FROM_RW_PIXMAP { from_box, to_point, from_id };	# The actual copy from our pixmap to scrollport area in parent pixmap.
-							    #										#
-							    parent_pixmap'.draw_displaylist [ gui_displayop ];				# Draw updated gadget appearance into its off-screen backing-pixmap home site.
-
-							    from_box = g2d::box::clone_box_at (from_box, to_point);			# Our to-box is from_box for the next level of recursion.
-
-							    propagate_frombox_changes_to_all_parents_in_which_they_are_visible		# Continue recursively to next level of scrollport nesting.
-								#
-								(parent_subwindow_or_view, from_box);
-							};
-						esac;
-
-					    };
-				    end;	
-			fi;
+			};
 
 		    propagate_frombox_changes_to_all_parents_in_which_they_are_visible							# 
 		      (
@@ -747,7 +738,7 @@ herein
 #									[ gt::SCROLLPORT_FN
 #									    \\ (scrollable_view: gt::Scrollable_View)
 #										=
-#										scrollable_view.scroller.set_scrollport_origin
+#										(*scrollable_view.scroller).set_scrollport_origin
 										    #
 #										    *scrollable_view.origin
 #									]
@@ -937,7 +928,7 @@ herein
 #############################################################################
 # XXX SUCKO FIXME SOONO This needs to be rewriteen to use gadget_imps instead
 # Here we need to
-#  o  call free_rw_pixmap on gt::RG_SCROLLPORT.viewable_info
+#  o  call free_rw_pixmap on gt::RG_SCROLLPORT.scrollable_info
 #############################################################################
 			    apply free_rw_pixmap (im::vals_list *r.pixmaps)			 			# Free all Xerver-side rw_pixmaps allocated by our widgets:
 			    where
@@ -1138,32 +1129,33 @@ herein
 
 			gt::RG_SCROLLPORT
 				{
-				  origin:			Ref(g2d::Point),					# Origin of subwindow_or_view in scrollport coordinates, used for scrolling pixmap in scrollport.
-				  scroller:			gt::Scroller,
-				  callback:			gt::Scroller_Callback,
-				  viewable_info:		gt::Viewable_Info,					# 
-				  site:				Ref(g2d::Box)
+				  origin:		Ref(g2d::Point),									# Origin of view's subwindow_or_view in scrollport coordinates, used for scrolling pixmap in scrollport.
+				  scroller:		Ref(gt::Scroller),									# Client-code interface for controlling view_origin. This is a ref to resolve mutual recursion issues at creation, not because we expect to update it.
+				  callback:		gt::Scroller_Callback,									# This is how we pass our Scroller to app client code, which basically lets it set 'pixmap_origin' above.
+				  site:			Ref(g2d::Box),										# Current assigned site on pixmap.  Set by  assign_sites_to_all_widgets()     in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
+
+				  rg_widget:		Ref( gt::Rg_Widget ),									# Widget-tree visible in this viewable, which gets rendered onto 'pixmap' here.
+				  #														# rg_widget is a Ref not because we intend to change it, but to work around a technical difficulty in guiboss-imp.pkg:do_pg_widget:PG_SCROLLPORT where  viewable_data and rg_widget each want to be created first.
+				  pixmap:		g2p::Gadget_To_Rw_Pixmap,								# 
+																		# 
+																		#		                      
+				  parent_subwindow_or_view:	gt::Subwindow_Or_View								# This can be a SCROLLABLE_INFO if we have a scrollport located on a scrollport.
 				}
 			    =>
-			    {	callback NULL;										# Tell app code that our scrollport_scroller is no longer active.
+			    {	callback NULL;													# Tell app code that our scrollport_scroller is no longer active.
 				#
-				pg_widget	  = do_rg_widget  *viewable_info.rg_widget;
+				pg_widget	  = do_rg_widget  *rg_widget;
 
-				pixmap_size	  = viewable_info.pixmap.size;
+				pixmap_size	  = pixmap.size;
 
 				scroller_callback = callback;
 
-				scrollable        = gt::PG_SCROLLABLE {	id => viewable_info.id,
-									pixmap_size,
-									pg_widget
-								      };
-
-			        gt::PG_SCROLLPORT { scroller_callback, scrollable };
+			        gt::PG_SCROLLPORT { scroller_callback, pixmap_size, pg_widget };
 			    };
 
 			gt::RG_TABPORT
 				{ callback:		gt::Tab_Picker_Callback,
-				  tabs:			List(gt::Viewable_Info),
+				  tabs:			List(gt::Tabbable_Info),
 				  visible_tab:		Ref( Int ),
 				  pixmap_size:		g2d::Size,
 				  site:			Ref(g2d::Box)
@@ -1173,7 +1165,7 @@ herein
 				#
 				gt::PG_TABPORT (callback,  pixmap_size,  map  do_tab  tabs)
 					where
-					    fun do_tab (tab: gt::Viewable_Info)
+					    fun do_tab (tab: gt::Tabbable_Info)
 						=
 						do_rg_widget  *tab.rg_widget;
 					end;
@@ -1488,7 +1480,7 @@ herein
 					[ gt::SCROLLPORT_FN
 					    (\\ (arg: gt::Rg_Scrollport)
 						=
-						{   arg.scroller.set_scrollport_origin
+						{   (*arg.scroller).set_scrollport_origin
 						        { row => 0, col => 0 };
 						}
 					    )
@@ -1938,7 +1930,7 @@ herein
 			#
 			arg:				Pg_Widget__To__Rg_Widget__Arg,
 		        subwindow_info:			gt::Subwindow_Data,
-			scrollables:			im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget } ),
+#			scrollables:			im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget } ),
 			#
 			gadget_imps_for_gui: 		Ref (im::Map(      gt::Gadget_Imp_Info )),					# Holds our gt::Gadget_Imp_Info        instances for this running gui.
 			spritespace_imps_for_gui:	Ref (im::Map( gt::Spritespace_Imp_Info )),					# Holds our gt::Guiboss_To_Spritespace instances for this running gui.
@@ -2191,7 +2183,7 @@ herein
 			fun do_pg_widget
 			      (
 				pg_widget:			 gt::Pg_Widget,								# 'pg_widget' can be a tree of widgets with ROW and COL internal nodes.
-				current_subwindow_or_view:	 gt::Subwindow_Or_View							# This will be a VIEWABLE_INFO when we're processing widgets displayed in a scrollport.
+				current_subwindow_or_view:	 gt::Subwindow_Or_View							# This will be a SCROLLABLE_INFO when we're processing widgets displayed in a scrollport.
 			      )
 			    =
 			    case pg_widget
@@ -2302,36 +2294,14 @@ herein
 				    };
 
 				gt::PG_SCROLLPORT											# A scrollport onto a scrollable pixmap
-				  { scroller_callback:	gt::Scroller_Callback,
-				    scrollable:		gt::Pg_Scrollable
+				  {
+				    scroller_callback:	gt::Scroller_Callback,
+				    pixmap_size:	g2d::Size,									# Size of pixmap visible in scrollport.
+				    pg_widget:		gt::Pg_Widget									# Widget-tree providing content visible in scrollport -- will be rendered onto pixmap.
 				  }
 				    =>
-				    {
-					my (callback, id, pixmap_size, pg_widget)
-					    =
-					    case scrollable
-						#
-						gt::PG_SCROLLABLE { id, pixmap_size, pg_widget }
-						    =>
-						    (scroller_callback, id, pixmap_size, pg_widget);
-
-						gt::PG_SCROLLABLE_ID id
-						    =>
-						    case (im::get (scrollables, id_to_int id))
-							#
-							THE { id:		Id,
-							      pixmap_size:	g2d::Size,
-							      pg_widget:	gt::Pg_Widget
-							    }
-							     => 
-							    (scroller_callback, id, pixmap_size, pg_widget);
-
-							NULL => {   msg = sprintf "PG_SCROLLABLE_ID: id %d is not defined anywhere in gui plan -- guiboss-imp.pkg" (id_to_int id);
-								    log::fatal msg;
-								    raise exception FAIL msg;
-								};
-						    esac;
-					    esac;
+				    {   callback = scroller_callback;
+					#
 
 					gadget_to_rw_pixmap	=   imports.guiboss_to_guishim.make_rw_pixmap
 									#
@@ -2359,26 +2329,22 @@ herein
 
 					site		=  REF g2d::box::zero;								# Dummy initial value -- real value will be set by   assign_sites_to_all_widgets()   in   src/lib/x-kit/widget/space/widget/widgetspace-imp.pkg
 
-					scrollport_record
-					  =
-					  { parent_subwindow_or_view  => current_subwindow_or_view,					# The subwindow_or_view we were doing before diving recursively into this view.
-					    origin,
-					    site											# Site of view on parent.
-																	# XXX SUCKO FIXME Currently we store 'site' both here and in gt::SCROLLPORT.
-																	#           We'll probably wind up using only one;  (???)
-																	#		  we should delete the unused one.
-					  };
+					dummy_scroller  = { get_scrollport_origin =>  \\ () = g2d::point::zero,
+							    set_scrollport_origin =>  \\ _ = ()
+							  };
 
-					viewable_info =   { id,										# Name for this viewable.
+					rg_scrollport   = { origin,
+							    scroller	=> REF dummy_scroller,						# Client-code interface for controlling view_origin.
+							    callback	=> scroller_callback,
+							    site,
 							    pixmap	=>  gadget_to_rw_pixmap,					# The backing pixmap for this viewable.
 							    rg_widget	=>  REF gt::RG_NULL_WIDGET,
-							    ports	=>  REF [ scrollport_record ],					# Initially at least view_pixmap is visible through only this one scrollport.
-							    is_visible	=>  REF TRUE	
+							    parent_subwindow_or_view  => current_subwindow_or_view			# The subwindow_or_view we were doing before diving recursively into this view.
 						          };
 
-					subwindow_or_view = gt::VIEWABLE_INFO viewable_info;						# Widgets use this to track what subwindow/view they are on.
+					subwindow_or_view = gt::SCROLLABLE_INFO rg_scrollport;						# Widgets use this to track what subwindow/view they are on.
 
-					viewable_info.rg_widget
+					rg_scrollport.rg_widget
 					    :=
 					    do_pg_widget										# Process widget-tree in new subwindow_or_view not current_subwindow_or_view!
 					      (
@@ -2467,11 +2433,11 @@ herein
 									{
 									    clear_box_in_pixmap						# ... fill it with black, then ...
 										#
-										(scrollport_record.parent_subwindow_or_view, box);	# <== From environment
+										(rg_scrollport.parent_subwindow_or_view, box);		# <== From environment
 									    #
 									    update_offscreen_parent_pixmaps_and_then_topwindow		# ... copy that blackness all the way up the scrollport chain to visible topwindow.
 										#
-										( scrollport_record.parent_subwindow_or_view,		# <== From environment
+										( rg_scrollport.parent_subwindow_or_view,		# <== From environment
 										  box,
 										  topwindow_for_gui					# <== From environment
 										);
@@ -2499,14 +2465,11 @@ herein
 						    };											# fun set_scrollport_origin
 					    end;
 
+					rg_scrollport.scroller := scrollport_scroller;
+
 					callback (THE scrollport_scroller);								# Give app client code a handle with which to scroll gadget_to_rw_pixmap in scrollport.
 
-					gt::RG_SCROLLPORT { scroller => scrollport_scroller,
-							    callback,
-							    origin,
-							    viewable_info,
-							    site
-							  };
+					gt::RG_SCROLLPORT rg_scrollport;
 				    };
 
 				gt::PG_TABPORT												# A scrollport onto a set of alternate pixmaps for tabbed viewing.
@@ -2542,10 +2505,11 @@ herein
 										          pixmap_size;
 
 								origin         =   REF { row => 0,					# View origin in scrollport coordinates. Controls which part of view is visible in scrollport.  For tabbed views this will never be changed.
-										       col => 0
-										     };
+											 col => 0
+										       };
 
-								viewable_info  =    { id	 => issue_unique_id (),							# We don't support multiple tabports opening onto one viewable, so the 'id' here is purely pro forma.
+								tabbable_info  =    {
+										      id	 => issue_unique_id (),							# We don't support multiple tabports opening onto one viewable, so the 'id' here is purely pro forma.
 										      is_visible => REF *visible,
 										      rg_widget  => REF  widget,
 										      pixmap     => gadget_to_rw_pixmap,						# The backing pixmap for this view.
@@ -2564,7 +2528,7 @@ herein
 
 								visible   := FALSE;
 
-								viewable_info;
+								tabbable_info;
 							    };
 						    end;
 
@@ -2608,7 +2572,7 @@ herein
 
 							    update_offscreen_parent_pixmaps_and_then_topwindow				# Draw pixmap on parent.
 								#
-								( gt::VIEWABLE_INFO this_tab,
+								( gt::TABBABLE_INFO this_tab,
 								  from_box,
 								  topwindow_for_gui
 								);
@@ -2772,27 +2736,27 @@ herein
 			widgetspace_imps_for_gui	=  REF (im::empty: im::Map( gt::Widgetspace_Imp_Info ));			# Holds our gt::Guiboss_To_Widgetspace instances for this running gui.
 
 
-			# Find in paused_gui all instances of
-			#     PG_SCROLLPORT.scrollable.PG_SCROLLABLE
-			# and index them by id, so we can resolve
-			#     PG_SCROLLPORT_ID id
-			# references as we encounter them:
-			#
-			scrollables =  REF  (im::empty:  im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget }  ));
-			#
-			gt::paused_gui_apply
-			  (
-			    paused_gui,
-			    [ gt::PG_SCROLLPORT_FN  do_pg_scrollport ]
-			  )
-			    where
-				fun do_pg_scrollport ({ scrollable => (gt::PG_SCROLLABLE r): gt::Pg_Scrollable,  scroller_callback: gt::Scroller_Callback })
-					=>
-					scrollables :=  im::set (*scrollables,  id_to_int r.id,  r);
-
-				    do_pg_scrollport _ =>  ();
-				end;
-			    end;
+#			# Find in paused_gui all instances of
+#			#     PG_SCROLLPORT.scrollable.PG_SCROLLABLE
+#			# and index them by id, so we can resolve
+#			#     PG_SCROLLPORT_ID id
+#			# references as we encounter them:
+#			#
+#			scrollables =  REF  (im::empty:  im::Map(  { id: Id,  pixmap_size: g2d::Size,  pg_widget: gt::Pg_Widget }  ));
+#			#
+#			gt::paused_gui_apply
+#			  (
+#			    paused_gui,
+#			    [ gt::PG_SCROLLPORT_FN  do_pg_scrollport ]
+#			  )
+#			    where
+#				fun do_pg_scrollport ({ scrollable => (gt::PG_SCROLLABLE r): gt::Pg_Scrollable,  scroller_callback: gt::Scroller_Callback })
+#					=>
+#					scrollables :=  im::set (*scrollables,  id_to_int r.id,  r);
+#
+#				    do_pg_scrollport _ =>  ();
+#				end;
+#			    end;
 
 
 			(pg_widget__to__rg_widget
@@ -2802,7 +2766,7 @@ herein
 			    PRIMARY { widgetspace_arg, widgetspace_imps },
 
 			    subwindow_info,
-			    *scrollables,
+#			    *scrollables,
 
 			    gadget_imps_for_gui,
 			    spritespace_imps_for_gui,
@@ -3195,36 +3159,15 @@ herein
 				gt::PG_GRID  pg_widgets;
 			    };
 
-			gt::SCROLLPORT  { scroller_callback:		gt::Scroller_Callback,
-					  scrollable:			gt::Gp_Scrollable
+			gt::SCROLLPORT  { scroller_callback:	gt::Scroller_Callback,
+					  pixmap_size:		g2d::Size,							# Size of pixmap visible in scrollport.
+					  widget:		gt::Gp_Widget							# Widget-tree providing content visible in scrollport -- will be rendered onto pixmap.
 					}	
 			    =>
-			    {
-				scrollable
-				    =
-				    case scrollable
-					#
-					gt::SCROLLABLE  { id:		Id,
-							  pixmap_size:	g2d::Size,
-							  widget:	gt::Gp_Widget
-							}
-					    =>
-					    gt::PG_SCROLLABLE
-							{ id,
-							  pixmap_size,
-							  pg_widget	=> do_gp_widget widget
-							};
-
-					gt::SCROLLABLE_ID id
-					    =>
-# XXX SUCKO FIXME TBD
-					    {   msg = "PG_SCROLLABLE_ID not yet supported in do_gp_widget -- guiboss-imp.pkg";
-						log::fatal msg;
-						raise exception FAIL msg;
-					    };
-				    esac; 
-
-				gt::PG_SCROLLPORT { scroller_callback, scrollable };
+			    {   gt::PG_SCROLLPORT { scroller_callback,
+						    pixmap_size,
+						    pg_widget	=> do_gp_widget widget
+						  };
 			    };
 
 			gt::TABPORT
@@ -3514,7 +3457,7 @@ herein
 							    {   point = point - g2d::box::upperleft(*r.site);					# Transform mouseclick point into          view coordinate system.
 								point = point - *r.origin;							# Transform mouseclick point into scrolled view coordinate system.
 								#
-								find_gadget_imp_info (*r.viewable_info.rg_widget, point);			# Recursively search for target widget of mouseclick among widgets in scrollable view.
+								find_gadget_imp_info (*r.rg_widget, point);					# Recursively search for target widget of mouseclick among widgets in scrollable view.
 							    };	
 
 							gt::RG_TABPORT r
