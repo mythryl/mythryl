@@ -52,6 +52,7 @@ stipulate
     package gt  =  guiboss_types;						# guiboss_types			is from   src/lib/x-kit/widget/gui/guiboss-types.pkg
     package gtj =  guiboss_types_junk;						# guiboss_types_junk		is from   src/lib/x-kit/widget/gui/guiboss-types-junk.pkg
     package wt  =  widget_theme;						# widget_theme			is from   src/lib/x-kit/widget/theme/widget/widget-theme.pkg
+    package wti =  widget_theme_imp;						# widget_theme_imp		is from   src/lib/x-kit/widget/xkit/theme/widget/default/widget-theme-imp.pkg
     package r8  =  rgb8;							# rgb8				is from   src/lib/x-kit/xclient/src/color/rgb8.pkg
     package r64 =  rgb;								# rgb				is from   src/lib/x-kit/xclient/src/color/rgb.pkg
     package wi  =  widget_imp;							# widget_imp			is from   src/lib/x-kit/widget/xkit/theme/widget/default/look/widget-imp.pkg
@@ -335,13 +336,179 @@ herein
 		options:		List(Option)
 	      }
 	    =
-	    {	fun default_redraw_fn (REDRAW_FN_ARG a)
+	    {	#######################################
+		# Top of per-imp state variable section
+		#
+
+		font_height__global		=  REF (NULL:  Null_Or(Int));
+
+		textpane_to_textedit__global	=  REF (NULL:  Null_Or(p2e::Textpane_To_Textedit  ));
+		textpane_to_statusline__global	=  REF (NULL:  Null_Or(p2s::Textpane_To_Statusline));
+
+		textpane_to_lineeditor__by_paneline
 		    =
-		    {
+		    REF (im::empty:  im::Map(p2l::Textpane_To_Lineeditor));
+
+		widget_to_guiboss__global	=  REF (NULL:  Null_Or( { widget_to_guiboss: gt::Widget_To_Guiboss, textpane_id: iuw::Id }));
+	
+		sitewatchers_global		=  REF ([]:    List(  Null_Or((iuw::Id, g2d::Box )) -> Void  ));
+
+
+		expected_lineeditors									# So we can tell when textpane_to_lineeditor__by_paneline is fully populated (for example).
+		    =
+		    REF 1;
+
+		lineeditor1_size									# Different lineeditors can have different pixel sizes (since lineeditor count may not evenly divide pane height in pixels) so we standardize on tracking size of first lineeditor.
+		    =											# ACTUALLY, I DON'T THINK WE NEED THIS AT ALL.
+		    REF (NULL: Null_Or( g2d::Size ));
+
+		bogus_site
+		   =
+		   { col => -1,  wide => -1,
+		     row => -1,  high => -1
+		   }:						g2d::Box;
+
+		last_known_site										# This should probably be Ref(Null_Or(g2d::Box)) -- forces client code to consider the NULL case. As it is, we could absentmindedly try using the bogus value somewhere. XXX SUCKO FIXME. (Ditto for the other widgets.)
+		    =
+		    REF (NULL:	Null_Or( g2d::Box ));
+
+
+
+		#
+		# End of state variable section
+		###############################
+
+		fun maybe_change_number_of_lineeditors ()
+		    =
+		    {   # We depend upon the state variables
+			#
+			#     last_known_site
+			#     font_height__global
+			#     lineeditor1_size
+			#
+			# so it is critically important that we
+			# be called whenever any of those changes.
+			#
+			# For now we're ensuring that via ad hoc
+			# coding.  Eventually it would be nice to
+			# have some methodology like CHR.						# CHR == Constraint Handling Rules, see https://dtai.cs.kuleuven.be/CHR/biblio.shtml  e.g. http://arxiv.org/abs/1406.2121
+			#
+nb {. sprintf "maybe_change_number_of_lineeditors/AAA   last_known_site     = %s.  -- textpane.pkg"  case *last_known_site     NULL => "(none)"; THE site   => g2j::box_to_string site; esac; };
+nb {. sprintf "maybe_change_number_of_lineeditors/AAA.1 font_height__global = %s.  -- textpane.pkg"  case *font_height__global NULL => "(none)"; THE height => sprintf "%d" height;     esac; };
+			case (*lineeditor1_size, *font_height__global, *last_known_site)
+			    #
+			    (THE size, THE font_height, THE site)
+				=>
+				{   # Decide how many lineeditors will fit comfortably.
+nb {. sprintf "maybe_change_number_of_lineeditors/BBB:   ALL REQUIRED INFORMATION PRESENT!  lineeditor1_size = %s   font_height__global = %d  site = %s,  -- doing nothing.  -- textpane.pkg"  (g2j::size_to_string size)  font_height  (g2j::box_to_string site); };
+
+				    frame_pixels	 = 10;		# XXX SUCKO We must have the actual number somewhere
+				    pixels_between_lines =  2;
+
+				    number_of_statuslines = 1;
+
+				    reasonable_line_count
+					=
+					(site.high - frame_pixels) / (font_height + pixels_between_lines);
+
+				    reasonable_lineeditor_count
+					=
+					reasonable_line_count - number_of_statuslines;
+
+nb {. sprintf "maybe_change_number_of_lineeditors/BBB.1:  reasonable_lineeditor_count d=%d  -- but doing nothing.  -- textpane.pkg"  reasonable_lineeditor_count; };
+				};
+
+			    _ =>
+				{
+nb {. sprintf "maybe_change_number_of_lineeditors/CCC:  Insufficient information: Doing nothing.  -- textpane.pkg"; };
+				};	
+			esac;
+		    };
+
+
+		fun needs_redraw_gadget_request ()
+		    =
+		    case (*widget_to_guiboss__global)
+			#
+			THE { widget_to_guiboss, textpane_id }	=>  widget_to_guiboss.g.needs_redraw_gadget_request(textpane_id);
+			NULL					=>  ();
+		    esac;
+
+		fun note_site
+		      (
+			id:		iuw::Id,
+			site:		g2d::Box
+		      )
+		    =
+		    if(*last_known_site != THE site)
+			last_known_site := THE site;
+			#
+			maybe_change_number_of_lineeditors ();
+
+			apply tell_watcher *sitewatchers_global
+			    where
+				fun tell_watcher sitewatcher
+				    =
+				    sitewatcher (THE (id,site));
+			    end;
+		    fi;
+
+		fun default_redraw_fn (REDRAW_FN_ARG a)
+		    =
+		    {	font_size		=  NULL;
+			font_weight		=  (THE wt::BOLD_FONT: Null_Or(wt::Font_Weight));
+			fonts			=  [];
+
+			id			=  a.id;
 			palette			=  a.palette;
 			frame_indent_hint	=  a.frame_indent_hint;
 			site			=  a.site;
 			theme			=  a.theme;
+
+			note_site (id, site);
+
+			fun get_fontnames ()
+			    =
+			    {   font_size_to_use
+				    =
+				    case font_size	THE i => i;
+							NULL  => *theme.default_font_size;
+				    esac;
+
+				fontname_to_use
+				    =
+				    case font_weight  THE wt::ROMAN_FONT  =>  *theme.get_roman_fontname  font_size_to_use;
+						      THE wt::ITALIC_FONT =>  *theme.get_italic_fontname font_size_to_use;
+						      THE wt::BOLD_FONT   =>  *theme.get_bold_fontname   font_size_to_use;
+						      NULL                =>  *theme.get_roman_fontname  font_size_to_use;
+				    esac;
+
+				fontnames =  fonts  @  [ fontname_to_use, "9x15" ];
+
+				fontnames;
+			    };
+
+			fun get_text_dimensions (text: String)
+			    =
+			    {   g =  wti::get__guiboss_to_topwindow  theme;
+				#
+				font = g.get_font (get_fontnames ());
+
+				font_height__global
+				    :=
+				    THE (font.font_height.ascent + font.font_height.descent);
+
+nb {. sprintf "get_text_dimensions: font_ascent = %d font_descent = %d  -- textpane.pkg" font.font_height.ascent font.font_height.descent; };
+				maybe_change_number_of_lineeditors ();
+
+				{ font_ascent      =>  font.font_height.ascent,
+				  font_descent     =>  font.font_height.descent,
+				  length_in_pixels =>  font.string_length_in_pixels text
+				};
+			    };
+
+# Currently just for side-effect:
+get_text_dimensions "foo";
 
 			frame_indent_hint
 			  ->
@@ -531,64 +698,8 @@ herein
 		      sitewatchers
 		    };
 
+		sitewatchers_global := sitewatchers;
 
-		###############################
-		# Top of state variable section
-		#
-
-		textpane_to_textedit__global	=  REF (NULL:  Null_Or(p2e::Textpane_To_Textedit  ));
-		textpane_to_statusline__global	=  REF (NULL:  Null_Or(p2s::Textpane_To_Statusline));
-
-		textpane_to_lineeditor__by_paneline
-		    =
-		    REF (im::empty:  im::Map(p2l::Textpane_To_Lineeditor));
-
-		widget_to_guiboss__global	=  REF (NULL:  Null_Or( { widget_to_guiboss: gt::Widget_To_Guiboss, textpane_id: iuw::Id }));
-
-		expected_lineeditors									# So we can tell when textpane_to_lineeditor__by_paneline is fully populated (for example).
-		    =
-		    REF 1;
-
-		lineeditor1_size									# Different lineeditors can have different pixel sizes (since lineeditor count may not evenly divide pane height in pixels) so we standardize on tracking size of first lineeditor.
-		    =
-		    REF (NULL: Null_Or( g2d::Size ));
-
-		bogus_site
-		   =
-		   { col => -1,  wide => -1,
-		     row => -1,  high => -1
-		   }:						g2d::Box;
-
-		last_known_site										# This should probably be Ref(Null_Or(g2d::Box)) -- forces client code to consider the NULL case. As it is, we could absentmindedly try using the bogus value somewhere. XXX SUCKO FIXME. (Ditto for the other widgets.)
-		    =
-		    REF bogus_site;
-
-
-
-		fun needs_redraw_gadget_request ()
-		    =
-		    case (*widget_to_guiboss__global)
-			#
-			THE { widget_to_guiboss, textpane_id }	=>  widget_to_guiboss.g.needs_redraw_gadget_request(textpane_id);
-			NULL					=>  ();
-		    esac;
-
-		fun note_site  (id: iuw::Id,  site: g2d::Box)
-		    =
-		    if(*last_known_site != site)
-			last_known_site := site;
-			#
-			apply tell_watcher sitewatchers
-			    where
-				fun tell_watcher sitewatcher
-				    =
-				    sitewatcher (THE (id,site));
-			    end;
-		    fi;
-
-		#
-		# End of state variable section
-		###############################
 
 
 		#####################
@@ -672,7 +783,7 @@ herein
 #	 				    {
 #	 				    };
 
-				fun lineeditor__key_event_fn
+				fun lineeditor__key_event_fn							# Process a user keystroke forwarded to us by one of our lineeditor.pkg instances.
 				      (
 					a:				tpt::Key_Event_Fn_Arg
 				      )
@@ -779,12 +890,6 @@ herein
 					   };
 				    };
 
-				fun maybe_change_number_of_lineeditors ()
-				    =
-				    {
-nb {. sprintf "maybe_change_number_of_lineeditors/AAA -- doing nothing.  -- textpane.pkg"; };
-				    };
-
 				fun note_lineeditor_site
 				      {
 					lineeditor_id:	iuw::Id,
@@ -876,7 +981,7 @@ nb {. sprintf "note_lineeditor_site/AAA (paneline=%d site=%s *lineeditor1_size=%
 					portwatcher  NULL;
 				end;
 
-			apply tell_watcher sitewatchers
+			apply tell_watcher *sitewatchers_global
 			    where
 				fun tell_watcher sitewatcher
 				    =
