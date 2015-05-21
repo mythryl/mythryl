@@ -63,6 +63,7 @@ stipulate
     package gtg =  guiboss_to_guishim;						# guiboss_to_guishim		is from   src/lib/x-kit/widget/theme/guiboss-to-guishim.pkg
     package le  =  lineeditor;							# lineeditor			is from   src/lib/x-kit/widget/edit/lineeditor.pkg
 
+    package nl  =  red_black_numbered_list;					# red_black_numbered_list	is from   src/lib/src/red-black-numbered-list.pkg
     package im  =  int_red_black_map;						# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
 
     package iuw =  issue_unique_widget_id;					# issue_unique_widget_id	is from   src/lib/x-kit/widget/gui/issue-unique-widget-id.pkg
@@ -252,6 +253,8 @@ herein
 		#
 		| FRAME_INDENT_HINT	gt::Frame_Indent_Hint
 		#
+		| ASCII			String					# Initial textbuffer contents.
+		#
 		| REDRAW_FN		Redraw_Fn				# Application-specific handler for widget redraw.
 		| MOUSE_CLICK_FN	Mouse_Click_Fn				# Application-specific handler for mousebutton clicks.
 		| MOUSE_DRAG_FN		Mouse_Drag_Fn				# Application-specific handler for mouse drags.
@@ -269,6 +272,7 @@ herein
 		widget_doc,
 		#
 		frame_indent_hint,
+		text,
 		#
 		redraw_fn,
 		mouse_click_fn,
@@ -287,6 +291,7 @@ herein
 		my_widget_doc		=  REF  widget_doc;
 		#
 		my_frame_indent_hint	=  REF  frame_indent_hint;
+		my_text			=  REF  text;
 		#
 		my_redraw_fn		=  REF  redraw_fn;
 		my_mouse_click_fn	=  REF  mouse_click_fn;
@@ -306,6 +311,7 @@ herein
 			do_option (DOC				d) =>   my_widget_doc		:=      d;
 			#
 			do_option (FRAME_INDENT_HINT		h) =>   my_frame_indent_hint	:=  THE h;
+			do_option (ASCII			h) =>   my_text			:=      h;
 			#
 			do_option (REDRAW_FN			f) =>   my_redraw_fn		:=  f;
 			do_option (MOUSE_CLICK_FN		f) =>   my_mouse_click_fn	:=  f;
@@ -322,6 +328,7 @@ herein
 		  widget_doc		=>  *my_widget_doc,
 		  #
 		  frame_indent_hint	=>  *my_frame_indent_hint,
+		  text			=>  *my_text,
 		  #
 		  redraw_fn		=>  *my_redraw_fn,
 		  mouse_click_fn	=>  *my_mouse_click_fn,
@@ -336,8 +343,6 @@ herein
 		};
 	    };
 
-
-	offset = 1;
 
 	fun with														# PUBLIC
 	      {															# These ids are initially generated and assigned by 'with' in src/lib/x-kit/widget/edit/texteditor.pkg
@@ -379,7 +384,22 @@ herein
 		    =
 		    REF (NULL:	Null_Or( g2d::Box ));
 
+		textpane_to_textbuffer__global
+		    =
+		    REF (NULL: Null_Or( t2t::Textpane_To_Textbuffer ));
 
+		fun textpane_to_textbuffer ()
+		    =
+		    case *textpane_to_textbuffer__global
+			#
+			THE textpane_to_textbuffer							# This is what we expect in practice.
+			 => textpane_to_textbuffer;
+
+			NULL => {   msg = "textpane_to_textbuffer__global not set?! -- textpane.pkg";	# This should be "impossible" because we set this global very early.
+				    log::fatal msg;
+				    raise exception FAIL msg;
+				}; 
+		    esac;
 
 		#
 		# End of state variable section
@@ -406,7 +426,7 @@ herein
 								textpane_id,
 								textedit_id,
 								options	    =>  [ le::DOC   (sprintf "Lineeditor %d"  paneline),
-										  le::TEXT  (sprintf "I am lineeditor %d"  paneline),
+										  le::STATE { cursor => NULL, selected => NULL, text => sprintf "I am lineeditor %d"  paneline },
 										  le::PIXELS_HIGH_MIN 0
 										]
 							      };
@@ -495,10 +515,67 @@ herein
 				};
 
 			    _ =>
-				{									# Insufficient information to reconfigure lineeditors so doing nothing.  (Eventually all required information will arrive.)
+				{								# Insufficient information to reconfigure lineeditors so doing nothing.  (Eventually all required information will arrive.)
 				};	
 			esac;
 		    };
+
+
+		fun refresh_lineeditors ()
+		    =
+		    {   t2t = textpane_to_textbuffer ();
+			#
+			ts  = t2t.get_textstate ();
+
+			ts -> { textlines:	t2t::Textlines,					# Complete text contents of textbuffer.
+				editcount:	Int,						# Count of edits applied.  Intended to allow clients to quickly detect whether any changes have been made since they last polled us.
+				mark:		Null_Or(g2d::Point)				# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'cursor' delimit the current text selection in the buffer.  NB: 'cursor' is per-textpane but 'mark' is per-textbuffer (=> shared between textpanes open on that textbuffer).
+			      };								# By pro-actively fetching the entire textbuffer state we not only save inter-imp round trips, but more importantly guarantee that we do the complete redisplay on a single self-consistent state.
+
+			apply do_line (1 .. *expected_lineeditors)
+			    where
+				fun do_line (line_number: Int)
+				    =
+				    {
+# nb {. sprintf "refresh_lineeditors: do_line/AAA (line_number=%d)" line_number; };
+					case (im::get (*textpane_to_lineeditor__by_paneline, line_number))
+					    #
+					    THE textpane_to_lineeditor
+						=>
+						{
+# nb {. sprintf "refresh_lineeditors: do_line/BBB: (line_number=%d) FOUND textpane_to_lineeditor" line_number; };
+						    line_key = line_number - 1;			# Because we number lines 1->N but numbered_lines numbers them 0->(N-1).
+
+						    line =  case (nl::find (textlines, line_key))
+								#
+								THE line => line;
+								NULL	 => "\n";
+							    esac;
+# nb {. sprintf "refresh_lineeditors: do_line/CCC: (line_number=%d) line='%s'" line_number line; };
+						    linestate
+						      =
+						      { cursor	  =>  NULL,
+							selected  =>  NULL,
+							text	  =>  string::chomp line	# Chomp it because lineeditor.com doesn't want the terminating newline (if any).
+						      };	
+
+						    textpane_to_lineeditor.set_state_to  linestate;
+						};
+
+					    NULL =>
+						{
+# nb {. sprintf "refresh_lineeditors: do_line/MMM: (line_number=%d) found NO textpane_to_lineeditor" line_number; };
+						};
+					esac;
+				    };
+			    end;
+		    };
+
+#		    expected_lineeditors := reasonable_lineeditor_count;
+#
+#		textpane_to_lineeditor__by_paneline
+#		    =
+#		    REF (im::empty:  im::Map(p2l::Textpane_To_Lineeditor));
 
 
 		fun needs_redraw_gadget_request ()
@@ -742,6 +819,7 @@ get_text_dimensions "foo";
 		      widget_doc	=>  "<textpane>",
 		      #	
 		      frame_indent_hint	=>  NULL,
+		      text		=>  "",
 		      #	
 		      redraw_fn		=>  default_redraw_fn,
 		      mouse_click_fn	=>  default_mouse_click_fn,
@@ -761,6 +839,7 @@ get_text_dimensions "foo";
 		      widget_doc,
 		      #
 		      frame_indent_hint,
+		      text,
 		      #
 		      redraw_fn,
 		      mouse_click_fn,
@@ -819,6 +898,16 @@ get_text_dimensions "foo";
 			    =
 			    g2b::find__gadget_to_editboss  (widget_to_guiboss.g,  "textpane::startup_fn");
 
+
+			textpane_to_textbuffer__global
+			    :=
+			    THE t2t
+			    where
+				t2t =   gadget_to_editboss.get_or_make_textbuffer
+					    #
+					    ("mybuffer", [t2t::ASCII text]);
+			    end;	
+
 			gadget_to_editboss.note_textpane
 			  (
 			    editboss_to_textpane:			b2p::Editboss_To_Textpane,
@@ -839,6 +928,8 @@ get_text_dimensions "foo";
 							textpane_to_lineeditor.paneline,
 							textpane_to_lineeditor
 						      );
+
+					refresh_lineeditors ();
 				    };
 
 
@@ -1005,6 +1096,8 @@ get_text_dimensions "foo";
 
 				  }:					l2p::Lineeditor_To_Textpane;
 			    end;
+
+			refresh_lineeditors ();
 
 			apply   tell_watcher  portwatchers							# We do this here rather than (say) above this fn because we don't want the port in circulation until we're running.
 				where
