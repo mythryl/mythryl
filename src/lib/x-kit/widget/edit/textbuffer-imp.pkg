@@ -113,6 +113,8 @@ stipulate
     package nl  =  red_black_numbered_list;			# red_black_numbered_list	is from   src/lib/src/red-black-numbered-list.pkg
     package tbj =  textbuffer_junk;				# textbuffer_junk		is from   src/lib/x-kit/widget/edit/textbuffer-junk.pkg
     package tbt =  textbuffer_types;				# textbuffer_types		is from   src/lib/x-kit/widget/edit/textbuffer-types.pkg
+    package mj  =  mode_junk;					# mode_junk			is from   src/lib/x-kit/widget/edit/mode-junk.pkg
+
 
     tracefile   =  "widget-unit-test.trace.log";
 
@@ -345,7 +347,7 @@ herein
 			    tell_statewatcher_full_state (statewatcher, r);
 		    end;
 
-		fun line_range (textlines: p2t::Textlines,  firstline: Int,  lastline: Int):  List(String)
+		fun line_range (textlines: mj::Textlines,  firstline: Int,  lastline: Int):  List(String)
 		    =
 		    lines (lastline, [])
 		    where
@@ -363,13 +365,24 @@ herein
 			    fi;
 		    end;
 
+# 		fun editfn_out__to__editfn_out_internal
+# 		       (result: mj::Editfn_Out)
+# 		    =
+
+
+		fun changed_textlines ([]:  List(mj::Editfn_Out_Option)) =>  NULL;
+		    changed_textlines (mj::TEXTLINES textlines ! _)	 =>  THE textlines;
+		    changed_textlines (_ ! rest)			 =>  changed_textlines rest;
+		end;
+
+
 		fun do_pass_edit_result
 		      (
 			{ id, me, statewatchers, ... }:	Runstate,
 			#
 			arg as
 			{ cursor_and_mark:	p2t::Cursor_And_Mark,
-			  editfn:		p2t::Editstate -> p2t::Editstate,
+			  editfn:		mj::Editfn_In -> mj::Editfn_Out,
 			  #
 			  log_undo_info:	Bool
 			}
@@ -377,41 +390,53 @@ herein
 		    =
 		    {   was = *me.state;
 			#
-			editstate =   { textlines =>  was.textlines,
+			editfn_in =   { textlines =>  was.textlines,
 					cursor    =>  cursor_and_mark.cursor,
 					mark      =>  cursor_and_mark.mark
 				      };	
 
-			(editfn editstate)
-			  ->
-			  { textlines	=>  new_textlines,
-			    cursor,
-			    mark	
-			  };
+			editfn_out =	(editfn editfn_in)
+					except _ = NULL;												# Handle any uncaught exceptions in editfn. (Shouldn't happen.)
 
-			now     = { textlines =>  new_textlines,
-				    editcount =>  was.editcount + 1
-				  };
 
-			me.state   :=  now;
-			me.dirty   :=  TRUE;
-
-			if log_undo_info
+			case editfn_out
 			    #
-			    me.history :=  que::push (*me.history, was);								# Add previous state to history.
+			    NULL => editfn_out;														# Editfn aborted, no changes to process.
 
-			    if(*me.history_len <  *me.history_max)									# Maybe we should have a bounded-queue.pkg that handles all this stuff internally?
-				me.history_len := *me.history_len + 1;									# History is under max allowed, so let it get one longer.
-			    else
-				(que::pull *me.history) -> (newhistory, _);								# History is at max allowed, pull an entry to keep it under limit.
-				#
-				me.history     := newhistory;
-			    fi;
-			fi;
+			    THE editfn_out_options													# Editfn did not abort ...
+				=>
+				case (changed_textlines editfn_out_options)
+				    #
+				    NULL => editfn_out;													# Editfn did NOT change contents of textbuffer, so we're done.
 
-			tell_statewatchers  (*statewatchers,  p2t::TEXTSTATE  (id, { was, now }));
+				    THE new_textlines													# Editfn DID change contents of textbuffer.
+					=>
+					{   now     = { textlines =>  new_textlines,
+							editcount =>  was.editcount + 1
+						      };
 
-			{ cursor, mark };												# Return possibly-updated cursor and mark state to caller. (They are per-textpane so we don't want to broadcast them to all statewatchers.)
+					    me.state   :=  now;
+					    me.dirty   :=  TRUE;
+
+					    if log_undo_info
+						#
+						me.history :=  que::push (*me.history, was);								# Add previous state to history.
+
+						if(*me.history_len <  *me.history_max)									# Maybe we should have a bounded-queue.pkg that handles all this stuff internally?
+						    me.history_len := *me.history_len + 1;								# History is under max allowed, so let it get one longer.
+						else
+						    (que::pull *me.history) -> (newhistory, _);								# History is at max allowed, pull an entry to keep it under limit.
+						    #
+						    me.history     := newhistory;
+						fi;
+					    fi;
+
+					    tell_statewatchers  (*statewatchers,  p2t::TEXTSTATE  (id, { was, now }));
+
+					    editfn_out;													# Return all updates to caller.
+					};
+				esac;
+			esac;
 		    };
 
 		fun do_undo ({ id, me, statewatchers, ... }:	Runstate)
@@ -581,9 +606,9 @@ herein
 		      #		
 		      (replyqueue:	Replyqueue)
 		      #		
-		      (reply_handler:	p2t::Cursor_And_Mark -> Void)
+		      (reply_handler:	mj::Editfn_Out -> Void)
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( p2t::Cursor_And_Mark );
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mj::Editfn_Out );
 			#
 			put_in_mailqueue  (textbuffer_q,
 			    #
