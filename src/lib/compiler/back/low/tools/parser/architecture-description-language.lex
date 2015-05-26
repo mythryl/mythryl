@@ -120,7 +120,7 @@ end;
 
 fun strip k s
     =
-    string::substring(s,k,string::length s - k);
+    string::substring(s,k,string::length_in_bytes s - k);
 
 fun scan err fmt (s,s') tok pos
     = 
@@ -158,12 +158,12 @@ fun binaryinf  (err,s,pos) =  scan err (multiword_int::scan number_string::BINAR
 fun string (err,s,pos)
     = 
     string_t(
-      check(err,pos,s,string::from_string(string::substring(s,1,string::length s - 2))),
+      check(err,pos,s,string::from_string(string::substring(s,1,string::length_in_bytes s - 2))),
       pos, pos + size s);
 
 fun char (err,s,pos)
     = 
-    char_t(check(err,pos,s,char::from_string(string::substring(s,2,string::length s - 3))),
+    char_t(check(err,pos,s,char::from_string(string::substring(s,2,string::length_in_bytes s - 3))),
 	 pos,pos + size s);
 
 fun trans_asm s
@@ -317,7 +317,7 @@ my _ = apply (hashtable::set symbols)
 
 fun look_up (adl_mode,s,yypos)
     =
-    {   l = string::length s;
+    {   l = string::length_in_bytes s;
 
 	fun id_fn () = id(unique_symbol::to_string
 			(unique_symbol::from_string s), yypos, yypos + l);
@@ -333,7 +333,7 @@ fun look_up (adl_mode,s,yypos)
 
 fun look_up_sym (s,yypos)
     =
-    {   l = string::length s;
+    {   l = string::length_in_bytes s;
 
         hashtable::look_up symbols s (yypos,yypos + l) 
 	except _ =  symbol (unique_symbol::to_string
