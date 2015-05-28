@@ -148,7 +148,7 @@ fun has_quote s
     =
     {   fun loop i
             =
-            (    (string::get(s,i) == '`')
+            (    (string::get_byte_as_char(s,i) == '`')
                  or
                  loop (i+1)
             )
@@ -814,16 +814,16 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <string>\\\\		=> (add_string(stringlist, "\\"); continue());
 <string>\\\"		=> (add_string(stringlist, "\""); continue());
 <string>\\\^[@-_]	=> (add_char(stringlist,
-			char::from_int(char::to_int(string::get(yytext,2))-char::to_int '@'));
+			char::from_int(char::to_int(string::get_byte_as_char(yytext,2))-char::to_int '@'));
 		    continue());
 <string>\\\^.	=>
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
 <string>\\[0-7]{3}	=>
- ( {  x = (char::to_int(string::get(yytext,1))-(char::to_int '0'))*64
-	+ (char::to_int(string::get(yytext,2))-(char::to_int '0'))*8
-	+ (char::to_int(string::get(yytext,3))-(char::to_int '0'));
+ ( {  x = (char::to_int(string::get_byte_as_char(yytext,1))-(char::to_int '0'))*64
+	+ (char::to_int(string::get_byte_as_char(yytext,2))-(char::to_int '0'))*8
+	+ (char::to_int(string::get_byte_as_char(yytext,3))-(char::to_int '0'));
       if   (x > 255)
            err (yypos,yypos+4) ERROR "illegal octal \\ooo string escape" null_error_body;
       else add_char(stringlist, char::from_int x);
@@ -837,56 +837,56 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
   });
 
 <string>\\x[0-9][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[0-9][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[0-9][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[a-f][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[a-f][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[a-f][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[A-F][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[A-F][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <string>\\x[A-F][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
@@ -1095,7 +1095,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <char>\\\\		=> (add_string(stringlist, "\\"); continue());
 <char>\\\'		=> (add_string(stringlist,  "'"); continue());
 <char>\\\^[@-_]	=> (add_char(stringlist,
-			char::from_int(char::to_int(string::get(yytext,2))-char::to_int '@'));
+			char::from_int(char::to_int(string::get_byte_as_char(yytext,2))-char::to_int '@'));
 		    continue());
 <char>\\\^.	=>
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
@@ -1103,9 +1103,9 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 	 continue());
 
 <char>\\[0-7]{3}	=>
- ( {  x = (char::to_int(string::get(yytext,1))-(char::to_int '0'))*64
-	+ (char::to_int(string::get(yytext,2))-(char::to_int '0'))*8
-	+ (char::to_int(string::get(yytext,3))-(char::to_int '0'));
+ ( {  x = (char::to_int(string::get_byte_as_char(yytext,1))-(char::to_int '0'))*64
+	+ (char::to_int(string::get_byte_as_char(yytext,2))-(char::to_int '0'))*8
+	+ (char::to_int(string::get_byte_as_char(yytext,3))-(char::to_int '0'));
    {  if (x>255)
            err (yypos,yypos+4) ERROR "illegal octal \\ooo char escape" null_error_body;
       else add_char(stringlist, char::from_int x);
@@ -1120,56 +1120,56 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
   });
 
 <char>\\x[0-9][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[0-9][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[0-9][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int '0')     )*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int '0')     )*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[a-f][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[a-f][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[a-f][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'a') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'a') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[A-F][0-9]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int '0')     );
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int '0')     );
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[A-F][a-f]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'a') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'a') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });
 <char>\\x[A-F][A-F]	=>
- ( {  x = ((char::to_int(string::get(yytext,2)) - char::to_int 'A') + 10)*16
-        + ((char::to_int(string::get(yytext,3)) - char::to_int 'A') + 10);
+ ( {  x = ((char::to_int(string::get_byte_as_char(yytext,2)) - char::to_int 'A') + 10)*16
+        + ((char::to_int(string::get_byte_as_char(yytext,3)) - char::to_int 'A') + 10);
       add_char(stringlist, char::from_int x);
       continue();
   });

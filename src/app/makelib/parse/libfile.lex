@@ -82,14 +82,14 @@ fun error_tok (t, p)
     =
     {   fun find_graph i
             =
-	    if (char::is_graph (string::get (t, i)))   i;
-	    else  			               find_graph (i + 1);
+	    if (char::is_graph (string::get_byte_as_char (t, i)))   i;
+	    else  			                            find_graph (i + 1);
             fi;
 
 	fun find_error i
             =
-	    if (string::get (t, i) == 'e')   i;
-	    else                             find_error (i + 1);
+	    if (string::get_byte_as_char (t, i) == 'e')   i;
+	    else                                          find_error (i + 1);
             fi;
 
 	start =   find_graph (5 + find_error 0);
@@ -274,7 +274,7 @@ sharp="#";
 			    report_error (yypos, yypos + size yytext) "illegal linebreak in string";
 			    continue ());
 
-<qquote>.		=> (append_char_to_qquote (string::get (yytext, 0)); continue ());
+<qquote>.		=> (append_char_to_qquote (string::get_byte_as_char (yytext, 0)); continue ());
 
 <ss>{eol}	        => (newline yypos; continue ());
 <ss>{ws}+	        => (continue ());

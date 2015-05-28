@@ -153,7 +153,7 @@ fun my_synch (src, pos, parts)
 #     =
 #     {   fun loop i
 #             =
-#             (    (string::get(s,i) == '`')
+#             (    (string::get_byte_as_char(s,i) == '`')
 #                  or
 #                  loop (i+1)
 #             )
@@ -421,16 +421,16 @@ hexnum =[0-9A-F]+;
 <string>\\\\		=> (add_string(charlist, "\\"); continue());
 <string>\\\"		=> (add_string(charlist, "\""); continue());
 <string>\\\^[@-_]	=> (add_char(charlist,
-				char::from_int(char::to_int(string::get(yytext,2))-char::to_int '@'));
+				char::from_int(char::to_int(string::get_byte_as_char(yytext,2))-char::to_int '@'));
 		    		continue());
 <string>\\\^.		=>
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
 <string>\\[0-9]{3}	=>
- ( { x = char::to_int(string::get(yytext,1))*100
-	     + char::to_int(string::get(yytext,2))*10
-	     + char::to_int(string::get(yytext,3))
+ ( { x = char::to_int(string::get_byte_as_char(yytext,1))*100
+	     + char::to_int(string::get_byte_as_char(yytext,2))*10
+	     + char::to_int(string::get_byte_as_char(yytext,3))
 	     - ((char::to_int '0')*111);
    { if (x>255)
            err (yypos,yypos+4) ERROR "illegal ascii escape" null_error_body;
@@ -478,16 +478,16 @@ hexnum =[0-9A-F]+;
 <char>\\\\		=> (add_string(charlist, "\\"); continue());
 <char>\\\"		=> (add_string(charlist, "\""); continue());
 <char>\\\^[@-_]	=> (add_char(charlist,
-				char::from_int(char::to_int(string::get(yytext,2))-char::to_int '@'));
+				char::from_int(char::to_int(string::get_byte_as_char(yytext,2))-char::to_int '@'));
 		    		continue());
 <char>\\\^.		=>
 	(err(yypos,yypos+2) ERROR "illegal control escape; must be one of \
 	  \@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" null_error_body;
 	 continue());
 <char>\\[0-9]{3}	=>
- ( {  x = char::to_int(string::get(yytext,1))*100
-	     + char::to_int(string::get(yytext,2))*10
-	     + char::to_int(string::get(yytext,3))
+ ( {  x = char::to_int(string::get_byte_as_char(yytext,1))*100
+	     + char::to_int(string::get_byte_as_char(yytext,2))*10
+	     + char::to_int(string::get_byte_as_char(yytext,3))
 	     - ((char::to_int '0')*111);
       if (x>255)
            err (yypos,yypos+4) ERROR "illegal ascii escape" null_error_body;

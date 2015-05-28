@@ -144,7 +144,7 @@ ws = [\ \t];
 	=> (t::pcdata (yytext, *yylineno, *yylineno));
 <initial>.
 	=> (error_fn (cat [
-		"bogus character #\"", char::to_string (string::get (yytext, 0)),
+		"bogus character #\"", char::to_string (string::get_byte_as_char (yytext, 0)),
 		"\" in PCDATA\n"
 	      ], *yylineno, *yylineno+1);
 	    continue());
