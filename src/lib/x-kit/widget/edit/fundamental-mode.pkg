@@ -821,9 +821,68 @@ herein
 
 			case (get_cutbuffer_contents())
 			    #
-			    ct::PARTLINE  string						# Not yet supported. XXX SUCKO FIXME
+			    ct::PARTLINE  text_to_insert						# 
 				=>
-				NULL;
+				{
+				    line_key = cursor.row - 1;										# Because we number lines 1->N but numbered_lines numbers them 0->(N-1).
+
+				    text =  case (nl::find (textlines, line_key))
+						#
+						THE line => line;
+						NULL     => "\n";
+					    esac;
+
+				    chomped_text =  string::chomp  text;
+
+				    (string::expand_tabs_and_control_chars
+				      {
+					text	=>  chomped_text,
+					col		=>  0,
+					querycol1	=>  cursor.col,
+					querycol2	=>  0
+				      })
+				      ->
+				      { col1_byteoffset_in_input:	Int,
+					...
+				      };
+
+				    textlen = string::length_in_chars  chomped_text;							# This logic is cut-and-pasted from default_redraw_fn in lineeditor.pkg -- possibly it should be shared via some package.
+																	# 
+				    my  { text_before_cursor,										# 
+					  text_beyond_cursor										# 
+					}												#
+					=												#
+					if (cursor.col >= textlen)									#
+					    #
+					    { text_before_cursor =>  chomped_text + (string::repeat(" ", cursor.col-textlen   )),	# 
+					      text_beyond_cursor =>  ""
+					    };
+					else												# Region lies entirely within input string.
+
+					    { text_before_cursor =>  string::substring (chomped_text, 0			      ,  col1_byteoffset_in_input),
+					      text_beyond_cursor =>  string::extract   (chomped_text, col1_byteoffset_in_input,  NULL	                 )	except INDEX_OUT_OF_BOUNDS = ""
+					    };
+					fi;
+
+				    updated_line = text_before_cursor + text_to_insert + text_beyond_cursor + "\n";			# XXX BUGGO FIXME This assumes the original line ended with a newline, which is not a given.
+
+				    updated_textlines
+					=
+					{   (nl::remove (textlines, line_key))
+						->
+						(updated_textlines, oldline);
+
+					    updated_textlines;
+					};
+
+				    updated_textlines
+					=
+					nl::set (updated_textlines, line_key, updated_line);
+
+				    THE   [ mj::TEXTLINES updated_textlines,
+					    mj::MARK NULL
+					  ];
+				};
 
 			    ct::WHOLELINE string						# Now insert the new line.
 				=>
@@ -906,7 +965,6 @@ herein
 				    set_cutbuffer_contents:	ct::Cutbuffer_Contents -> Void
 				  };
 
-nb {. sprintf "exchange_point_and_mark/AAA"; };
 			result =    case mark
 					#
 					NULL => NULL;						# Can't exchange point and mark when mark isn't set!
@@ -930,6 +988,127 @@ nb {. sprintf "exchange_point_and_mark/AAA"; };
 		      };	
 
 
+		fun kill_region (was:				mj::Editfn_In)			# 
+		    :						mj::Editfn_Out
+		    =
+		    {   was -> 	  { textlines:			mj::Textlines,
+				    cursor:			g2d::Point,			# As in Cursor_And_Mark.
+				    mark:			Null_Or(g2d::Point),		# 
+				    keystring:			String,				# User keystroke that invoked this editfn.
+				    get_cutbuffer_contents:	Void -> ct::Cutbuffer_Contents,	# O(1) nonblocking.
+				    set_cutbuffer_contents:	ct::Cutbuffer_Contents -> Void
+				  };
+
+			result =    case mark
+					#
+					NULL => NULL;						# Can't kill region when mark isn't set!
+
+					THE mark
+					    =>
+					    if (mark.row == cursor.row)
+						#
+						if (mark.col == cursor.col)
+						    #
+						    set_cutbuffer_contents (ct::PARTLINE "");
+						    THE [ ];	
+						else
+						    my (col1, col2)
+							=
+							if (mark.col <= cursor.col)	(mark.col, cursor.col - 1);					# "- 1" because we leave the char actually under the cursor.
+							else				(cursor.col, mark.col - 1);
+							fi;
+
+						    line_key = mark.row - 1;										# Because we number lines 1->N but numbered_lines numbers them 0->(N-1).
+
+						    text =  case (nl::find (textlines, line_key))
+								#
+								THE line => line;
+								NULL     => "\n";
+							    esac;
+
+						    chomped_text =  string::chomp  text;
+
+						    (string::expand_tabs_and_control_chars
+						      {
+							text	=>  chomped_text,
+							col		=>  0,
+							querycol1	=>  col1,
+							querycol2	=>  col2
+						      })
+						      ->
+						      { col1_byteoffset_in_input:	Int,
+							col2_byteoffset_in_input:	Int,
+							col2_bytecount_in_input:	Int,
+							...
+						      };
+
+						    textlen = string::length_in_chars  chomped_text;							# This logic is cut-and-pasted from default_redraw_fn in lineeditor.pkg -- possibly it should be shared via some package.
+																			# 
+						    my  { text_before_region,										# 
+							  text_within_region,										# 
+							  text_beyond_region										# 
+							}												#
+							=												#
+							if (col1 >= textlen)										#
+							    #
+							    { text_before_region =>  chomped_text + (string::repeat(" ", col1-textlen   )),		# Region lies entirely beyond actual end of line in input string.
+							      text_within_region =>                 (string::repeat(" ", (col2-col1) + 1)),		# 
+							      text_beyond_region =>  ""									#
+							    };
+							elif (col2 >= textlen)										# Region starts within input string but extends beyond actual end of line in input string.
+							    #
+							    { text_before_region =>   string::substring(chomped_text, 0,  col1_byteoffset_in_input),
+							      text_within_region =>  (string::extract  (chomped_text, col1_byteoffset_in_input,  NULL)) + (string::repeat(" ", (col2-textlen) + 1)),
+							      text_beyond_region =>  ""
+							    };
+							else												# Region lies entirely within input string.
+
+							    { text_before_region =>  string::substring (chomped_text, 0			                                ,  col1_byteoffset_in_input),
+							      text_within_region =>  string::substring (chomped_text, col1_byteoffset_in_input                          ,  (col2_byteoffset_in_input + col2_bytecount_in_input) - col1_byteoffset_in_input),
+							      text_beyond_region =>  string::extract   (chomped_text, col2_byteoffset_in_input + col2_bytecount_in_input,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
+							    };
+							fi;
+
+						    set_cutbuffer_contents (ct::PARTLINE text_within_region);
+
+						    updated_line = text_before_region + text_beyond_region + "\n";					# XXX BUGGO FIXME This assumes the original line ended with a newline, which is not a given.
+
+						    updated_textlines
+							=
+							{   (nl::remove (textlines, line_key))
+								->
+								(updated_textlines, oldline);
+
+							    updated_textlines;
+							};
+
+						    updated_textlines
+							=
+							nl::set (updated_textlines, line_key, updated_line);
+
+						    THE   [ mj::TEXTLINES updated_textlines,
+							    mj::CURSOR { row => cursor.row,  col => col1 },
+							    mj::MARK NULL
+							  ];
+						fi;
+					    else													# Cursor and mark are NOT on the same line -- multiline cut case.
+# XXX SUCKO FIXME TBD.
+						THE   [];
+					    fi;
+				    esac;
+
+			result;
+		    };
+		kill_region__editfn
+		    =
+		    mj::PLAIN_EDITFN
+		      {
+			name	=>  "kill_region",
+			doc	=>  "Remove contents of region from buffer, saving in cutbuffer.  Fail if mark is not set.",
+			editfn  =>  kill_region
+		      };	
+
+
 		fundamental_mode
 		    =
 		    keymap
@@ -947,6 +1126,7 @@ nb {. sprintf "exchange_point_and_mark/AAA"; };
 			keymap = mj::add_editfn_to_keymap (keymap, [ "C-n"		],	next_line__editfn		);
 			keymap = mj::add_editfn_to_keymap (keymap, [ "C-o"		],	kill_whole_line__editfn		);
 			keymap = mj::add_editfn_to_keymap (keymap, [ "C-p"		],	previous_line__editfn		);
+			keymap = mj::add_editfn_to_keymap (keymap, [ "C-w"		],	kill_region__editfn		);
 			keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "C-x"	],	exchange_point_and_mark__editfn	);
 			keymap = mj::add_editfn_to_keymap (keymap, [ "C-y"		],	yank__editfn			);
 			keymap = mj::add_editfn_to_keymap (keymap, [ "RET"		],	newline__editfn			);
