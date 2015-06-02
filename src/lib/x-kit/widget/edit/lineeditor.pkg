@@ -1,6 +1,21 @@
 ## lineeditor.pkg
 #
-# One line of textfile contents in a textpane display.
+# Display one line of textfile contents in a textpane display.
+#
+# "lineeditor" is a bit of a misnomer:  Here we just
+# handle re/display of one line.  The editing process
+# proper happens mainly in
+# 
+#     src/lib/x-kit/widget/edit/fundamental-mode.pkg
+# 
+# with toplevel dispatch done from
+# 
+#     src/lib/x-kit/widget/edit/textpane.pkg
+# 
+# and major support from
+# 
+#     src/lib/x-kit/widget/edit/textbuffer-imp.pkg
+# 
 # 
 # It may be that lineeditor, statusline and minibuffer
 # could be a single package;  I've made them separate
@@ -550,7 +565,13 @@ herein
 
 		fun expand_tabs_and_control_chars { text: String, col: Int }
 		    =
-		    {   (string::expand_tabs_and_control_chars { text, col, cursorcol => 0 })
+		    {   (string::expand_tabs_and_control_chars
+			  {
+			    text,
+			    col,
+			    querycol1 => 0,
+			    querycol2 => 0
+			  })
 			  ->
 			  { text,
 			    col,
@@ -560,56 +581,137 @@ herein
 			{ text, col };
 		    };
 
+# 	  { cursor:	Null_Or(Int),								# Column at which to show cursor, with first column being 0.  NULL means show no cursor.
+# 	    text:	String,									# Text to display, starting in first visible column (column 0).
+# 	    selected:	Null_Or((Int,Null_Or(Int)))						# Columns to show as being selected (something like reverse video).   NULL means no chars are selected on this line. THE(start,THE stop) designates columns 'start' to 'stop' inclusive.  THE(start,NULL) designates 'start' through end of line.
+# 	  };
+
 		my (displaylist, text_indent)
 		    =
-		    case (state.cursor, cursor_on)
+		    case state.selected								# state.selected tells us the screen columns occupied on this line by the selected 'region' is (which includes the cursor if it is on current line), which should be shown in reverse video.
 			#
-			(THE cursor_col, TRUE)												# Cursor is visible, so draw char it is on in reverse video.
-			    =>														# Value of '0' means cursor in first visible column on line, over first char in state.text (if any).
+			THE (col1, NULL)							# We're given start screen column of region, which runs to end of line.
+			    =>
 			    {
-				(string::expand_tabs_and_control_chars { text => state.text, col => 0, cursorcol => cursor_col })
+# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d NULL) case" a.doc col1; };   
+				(string::expand_tabs_and_control_chars
+				  {
+				    text => state.text,
+				    col => 0,
+				    querycol1 => col1,
+				    querycol2 => 0
+				  })
 				  ->
 				  { text,
 				    col,
 				    #
-				    cursor_byteoffset_in_output,
-				    cursor_bytecount_in_output,
+				    col1_byteoffset_in_output,
+				    col1_bytecount_in_output,
+				    ...
+				  };
+
+ 				textlen = string::length_in_chars  text;
+																	# NB: 'region' is just the cursor, if mark isn't set.
+				my  { text_before_region,										# Our game here is to show the char that the cursor is on in reverse video.
+				      text_within_region,										# This is complicated by three details:
+				      text_beyond_region											#  1. UTF-8 chars occupy one screen column but 1-6 bytes in string.
+				    }													#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
+				    =													#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
+				    if (col1 >= textlen)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
+					#
+					{ text_before_region =>  text + (string::repeat(" ", col1-textlen)),				# Region lies entirely beyond actual end of line in input string.
+					  text_within_region =>  " ",									#
+					  text_beyond_region =>  ""									#
+					};
+ 				    else												# Region lies entirely within input string.
+					{ text_before_region =>  string::substring (text, 0			   ,  col1_byteoffset_in_output),
+					  text_within_region =>  string::extract   (text, col1_byteoffset_in_output,  NULL                     )	except INDEX_OUT_OF_BOUNDS = "",
+					  text_beyond_region =>  ""									#
+					};
+				    fi;
+
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, FALSE);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, TRUE );
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, FALSE);
+
+				(displaylist, text_indent);
+			    };
+
+			THE (col1, THE col2)												# We are given both start and end screeen columns for the region.
+			    =>
+			    {
+# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d, THE col2=%d) case" a.doc col1 col2; };   
+				(string::expand_tabs_and_control_chars
+				  {
+				    text => state.text,
+				    col => 0,
+				    querycol1 => col1,
+				    querycol2 => col2
+				  })
+				  ->
+				  { text,
+				    col,
+				    #
+				    col1_byteoffset_in_output,
+				    col1_bytecount_in_output,
+				    #
+				    col2_byteoffset_in_output,
+				    col2_bytecount_in_output,
+				    ...
+				  };
+
+ 				textlen = string::length_in_chars  text;
+																	# NB: 'region' is just the cursor, if mark isn't set.
+				my  { text_before_region,										# Our game here is to show the region in reverse video.
+				      text_within_region,										# This is complicated by three details:
+				      text_beyond_region										#  1. UTF-8 chars occupy one screen column but 1-6 bytes in string.
+				    }													#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
+				    =													#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
+				    if (col1 >= textlen)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
+					#
+					{ text_before_region =>  text + (string::repeat(" ", col1-textlen   )),				# Region lies entirely beyond actual end of line in input string.
+					  text_within_region =>         (string::repeat(" ", (col2-col1) + 1)),				# 
+					  text_beyond_region =>  ""									#
+					};
+ 				    elif (col2 >= textlen)										# Region starts within input string but extends beyond actual end of line in input string.
+					#
+					{ text_before_region =>   string::substring (text, 0,  col1_byteoffset_in_output),
+					  text_within_region =>  (string::extract  (text, col1_byteoffset_in_output,  NULL)) + (string::repeat(" ", (col2-textlen) + 1)),
+					  text_beyond_region =>  ""
+					};
+ 				    else												# Region lies entirely within input string.
+					{ text_before_region =>  string::substring (text, 0			                              ,  col1_byteoffset_in_output),
+					  text_within_region =>  string::substring (text, col1_byteoffset_in_output                           ,  (col2_byteoffset_in_output + col2_bytecount_in_output) - col1_byteoffset_in_output),
+					  text_beyond_region =>  string::extract   (text, col2_byteoffset_in_output + col2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
+					};
+				    fi;
+
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, FALSE);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, TRUE );
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, FALSE);
+
+				(displaylist, text_indent);
+			    };
+
+			NULL =>														# Region does not show on line.
+			    {
+				(string::expand_tabs_and_control_chars
+				  {
+				    text => state.text,
+				    col => 0,
+				    querycol1 => 0,
+				    querycol2 => 0
+				  })
+				  ->
+				  { text,
+				    col,
 				    ...
 				  };
 
  				textlen = string::length_in_chars  text;
 
-				my  { text_before_cursor,										# Our game here is to show the char that the cursor is on in reverse video.
-				      text_under_cursor,										# This is complicated by three details:
-				      text_after_cursor											#  1. UTF-8 chars occupy one screen column but 1-6 bytes in string.
-				    }													#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
-				    =													#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
-				    if (cursor_col >= textlen)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
-					#
-					{ text_before_cursor =>  text + (string::repeat(" ", cursor_col-textlen)),
-					  text_under_cursor  =>  " ",
-					  text_after_cursor  =>  ""
-					};
- 				    else
-					{ text_before_cursor =>  string::substring (text, 0			                                  ,  cursor_byteoffset_in_output),
-					  text_under_cursor  =>  string::substring (text, cursor_byteoffset_in_output                             ,  cursor_bytecount_in_output ),
-					  text_after_cursor  =>  string::extract   (text, cursor_byteoffset_in_output + cursor_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
-					};
-				    fi;
-
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_cursor, text_box, FALSE);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_under_cursor,  text_box, TRUE );
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_after_cursor,  text_box, FALSE);
-
-				(displaylist, text_indent);
-			    };	
-
-			_ =>														# Cursor NOT visible, so draw string normally.
-			    {   (expand_tabs_and_control_chars { text => state.text, col => 0 }) ->  { text, col };
-				#
 				append_text_to_displaylist (displaylist, text_indent, text, text_box, FALSE);
 			    };
-
 		    esac;
 
 		displaylist  = [ gd::CLIP_TO (text_box, displaylist) ];
@@ -732,8 +834,7 @@ herein
 
 		cursoronref	= REF TRUE;									# Tracks whether blinking cursor is currently in/visible.
 
-		stateref	= REF { cursor   =>  NULL,							# Tracks location (if any) of cursor.
-					selected =>  NULL,
+		stateref	= REF { selected =>  NULL,							# Part of line to show in reverse video -- cursor and/or selected region.
 					text	 =>  ""
 				      };
 		
