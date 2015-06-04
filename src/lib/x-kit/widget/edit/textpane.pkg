@@ -357,8 +357,9 @@ herein
 		# Top of per-imp state variable section
 		#
 
-		cursor__global			=  REF ({ row => 1, col => 0 }:	    g2d::Point);				# Location of visible cursor in textbuffer.  Upperleft origin is { row => 1, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
-		mark__global			=  REF (NULL:		    Null_Or(g2d::Point));				# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'cursor' delimit the current text selection in the buffer.
+		point__global			=  REF ({ row => 1, col => 0 }:	    g2d::Point);				# Location of visible cursor in textbuffer.  Upperleft origin is { row => 1, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
+		mark__global			=  REF (NULL:		    Null_Or(g2d::Point));				# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'point' delimit the current text selection in the buffer.
+		lastmark__global		=  REF (NULL:		    Null_Or(g2d::Point));				# When we set mark__global to NULL we save its previous value in lastmark__global.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 
 		font_height__global		=  REF (NULL:  Null_Or( Int			    ));
 		textpane_to_textedit__global	=  REF (NULL:  Null_Or( p2e::Textpane_To_Textedit   ));
@@ -429,7 +430,7 @@ herein
 								textpane_id,
 								textedit_id,
 								options	    =>  [ le::DOC   (sprintf "Lineeditor %d"  paneline),
-										  le::STATE { selected => NULL, text => sprintf "I am lineeditor %d"  paneline },
+										  le::STATE { cursor_at => p2l::NO_CURSOR, selected => NULL, text => sprintf "I am lineeditor %d"  paneline },
 										  le::PIXELS_HIGH_MIN 0
 										]
 							      };
@@ -540,7 +541,7 @@ herein
 				editcount:	Int						# Count of edits applied.  Intended to allow clients to quickly detect whether any changes have been made since they last polled us.
 			      };								# By pro-actively fetching the entire textbuffer state we not only save inter-imp round trips, but more importantly guarantee that we do the complete redisplay on a single self-consistent state.
 
-			cursor =  *cursor__global;
+			point  =  *point__global;
 			mark   =  *mark__global;
 
 			apply do_line (1 .. *expected_lineeditors)
@@ -560,37 +561,38 @@ herein
 								NULL	 => "\n";
 							    esac;
 
-						    selected
+						    my (selected, cursor_at)															# Figure out what part (if any) of line is part of the selected region, and if so which end (if either) the cursor is at.
 							=
 							case mark
 							    #
 							    THE mark
 								=>
-								if   (mark.row <  line_number  and  line_number <  cursor.row)	THE (0, NULL);				# Marked region starts before line and ends after it -- select entire line.
-								elif (mark.row >  line_number  and  line_number >  cursor.row)	THE (0, NULL);				# Marked region starts before line and ends after it -- select entire line.
+								if   (mark.row <  line_number  and  line_number <  point.row)	(THE (0, NULL),			p2l::NO_CURSOR		);	# Marked region starts before line and ends after it -- select entire line.
+								elif (mark.row >  line_number  and  line_number >  point.row)	(THE (0, NULL),			p2l::NO_CURSOR		);	# Marked region starts before line and ends after it -- select entire line.
 								#
-								elif (mark.row <  line_number  and  line_number >  cursor.row)	NULL;					# Marked region is entirely before line -- select nothing.
-								elif (mark.row >  line_number  and  line_number <  cursor.row)	NULL;					# Marked region is entirely after  line -- select nothing.
+								elif (mark.row <  line_number  and  line_number >  point.row)	(NULL,				p2l::NO_CURSOR		);	# Marked region is entirely before line -- select nothing.
+								elif (mark.row >  line_number  and  line_number <  point.row)	(NULL,				p2l::NO_CURSOR		);	# Marked region is entirely after  line -- select nothing.
 								#
-								elif (mark.row <  line_number  and  line_number == cursor.row)   THE (0, THE cursor.col);		# Marked region starts before line and ends on it -- select leading part of line.
-								elif (mark.row == line_number  and  line_number >  cursor.row)   THE (0, THE mark.col);			# Marked region starts before line and ends on it -- select leading part of line.
+								elif (mark.row <  line_number  and  line_number == point.row)   (THE (0, THE point.col),	p2l::CURSOR_AT_END	);	# Marked region starts before line and ends on it -- select leading part of line.
+								elif (mark.row == line_number  and  line_number >  point.row)   (THE (0, THE mark.col ),	p2l::NO_CURSOR		);	# Marked region starts before line and ends on it -- select leading part of line.
 								#
-								elif (mark.row >  line_number  and  line_number == cursor.row)   THE (cursor.col, NULL);		# Marked region starts on line and ends after it -- select trailing part of line.
-								elif (mark.row == line_number  and  line_number <  cursor.row)   THE (mark.col,   NULL);		# Marked region starts on line and ends after it -- select trailing part of line.
+								elif (mark.row >  line_number  and  line_number == point.row)   (THE (point.col, NULL),		p2l::CURSOR_AT_START	);	# Marked region starts on line and ends after it -- select trailing part of line.
+								elif (mark.row == line_number  and  line_number <  point.row)   (THE (mark.col,  NULL),		p2l::NO_CURSOR		);	# Marked region starts on line and ends after it -- select trailing part of line.
 								#
-								elif (mark.col < cursor.col)					 THE (mark.col, THE cursor.col);	# Marked region starts and ends on line -- select middle part of line.
-								else 								 THE (cursor.col, THE mark.col);	# Marked region starts and ends on line -- select middle part of line.
+								elif (mark.col < point.col)					(THE (mark.col,  THE point.col),p2l::CURSOR_AT_END	);	# Marked region starts and ends on line -- select middle part of line.
+								else 								(THE (point.col, THE mark.col ),p2l::CURSOR_AT_START	);	# Marked region starts and ends on line -- select middle part of line.
 								fi;
 
-							    NULL =>													# No mark set.
-								if (cursor.row == line_number)					THE (cursor.col, THE cursor.col);	# Display the cursor by itself.
-								else								NULL;					# Nothing to display in reverse video on this line.
+							    NULL =>																# No mark set.
+								if (point.row == line_number)					(THE (point.col, THE point.col),p2l::CURSOR_AT_START	);	# Display the cursor by itself.
+								else								(NULL,				p2l::NO_CURSOR		);	# Nothing to display in reverse video on this line.
 								fi;
 							esac;
 
 						    linestate
 						      =
-						      { selected,
+						      { cursor_at,
+							selected,
 							text	  =>  string::chomp line	# Chomp it because lineeditor.com doesn't want the terminating newline (if any).
 						      };	
 
@@ -1024,17 +1026,19 @@ fun modifier_keys_state__to__string (s:  evt::Modifier_Keys_State)
 				Editfn_Out							# mj::Editfn_Out in a more convenient form.
 				  =
 				  { textlines_changed:	Bool,		textlines:	mj::Textlines,
-				    cursor_changed:	Bool,		cursor:		g2d::Point,
+				    point_changed:	Bool,		point:		g2d::Point,
 				    mark_changed:	Bool,		mark:		Null_Or(g2d::Point),
-				    editfn_failed:	Bool
+				    lastmark_changed:	Bool,		lastmark:		Null_Or(g2d::Point),
+				    editfn_failed:	Bool,		reset:		Bool
 				  };
 
 				fun parse_editfn_out (editfn_out: mj::Editfn_Out)
 				    =
 				    {   r = { textlines_changed => FALSE,	textlines =>  nl::empty,
-					      cursor_changed	=> FALSE,	cursor	  => *cursor__global,
+					      point_changed	=> FALSE,	point	  => *point__global,
 					      mark_changed	=> FALSE,	mark	  => *mark__global,
-					      editfn_failed	=> TRUE
+					      lastmark_changed	=> FALSE,	lastmark  => *lastmark__global,
+					      editfn_failed	=> TRUE,	reset	  => FALSE
 					    };
 
 					case editfn_out
@@ -1053,28 +1057,40 @@ fun modifier_keys_state__to__string (s:  evt::Modifier_Keys_State)
 					    {   my_textlines		= REF r.textlines;
 						my_textlines_changed	= REF r.textlines_changed;
 						#
-						my_cursor		= REF r.cursor;
-						my_cursor_changed	= REF r.cursor_changed;
+						my_point		= REF r.point;
+						my_point_changed	= REF r.point_changed;
 						#
 						my_mark			= REF r.mark;
 						my_mark_changed		= REF r.mark_changed;
+						#
+						my_lastmark		= REF r.lastmark;
+						my_lastmark_changed	= REF r.lastmark_changed;
+						#
+						my_reset		= REF r.reset;
 
 						apply do_option options
 						where
-						    fun do_option (mj::TEXTLINES textlines) =>	{ my_textlines := textlines;	my_textlines_changed := TRUE; };
-							do_option (mj::CURSOR    cursor)    =>	{ my_cursor    := cursor;	my_cursor_changed    := TRUE; };
-							do_option (mj::MARK      mark)	    =>	{ my_mark      := mark;		my_mark_changed      := TRUE; };
+						    fun do_option (mj::TEXTLINES textlines) =>	{ my_textlines := textlines;	my_textlines_changed := TRUE;	};
+							do_option (mj::POINT     point    ) =>	{ my_point     := point;	my_point_changed     := TRUE;	};
+							do_option (mj::MARK      mark	  ) =>	{ my_mark      := mark;		my_mark_changed      := TRUE;	};
+							do_option (mj::LASTMARK  lastmark ) =>	{ my_lastmark  := lastmark;	my_lastmark_changed  := TRUE;	};
+							do_option (mj::RESET		  ) =>  { my_reset     := TRUE;						};
 						    end;	
 						end;
 
 						{ textlines		=> *my_textlines,
 						  textlines_changed	=> *my_textlines_changed,
 						  #
-						  cursor		=> *my_cursor,
-						  cursor_changed	=> *my_cursor_changed,
+						  point			=> *my_point,
+						  point_changed		=> *my_point_changed,
 						  #
 						  mark			=> *my_mark,
 						  mark_changed		=> *my_mark_changed,
+
+						  lastmark		=> *my_lastmark,
+						  lastmark_changed	=> *my_lastmark_changed,
+
+						  reset			=> *my_reset,
 
 						  editfn_failed		=> FALSE
 						};
@@ -1092,13 +1108,15 @@ fun modifier_keys_state__to__string (s:  evt::Modifier_Keys_State)
 					THE textpane_to_textbuffer
 					    =>
 					    {
-						cursor_and_mark = { cursor => *cursor__global,
-								    mark   => *mark__global
+						point_and_mark  = { point => *point__global,
+								    mark  => *mark__global
 								  };
+						lastmark	= *lastmark__global;
 						log_undo_info   = FALSE;
 
 						editfn_in =   { editfn,
-								cursor_and_mark,
+								point_and_mark,
+								lastmark,
 								widget_to_guiboss,
 								log_undo_info,
 								keystring
@@ -1109,9 +1127,11 @@ fun modifier_keys_state__to__string (s:  evt::Modifier_Keys_State)
 						    {.  (parse_editfn_out #editfn_out)
 							    ->
 							    { textlines_changed, textlines, 
-							      cursor_changed,    cursor,	 
+							      point_changed,     point,	 
 							      mark_changed,      mark,
-							      editfn_failed	
+							      lastmark_changed,  lastmark,
+							      #	
+							      editfn_failed,	 reset
 							    };
 
 							if (editfn_failed)
@@ -1120,11 +1140,32 @@ fun modifier_keys_state__to__string (s:  evt::Modifier_Keys_State)
 							    ();
 							else
 
-							    if (cursor_changed)	cursor__global	:= cursor;	fi;
-							    if (mark_changed)	mark__global	:= mark;	fi;
+							    if (point_changed)
+								#
+								point__global	:= point;
+							    fi;
 
-							    if (mark_changed
-							    or  cursor_changed
+							    if (mark_changed)
+								#
+								if (mark == NULL)
+								    lastmark__global := *mark__global;		# Save mark__global contents for possible use by   exchange_point_and_mark()	in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+								fi;
+
+								mark__global := mark;
+							    fi;
+
+							    if (lastmark_changed)
+								#
+								lastmark__global := lastmark;
+							    fi;
+
+							    if (reset)						# Implement keyboard_quit (usually bound to C-g) functionality.
+								#
+								();
+							    fi;
+
+							    if (mark_changed					# NB: Changing lastmark will have no visible effect on lineeditor display.
+							    or  point_changed
 							    or  textlines_changed)
 								#
 								refresh_lineeditors ();

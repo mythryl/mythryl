@@ -98,7 +98,6 @@ herein
 		default_redraw_fn:		Redraw_Fn,
 		#
 		state:				p2l::Linestate,
-		cursor_on:			Bool,				# Tracks whether blinking cursor is currently in/visible.
 		#
 		fonts:				List(String),
 		font_weight:			Null_Or(wt::Font_Weight),
@@ -139,7 +138,6 @@ herein
 		default_mouse_click_fn:		Mouse_Click_Fn,
 		#
 		state:				Ref(p2l::Linestate),
-		cursor_on:			Ref(Bool),			# Tracks whether blinking cursor is currently in/visible.
 		#
 		notify_statewatchers:		Void -> Void,			# 
 		needs_redraw_gadget_request:	Void -> Void			# Notify guiboss-imp that this button needs to be redrawn (i.e., sent a redraw_gadget_request()).
@@ -173,7 +171,6 @@ herein
 		default_mouse_drag_fn:		Mouse_Drag_Fn,
 		#
 		state:				Ref(p2l::Linestate),
-		cursor_on:			Ref(Bool),			# Tracks whether blinking cursor is currently in/visible.
 		#
 		notify_statewatchers:		Void -> Void,			# 
 		needs_redraw_gadget_request:	Void -> Void			# Notify guiboss-imp that this button needs to be redrawn (i.e., sent a redraw_gadget_request()).
@@ -203,7 +200,6 @@ herein
 		default_mouse_transit_fn:	Mouse_Transit_Fn,
 		#
 		state:				Ref(p2l::Linestate),
-		cursor_on:			Ref(Bool),			# Tracks whether blinking cursor is currently in/visible.
 		#
 		notify_statewatchers:		Void -> Void,			# 
 		needs_redraw_gadget_request:	Void -> Void			# Notify guiboss-imp that this button needs to be redrawn (i.e., sent a redraw_gadget_request()).
@@ -238,7 +234,6 @@ herein
 		default_key_event_fn:		Key_Event_Fn,
 		#
 		state:				Ref(p2l::Linestate),
-		cursor_on:			Ref(Bool),			# Tracks whether blinking cursor is currently in/visible.
 		#
 		notify_statewatchers:		Void -> Void,			# 
 		needs_redraw_gadget_request:	Void -> Void,			# Notify guiboss-imp that this button needs to be redrawn (i.e., sent a redraw_gadget_request()).
@@ -445,7 +440,6 @@ herein
 		site		=  a.site;
 		state		=  a.state;
 		theme		=  a.theme;
-		cursor_on	=  a.cursor_on;
 
 		background_box	=  site;
 
@@ -484,13 +478,18 @@ herein
 			};
 		    };
 
+		Color_As = NORMAL_TEXT
+			 | REGION_TEXT
+			 | CURSOR_TEXT
+			 ;
+
 		fun append_text_to_displaylist
 		      (
 			displaylist_so_far:	gd::Gui_Displaylist,
 			text_indent:		Int,
 			text:			String,
 			text_box:		g2d::Box,
-			inverse_video:		Bool
+			color_as:		Color_As
 		      )
 		    =
 		    if (string::length_in_bytes text == 0)
@@ -502,9 +501,16 @@ herein
 
 			my (text_color, body_color)
 			    =
-			    if (inverse_video)	(body_color, text_color);
-			    else		(text_color, body_color);
-			    fi;
+			    case (color_as)
+				#
+				CURSOR_TEXT =>	(body_color, text_color);
+				NORMAL_TEXT =>	(text_color, body_color);
+				REGION_TEXT =>	(text_color,  { red   => (body_color.red + text_color.red) * 0.5,			# Typically text color is black and body color is white(ish) -- in this case the region background here will wind up cyan-ish.  (Emacs uses yellow here.)
+								green =>  body_color.green,						# (This hack should probably be a fn in the widget-theme rather than hardwired here.)
+								blue  =>  body_color.blue
+							      }
+						);
+			    esac;
 
 			text_dimensions =  get_text_dimensions  text;
 
@@ -533,7 +539,7 @@ herein
 			displaylist = [ gd::COLOR
 					  ( body_color,
 					    [ gd::FILLED_BOXES [ textbox ] ]
-					  ),												# Clear area behind text to correct color (which varies depending whether inverse_video is TRUE).
+					  ),												# Clear area behind text to correct color (which varies depending on color_as).
 					#
 					gd::COLOR
 					  ( text_color,
@@ -569,8 +575,8 @@ herein
 			  {
 			    text,
 			    col,
-			    querycol1 => 0,
-			    querycol2 => 0
+			    screencol1 => 0,
+			    screencol2 => 0
 			  })
 			  ->
 			  { text,
@@ -581,13 +587,13 @@ herein
 			{ text, col };
 		    };
 
-# 	  { cursor:	Null_Or(Int),								# Column at which to show cursor, with first column being 0.  NULL means show no cursor.
+# 	  { cursor_at:	p2l::NO_CURSOR,								# Does cursor appear at start or end of 'selected' part -- or neither?
 # 	    text:	String,									# Text to display, starting in first visible column (column 0).
 # 	    selected:	Null_Or((Int,Null_Or(Int)))						# Columns to show as being selected (something like reverse video).   NULL means no chars are selected on this line. THE(start,THE stop) designates columns 'start' to 'stop' inclusive.  THE(start,NULL) designates 'start' through end of line.
 # 	  };
 
 		my (displaylist, text_indent)
-		    =
+		    =										# XXX SUCKO FIXME It would be nice to find a better factorization of the below code so that we don't have such a maze of nested cases.  (Preferably without changing performance from O(N) -> O(N**2)!)
 		    case state.selected								# state.selected tells us the screen columns occupied on this line by the selected 'region' is (which includes the cursor if it is on current line), which should be shown in reverse video.
 			#
 			THE (col1, NULL)							# We're given start screen column of region, which runs to end of line.
@@ -598,46 +604,150 @@ herein
 				  {
 				    text => state.text,
 				    col => 0,
-				    querycol1 => col1,
-				    querycol2 => 0
+				    screencol1 => col1,
+				    screencol2 => 0
 				  })
 				  ->
 				  { text,
 				    col,
 				    #
-				    col1_byteoffset_in_output,
-				    col1_bytecount_in_output,
+				    screencol1_byteoffset_in_output,
+				    screencol1_bytecount_in_output,
 				    ...
 				  };
 
- 				textlen = string::length_in_chars  text;
-																	# NB: 'region' is just the cursor, if mark isn't set.
-				my  { text_before_region,										# Our game here is to show the char that the cursor is on in reverse video.
-				      text_within_region,										# This is complicated by three details:
+ 				screencols = string::length_in_chars  text;
+																		# NB: 'region' is just the cursor, if mark isn't set.
+				(string::expand_tabs_and_control_chars
+				  {
+				    text => state.text,
+				    col  => 0,
+				    screencol1 => col1,
+				    screencol2 => screencols - 1
+				  })
+				  ->
+				  { text,
+				    col,
+				    #
+				    screencol1_byteoffset_in_output,
+				    screencol1_bytecount_in_output,
+				    #
+				    screencol2_byteoffset_in_output,
+				    screencol2_bytecount_in_output,
+				    ...
+				  };
+
+# nb {. sprintf "default_redraw_fn/CCC"; };
+				my  { text_before_region,											# Our game here is to show the char that the cursor is on in reverse video.
+				      text_within_cursr1,	
+				      text_within_region,											# This is complicated by three details:
+				      text_within_cursr2,	
 				      text_beyond_region											#  1. UTF-8 chars occupy one screen column but 1-6 bytes in string.
-				    }													#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
-				    =													#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
-				    if (col1 >= textlen)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
+				    }														#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
+				    =														#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
+				    if (col1 >= screencols)											# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
 					#
-					{ text_before_region =>  text + (string::repeat(" ", col1-textlen)),				# Region lies entirely beyond actual end of line in input string.
-					  text_within_region =>  " ",									#
-					  text_beyond_region =>  ""									#
-					};
- 				    else												# Region lies entirely within input string.
-					{ text_before_region =>  string::substring (text, 0			   ,  col1_byteoffset_in_output),
-					  text_within_region =>  string::extract   (text, col1_byteoffset_in_output,  NULL                     )	except INDEX_OUT_OF_BOUNDS = "",
-					  text_beyond_region =>  ""									#
-					};
+					case state.cursor_at
+					    #
+					    p2l::NO_CURSOR
+						=>
+{
+# nb {. sprintf "default_redraw_fn/CCC0"; };
+result =
+						{ text_before_region =>  text + (string::repeat(" ", col1-screencols)),				# Region lies entirely beyond actual end of line in input string.
+						  text_within_cursr1 =>  "",									#
+						  text_within_region =>  " ",									#
+						  text_within_cursr2 =>  "",									#
+						  text_beyond_region =>  ""									#
+						};
+# nb {. sprintf "default_redraw_fn/CCC1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_START
+						=>
+{
+# nb {. sprintf "default_redraw_fn/DDD0"; };
+result =
+						{ text_before_region =>  text + (string::repeat(" ", col1-screencols)),				# Region lies entirely beyond actual end of line in input string.
+						  text_within_cursr1 =>  " ",									#
+						  text_within_region =>  "",									#
+						  text_within_cursr2 =>  "",									#
+						  text_beyond_region =>  ""									#
+						};
+# nb {. sprintf "default_redraw_fn/DDD1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_END											# We treat this identically to above.
+						=>
+{
+# nb {. sprintf "default_redraw_fn/EEE0"; };
+result =
+						{ text_before_region =>  text + (string::repeat(" ", col1-screencols)),				# Region lies entirely beyond actual end of line in input string.
+						  text_within_cursr1 =>  " ",									#
+						  text_within_region =>  "",									#
+						  text_within_cursr2 =>  "",									#
+						  text_beyond_region =>  ""									#
+						};
+# nb {. sprintf "default_redraw_fn/EEE1"; };
+result;
+};
+					esac;
+ 				    else													# Region lies entirely within input string.
+					case state.cursor_at
+					    #
+					    p2l::NO_CURSOR
+						=>
+{
+# nb {. sprintf "default_redraw_fn/FFF0"; };
+result =
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  "",
+						  text_within_region =>  string::extract   (text, screencol1_byteoffset_in_output,  NULL)	except INDEX_OUT_OF_BOUNDS = "",
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""									#
+						};
+# nb {. sprintf "default_redraw_fn/FFF1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_START
+						=>
+{
+# nb {. sprintf "default_redraw_fn/GGG0"; };
+result =
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  string::substring (text, screencol1_byteoffset_in_output,  screencol1_bytecount_in_output)	except INDEX_OUT_OF_BOUNDS = "",
+						  text_within_region =>  string::extract   (text, screencol1_byteoffset_in_output+screencol1_bytecount_in_output, NULL)	except INDEX_OUT_OF_BOUNDS = "",
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""									#
+						};
+# nb {. sprintf "default_redraw_fn/GGG1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_END											# We treat this identically to above.
+						=>
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  "",
+						  text_within_region =>  string::substring (text, screencol1_byteoffset_in_output,  screencol2_byteoffset_in_output-screencol1_byteoffset_in_output)	except INDEX_OUT_OF_BOUNDS = "",
+						  text_within_cursr2 =>  string::substring (text, screencol2_byteoffset_in_output,  screencol2_bytecount_in_output)	except INDEX_OUT_OF_BOUNDS = "",
+						  text_beyond_region =>  ""									#
+						};
+					esac;
 				    fi;
 
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, FALSE);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, TRUE );
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, FALSE);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr1, text_box, CURSOR_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, REGION_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
 
 				(displaylist, text_indent);
 			    };
 
-			THE (col1, THE col2)												# We are given both start and end screeen columns for the region.
+			THE (col1, THE col2)													# We are given both start and end screeen columns for the region.
 			    =>
 			    {
 # nb {. sprintf "default_redraw_fn/%s: THE (col1=%d, THE col2=%d) case" a.doc col1 col2; };   
@@ -645,50 +755,188 @@ herein
 				  {
 				    text => state.text,
 				    col => 0,
-				    querycol1 => col1,
-				    querycol2 => col2
+				    screencol1 => col1,
+				    screencol2 => col2
 				  })
 				  ->
 				  { text,
 				    col,
 				    #
-				    col1_byteoffset_in_output,
-				    col1_bytecount_in_output,
+				    screencol1_byteoffset_in_output,
+				    screencol1_bytecount_in_output,
 				    #
-				    col2_byteoffset_in_output,
-				    col2_bytecount_in_output,
+				    screencol2_byteoffset_in_output,
+				    screencol2_bytecount_in_output,
 				    ...
 				  };
 
- 				textlen = string::length_in_chars  text;
+ 				screencols = string::length_in_chars  text;
 																	# NB: 'region' is just the cursor, if mark isn't set.
 				my  { text_before_region,										# Our game here is to show the region in reverse video.
+				      text_within_cursr1,	
 				      text_within_region,										# This is complicated by three details:
+				      text_within_cursr2,	
 				      text_beyond_region										#  1. UTF-8 chars occupy one screen column but 1-6 bytes in string.
 				    }													#  2. Control chars occupy one byte in input string but two screen columns ("^A" etc)  and two bytes in output string.
 				    =													#  3. Tabs          occupy one byte in input string but 1-8 screen columns (as blanks) and 1-8 bytes in output string.
-				    if (col1 >= textlen)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
+				    if (col1 >= screencols)										# In the latter two cases this means we are showing more than one visible char in reverse video, even though it represents a single byte in input string.
 					#
-					{ text_before_region =>  text + (string::repeat(" ", col1-textlen   )),				# Region lies entirely beyond actual end of line in input string.
-					  text_within_region =>         (string::repeat(" ", (col2-col1) + 1)),				# 
-					  text_beyond_region =>  ""									#
-					};
- 				    elif (col2 >= textlen)										# Region starts within input string but extends beyond actual end of line in input string.
+					case state.cursor_at
+					    #
+					    p2l::NO_CURSOR
+						=>
+{
+# nb {. sprintf "default_redraw_fn/HHH0"; };
+result =
+						{ text_before_region =>  text + (string::repeat(" ", col1-screencols   )),		# Region lies entirely beyond actual end of line in input string.
+						  text_within_cursr1 =>  "",
+						  text_within_region =>         (string::repeat(" ", (col2-col1) + 1)),			# 
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""								#
+						};
+# nb {. sprintf "default_redraw_fn/HHH1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_START
+						=>
+{
+# nb {. sprintf "default_redraw_fn/III0"; };
+result =
+						{ text_before_region =>   string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>   string::substring (text, screencol1_byteoffset_in_output,  screencol1_bytecount_in_output),
+						  text_within_region =>   string::extract   (text, screencol1_byteoffset_in_output+screencol1_bytecount_in_output,  NULL) + (string::repeat(" ", (col2-screencols) + 1)),
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""
+						};
+# nb {. sprintf "default_redraw_fn/III1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_END										# 
+						=>
+{
+# nb {. sprintf "default_redraw_fn/JJJ0"; };
+result =
+						{ text_before_region =>   string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>   "",
+						  text_within_region =>   string::substring (text, screencol1_byteoffset_in_output,  screencol2_byteoffset_in_output - screencol1_byteoffset_in_output),
+						  text_within_cursr2 =>   string::extract   (text, screencol2_byteoffset_in_output,  NULL) + (string::repeat(" ", (col2-screencols) + 1)),
+						  text_beyond_region =>  ""
+						};
+# nb {. sprintf "default_redraw_fn/JJJ1"; };
+result;
+};
+					esac;
+
+ 				    elif (col2 >= screencols)										# Region starts within input string but extends beyond actual end of line in input string.
 					#
-					{ text_before_region =>   string::substring (text, 0,  col1_byteoffset_in_output),
-					  text_within_region =>  (string::extract  (text, col1_byteoffset_in_output,  NULL)) + (string::repeat(" ", (col2-textlen) + 1)),
-					  text_beyond_region =>  ""
-					};
+					case state.cursor_at
+					    #
+					    p2l::NO_CURSOR
+						=>
+{
+# nb {. sprintf "default_redraw_fn/KKK0"; };
+result =
+						{ text_before_region =>   string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  "",
+						  text_within_region =>  (string::extract  (text, screencol1_byteoffset_in_output,  NULL)) + (string::repeat(" ", (col2-screencols) + 1)),
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""
+						};
+# nb {. sprintf "default_redraw_fn/KKK1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_START
+						=>
+{
+# nb {. sprintf "default_redraw_fn/LLL0"; };
+result =
+						{ text_before_region =>   string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>   string::substring (text, screencol1_byteoffset_in_output,  screencol1_bytecount_in_output),
+						  text_within_region =>   string::extract  (text, screencol1_byteoffset_in_output+screencol1_bytecount_in_output,  NULL) + (string::repeat(" ", (col2-screencols) + 1)),
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  ""
+						};
+# nb {. sprintf "default_redraw_fn/LLL1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_END										# 
+						=>
+{
+# nb {. sprintf "default_redraw_fn/MMM0"; };
+result =
+						{ text_before_region =>   string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>   "",
+						  text_within_region =>   string::substring (text, screencol1_byteoffset_in_output,  screencol2_byteoffset_in_output - screencol1_byteoffset_in_output),
+						  text_within_cursr2 =>   string::extract   (text, screencol2_byteoffset_in_output,  NULL) + (string::repeat(" ", (col2-screencols) + 1)),
+						  text_beyond_region =>  ""
+						};
+# nb {. sprintf "default_redraw_fn/MMM1"; };
+result;
+};
+					esac;
  				    else												# Region lies entirely within input string.
-					{ text_before_region =>  string::substring (text, 0			                              ,  col1_byteoffset_in_output),
-					  text_within_region =>  string::substring (text, col1_byteoffset_in_output                           ,  (col2_byteoffset_in_output + col2_bytecount_in_output) - col1_byteoffset_in_output),
-					  text_beyond_region =>  string::extract   (text, col2_byteoffset_in_output + col2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
-					};
+					case state.cursor_at
+					    #
+					    p2l::NO_CURSOR
+						=>
+{
+# nb {. sprintf "default_redraw_fn/NNN0"; };
+result =
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  "",
+						  text_within_region =>  string::substring (text, screencol1_byteoffset_in_output,  (screencol2_byteoffset_in_output + screencol2_bytecount_in_output) - screencol1_byteoffset_in_output),
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  string::extract   (text, screencol2_byteoffset_in_output + screencol2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
+						};
+# nb {. sprintf "default_redraw_fn/NNN1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_START
+						=>
+{
+# nb {. sprintf "default_redraw_fn/OOO0"; };
+result =
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  string::substring (text, screencol1_byteoffset_in_output,  screencol1_bytecount_in_output),
+						  text_within_region =>  string::substring (text, screencol1_byteoffset_in_output + screencol1_bytecount_in_output,  (screencol2_byteoffset_in_output + screencol2_bytecount_in_output) - (screencol1_byteoffset_in_output + screencol1_bytecount_in_output)),
+						  text_within_cursr2 =>  "",
+						  text_beyond_region =>  string::extract   (text, screencol2_byteoffset_in_output + screencol2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
+						};
+# nb {. sprintf "default_redraw_fn/OOO1"; };
+result;
+};
+
+					    p2l::CURSOR_AT_END										# 
+						=>
+{
+# nb {. sprintf "default_redraw_fn/PPP0  screencol1_byteoffset_in_output=%d screencol1_bytecount_in_output=%d  screencol2_byteoffset_in_output=%d screencol2_bytecount_in_output=%d"  screencol1_byteoffset_in_output screencol1_bytecount_in_output  screencol2_byteoffset_in_output screencol2_bytecount_in_output; };
+# text_before_region =  string::substring (text, 0,  screencol1_byteoffset_in_output);
+# text_within_region =  string::substring (text, screencol1_byteoffset_in_output,  screencol2_byteoffset_in_output - screencol1_bytecount_in_output);
+# text_within_cursr2 =  string::substring (text, screencol2_byteoffset_in_output,  screencol2_bytecount_in_output);
+# text_beyond_region =  string::extract   (text, screencol2_byteoffset_in_output + screencol2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = "";
+result =
+						{ text_before_region =>  string::substring (text, 0,  screencol1_byteoffset_in_output),
+						  text_within_cursr1 =>  "",
+						  text_within_region =>  string::substring (text, screencol1_byteoffset_in_output,  screencol2_byteoffset_in_output - screencol1_byteoffset_in_output),
+						  text_within_cursr2 =>  string::substring (text, screencol2_byteoffset_in_output,  screencol2_bytecount_in_output),
+						  text_beyond_region =>  string::extract   (text, screencol2_byteoffset_in_output + screencol2_bytecount_in_output,  NULL	                )	except INDEX_OUT_OF_BOUNDS = ""
+						};
+# nb {. sprintf "default_redraw_fn/PPP1 text_before_region='%s'  text_within_region='%s'  text_within_cursr2='%s'  text_beyond_region='%s'" text_before_region text_within_region text_within_cursr2 text_beyond_region; };
+result;
+};
+					esac;
 				    fi;
 
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, FALSE);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, TRUE );
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, FALSE);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr1, text_box, CURSOR_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, REGION_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
+ 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
 
 				(displaylist, text_indent);
 			    };
@@ -699,8 +947,8 @@ herein
 				  {
 				    text => state.text,
 				    col => 0,
-				    querycol1 => 0,
-				    querycol2 => 0
+				    screencol1 => 0,
+				    screencol2 => 0
 				  })
 				  ->
 				  { text,
@@ -708,9 +956,9 @@ herein
 				    ...
 				  };
 
- 				textlen = string::length_in_chars  text;
+ 				screencols = string::length_in_chars  text;
 
-				append_text_to_displaylist (displaylist, text_indent, text, text_box, FALSE);
+				append_text_to_displaylist (displaylist, text_indent, text, text_box, NORMAL_TEXT);
 			    };
 		    esac;
 
@@ -750,7 +998,6 @@ herein
 		#
 		default_mouse_click_fn:		Mouse_Click_Fn,
 		#
-		cursor_on:			Ref(Bool),						# Tracks whether blinking cursor is currently in/visible.
 		state:				Ref(p2l::Linestate),
 		#
 		notify_statewatchers:		Void -> Void,						# 
@@ -832,10 +1079,9 @@ herein
 		lineeditor_to_textpane__global	=  REF (NULL:  Null_Or(l2p::Lineeditor_To_Textpane));
 		widget_to_guiboss__global	=  REF (NULL:  Null_Or( { widget_to_guiboss: gt::Widget_To_Guiboss, lineeditor_id: iuw::Id }));
 
-		cursoronref	= REF TRUE;									# Tracks whether blinking cursor is currently in/visible.
-
-		stateref	= REF { selected =>  NULL,							# Part of line to show in reverse video -- cursor and/or selected region.
-					text	 =>  ""
+		stateref	= REF { selected  =>  NULL,							# Part of line to show with (typically) greenish background -- selected region.	(Part may be overwritten by the cursor.)
+					cursor_at =>  p2l::NO_CURSOR,						# Does cursor appear at start or end of 'selected' part -- or neither?
+					text	  =>  ""
 				      };
 		
 		bogus_site
@@ -1246,7 +1492,6 @@ herein
 				#
 				default_redraw_fn,	
 				#
-				cursor_on => *cursoronref,
 				state	  => *stateref,
 
 				fonts,
@@ -1308,7 +1553,6 @@ herein
 				default_mouse_click_fn,
 				#
 				state	  =>  stateref,								# We don't pass the refcell here because we want client code to make state changes via note_state(), which will properly notify all state-watchers.
-				cursor_on =>  cursoronref,
 				#
 				notify_statewatchers,
 				needs_redraw_gadget_request
@@ -1364,7 +1608,6 @@ herein
 				default_mouse_drag_fn =>  \\ _ = (),						# Default drag behavior for buttons is to do absolutely nothing.
 				#
 				state	  =>  stateref,								# We don't pass the refcell here because we want client code to make state changes via note_state(), which will properly notify all state-watchers.
-				cursor_on =>  cursoronref,
 				#
 				notify_statewatchers,
 				needs_redraw_gadget_request
@@ -1418,7 +1661,6 @@ herein
 				default_mouse_transit_fn,							# 
 				#
 				state	  =>  stateref,								# We don't pass the refcell here because we want client code to make state changes via note_state(), which will properly notify all state-watchers.
-				cursor_on =>  cursoronref,
 				#
 				notify_statewatchers,
 				needs_redraw_gadget_request
@@ -1482,7 +1724,6 @@ herein
 					    default_key_event_fn,
 					    #
 					    state	  =>  stateref,						# We don't pass the refcell here because we want client code to make state changes via note_state(), which will properly notify all state-watchers.
-					    cursor_on =>  cursoronref,
 					    #
 					    notify_statewatchers,
 					    needs_redraw_gadget_request,
