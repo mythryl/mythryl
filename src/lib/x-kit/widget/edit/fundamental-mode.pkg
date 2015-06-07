@@ -166,7 +166,7 @@ herein
 				  };
 			point -> { row, col };
 
-			row = (row > 1) ?? row - 1 :: row;
+			row = (row > 0) ?? row - 1 :: row;
 
 			point =  { row, col };
 
@@ -378,7 +378,6 @@ herein
 			    ...
 			  };
 
-# nb {. sprintf "move_end_of_line/QQQ: Changing POINT from { row=>%d, col=%d } to { row=>%d, col=>%d }                   -- fundamental-mode.pkg" row col row screentext_length_in_screencols; };
 			point =  { row, col => screentext_length_in_screencols };
 
 			THE [ mj::POINT point ];
@@ -834,7 +833,7 @@ herein
 
 			case (get_cutbuffer_contents())
 			    #
-			    ct::PARTLINE  text_to_insert									# 
+			    ct::PARTLINE  text_to_insert									# Used for vanilla cut operations confined to a single line.
 				=>
 				{
 				    line_key = point.row;									# Internally lines are numbered 0->(N-1) (but we display them to user as 1-N).
@@ -911,7 +910,7 @@ herein
 					  ];
 				};
 
-			    ct::WHOLELINE string									# Now insert the new line.
+			    ct::WHOLELINE string											# Used for special cut operations which cut complete lines even if point (cursor) is in middle of line.
 				=>
 				{   updated_textlines
 					=
@@ -920,9 +919,112 @@ herein
 				    THE   [ mj::TEXTLINES updated_textlines ];
 				};
 
-			    ct::MULTILINE strings									# Not yet supported. XXX SUCKO FIXME
+			    ct::MULTILINE strings											# Used for vanilla cut operations which happen to span more than one line.
 				=>
-				NULL;
+				{
+				    line_key = point.row;										# Internally lines are numbered 0->(N-1) (but we display them to user as 1-N).
+
+				    text =  case (nl::find (textlines, line_key))
+						#
+						THE line => line;
+						NULL     => "\n";
+					    esac;
+
+				    chomped_text =  string::chomp  text;
+
+				    (string::expand_tabs_and_control_chars
+				      {
+					utf8text	=>  chomped_text,
+					startcol	=>  0,
+					screencol1	=>  point.col,
+					screencol2	=>  0
+				      })
+				      ->
+				      { screencol1_byteoffset_in_utf8text:	Int,
+					...
+				      };
+
+				    textlen = string::length_in_chars  chomped_text;							# This logic is cut-and-pasted from default_redraw_fn in lineeditor.pkg -- possibly it should be shared via some package.
+																	# 
+				    my  { text_before_point,										# 
+					  text_beyond_point										# 
+					}												#
+					=												#
+					if (point.col >= textlen)									#
+					    #
+					    { text_before_point =>  chomped_text + (string::repeat(" ", point.col-textlen   )),		# 
+					      text_beyond_point =>  ""
+					    };
+					else												# Region lies entirely within input string.
+
+					    { text_before_point =>  string::substring (chomped_text, 0			      ,  screencol1_byteoffset_in_utf8text),
+					      text_beyond_point =>  string::extract   (chomped_text, screencol1_byteoffset_in_utf8text,  NULL	                 )	except INDEX_OUT_OF_BOUNDS = ""
+					    };
+					fi;
+
+				    my (firstline, remaininglines)
+					=
+					case strings
+					    #
+					    (firstline ! remaininglines) => (firstline, reverse remaininglines);
+					    []				 => raise exception FAIL "impossible";				# We never generate a ct::MULTILINE containing less than two lines.
+					esac;
+
+				    updated_firstline = text_before_point + firstline;
+
+
+				    my (lastline, remaininglines)
+					=
+					case remaininglines
+					    #
+					    (lastline ! remaininglines) => (lastline, remaininglines);
+					    []				=> raise exception FAIL "impossible";				# We never generate a ct::MULTILINE containing less than two lines.
+					esac;
+
+				    updated_textlines											# Drop existing firstline, which will be replaced by updated_firstline.
+					=
+					{   (nl::remove (textlines, line_key))
+						->
+						(updated_textlines, oldline);
+
+					    updated_textlines;
+					};
+
+				    updated_lastline
+					=
+					lastline + text_beyond_point + (chomped_text == text ?? "" :: "\n");
+
+
+				    updated_textlines
+					=
+					nl::set (updated_textlines, line_key, updated_lastline);
+
+				    updated_textlines
+					=
+					loop (remaininglines, updated_textlines)							# 
+					where
+					    fun loop ([], updated_textlines)
+						    =>
+						    updated_textlines;
+
+						loop (thisline ! remaininglines,  updated_textlines)
+						    =>
+						    loop (remaininglines,  nl::set (updated_textlines, line_key, thisline));
+					    end;
+					end;
+
+				    updated_textlines
+					=
+					nl::set (updated_textlines, line_key, updated_firstline);
+
+				    THE   [ mj::TEXTLINES updated_textlines,
+					    mj::MARK      NULL,
+					    mj::LASTMARK (THE point),
+					    mj::POINT     { col => point.col,
+							    row => point.row + (list::length strings) - 1
+							  }
+					  ];
+				};
 			esac;
 		    };
 		yank__editfn
