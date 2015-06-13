@@ -130,7 +130,8 @@ herein
 	Mouse_Click_Fn_Arg
 	    =
 	    MOUSE_CLICK_FN_ARG							# Needs to be a sumtype because of recursive reference in default_mouse_click_fn.
-	      { id:				iuw::Id,			# Unique id.
+	      {
+		id:				iuw::Id,			# Unique id.
 		doc:				String,
 		event:				gt::Mousebutton_Event,		# MOUSEBUTTON_PRESS or MOUSEBUTTON_RELEASE.
 		button:				evt::Mousebutton,		# Which mousebutton was pressed/released.
@@ -374,6 +375,7 @@ herein
 	    mark:			Ref( Null_Or( g2d::Point ) ),
 	    lastmark:			Ref( Null_Or( g2d::Point ) ),
 	    #
+	    line_prefix:		Ref( String ),									# Prefix to show at start of each screenline.  Main motivation is to support minibuffer prompts.
 	    minibuffer_screenlines:	Null_Or( Ref( im::Map( p2l::Textpane_To_Screenline ) ) )
 	  };
 
@@ -434,8 +436,9 @@ herein
 		    #
 		    point	    =>  REF ({ row => 0, col => 0 }:		   g2d::Point),					# Location of visible cursor in textbuffer.  Upperleft origin is { row => 0, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
 		    mark	    =>  REF (NULL:		           Null_Or(g2d::Point)),				# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'point' delimit the current text selection in the buffer.
-		    lastmark	    =>  REF (NULL:		           Null_Or(g2d::Point)),				# When we set mark__global to NULL we save its previous value in lastmark__global.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+		    lastmark	    =>  REF (NULL:		           Null_Or(g2d::Point)),				# When we set 'mark' field to NULL we save its previous value in 'lastmark' field.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 		    #
+		    line_prefix	    =>  REF "",
 		    minibuffer_screenlines => NULL
 		  };
 
@@ -1093,6 +1096,7 @@ get_text_dimensions "foo";
 			      mark	      =>  REF (NULL:			 Null_Or(g2d::Point)),		# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'point' delimit the current text selection in the buffer.
 			      lastmark	      =>  REF (NULL:			 Null_Or(g2d::Point)),		# When we set mark__global to NULL we save its previous value in lastmark__global.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 			      #
+			      line_prefix	     =>  REF "",
 			      minibuffer_screenlines =>  THE minibuffer__global.screenlines			# Note that we're sharing the minibuffer__global.screenlines refcell here.
 			    }
 			    where
@@ -1159,7 +1163,8 @@ get_text_dimensions "foo";
 				    point_changed:	Bool,		point:		g2d::Point,
 				    mark_changed:	Bool,		mark:		Null_Or(g2d::Point),
 				    lastmark_changed:	Bool,		lastmark:	Null_Or(g2d::Point),
-				    editfn_failed:	Bool,		quit:		Bool
+				    done:		Bool,		quit:		Bool,
+				    editfn_failed:	Bool
 				  };
 
 				fun parse_editfn_out (editfn_out: mj::Editfn_Out)
@@ -1170,7 +1175,8 @@ get_text_dimensions "foo";
 					      point_changed	=> FALSE,	point	  => *ps.point,
 					      mark_changed	=> FALSE,	mark	  => *ps.mark,
 					      lastmark_changed	=> FALSE,	lastmark  => *ps.lastmark,
-					      editfn_failed	=> TRUE,	quit	  => FALSE
+					      done		=> FALSE,	quit	  => FALSE,
+					      editfn_failed	=> TRUE
 					    };
 
 					case editfn_out
@@ -1199,6 +1205,7 @@ get_text_dimensions "foo";
 						my_lastmark_changed	= REF r.lastmark_changed;
 						#
 						my_quit			= REF r.quit;
+						my_done			= REF r.done;
 
 						apply do_option options
 						where
@@ -1207,6 +1214,7 @@ get_text_dimensions "foo";
 							do_option (mj::MARK      mark	  ) =>	{ my_mark      := mark;		my_mark_changed      := TRUE;	};
 							do_option (mj::LASTMARK  lastmark ) =>	{ my_lastmark  := lastmark;	my_lastmark_changed  := TRUE;	};
 							do_option (mj::QUIT		  ) =>  { my_quit      := TRUE;						};
+							do_option (mj::DONE		  ) =>  { my_done      := TRUE;						};
 						    end;	
 						end;
 
@@ -1223,6 +1231,7 @@ get_text_dimensions "foo";
 						  lastmark_changed	=> *my_lastmark_changed,
 
 						  quit			=> *my_quit,
+						  done			=> *my_done,
 
 						  editfn_failed		=> FALSE
 						};
@@ -1261,7 +1270,8 @@ get_text_dimensions "foo";
 						      mark_changed,      mark,
 						      lastmark_changed,  lastmark,
 						      #	
-						      editfn_failed,	 quit
+						      done,		 quit,
+						      editfn_failed
 						    };
 
 # nb {. sprintf "do_edit/CCC point_changed=%B point=%s editfn_failed=%B quit=%B -- textpane.pkg" point_changed (g2j::point_to_string point) editfn_failed quit; };
@@ -1294,6 +1304,13 @@ get_text_dimensions "foo";
 						    if quit								# Implement keyboard_quit (usually bound to C-g) functionality.
 							#
 							();
+						    fi;
+
+						    if done
+nb {. sprintf "do_edit/GGG/done resetting modeline display now that minibuffer is done  -- textpane.pkg"; };
+# XXX SUCKO FIXME Here we need to actually make use of minibuffer contents.
+							prompting__global := NULL;
+							refresh_screenlines ps;
 						    fi;
 
 						    if (mark_changed							# NB: Changing lastmark will have no visible effect on screenline display.
@@ -1402,8 +1419,10 @@ nb {. sprintf "screenline__key_event_fn/BBB prompting_global is NOT NULL:   -- t
 							#
 							mj::EDITFN (mj::PLAIN_EDITFN  node)
 							    =>
-							    {
-if (node.args != [])
+							    if (node.args == [])
+								#
+								do_edit  (node.editfn, keystring, ps);
+							    else
 nb {. sprintf "node %s ('%s') has %d args to prompt for.   -- textpane.pkg"  node.name  node.doc  (list::length node.args); };
 
 # 		Editfn_Prompting_In_Progress
@@ -1417,21 +1436,37 @@ nb {. sprintf "node %s ('%s') has %d args to prompt for.   -- textpane.pkg"  nod
 # 		    =											# When this is non-NULL  we send keystrokes to minibuffer__global to edit its contents -- a string being read interactively from user as an argument for an editfn.
 # 		    REF (NULL: Null_Or( Editfn_Prompting_In_Progress ));	
 
-	editfn_prompting_in_progress
-	  =
-	  { promptingfor =>  REF  (head node.args),
-	    to_promptfor =>  REF  (tail node.args),
-	    prompted_for =>  REF  [],
-	    editfn	 =>  mj::PLAIN_EDITFN  node
-	  };
 
-	prompting__global
-	    :=
-	    THE editfn_prompting_in_progress;
-else
-								do_edit  (node.editfn, keystring, ps);
-fi;
-							    };
+								this_arg       =  head  node.args;
+								remaining_args =  tail  node.args;
+
+								prompt =    case this_arg
+										#
+										mj::STRING { prompt, doc }
+										    =>
+										    prompt;
+									    esac;
+
+								mb = minibuffer__global;
+
+								mb.textpane_to_textbuffer.set_lines [ "\n" ];		# Clear minibuffer out so we can read new string into it interactively.
+
+								mb.line_prefix := prompt + ":  ";
+
+								editfn_prompting_in_progress
+								  =
+								  { promptingfor =>  REF  this_arg,
+								    to_promptfor =>  REF  remaining_args,
+								    prompted_for =>  REF  [],
+								    editfn	 =>  mj::PLAIN_EDITFN  node
+								  };
+
+								prompting__global
+								    :=
+								    THE editfn_prompting_in_progress;
+
+								refresh_screenlines mb;
+							    fi;
 
 							mj::EDITFN (mj::FANCY_EDITFN  /* node */)
 							    =>
