@@ -58,6 +58,7 @@ stipulate
     package le  =  screenline;							# screenline			is from   src/lib/x-kit/widget/edit/screenline.pkg
     package tbi =  textbuffer_imp;						# textbuffer_imp		is from   src/lib/x-kit/widget/edit/textbuffer-imp.pkg
     package t2t =  textpane_to_textbuffer;					# textpane_to_textbuffer	is from   src/lib/x-kit/widget/edit/textpane-to-textbuffer.pkg
+    package psx =  posixlib;							# posixlib			is from   src/lib/std/src/psx/posixlib.pkg
 
     package nl  =  red_black_numbered_list;					# red_black_numbered_list	is from   src/lib/src/red-black-numbered-list.pkg
     package im  =  int_red_black_map;						# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
@@ -493,7 +494,7 @@ herein
 		  { promptingfor:	Ref        mj::Promptfor,					# The editfn arg which we're currently prompting user to supply interactively via modeline minibuffer.
 		    to_promptfor:	Ref( List( mj::Promptfor    ) ),				# Remaining editfn args to prompt user for once above one is completely read.
 		    prompted_for:	Ref( List( mj::Prompted_Arg ) ),				# The editfn args which we've already read from user via modeline minibuffer.
-		    editfn:		 	   mj::Editfn_Node					# The editfn to call with the above args, once they are all read.
+		    editfn_node:	 	   mj::Editfn_Node					# The editfn to call with the above args, once they are all read.
 		  };
 		prompting__global									# This is normally NULL: we send keystrokes to textbuffer__global to edit its contents.
 		    =											# When this is non-NULL  we send keystrokes to minibuffer__global to edit its contents -- a string being read interactively from user as an argument for an editfn.
@@ -686,7 +687,7 @@ herein
 						      =
 						      { cursor_at,
 							selected,
-							text	  =>  string::chomp line,	# Chomp it because screenline.com doesn't want the terminating newline (if any).
+							text	  =>  string::chomp line,	# Chomp it because screenline.pkg doesn't want the terminating newline (if any).
 							prompt	  => *ps.line_prefix
 						      };	
 
@@ -1237,22 +1238,83 @@ get_text_dimensions "foo";
 					    };
 				    end;
 
+
+				fun set_up_to_read_interactive_arg_from_minibuffer
+				      (
+					editfn_node:		mj::Editfn_Node,
+					this_arg:		mj::Promptfor,
+					remaining_args:	  List(	mj::Promptfor ),
+					read_so_far:	  List( mj::Prompted_Arg )
+				      )
+				    =
+				    {
+					my (prompt, minibuffer_seed)				# Prompt to display (uneditable) and initial minibuffer contents (editable).
+					    =
+					    case this_arg
+						#
+						mj::STRING { prompt, doc }
+						    =>
+						    (prompt, "");
+
+						mj::FILENAME { prompt, doc }
+						    =>
+						    {	cwd = psx::current_directory ();	# Returns something like  "/mythryl7/mythryl7.110.58/mythryl7.110.58".
+							#
+							(prompt, cwd + "/");
+						    };
+					    esac;
+
+					mb = minibuffer__global;
+
+					mb.line_prefix	:=  prompt + ":  ";
+
+					mb.point						# Set minibuffer cursor at end of text seeded into minibuffer.
+					  :=
+					  {
+					    row =>  0,
+					    col =>  string::length_in_chars  minibuffer_seed
+					  };
+
+					mb.textpane_to_textbuffer.set_lines
+					  [
+					    minibuffer_seed
+					  ];
+
+					editfn_prompting_in_progress
+					  =
+					  { promptingfor =>  REF  this_arg,
+					    to_promptfor =>  REF  remaining_args,
+					    prompted_for =>  REF  read_so_far,
+					    editfn_node
+					  };
+
+					prompting__global
+					    :=
+					    THE editfn_prompting_in_progress;
+
+					refresh_screenlines mb;
+				    };
+
+
 				fun do_edit
 				      (
-					editfn:		mj::Editfn_In -> mj::Editfn_Out,
+					editfn_node:	mj::Editfn_Node,
+#					editfn:		mj::Editfn_In -> mj::Editfn_Out,
 					keystring:	String,								# User keystroke that invoked this editfn.
-					ps:		Panestate
+					ps:		Panestate,
+					prompted_args:	List( mj::Prompted_Arg )
 				      )
 				    =
 				    {   t2t = ps.textpane_to_textbuffer;
-
+					#
 					point_and_mark  = { point => *ps.point,
 							    mark  => *ps.mark
 							  };
 					lastmark	= *ps.lastmark;
 					log_undo_info   = FALSE;
 
-					editfn_in =   { editfn,
+					editfn_in =   { editfn_node,
+							prompted_args,
 							point_and_mark,
 							lastmark,
 							widget_to_guiboss,
@@ -1304,9 +1366,51 @@ get_text_dimensions "foo";
 						    fi;
 
 						    if done
-nb {. sprintf "do_edit/GGG/done resetting modeline display now that minibuffer is done  -- textpane.pkg"; };
-# XXX SUCKO FIXME Here we need to actually make use of minibuffer contents.
+							#
+							string_arg
+							    =
+							    case (minibuffer__global.textpane_to_textbuffer.get_line 0)
+								#
+								THE filename => filename;
+								NULL	     =>	"foo";					# Shouldn't happen.
+							    esac;
+
+							case *prompting__global
+							    #
+							    THE p =>
+								{   p.prompted_for
+									:=
+									(mj::STRING_ARG string_arg)
+									!
+									*p.prompted_for;
+								
+								    case *p.to_promptfor
+									#
+									[] =>   {   prompting__global := NULL;		# No more args to prompt for -- time to pass accumulated prompted args to the editfn.
+										    #
+										    refresh_screenlines  *textbuffer__global;			# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minibuffer display used to read our string.
+
+										    prompted_args =  reverse  *p.prompted_for;
+
+										    do_edit (p.editfn_node, keystring, ps, prompted_args);
+										};
+
+									this_arg ! remaining_args
+									    =>
+									    set_up_to_read_interactive_arg_from_minibuffer
+									      (
+										p.editfn_node,
+										this_arg,
+										remaining_args,
+										*p.prompted_for
+									      );
+								    esac;
+								};
+							    NULL => ();							# We're not expecting this to happen -- 'done' should only be set if we're reading prompted args from user by setting *prompting__global non-NULL.
+							esac;
+
 							prompting__global := NULL;
+
 							refresh_screenlines  *textbuffer__global;			# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minibuffer display used to read our string.
 						    else
 
@@ -1404,13 +1508,12 @@ nb {. sprintf "do_edit/GGG/done resetting modeline display now that minibuffer i
 						    =>
 						    case editfn
 							#
-							mj::EDITFN (mj::PLAIN_EDITFN  node)
+							mj::EDITFN (editfn_node  as  mj::PLAIN_EDITFN node)
 							    =>
 							    if (node.args == [])
 								#
-								do_edit  (node.editfn, keystring, ps);
+								do_edit  (editfn_node, keystring, ps, []);
 							    else
-nb {. sprintf "node %s ('%s') has %d args to prompt for.   -- textpane.pkg"  node.name  node.doc  (list::length node.args); };
 
 # 		Editfn_Prompting_In_Progress
 # 		  =
@@ -1427,32 +1530,13 @@ nb {. sprintf "node %s ('%s') has %d args to prompt for.   -- textpane.pkg"  nod
 								this_arg       =  head  node.args;
 								remaining_args =  tail  node.args;
 
-								prompt =    case this_arg
-										#
-										mj::STRING { prompt, doc }
-										    =>
-										    prompt;
-									    esac;
-
-								mb = minibuffer__global;
-
-								mb.textpane_to_textbuffer.set_lines [ "\n" ];		# Clear minibuffer out so we can read new string into it interactively.
-
-								mb.line_prefix := prompt + ":  ";
-
-								editfn_prompting_in_progress
-								  =
-								  { promptingfor =>  REF  this_arg,
-								    to_promptfor =>  REF  remaining_args,
-								    prompted_for =>  REF  [],
-								    editfn	 =>  mj::PLAIN_EDITFN  node
-								  };
-
-								prompting__global
-								    :=
-								    THE editfn_prompting_in_progress;
-
-								refresh_screenlines mb;
+								set_up_to_read_interactive_arg_from_minibuffer
+								  (
+								    editfn_node,
+								    this_arg,
+								    remaining_args,
+								    []
+								  );
 							    fi;
 
 							mj::EDITFN (mj::FANCY_EDITFN  /* node */)
