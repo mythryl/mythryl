@@ -141,6 +141,7 @@ herein
 	    textpane_to_textbuffer:		t2t::Textpane_To_Textbuffer,
 	    #
 	    buffername:				Ref(String),
+	    filename:				Ref(Null_Or(String)),
 	    end_gun':				End_Gun
 	  };
 
@@ -181,6 +182,7 @@ herein
 	  {
 	    textbuffers_by_name:		Ref( sm::Map( Textbuffer_Info ) ),					# All currently active textbuffers, by name.
 	    textbuffers_by_id:			Ref( im::Map( Textbuffer_Info ) ),					# All currently active textbuffers, by id.
+	    textbuffers_by_filename:		Ref( sm::Map( Textbuffer_Info ) ),					# All currently active textbuffers WHICH ARE OPEN ON A FILE, by filename.
 	    textedits_by_id:			Ref( im::Map( Textedit_Info   ) )					# All currently active textedits,   by id.
 	  };
 
@@ -266,7 +268,9 @@ herein
 		gadget_to_editboss
 		  =
 		  { id,
+		    get_textbuffer,
 		    get_or_make_textbuffer,
+		    get_or_make_filebuffer,
 		    #
 		    get_cutbuffer_contents,
 		    set_cutbuffer_contents,
@@ -771,13 +775,60 @@ herein
 			);
 		end;
 
+		fun uniquify_buffername											# Convert "foo" into "foo<1>" or "foo<2>" or such in order to avoid conflicting with any existing buffername.
+		      (
+			me:		Editboss_State,
+			buffername:	String
+		      )
+		    :			String
+		    =
+		    case (sm::get (*me.textbuffers_by_name, buffername))
+			#
+			NULL => buffername;										# Buffername is already unique.
+
+			THE _ =>
+			    uniquify_buffername' 0
+			    where
+				fun uniquify_buffername' (i: Int)
+				    =
+				    {   buffername' = sprintf "%s<%d>" buffername i;
+					#
+					case (sm::get (*me.textbuffers_by_name, buffername'))
+					    #
+					    NULL  =>  buffername';							# Modified buffername is now unique.
+					    THE _ =>  uniquify_buffername' (i + 1);					# Modified buffername already exists, try one number higher.
+					esac;
+				    };
+			    end;
+		    esac;
+
+
+
+		fun get_textbuffer   (buffername: String)
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or( t2t::Textpane_To_Textbuffer ) );
+			#
+			put_in_mailqueue  (editboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				case (sm::get (*me.textbuffers_by_name, buffername))
+				    #
+				    THE textbuffer_info =>  put_in_oneshot (reply_oneshot, THE textbuffer_info.textpane_to_textbuffer);
+				    NULL 		=>  put_in_oneshot (reply_oneshot, NULL);
+				esac
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+
 		fun get_or_make_textbuffer
 		      (
 			textbuffer_arg
 			as
-			( buffername:	String,
-			  options:	List(t2t::Textbuffer_Option)
-			):		t2t::Textbuffer_Arg
+			{ buffername:		String,
+			  textbuffer_options:	List( t2t::Textbuffer_Option )
+			}:			t2t::Textbuffer_Arg
 		      )
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( t2t::Textpane_To_Textbuffer );
@@ -814,8 +865,9 @@ herein
 
 					    textbuffer_exports -> { textpane_to_textbuffer };
 
-					    textbuffer_info = { id         =>  textpane_to_textbuffer.id,
-								buffername =>  REF buffername,
+					    textbuffer_info = { id         =>	textpane_to_textbuffer.id,
+								buffername =>	REF buffername,
+								filename   =>	REF NULL,
 								#
 								textpane_to_textbuffer,
 								end_gun'
@@ -829,6 +881,72 @@ herein
 					    put_in_oneshot (reply_oneshot, textpane_to_textbuffer);
 					};
 				esac
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+
+		fun get_or_make_filebuffer
+		      {
+			dirname:		String,
+
+			textbuffer_arg
+			as
+			{ buffername:		String,
+			  textbuffer_options:	List( t2t::Textbuffer_Option )
+			}:			t2t::Textbuffer_Arg
+		      }
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( t2t::Textpane_To_Textbuffer );
+			#
+			put_in_mailqueue  (editboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				{   buffername' = uniquify_buffername (me, buffername);
+				    #
+				    textbuffer_arg = { buffername => buffername', textbuffer_options };
+
+				    egg =  tbi::make_textbuffer_egg  textbuffer_arg;
+				    #
+				    (egg ())
+					->
+					( textbuffer_exports:	tbi::Exports,
+					  egg':		       (tbi::Imports, Run_Gun, End_Gun) -> Void
+					);
+
+				    textbuffer_imports
+				      =
+				      { };
+
+				    (make_run_gun ()) ->   { run_gun', fire_run_gun };
+				    (make_end_gun ()) ->   { end_gun', fire_end_gun };
+
+				    egg' (textbuffer_imports, run_gun', end_gun');
+
+				    fire_run_gun ();
+
+				    textbuffer_exports -> { textpane_to_textbuffer };
+
+				    filename = dirname + "/" + buffername;
+
+				    textbuffer_info = { id         =>	textpane_to_textbuffer.id,
+							buffername =>	REF buffername',
+							filename   =>	REF (THE filename),
+							#
+							textpane_to_textbuffer,
+							end_gun'
+						      };
+
+				    me.textbuffers_by_filename	:= sm::set (*me.textbuffers_by_filename, filename,			textbuffer_info);
+				    me.textbuffers_by_name	:= sm::set (*me.textbuffers_by_name,     buffername,			textbuffer_info);
+				    me.textbuffers_by_id	:= im::set (*me.textbuffers_by_id,       id_to_int textbuffer_info.id,	textbuffer_info);
+
+				    textpane_to_textbuffer.note_statewatcher (id, note_textbuffer_statechange);
+
+				    put_in_oneshot (reply_oneshot, textpane_to_textbuffer);
+
+				}
 			);
 
 			get_from_oneshot  reply_oneshot;
@@ -884,10 +1002,11 @@ herein
 
 		editboss_arg = (editboss_options);													# Currently no guiboss_needs component, so this is a no-op.
 
-		me =  {	textbuffers_by_name =>  REF sm::empty,												# All currently active textbuffers, by name.
-			textbuffers_by_id   =>  REF im::empty,												# All currently active textbuffers, by id.
+		me =  {	textbuffers_by_name	=>  REF sm::empty,											# All currently active textbuffers, by name.
+			textbuffers_by_id	=>  REF im::empty,											# All currently active textbuffers, by id.
 			#
-			textedits_by_id	    =>	REF im::empty												# All currently active textedits,   by id.
+			textbuffers_by_filename =>  REF sm::empty,											# All currently active textbuffers WHICH ARE OPEN ON A FILE, by filename.
+			textedits_by_id		=>  REF im::empty											# All currently active textedits,   by id.
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );						# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
