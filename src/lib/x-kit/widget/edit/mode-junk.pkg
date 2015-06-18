@@ -1,7 +1,13 @@
 # mode-junk.pkg
 #
-# Support fns for textbuffer_imp -- mostly editing		# textbuffer_imp		is from   src/lib/x-kit/widget/edit/textbuffer-imp.pkg
-# fns to be bound to keystrokes.
+# Types (and some code) in support of textpane modes like
+#
+#     src/lib/x-kit/widget/edit/fundamental-mode.pkg
+#     src/lib/x-kit/widget/edit/minibuffer-mode.pkg
+#
+# This is another of those files full of datatypes which wanted
+# so much to be mutually recursive that finally I gave up, merged
+# the relevant files, and let them recurse to their heart's content.
 #
 # See also:
 #     src/lib/x-kit/widget/edit/textpane.pkg
@@ -51,11 +57,15 @@ stipulate
     package evt =  gui_event_types;				# gui_event_types		is from   src/lib/x-kit/widget/gui/gui-event-types.pkg
     package gts =  gui_event_to_string;				# gui_event_to_string		is from   src/lib/x-kit/widget/gui/gui-event-to-string.pkg
     package ct  =  cutbuffer_types;				# cutbuffer_types		is from   src/lib/x-kit/widget/edit/cutbuffer-types.pkg
-#   package gt  =  guiboss_types;				# guiboss_types			is from   src/lib/x-kit/widget/gui/guiboss-types.pkg
+    package gt  =  guiboss_types;				# guiboss_types			is from   src/lib/x-kit/widget/gui/guiboss-types.pkg
 
-#   Produce package cycles:
-#   package g2b =  gadget_to_editboss;				# gadget_to_editboss		is from   src/lib/x-kit/widget/edit/gadget-to-editboss.pkg
-#   package t2t =  textpane_to_textbuffer;			# textpane_to_textbuffer	is from   src/lib/x-kit/widget/edit/textpane-to-textbuffer.pkg
+    package p2e =  textpane_to_textedit;			# textpane_to_textedit		is from   src/lib/x-kit/widget/edit/textpane-to-textedit.pkg
+    package b2e =  editboss_to_textedit;			# editboss_to_textedit		is from   src/lib/x-kit/widget/edit/editboss-to-textedit.pkg
+    package l2p =  screenline_to_textpane;			# screenline_to_textpane	is from   src/lib/x-kit/widget/edit/screenline-to-textpane.pkg
+    package e2p =  textedit_to_textpane;			# textedit_to_textpane		is from   src/lib/x-kit/widget/edit/textedit-to-textpane.pkg
+    package b2p =  editboss_to_textpane;			# editboss_to_textpane		is from   src/lib/x-kit/widget/edit/editboss-to-textpane.pkg
+    package p2l =  textpane_to_screenline;			# textpane_to_screenline	is from   src/lib/x-kit/widget/edit/textpane-to-screenline.pkg
+    package b2l =  editboss_to_screenline;			# editboss_to_screenline	is from   src/lib/x-kit/widget/edit/editboss-to-screenline.pkg
 
     package a2r =  windowsystem_to_xevent_router;		# windowsystem_to_xevent_router	is from   src/lib/x-kit/xclient/src/window/windowsystem-to-xevent-router.pkg
 
@@ -89,7 +99,36 @@ herein
 
     package mode_junk						# 
     {
+	Point_And_Mark										# 'Point' is the visible cursor.  'Mark' (if set) marks the other end of the selected region.  (Emacs nomenclature.)
+	  =
+	  { point:		g2d::Point,							# Note that point and mark are per-textpane, not per-textbuffer. (This matters because there may be multiple textpanes open on one textbuffer).  This is different from emacs, where 'mark' is per-textbuffer.
+	    mark:		Null_Or(g2d::Point)						# NULL means the emacs-style 'mark' is not currently set.
+	  };
+
 	Textlines = nl::Numbered_List(String);							# In textbuffer.pkg we store our file contents in this, line by line.
+
+	Editfn_Out_Option									# This conveys information from editfns back to textpane.
+	  #
+	  = TEXTLINES		Textlines							# Note revised contents of textbuffer.
+	  | NEW_TEXTBUFFER	String								# Note that textpane is now open on a different textbuffer, available as Gadget_To_Editboss.get_textbuffer(buffername).
+	  | POINT		g2d::Point
+	  | MARK		Null_Or(g2d::Point)
+	  | LASTMARK		Null_Or(g2d::Point)
+	  | QUIT										# This is intended to implement keyboard_quit  (normally bound to C-g) functionality in fundamental-mode.pkg.
+	  | DONE										# This is intended to implement input_complete (normally bound to RET) functionality in minibuffer-mode.pkg.
+	  ;
+
+	Editfn_Out										# Return   NULL    to abort. This is appropriate when operation cannot be performed, for example previous_char called at start of buffer.
+	  =											# Return   THE []  otherwise, where list contains CHANGES to state.  E.g., do not return TEXTLINES unless textlines value was changed.
+	  Null_Or (List( Editfn_Out_Option ) );							# One advantage of this system is that additional returns can be accomodated without breaking old code.
+
+	Textstate
+	  =
+	  { textlines:		Textlines,							# Complete text contents of textbuffer.
+	    editcount:		Int								# Count of edits applied.  Intended to allow clients to quickly detect whether any changes have been made since they last polled us.
+	  };
+	Undostate = Textstate;									# Synonym for readability.
+
 	#
 	Promptfor
 	  #
@@ -108,6 +147,41 @@ herein
 #	  | FILENAME_ARG									# I'm not sure we'll need this -- any reason a filename can't be just a string at this point?
 	  ;
 
+	Textbuffer_Statechange									# Used to tell clients (mostly textpane.pkg) about changes in our state.
+	  #											# The 'Id' field in each case is Textpane_To_Textbuffer.id;  it may be used by client to identify and discard stale statechanges which arrive after calling drop_statewatcher().
+	  = TEXTSTATE_CHANGED	(Id, { was: Textstate, now: Textstate })
+	  | UNDO		(Id, { was: Textstate, now: Undostate })
+	  | FILENAME_CHANGED	(Id, { was: String,    now: String    })
+	  | BUFFERNAME_CHANGED	(Id, { was: String,    now: String    })
+	  ;
+
+	Textbuffer_Option
+	  #
+	  =  MICROTHREAD_NAME	String								# 
+	  |  ID			Id								# Stable, unique id for imp.
+	  |  STATEWATCHER	(Id, (Textbuffer_Statechange -> Void))				# Equivalent to Textpane_To_Textbuffer.note_statewatcher(). 'Id' may be the id of the calling imp or may be freshly allocated via issue_unique_id. It identifies this particular watcher/connection for drop_statewatcher.
+	  |  INITIAL_FILENAME	String								# 
+	  |  UTF8		String
+	  ;	
+
+	Textbuffer_Arg =  { buffername:			String,
+			    textbuffer_options:		List( Textbuffer_Option )
+			  };
+
+
+# START OF APPARENT RECURSIVE SECTION
+#	Textpane_To_Textbuffer
+#	Gadget_To_Editboss
+# 	Editfn_Node
+# 	Keymap_Node
+# 
+# 	withtype
+# 	Keymap	  = 	  sm::Map( Keymap_Node )
+# 	Editfn = Editfn_In -> Editfn_Out
+# 	Plain_Editfn
+# 	Edit_Arg										# Arg type for pass_edit_result().
+
+
 	Editfn_In
 	  =
 	  { args:			List( Prompted_Arg ),
@@ -120,22 +194,103 @@ herein
 	    set_cutbuffer_contents:	ct::Cutbuffer_Contents -> Void
 	  };
 
-	Editfn_Out_Option									# This conveys information from editfns back to textpane.
-	  #
-	  = TEXTLINES		Textlines							# Note revised contents of textbuffer.
-	  | NEW_TEXTBUFFER	String								# Note that textpane is now open on a different textbuffer, available as Gadget_To_Editboss.get_textbuffer(buffername).
-	  | POINT		g2d::Point
-	  | MARK		Null_Or(g2d::Point)
-	  | LASTMARK		Null_Or(g2d::Point)
-	  | QUIT										# This is intended to implement keyboard_quit  (normally bound to C-g) functionality in fundamental-mode.pkg.
-	  | DONE										# This is intended to implement input_complete (normally bound to RET) functionality in minibuffer-mode.pkg.
-	  ;
 
-	Editfn_Out										# Return   NULL    to abort. This is appropriate when operation cannot be performed, for example previous_char called at start of buffer.
-	  =											# Return   THE []  otherwise, where list contains CHANGES to state.  E.g., do not return TEXTLINES unless textlines value was changed.
-	  Null_Or (List( Editfn_Out_Option ) );							# One advantage of this system is that additional returns can be accomodated without breaking old code.
+	Textpane_To_Textbuffer
+	    =
+	    TEXTPANE_TO_TEXTBUFFER
+	      { id:			Id,							# Unique id to facilitate storing textpane_to_textbuffer instances in indexed datastructures like red-black trees.
+		#
+		get_maxline:		Void -> Int,						# Max currently valid line number.
+		pass_maxline:		Replyqueue -> (Int -> Void) -> Void,
+		#
+		get_line:		Int -> Null_Or(String),
+		pass_line:		Replyqueue
+					   -> Int
+					   -> (Null_Or(String) -> Void)
+					   -> Void,
+		#
+		set_lines:		List(String) -> Void,
+		get_lines:		(Int, Int) -> List(String),
+		pass_lines:		Replyqueue
+					     -> (Int, Int)
+					     -> (List(String) -> Void)
+					     -> Void,
+		#
+		get_textstate:		Void -> Textstate,					# 
+		pass_textstate:		Replyqueue -> (Textstate -> Void) -> Void,
+		#
+		pass_edit_result:	Edit_Arg
+					     -> Replyqueue
+					     -> (Editfn_Out -> Void)
+					     -> Void,						# 
 
+		undo:			Void -> Void,
 
+		get_dirty:		Void -> Bool,						# TRUE iff textbuffer contents are currently out of sync with diskfile contents.
+		pass_dirty:		Replyqueue -> (Bool -> Void) -> Void,
+
+		set_filename:		String -> Void,						# Filename controls what file textbuffer contents are read/written from/to.
+		get_filename:		Void -> String,						# 
+		pass_filename:		Replyqueue -> (String -> Void) -> Void,
+
+		set_buffername:		String -> Void,						# Buffername uniquely identifies textbuffer to interactive user.
+		get_buffername:		Void -> String,						# 
+		pass_buffername:	Replyqueue -> (String -> Void) -> Void,
+												# The statewatcher protocol allows others imps (including other texteditors and also arbitrary application imps) to monitor changes to a given textbuffer.
+		set_textpane_hint:	Exception -> Void,					# Store the current textpane's point+mark etc info on the textbuffer, so that if/when we open a new textpane onto this textbuffer, we can put the cursor in a sensible spot.
+		get_textpane_hint:	Void -> Exception,					# Using 'Exception' spares textbuffer-imp.pkg from needing to know about the relevant textpane.pkg types.
+
+		note_statewatcher:	(Id, (Textbuffer_Statechange -> Void)) -> Void,		# 'Id' may be the id of the calling imp or may be freshly allocated via issue_unique_id. It identifies this particular watcher/connection for drop_statewatcher.
+		drop_statewatcher:	Id -> Void,						# 'Id' must match that given to note_statewatcher (or texteditor_imp::STATEWATCHER).
+
+		reload_from_file:	Void -> Void,
+		save_to_file:		Void -> Void
+	      }
+
+	# This port is implemented in:
+	#
+	#     src/lib/x-kit/widget/edit/editboss-imp.pkg
+	#
+	also
+	Gadget_To_Editboss									# guiboss provides this interface to gadgets via the guiboss_types Gadget_To_Guiboss interface.  This is the toplevel application code access pathway to texteditor functionality.
+	    =											# This was in a separate guiboss-to-editboss.pkg file:  Moved it here to resolve a package-cycle problem.
+	    GADGET_TO_EDITBOSS
+	      {
+		id:			Id,							# Unique id to facilitate storing gadget_to_editboss instances in indexed datastructures like red-black trees.
+		#
+		get_textbuffer:		String -> Null_Or( Textpane_To_Textbuffer ),	
+		get_or_make_textbuffer:	Textbuffer_Arg -> Textpane_To_Textbuffer,
+		#
+		get_or_make_filebuffer:	{ dirname:		String,
+					  textbuffer_arg:	Textbuffer_Arg
+					}
+					-> Textpane_To_Textbuffer,
+
+		get_cutbuffer_contents:	Void -> ct::Cutbuffer_Contents,				# O(1) nonblocking.
+		set_cutbuffer_contents:	ct::Cutbuffer_Contents -> Void,
+
+		note_screenline:	(b2l::Editboss_To_Screenline, p2l::Textpane_To_Screenline) -> Void,
+		#
+		note_textpane:		(b2p::Editboss_To_Textpane, e2p::Textedit_To_Textpane, l2p::Screenline_To_Textpane)  -> Void,
+		note_textedit:		(b2e::Editboss_To_Textedit, p2e::Textpane_To_Textedit                             )  -> Void,
+
+		drop_screenline:	{ screenline_id:	iuw::Id,
+					  textedit_id:		iuw::Id,
+					  textpane_id:		iuw::Id
+					}
+					-> Void,
+		#
+		drop_textpane:		{ textpane_id:		iuw::Id,
+					  textedit_id:		iuw::Id
+					}
+					-> Void,
+
+		drop_textedit:		{ textedit_id:		iuw::Id
+					}
+					-> Void
+	      }
+
+	also
 	Editfn_Node
 	  #
 	  = PLAIN_EDITFN	Plain_Editfn
@@ -153,6 +308,19 @@ herein
 	  sm::Map( Keymap_Node )
 
 	also
+	Editfn_In
+	  =
+	  { args:			List( Prompted_Arg ),
+	    textlines:			Textlines,
+	    point:			g2d::Point,						# As in Point_And_Mark.  (Emacs nomenclature -- 'point' is the visible cursor, 'mark' if set is the other end of the selected region.)
+	    mark:			Null_Or(g2d::Point),					# 
+	    lastmark:			Null_Or(g2d::Point),					# Last valid value of 'mark' if any -- used to retrieve old mark values by   exchange_point_and_mark	in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+	    keystring:			String,							# User keystroke that invoked this editfn.
+	    get_cutbuffer_contents:	Void -> ct::Cutbuffer_Contents,				# O(1) nonblocking.
+	    set_cutbuffer_contents:	ct::Cutbuffer_Contents -> Void
+	  }
+
+	also
 	Editfn = Editfn_In -> Editfn_Out
 
 	also
@@ -162,7 +330,30 @@ herein
 	    doc:		String,
 	    args:		List(Promptfor),						# Technically 'parameters', but 'args' is shorter. :-)  Args to read in interactively from user, e.g. filenames and search strings.
 	    editfn:		Editfn								# 
+	  }
+
+	also
+	Edit_Arg										# Arg type for pass_edit_result().
+	  =
+	  { point_and_mark:	Point_And_Mark,
+	    lastmark:		Null_Or(g2d::Point),
+	    editfn_node:	Editfn_Node,
+	    prompted_args:	List( Prompted_Arg ),						# Args read interactively from user.
+	    #
+	    widget_to_guiboss:	gt::Widget_To_Guiboss,						# Mainly for access to get_cutbuffer_contents/set_cutbuffer_contents in gadget_to_editboss.  NB: Passing gadget_to_editboss here instead results in a package cycle.
+	    log_undo_info:	Bool,								# If log_undo_info is FALSE no entry will be made in the undo history.
+	    keystring:		String								# User keystroke that invoked this editfn.
 	  };
+# END OF APPARENT RECURSIVE SECTION
+
+
+	Editstate
+	  =
+	  { textlines:		Textlines,
+	    point:		g2d::Point,							# As in Point_And_Mark.
+	    mark:		Null_Or(g2d::Point)						# 
+	  };
+
 
 	Buffermode										# A buffermode defines the semantics of a textbuffer. In particular, the keymap defines what editfns are invoked by what keystrokes.
 	    =
@@ -174,6 +365,40 @@ herein
 		keymap:		Ref(Keymap),
 		parent:		Null_Or( Buffermode )						# So we can dynamically inherit keybindings from less specialized buffermodes.
 	      };
+
+
+
+	exception GADGET_TO_EDITBOSS_CRYPT Gadget_To_Editboss;
+
+
+	fun find__gadget_to_editboss
+	      (
+		gadget_to_guiboss:	gt::Gadget_To_Guiboss,
+		caller:			String
+	      )
+	    =
+	    case (gadget_to_guiboss.find_global "gadget_to_editboss::GADGET_TO_EDITBOSS")
+		#
+		THE gadget_to_editboss
+		    =>
+		    case gadget_to_editboss.val
+			#
+			GADGET_TO_EDITBOSS_CRYPT gadget_to_editboss
+			    =>
+			    gadget_to_editboss;
+
+			_ =>    {   msg =  sprintf "Expected Crypt of GADGET_TO_EDITBOSS_CRYPT but got Crypt of { key=>\"%s\", doc=>\"%s\" }  -- gadget_to_editboss::find__gadget_to_editboss called by %s" gadget_to_editboss.key gadget_to_editboss.doc caller;				# "Impossible."
+				    log::fatal msg;
+				    raise exception FAIL msg;
+				};
+		    esac;
+
+		NULL =>	{   msg =  sprintf "GADGET_TO_EDITBOSS global not registered with guiboss_imp in time?! -- gadget_to_editboss::find__gadget_to_editboss called by %s" caller;				# "Impossible."
+			    log::fatal msg;
+			    raise exception FAIL msg;
+			};
+	    esac;
+
 
 	empty_keymap =  sm::empty: Keymap;							# Helps clients abstract a bit from current specific implementation of keymaps.
 
