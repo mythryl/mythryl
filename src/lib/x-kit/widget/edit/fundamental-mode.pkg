@@ -1686,47 +1686,70 @@ herein
 				=
 				find_match search_start
 				where
-				    search_line =  string::find_substring'  searchstring;		# Set up for Knuth-Morris-Pratt searching for 'searchstring'.  Internally, this preconstructs the required table.
-													# Note that our approach here won't match a string spanning more than one line -- i.e., one with embedded newlines. I can't remember the last time I wanted to do such a search, so I'm not sweating that right now. -- 2015-06-20 CrT
+				    search_line =  string::find_substring'  searchstring;			# Set up for Knuth-Morris-Pratt searching for 'searchstring'.  Internally, this preconstructs the required table.
+														# Note that our approach here won't match a string spanning more than one line -- i.e., one with embedded newlines. I can't remember the last time I wanted to do such a search, so I'm not sweating that right now. -- 2015-06-20 CrT
 
 				    searchstring_length_in_bytes
 					=
 					string::length_in_bytes  searchstring;
 
-				    fun find_match (point: g2d::Point)					# Search through 'textlines' for first match to 'searchstring', starting at 'point'.
+				    fun find_match (point: g2d::Point)						# Search through 'textlines' for first match to 'searchstring', starting at 'point'.
 					=
 					{   line_number = point.row;
 					    #
-					    if (line_number > lastline)  (NULL,NULL);			# Didn't find searchstring anywhere, leave 'point' where it started.
+					    if (line_number > lastline)  (NULL,NULL);				# Didn't find searchstring anywhere, leave 'point' where it started.
 					    else
 						line =	case (nl::find (textlines, line_number))
 								#
 								THE line => line;
-								NULL     => "\n";			# Shouldn't happen.
+								NULL     => "\n";				# Shouldn't happen.
 							    esac;
 
-						case (search_line (line, point.col))
+						byteoffset							# Screen col point.col as a byte offset into utf8-encoded 'line'.
+						    =
+						    case point.col
+							#
+							0 => 0;							# Screen column zero is always byte offset zero.  This is worth special-casing because it is the typical case and the alternative is expensive.
+
+							c =>    {   (string::expand_tabs_and_control_chars
+								      {
+									utf8text	=>  line,
+									startcol	=>  0,
+									screencol1	=>  c,			# This is the one we care about.
+									screencol2	=>  0,			# Don't-care.
+									utf8byte	=>  0			# Don't-care.
+								      })
+								      ->
+								      { screencol1_byteoffset_in_utf8text,	# 
+									...
+								      };
+
+								    screencol1_byteoffset_in_utf8text;
+								};
+						    esac;
+
+						case (search_line (line, byteoffset))
 						    #	
-						    NULL => find_match  { row => point.row + 1,		# Didn't find 'searchstring' on this line, so try next line (if any).
+						    NULL => find_match  { row => point.row + 1,			# Didn't find 'searchstring' on this line, so try next line (if any).
 									  col => 0
 									};
 
-						    THE byteoffset
+						    THE byteoffset						# Success -- found 'searchstring" within 'line'.
 							=>
-							{   (string::expand_tabs_and_control_chars	# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'mark'.
+							{   (string::expand_tabs_and_control_chars		# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'mark'.
 							      {
 								utf8text	=>  line,
 								startcol	=>  0,
-								screencol1	=>  0,			# Don't-care.
-								screencol2	=>  0,			# Don't-care.
+								screencol1	=>  0,				# Don't-care.
+								screencol2	=>  0,				# Don't-care.
 								utf8byte	=>  byteoffset
 							      })
 							      ->
-							      { utf8byte_firstcol_on_screen => markcol,	# Screen column at which utf8text byteoffset 'utf8byte' begins.  Note that utf8byte may be (e.g.) somewhere in the middle of a tab, so computing this value is nontrivial. 
+							      { utf8byte_firstcol_on_screen => markcol,		# Screen column at which utf8text byteoffset 'utf8byte' begins.  Note that utf8byte may be (e.g.) somewhere in the middle of a tab, so computing this value is nontrivial. 
 								...
 							      };
 
-							    (string::expand_tabs_and_control_chars	# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'point'.
+							    (string::expand_tabs_and_control_chars		# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'point'.
 							      {
 								utf8text	=>  line,
 								startcol	=>  0,
@@ -1739,10 +1762,10 @@ herein
 								...
 							      };
 
-							    ( THE { row => point.row,
+							    ( THE { row => line_number,				# newmark
 							            col => markcol
 							          },
-							      THE { row => point.row,
+							      THE { row => line_number,				# newpoint
 							            col => pointcol
 							          }
 							    );	
@@ -1791,6 +1814,182 @@ herein
 	      );
 
 
+	fun isearch_backward (was:	mj::Editfn_In)								# 
+	    :				mj::Editfn_Out
+	    =
+	    {   was -> 	  { args:			List( mj::Prompted_Arg ),
+			    textlines:			mj::Textlines,
+			    point:			g2d::Point,						# As in Point_And_Mark.
+			    mark:			Null_Or(g2d::Point),					# 
+			    lastmark:			Null_Or(g2d::Point),					# 
+			    keystring:			String,							# User keystroke that invoked this editfn.
+			    gadget_to_editboss:		mj::Gadget_To_Editboss	
+			  };
+
+		gadget_to_editboss
+		    ->
+		    mj::GADGET_TO_EDITBOSS  eb;
+
+		case args
+		    #
+		    [ mj::INCREMENTAL_STRING_ARG (stage, searchstring) ]
+			=>
+			{
+			    search_start									# On mj::INITIAL call 'point' is unchanged. On subsequent calls 'point' is updated per incremental search, but original 'point' value is saved in 'lastmark'.
+				=
+				case (stage, lastmark)
+				    #
+				    (mj::INITIAL,  _)	=>  point;
+				    (_, THE lastmark)	=>  lastmark;
+				    _			=>  point;						# Shouldn't happen.
+				esac;
+														# See if we can find 'searchstring in 'textlines' starting at 'search_start'.
+
+			    lastline =  case (nl::max_key textlines)
+					    #
+					    THE maxkey => maxkey;
+					    NULL       => -1;
+					esac;
+
+			    thisline =  search_start.row;
+
+			    my (newmark, newpoint)
+				=
+				find_match (search_start.row, THE search_start.col)
+				where
+				    search_line =  string::find_substring_backward'  searchstring;		# Set up for Knuth-Morris-Pratt searching for 'searchstring'.  Internally, this preconstructs the required table.
+														# Note that our approach here won't match a string spanning more than one line -- i.e., one with embedded newlines. I can't remember the last time I wanted to do such a search, so I'm not sweating that right now. -- 2015-06-20 CrT
+				    searchstring_length_in_bytes
+					=
+					string::length_in_bytes  searchstring;
+
+				    fun find_match								# Search through 'textlines' for first PRECEDING match to 'searchstring'.
+					  (
+					    line_number:	Int,						# Next line to search, as an index into 'textlines'.
+					    column:		Null_Or(Int)					# Screen column at which to start searching line.  We take NULL to mean start search at end of line.
+					  )
+					=
+					{   if (line_number < 0)  (NULL,NULL);					# Didn't find searchstring anywhere, leave 'point' where it started.
+					    else
+						line =	case (nl::find (textlines, line_number))
+								#
+								THE line => line;
+								NULL     => "\n";				# Shouldn't happen.
+							    esac;
+
+						eol =	string::length_in_bytes line				# Compute last byteoffset in 'line' at which a match is possible.
+							-
+							searchstring_length_in_bytes;
+
+						col =	case column
+							    #
+							    NULL =>	eol;					# Start searching at end of line.
+
+							    THE c =>	{   (string::expand_tabs_and_control_chars
+									      {
+										utf8text	=>  line,
+										startcol	=>  0,
+										screencol1	=>  c,		# This is the one we care about.
+										screencol2	=>  0,		# Don't-care.
+										utf8byte	=>  0		# Don't-care.
+									      })
+									      ->
+									      { screencol1_byteoffset_in_utf8text,
+										...
+									      };
+
+									    screencol1_byteoffset_in_utf8text;	# 
+									};
+							esac;
+
+						col =	min (col, eol);						# Keep search within actual available bytes. :-)   (We allow the screen cursor to wander off beyond the current physical end of line.)
+
+						case (search_line (line, col))
+						    #	
+						    NULL => find_match  ( line_number - 1,			# Didn't find 'searchstring' on this line, so try previous line (if any).
+									  NULL					# Search previous line starting at end.
+									);
+
+						    THE byteoffset						# Success -- found 'searchstring" within 'line'.
+							=>
+							{   (string::expand_tabs_and_control_chars		# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'mark'.
+							      {
+								utf8text	=>  line,
+								startcol	=>  0,
+								screencol1	=>  0,				# Don't-care.
+								screencol2	=>  0,				# Don't-care.
+								utf8byte	=>  byteoffset
+							      })
+							      ->
+							      { utf8byte_firstcol_on_screen => markcol,		# Screen column at which utf8text byteoffset 'utf8byte' begins.  Note that utf8byte may be (e.g.) somewhere in the middle of a tab, so computing this value is nontrivial. 
+								...
+							      };
+
+							    (string::expand_tabs_and_control_chars		# Now we need to convert the 'byteoffset' into utf8-encoded 'line' into a screen column suitable for 'point'.
+							      {
+								utf8text	=>  line,
+								startcol	=>  0,
+								screencol1	=>  0,
+								screencol2	=>  0,
+								utf8byte	=>  byteoffset + searchstring_length_in_bytes
+							      })
+							      ->
+							      { utf8byte_firstcol_on_screen => pointcol,
+								...
+							      };
+
+							    ( THE { row => line_number,				# newmark
+							            col => markcol
+							          },
+							      THE { row => line_number,				# newpoint
+							            col => pointcol
+							          }
+							    );	
+							};
+						esac;
+					    fi;
+					};
+				end;
+
+			    result =    [ ];
+
+			    result =    case newpoint
+					    #
+					    THE point	=>  (mj::POINT         point ) !   result;		# Move 'point' (==cursor) to screen address just past end of string match.
+					    NULL	=>				   result;
+					esac;
+
+			    result =    case newmark
+					    #
+					    THE mark	=>  (mj::MARK     (THE mark )) !   result;		# Move 'mark' to screen address corresponding to start of string match.
+					    NULL	=>				   result;
+					esac;
+
+			    result =    case stage								# If this is our mj::INITIAL call, save 'point' in 'lastmark' because we need to know initial value of 'point' in later calls.
+					    #
+					    mj::INITIAL =>  (mj::LASTMARK (THE point))  !  result;
+					    _		=>				   result;
+					esac; 
+
+			    THE   result;
+			};
+
+		    _ => NULL;											# Fail -- bad arglist.  This shouldn't be possible, textpane.pkg should always construct a good 'args' list before calling us.
+		esac;
+	    };
+	isearch_backward__editfn
+	    =
+	    mj::EDITFN (
+	      mj::PLAIN_EDITFN
+		{
+		  name	 =>  "isearch_backward",
+		  doc	 =>  "Incrementally search backward for search string as entered.",
+		  args	 =>  [ mj::INCREMENTAL_STRING { prompt => "I-search", doc => "String to search for" }  ],
+		  editfn =>  isearch_backward
+		}
+	      );
+
+
 	fundamental_mode_keymap
 	    =
 	    keymap
@@ -1808,6 +2007,7 @@ herein
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-n"		],	next_line__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-o"		],	kill_whole_line__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-p"		],	previous_line__editfn		);
+		keymap = mj::add_editfn_to_keymap (keymap, [ "C-r"		],	isearch_backward__editfn	);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-s"		],	isearch_forward__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-w"		],	kill_region__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "C-f"	],	find_file__editfn		);
