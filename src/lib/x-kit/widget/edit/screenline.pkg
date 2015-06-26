@@ -79,6 +79,7 @@ herein
 		#
 		duration_in_seconds:		Float,				# If state has changed look-imp should call note_changed_gadget_foreground() before this time is up. Also useful for motionblur.
 		widget_to_guiboss:		gt::Widget_To_Guiboss,
+		screenline_to_textpane:		l2p::Screenline_To_Textpane,
 		gadget_mode:			gt::Gadget_Mode,
 		#
 		theme:				wt::Widget_Theme,
@@ -432,6 +433,8 @@ herein
 		state		=  a.state;
 		theme		=  a.theme;
 
+		screencol0	=  state.screencol0;						# Do not display text to left of this screen column.  Used to scroll display horizontally.  Must be nonnegative.
+
 		background_box	=  site;
 
 		fun get_fontnames ()
@@ -456,26 +459,34 @@ herein
 		    };
 
 
-		fun get_text_dimensions (text: String)
-		    =
-		    {
-			g =  wti::get__guiboss_to_topwindow  theme;
-			#
-			font = g.get_font (get_fontnames ());
-
-			{ font_ascent      =>  font.font_height.ascent,
-			  font_descent     =>  font.font_height.descent,
-			  length_in_pixels =>  font.string_length_in_pixels text
+		stipulate
+		    g =  wti::get__guiboss_to_topwindow  theme;
+		    #
+		    font = g.get_font (get_fontnames ());
+		herein
+		    fun get_text_dimensions (text: String)
+			=
+			{
+			    { font_ascent      =>  font.font_height.ascent,
+			      font_descent     =>  font.font_height.descent,
+			      length_in_pixels =>  font.string_length_in_pixels text
+			    };
 			};
-		    };
+		end;
 
-		Color_As = NORMAL_TEXT
-			 | REGION_TEXT
-			 | CURSOR_TEXT
-			 | CURION_TEXT													# Cursor/Region mixture -- cursor when overlying region.
+		(get_text_dimensions "m")
+		    ->
+		    { length_in_pixels => m_width_in_pixels, ... };
+
+		m_width_in_pixels = max (3, m_width_in_pixels);										# Daft check to avoid possible divide by zero if text dimensions are crazy.
+
+		Color_As = NORMAL_TEXT													# Text is not part of the active region nor is the cursor on it, so color text normally.
+			 | REGION_TEXT													# Text is part of the active region delimited by 'mark' and 'point' -- color it region (green background).
+			 | CURSOR_TEXT													# Text is under the cursor -- color it accordingly (reverse video).
+			 | CURION_TEXT													# Text is part of the active region with the cursor at the start of the region -- color it region and draw cursor as an unfilled black box.
 			 ;
 
-		fun region_color (body_color: rgb::Rgb,  text_color: rgb::Rgb)
+		fun region_color (body_color: rgb::Rgb,  text_color: rgb::Rgb)								# Construct background color for selected region (delimited by 'mark' and 'point').  Currently region_color is same as body_color except less red, leaving a cyan.
 		    =
 		    { red   => (body_color.red + text_color.red) * 0.5,									# Typically text color is black and body color is white(ish) -- in this case the region background here will wind up cyan-ish.  (Emacs uses yellow here.)
 		      green =>  body_color.green,											# (This hack should probably be a fn in the widget-theme rather than hardwired here.)
@@ -485,104 +496,152 @@ herein
 		fun append_text_to_displaylist
 		      (
 			displaylist_so_far:	gd::Gui_Displaylist,
-			text_indent:		Int,
-			text:			String,
+			chars_to_skip:		Int,											# Support for scrolling textpane horizontally.
+			text_indent:		Int,											# Draw our text starting at this horizontal pixel coordinate.  We use this to concatenate multiple strings sanely on a line.
+			text:			String,											# Text to draw.  Tabs and control chars have been expanded out.
 			text_box:		g2d::Box,
 			color_as:		Color_As
 		      )
 		    =
-		    if (string::length_in_bytes text == 0)
-			#
-			(displaylist_so_far, text_indent);										# Nothing to do.
+		    if (text == "")
+			(displaylist_so_far, chars_to_skip, text_indent);								# ... nothing to do.
 		    else
-			text_color =  palette.text_color;
-			body_color =  palette.body_color;
+		        charlen =  string::length_in_chars text;
+			#														# If start of cursor is out of sight off left or right side of display, let textpane know that it needs to scroll horizontally to bring it into view.
+			case color_as
+			    #
+			    (CURSOR_TEXT | CURION_TEXT)											# We DO have start-of-cursor at start of 'text'.
+				=>													# 
+				if (chars_to_skip > 0)											# Start of text is out of view to left of textpane.
+				    #													# Hence, cursor is out of sight off left side of display.
+nb {. sprintf "append_text_to_displaylist/CUR*/chars_to_skip>0: text='%s' screencol0=%d chars_to_skip=%d  -- screenline.pkg" text screencol0 chars_to_skip; };
+					panewidth_in_cols = text_box.wide / m_width_in_pixels;
+					out_by_in_cols	  = -chars_to_skip;
 
-			my (boxcursor, text_color, body_color)
-			    =
-			    case (color_as)
-				#
-				CURSOR_TEXT =>	(FALSE, body_color, text_color);
-				NORMAL_TEXT =>	(FALSE, text_color, body_color);
-				REGION_TEXT =>	(FALSE, text_color, region_color (body_color, text_color));
-				CURION_TEXT =>	(TRUE,  text_color, region_color (body_color, text_color));
-			    esac;
-
-			text_dimensions =  get_text_dimensions  text;
-
-			fontnames =  get_fontnames ();
-
-			box_corners =   g2d::box::box_corners  text_box;
-			#
-			(g2d::point::mean [ box_corners.upper_left, box_corners.lower_left ])
-			    ->
-			    { row, col };
-
-			# Indent text a bit and also also center
-			# it properly vertically -- most fonts
-			# have ascent > descent:
-			#
-			row =  row - text_dimensions.font_descent + ((text_dimensions.font_ascent + text_dimensions.font_descent) / 2); 
-			col =  col + text_indent;											# In general we're starting somewhere within the line, after other stuff has been rendered.
-			draw_point = { row, col };
-			#
-			textbox     = { row  =>  box_corners.upper_left.row,								# Area behind text.
-					col  =>  col,
-					high =>  box_corners.lower_left.row - box_corners.upper_left.row,
-					wide =>  text_dimensions.length_in_pixels
+				    a.screenline_to_textpane.cursor_offscreen								# Notify textpane.pkg.
+				      {
+					out_by_in_cols,
+					panewidth_in_cols,
+					screencol0
 				      };
 
-			displaylist = [ gd::COLOR
-					  ( body_color,
-					    [ gd::FILLED_BOXES [ textbox ] ]
-					  ),												# Clear area behind text to correct color (which varies depending on color_as).
-					#
-					gd::COLOR
-					  ( text_color,
-					    [ gd::FONT ( fontnames,									# Draw relevant text atop it.
-							 [ gd::PUT_TEXT   ( gd::TO_RIGHT_OF_POINT,
-									    [ gd::TEXT (draw_point, text) ]
-									  )
-							 ]
-						       )
-					    ]
-					  )
-				      ];
+				elif (text_indent > text_box.wide)									# 
+				    #													# Start of text is out of view to right of textpane.
+				    panewidth_in_cols = text_box.wide / m_width_in_pixels;
 
-			displaylist =	if (not boxcursor)
+				    out_by_in_cols    = (text_indent - text_box.wide)  /  m_width_in_pixels;
+nb {. sprintf "append_text_to_displaylist/CUR*/textindent>text_box.wide: text='%s' screencol0=%d chars_to_right=%d  -- screenline.pkg" text screencol0 out_by_in_cols; };
+
+				    a.screenline_to_textpane.cursor_offscreen								# Notify textpane.pkg.
+				      {
+					out_by_in_cols,
+					panewidth_in_cols,
+					screencol0
+				      };
+				fi;
+
+			    _   => ();
+			esac;
+
+
+			if (charlen <= chars_to_skip)											# The string 'text' is entirely out of view to left of visible textpane, so ...
+			    #
+			    (displaylist_so_far, chars_to_skip - charlen, text_indent);							# ... nothing to do.
+			else
+			    text_color =  palette.text_color;
+			    body_color =  palette.body_color;
+
+			    my (boxcursor, text_color, body_color)
+				=
+				case color_as
+				    #
+				    CURSOR_TEXT =>	(FALSE, body_color, text_color);
+				    NORMAL_TEXT =>	(FALSE, text_color, body_color);
+				    REGION_TEXT =>	(FALSE, text_color, region_color (body_color, text_color));
+				    CURION_TEXT =>	(TRUE,  text_color, region_color (body_color, text_color));
+				esac;
+
+			    text_dimensions =  get_text_dimensions  text;
+
+			    text =  if (chars_to_skip == 0)	text;
+				    else			string::extract (text, chars_to_skip, NULL);				# Drop 'chars_to_skip' chars from start of string.
+				    fi;
+
+
+			    fontnames =  get_fontnames ();
+
+			    box_corners =   g2d::box::box_corners  text_box;
+			    #
+			    (g2d::point::mean [ box_corners.upper_left, box_corners.lower_left ])
+				->
+				{ row, col };
+
+			    # Indent text a bit and also also center
+			    # it properly vertically -- most fonts
+			    # have ascent > descent:
+			    #
+			    row =  row - text_dimensions.font_descent + ((text_dimensions.font_ascent + text_dimensions.font_descent) / 2); 
+			    col =  col + text_indent;											# In general we're starting somewhere within the line, after other stuff has been rendered.
+			    draw_point = { row, col };
+			    #
+			    textbox     = { row  =>  box_corners.upper_left.row,							# Area behind text.
+					    col  =>  col,
+					    high =>  box_corners.lower_left.row - box_corners.upper_left.row,
+					    wide =>  text_dimensions.length_in_pixels
+					  };
+
+			    displaylist = [ gd::COLOR
+					      ( body_color,
+						[ gd::FILLED_BOXES [ textbox ] ]
+					      ),											# Clear area behind text to correct color (which varies depending on color_as).
 					    #
-					    displaylist;
-					else
-					    cursorbox = { row  => textbox.row,
-							  col  => textbox.col,
-							  high => textbox.high - 1,							# Need these '-1's because otherwise right and bottom of cursorbox get overwritten by subsequent stuff.  This must represent an off-by-one error in the way we compute textboxes. XXX SUCKO FIXME.
-							  wide => textbox.wide - 1
-							};
-
-					    displaylist
-					    @
-					    [ gd::COLOR											# Draw hollow box representing cursor.
+					    gd::COLOR
 					      ( text_color,
-						[ gd::BOXES [ cursorbox ] ]
-					      )												# 
-					    ];
-					fi;
+						[ gd::FONT ( fontnames,									# Draw relevant text atop it.
+							     [ gd::PUT_TEXT   ( gd::TO_RIGHT_OF_POINT,
+										[ gd::TEXT (draw_point, text) ]
+									      )
+							     ]
+							   )
+						]
+					      )
+					  ];
 
-			displaylist_so_far
-			    =
-			    displaylist_so_far  @  displaylist;
+			    displaylist =	if (not boxcursor)
+						#
+						displaylist;
+					    else
+						cursorbox = { row  => textbox.row,
+							      col  => textbox.col,
+							      high => textbox.high - 1,							# Need these '-1's because otherwise right and bottom of cursorbox get overwritten by subsequent stuff.  This must represent an off-by-one error in the way we compute textboxes. XXX SUCKO FIXME.
+							      wide => textbox.wide - 1
+							    };
 
-			( displaylist_so_far,
-			  text_indent + text_dimensions.length_in_pixels
-			);
+						displaylist
+						@
+						[ gd::COLOR										# Draw hollow box representing cursor.
+						  ( text_color,
+						    [ gd::BOXES [ cursorbox ] ]
+						  )											# 
+						];
+					    fi;
+
+			    displaylist_so_far
+				=
+				displaylist_so_far  @  displaylist;
+
+			    ( displaylist_so_far,
+			      0,													# chars_to_skip
+			      text_indent + text_dimensions.length_in_pixels
+			    );
+			fi;
 		    fi;
-
 
 		displaylist =  [ gd::COLOR (palette.body_color, [ gd::FILLED_BOXES [ background_box ] ] ) ];				# Interior of widget.
 
 		text_box =    background_box;
 
-		text_indent  = 3;													# For readability, insert some space between frame and start of text.
+		text_indent  = 3;													# For readability, insert some space between frame and start of text.  (In pixels.)
 
 		fun expand_tabs_and_control_chars { utf8text: String, col: Int }
 		    =
@@ -603,19 +662,14 @@ herein
 			{ text, col };
 		    };
 
-# 	  { cursor_at:	p2l::NO_CURSOR,								# Does cursor appear at start or end of 'selected' part -- or neither?
-# 	    text:	String,									# Text to display, starting in first visible column (column 0).
-# 	    selected:	Null_Or((Int,Null_Or(Int)))						# Columns to show as being selected (something like reverse video).   NULL means no chars are selected on this line. THE(start,THE stop) designates columns 'start' to 'stop' inclusive.  THE(start,NULL) designates 'start' through end of line.
-# 	  };
 
-		my (displaylist, text_indent)
+		displaylist
 		    =										# XXX SUCKO FIXME It would be nice to find a better factorization of the below code so that we don't have such a maze of nested cases.  (Preferably without changing performance from O(N) -> O(N**2)!)
 		    case state.selected								# state.selected tells us the screen columns occupied on this line by the selected 'region' is (which includes the cursor if it is on current line), which should be shown in reverse video.
 			#
 			THE (col1, NULL)							# We're given start screen column of region, which runs to end of line.
 			    =>
 			    {
-# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d NULL) case" a.doc col1; };   
 				(string::expand_tabs_and_control_chars
 				  {
 				    utf8text   =>  state.text,
@@ -655,7 +709,6 @@ herein
 				    ...
 				  };
 
-# nb {. sprintf "default_redraw_fn/CCC"; };
 				my  { text_before_region,											# Our game here is to show the char that the cursor is on in reverse video.
 				      text_within_cursr1,	
 				      text_within_region,											# This is complicated by three details:
@@ -699,20 +752,19 @@ raise exception FAIL msg;
 					    };
 				    esac;
 };
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, state.prompt,       text_box, NORMAL_TEXT);	# Eventually we'll probably want to run state.prompt through string::expand_tabs_and_control_chars...  XXX SUCKO FIXME
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, NORMAL_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr1, text_box, CURION_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, REGION_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, screencol0,    text_indent, state.prompt,       text_box, NORMAL_TEXT);	# Eventually we'll probably want to run state.prompt through string::expand_tabs_and_control_chars...  XXX SUCKO FIXME
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_before_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_cursr1, text_box, CURION_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_region, text_box, REGION_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
 
-				(displaylist, text_indent);
+				displaylist;
 			    };
 
 			THE (col1, THE col2)													# We are given both start and end screeen columns for the region.
 			    =>
 			    {
-# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d, THE col2=%d).111 case  state.text='%s'" a.doc col1 col2 state.text; };   
 				(string::expand_tabs_and_control_chars
 				  {
 				    utf8text   =>  state.text,
@@ -730,11 +782,8 @@ raise exception FAIL msg;
 				    #
 				    screencol2_byteoffset_in_screentext,
 				    screencol2_bytescount_in_screentext,
-screentext_length_in_screencols,
 				    ...
 				  };
-# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d, THE col2=%d).222 case  state.text='%s'" a.doc col1 col2 state.text; };   
-# nb {. sprintf "default_redraw_fn/%s: THE (col1=%d, THE col2=%d).333 case  state.text='%s' screentext='%s'" a.doc col1 col2 state.text screentext; };
 
  				screencols = string::length_in_chars  screentext;
 																	# NB: 'region' is just the cursor, if mark isn't set.
@@ -789,14 +838,14 @@ raise exception FAIL msg;
 				    esac;
 };
 
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, state.prompt,       text_box, NORMAL_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_before_region, text_box, NORMAL_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr1, text_box, CURION_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_region, text_box, REGION_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, screencol0,    text_indent, state.prompt,       text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_before_region, text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_cursr1, text_box, CURION_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_region, text_box, REGION_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_within_cursr2, text_box, CURSOR_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, text_beyond_region, text_box, NORMAL_TEXT);
 
-				(displaylist, text_indent);
+				displaylist;
 			    };
 
 			NULL =>														# Region does not show on line.
@@ -818,10 +867,10 @@ raise exception FAIL msg;
 
  				screencols = string::length_in_chars  screentext;
 
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, state.prompt, text_box, NORMAL_TEXT);
- 				my (displaylist, text_indent) =   append_text_to_displaylist (displaylist, text_indent, screentext,   text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, screencol0,    text_indent, state.prompt, text_box, NORMAL_TEXT);
+ 				my (displaylist, chars_to_skip, text_indent) =   append_text_to_displaylist (displaylist, chars_to_skip, text_indent, screentext,   text_box, NORMAL_TEXT);
 				
-				(displaylist, text_indent);
+				displaylist;
 			    };
 		    esac;
 
@@ -942,10 +991,11 @@ raise exception FAIL msg;
 		screenline_to_textpane__global	=  REF (NULL:  Null_Or(l2p::Screenline_To_Textpane));
 		widget_to_guiboss__global	=  REF (NULL:  Null_Or( { widget_to_guiboss: gt::Widget_To_Guiboss, screenline_id: iuw::Id }));
 
-		stateref	= REF { selected  =>  NULL,							# Part of line to show with (typically) greenish background -- selected region.	(Part may be overwritten by the cursor.)
-					cursor_at =>  p2l::NO_CURSOR,						# Does cursor appear at start or end of 'selected' part -- or neither?
-					text	  =>  "",
-					prompt	  =>  ""
+		stateref	= REF { selected    =>  NULL,							# Part of line to show with (typically) greenish background -- selected region.	(Part may be overwritten by the cursor.)
+					cursor_at   =>  p2l::NO_CURSOR,						# Does cursor appear at start or end of 'selected' part -- or neither?
+					text	    =>  "",
+					prompt	    =>  "",
+					screencol0  =>  0
 				      };
 		
 		bogus_site
@@ -1335,51 +1385,61 @@ raise exception FAIL msg;
 		    =
 		    {	note_site { screenline_id => id, site };
 			#
-			palette =   *theme.current_gadget_colors  { gadget_is_on => FALSE,			# We're not a button, we don't have ON/OFF state. (But maybe click-to-focus should work like ON, if/when we implement it?)
-								    gadget_mode,
-								    popup_nesting_depth,
-								    #
-								    body_color,
-								    body_color_when_on,
-								    body_color_with_mousefocus,
-								    body_color_when_on_with_mousefocus
-								  };
+			case (*screenline_to_textpane__global)
+			    #
+			    THE screenline_to_textpane
+				=>
+				{
+				    palette =   *theme.current_gadget_colors  { gadget_is_on => FALSE,			# We're not a button, we don't have ON/OFF state. (But maybe click-to-focus should work like ON, if/when we implement it?)
+										gadget_mode,
+										popup_nesting_depth,
+										#
+										body_color,
+										body_color_when_on,
+										body_color_with_mousefocus,
+										body_color_when_on_with_mousefocus
+									      };
 
-			redraw_fn_arg
-			    =
-			    REDRAW_FN_ARG
-			      { id,
-				doc,
-				frame_number,
-				frame_indent_hint,
-				site,
-				popup_nesting_depth,
-				duration_in_seconds,
-				widget_to_guiboss,
-				gadget_mode,
-				theme,
-				do,
-				to,
-				palette,
-				#
-				default_redraw_fn,	
-				#
-				state	  => *stateref,
+				    redraw_fn_arg
+					=
+					REDRAW_FN_ARG
+					  { id,
+					    doc,
+					    frame_number,
+					    frame_indent_hint,
+					    site,
+					    popup_nesting_depth,
+					    duration_in_seconds,
+					    widget_to_guiboss,
+					    screenline_to_textpane,
+					    gadget_mode,
+					    theme,
+					    do,
+					    to,
+					    palette,
+					    #
+					    default_redraw_fn,	
+					    #
+					    state	  => *stateref,
 
-				fonts,
-				font_weight,
-				font_size
-			      };
+					    fonts,
+					    font_weight,
+					    font_size
+					  };
 
-			(redraw_fn  redraw_fn_arg)
-			    ->
-			    { displaylist,
-			      point_in_gadget,
-			      pixels_high_min,
-			      pixels_wide_min
-			    };
+				    (redraw_fn  redraw_fn_arg)
+					->
+					{ displaylist,
+					  point_in_gadget,
+					  pixels_high_min,
+					  pixels_wide_min
+					};
 
-			widget_to_guiboss.g.redraw_gadget { id, site, displaylist, point_in_gadget };
+				    widget_to_guiboss.g.redraw_gadget { id, site, displaylist, point_in_gadget };
+				};
+
+			    NULL => ();										# We don't expect this -- we should be fully wired well before any redraw requests have time to arrive. Possibly we should log a warning or even fatal error.
+			esac;
 		    };
 
 
