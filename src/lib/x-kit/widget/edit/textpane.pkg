@@ -512,6 +512,27 @@ herein
 		    =													# When this is non-NULL  we send keystrokes to minibuffer__global to edit its contents -- a string being read interactively from user as an argument for an editfn.
 		    REF (NULL: Null_Or( Editfn_Prompting_In_Progress ));	
 
+		Keystroke_Entry_State
+		  =
+		  { meta_is_set:	Ref( Bool ),									# TRUE after ESC has been hit.
+		    super_is_set:	Ref( Bool ),									# TRUE between press and release of windows/command key.
+		    doing_cntrlu:	Ref( Bool ),									# TRUE after user enters ^U (universal numeric prefix) until user enters something other than ^U or digits 0-9.
+		    done_cntrlu:	Ref( Bool ),									# 
+		    seen_digit:		Ref( Bool ),
+		    numeric_prefix:	Ref( Int  )									# 
+		  };
+		keystroke_entry__global
+		  =
+		  { meta_is_set	    => REF FALSE,
+		    super_is_set    => REF FALSE,
+		    doing_cntrlu    => REF FALSE,
+		    done_cntrlu	    => REF FALSE,
+		    seen_digit	    => REF FALSE,
+		    numeric_prefix  => REF 0
+		  };	
+		  
+		
+
 		#
 		# End of state variable section
 		###############################
@@ -1351,7 +1372,8 @@ get_text_dimensions "foo";
 					editfn_node:	mj::Editfn_Node,
 					keystring:	String,									# User keystroke that invoked this editfn.
 					ps:		Panestate,
-					prompted_args:	List( mj::Prompted_Arg )
+					prompted_args:	List( mj::Prompted_Arg ),
+					numeric_prefix:	Null_Or(Int)
 				      )
 				    =
 				    {   ps.textpane_to_textbuffer
@@ -1370,7 +1392,8 @@ get_text_dimensions "foo";
 							lastmark,
 							widget_to_guiboss,
 							log_undo_info,
-							keystring
+							keystring,
+							numeric_prefix
 						      };
 
 					tb.pass_edit_result  editfn_in								# NB:  Here we do the actual edit in the textbuffer microthread to guarantee proper mutual exclusion of concurrent edits on the textfuffer.
@@ -1440,6 +1463,13 @@ get_text_dimensions "foo";
 
 						    if quit									# Implement keyboard_quit (usually bound to C-g) functionality.  This basically means "cancel everything currently happening".
 							#
+							keystroke_entry__global.meta_is_set    := FALSE;			# Reset keystroke entry.  (Although they should all be reset already...)
+							keystroke_entry__global.super_is_set   := FALSE;
+							keystroke_entry__global.doing_cntrlu   := FALSE;
+							keystroke_entry__global.done_cntrlu    := FALSE;
+							keystroke_entry__global.seen_digit     := FALSE;
+							keystroke_entry__global.numeric_prefix := 0;
+
 							ps  =  *mainbuffer__global;						# Return attention to mainbuffer if it was on minibuffer.
 
 							ps.mark	    := NULL;							# Clear region if a selection is in progress.  We leave *ps.lastmark unchanged on the grounds that 'quit' should change as little state as reasonable.
@@ -1484,7 +1514,8 @@ get_text_dimensions "foo";
 										do_edit ( p.editfn_node,
 											  keystring,
 											  ps,
-											  prompted_args
+											  prompted_args,
+											  numeric_prefix
 											);
 									    };
 
@@ -1627,7 +1658,8 @@ get_text_dimensions "foo";
 										    lastmark,
 										    widget_to_guiboss,
 										    log_undo_info,
-										    keystring		=> ""
+										    keystring		=> "",
+										    numeric_prefix	=> NULL
 										  };
 
 								    tb.pass_edit_result  editfn_in				# 
@@ -1699,99 +1731,230 @@ get_text_dimensions "foo";
 						widget_to_guiboss:	gt::Widget_To_Guiboss,
 						theme:			wt::Widget_Theme
 					      };
-# keycode -> evt::KEYCODE kc;
-# nb {. sprintf "screenline__key_event_fn/AAA: keycode=%d key_event=%s keystring='%s' modkeys=%s  -- textpane.pkg" kc case key_event gt::KEY_PRESS=>"KEY_PRESS"; _ => "KEY_RELEASE"; esac  keystring  (evt::modifier_keys_state__to__string  modifier_keys_state); };
+keycode -> evt::KEYCODE kc;
+nb {. sprintf "screenline__key_event_fn/AAA: keycode=%d key_event=%s keystring='%s' modkeys=%s  -- textpane.pkg" kc case key_event gt::KEY_PRESS=>"KEY_PRESS"; _ => "KEY_RELEASE"; esac  keystring  (evt::modifier_keys_state__to__string  modifier_keys_state); };
 
-					if (key_event == gt::KEY_PRESS
-					and not modifier_keys_state.mod1_key_was_down)
+
+					case key_event
 					    #
-					    ps  =   case *prompting__global							# Which textbuffer is keystroke addressed to?
-							#
-							NULL =>	*mainbuffer__global;						# Normal   input case -- keystrokes are editing the main textbuffer in the main textpane.
-							_    =>  minibuffer__global;						# Prompted input case -- keystrokes are editing the minibuffer in the modeline screenline. 
-						    esac;
-
-					    canonical_keystring
-						=
-						mj::keystring_to_modemap_key  keystring;
-
-					    editfn
-						=
-						case *subkeymap__global
+					    gt::KEY_RELEASE									# 
+						=>
+						if (keystring == "<cmd>")							# This is the Windows/Command key, which following emacs we use as the 'super' key.
 						    #
-						    THE keymap
-							=>
-							{   subkeymap__global := NULL;						# We're partway through a multi-key sequence, so continue down it.
-									#
-							    sm::get (keymap, canonical_keystring);
-							};
+nb {. sprintf "screenline__key_event_fn/FFF: clearing keystroke_entry__global.super_is_set   -- textpane.pkg"; };
+						    keystroke_entry__global.super_is_set := FALSE;
+						fi;
 
-						    NULL =>
-							find_keymap *ps.buffermode						# Check keymap in current buffermode, then (if necessary) search up its parent buffermodes.
-							where
-							    fun find_keymap  buffermode
-								= 
-								{   buffermode
-									->
-									mj::BUFFERMODE { keymap, parent, ... };
+					    gt::KEY_PRESS									# 
+					    #
+						=>
+						{   keystring									# Some keystrings we process pre-emptively without invoking editfns, mainly the numeric prefix keys and ESC-as-meta key.
+							=									# In those cases we'll return keystring "" here to signal that no further processing is needed.
+							if (keystring == "\^[")
+							    #
+nb {. sprintf "screenline__key_event_fn/FFF: setting keystroke_entry__global.meta_is_set := TRUE;   -- textpane.pkg"; };
+							    keystroke_entry__global.meta_is_set := TRUE;
 
-								    case (sm::get (*keymap, canonical_keystring))
-									#
-									THE editfn => THE editfn;				# Found a binding for the keystroke in current keymap -- return it.
+							    "";									# No further processing needed.
 
-									NULL => case parent					# No binding for keystroke in this keymap -- search parent keymaps.
-										    #
-										    THE buffermode				# We do have a current keymap, so ...
-											=>
-											find_keymap  buffermode;		# ... go search it.
+							elif (keystring == "<cmd>")						# This is the Windows/Command key, which following emacs we use as the 'super' key.
+							    #
+nb {. sprintf "screenline__key_event_fn/GGG: setting keystroke_entry__global.super_is_set   -- textpane.pkg"; };
+							    keystroke_entry__global.super_is_set := TRUE;
 
-										    NULL =>  NULL;				# No parent keymap so give up -- this keystroke does nothing.
-										esac;
-								    esac;
-								};
-							end;
-						esac;
- 
+							    "";									# No further processing needed.
 
-					    case editfn
-						#
-						THE editfn
-						    =>
-						    case editfn
-							#
-							mj::EDITFN (editfn_node  as  mj::PLAIN_EDITFN node)
-							    =>
-							    if (node.args == [])
+							elif (keystring == "\^U")
+
+							    if (not *keystroke_entry__global.doing_cntrlu)
 								#
-								do_edit  (editfn_node, keystring, ps, []);
+								keystroke_entry__global.doing_cntrlu   := TRUE;
+								keystroke_entry__global.seen_digit     := FALSE;
+								keystroke_entry__global.numeric_prefix := 4;
+
+							    elif (*keystroke_entry__global.seen_digit)
+								#
+								keystroke_entry__global.seen_digit     := FALSE;
+								keystroke_entry__global.numeric_prefix := 4;
 							    else
-
-								this_arg       =  head  node.args;
-								remaining_args =  tail  node.args;
-
-								set_up_to_read_interactive_arg_from_minibuffer
-								  (
-								    editfn_node,
-								    this_arg,
-								    remaining_args,
-								    []
-								  );
+								keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 4;
 							    fi;
 
-							mj::EDITFN (mj::FANCY_EDITFN  /* node */)
-							    =>
-							    nb {. "mj::FANCY_EDITFN unsupported  -- textpane.pkg"; };
+							    "";									# No further processing needed.
 
-							mj::SUBKEYMAP subkeymap
-							    =>
-							    subkeymap__global := THE subkeymap;
-						    esac;
+							elif (*keystroke_entry__global.doing_cntrlu)
 
-						NULL => {
-							    ();									# This keystroke unimplemented in keymap.  Should probably beep here or something. Don't know how to beep yet.
-							};
-					    esac;
-					fi;
+							    case keystring
+								#
+								"0" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 0;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 0;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"1" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 1;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 1;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"2" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 2;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 2;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"3" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 3;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 3;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"4" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 4;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 4;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"5" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 5;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 5;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"6" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 6;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 6;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"7" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 7;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 7;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"8" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 8;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 8;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								"9" =>	if (*keystroke_entry__global.seen_digit)	keystroke_entry__global.numeric_prefix := *keystroke_entry__global.numeric_prefix * 10 + 9;							"";	# No further processing needed.
+									else						keystroke_entry__global.numeric_prefix := 						 9;	keystroke_entry__global.seen_digit := TRUE;	"";	# No further processing needed.
+									fi;
+
+								_   =>  {   keystroke_entry__global.doing_cntrlu   := FALSE;
+									    keystroke_entry__global.seen_digit     := FALSE;
+									    keystroke_entry__global.done_cntrlu    := TRUE;
+
+									    keystring;					# Do normal processing on keystring.
+									};
+							    esac;
+							else
+							    keystring;							# Do normal processing on keystring.
+						    	fi;
+
+						    if (keystring != "")
+							#
+							# Start by making local copies of the global modifier-key and
+							# numeric-prefix stuff and then clearing global state so it
+							# will be ready to process next keystroke:
+							#
+							super_is_set   =     *keystroke_entry__global.super_is_set;	keystroke_entry__global.super_is_set := FALSE;
+							meta_is_set    =     *keystroke_entry__global.meta_is_set;	keystroke_entry__global.meta_is_set  := FALSE;
+							#
+							numeric_prefix =  if *keystroke_entry__global.done_cntrlu	THE *keystroke_entry__global.numeric_prefix;
+									  else						NULL;
+									  fi;
+
+							keystroke_entry__global.doing_cntrlu   := FALSE;					# This should not be needed.
+							keystroke_entry__global.done_cntrlu    := FALSE;
+							keystroke_entry__global.numeric_prefix := 0;
+
+numpref = case numeric_prefix
+	      #
+	      THE i => sprintf "THE %d" i;
+	      NULL  => "NULL";
+	  esac;
+nb {. sprintf "screenline__key_event_fn/MMM: Doing normal keystring processing of '%s': numeric_prefix=%s  meta_is_set=%B  super_is_set=%B   -- textpane.pkg" keystring numpref meta_is_set super_is_set; };
+
+#							if (not modifier_keys_state.mod1_key_was_down)						# 
+							    #
+
+
+							ps  =   case *prompting__global							# Which textbuffer is keystroke addressed to?
+								    #
+								    NULL =>	*mainbuffer__global;						# Normal   input case -- keystrokes are editing the main textbuffer in the main textpane.
+								    _    =>  minibuffer__global;						# Prompted input case -- keystrokes are editing the minibuffer in the modeline screenline. 
+								esac;
+
+							canonical_keystring
+							    =
+							    mj::keystring_to_modemap_key  keystring;
+
+							editfn
+							    =
+							    case *subkeymap__global
+								#
+								THE keymap
+								    =>
+								    {   subkeymap__global := NULL;						# We're partway through a multi-key sequence, so continue down it.
+										    #
+									sm::get (keymap, canonical_keystring);
+								    };
+
+								NULL =>
+								    find_keymap *ps.buffermode						# Check keymap in current buffermode, then (if necessary) search up its parent buffermodes.
+								    where
+									fun find_keymap  buffermode
+									    = 
+									    {   buffermode
+										    ->
+										    mj::BUFFERMODE { keymap, parent, ... };
+
+										case (sm::get (*keymap, canonical_keystring))
+										    #
+										    THE editfn => THE editfn;				# Found a binding for the keystroke in current keymap -- return it.
+
+										    NULL => case parent					# No binding for keystroke in this keymap -- search parent keymaps.
+												#
+												THE buffermode				# We do have a current keymap, so ...
+												    =>
+												    find_keymap  buffermode;		# ... go search it.
+
+												NULL =>  NULL;				# No parent keymap so give up -- this keystroke does nothing.
+											    esac;
+										esac;
+									    };
+								    end;
+							    esac;
+
+
+							case editfn
+							    #
+							    THE editfn
+								=>
+								case editfn
+								    #
+								    mj::EDITFN (editfn_node  as  mj::PLAIN_EDITFN node)
+									=>
+									if (node.args == [])
+									    #
+									    do_edit  (editfn_node, keystring, ps, [], numeric_prefix);
+									else
+
+									    this_arg       =  head  node.args;
+									    remaining_args =  tail  node.args;
+
+									    set_up_to_read_interactive_arg_from_minibuffer
+									      (
+										editfn_node,
+										this_arg,
+										remaining_args,
+										[]
+									      );
+									fi;
+
+								    mj::EDITFN (mj::FANCY_EDITFN  /* node */)
+									=>
+									nb {. "mj::FANCY_EDITFN unsupported  -- textpane.pkg"; };
+
+								    mj::SUBKEYMAP subkeymap
+									=>
+									subkeymap__global := THE subkeymap;
+								esac;
+
+							    NULL => {
+									();									# This keystroke unimplemented in keymap.  Should probably beep here or something. Don't know how to beep yet.
+								    };
+							esac;
+#							fi;									# not modifier_keys_state.mod1_key_was_down
+						    fi;										# keystring != ""
+						};										# gt::KEY_PRESS
+					esac;
 				    };
 
 				fun screenline__cursor_offscreen								# Scroll horizontally in response to screenline notification that cursor is offscreen to left or right.
