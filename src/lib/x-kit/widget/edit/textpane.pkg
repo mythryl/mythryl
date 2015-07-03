@@ -249,7 +249,8 @@ herein
 		lastmark:			Null_Or(g2d::Point),		# (0,0)-origin last-valid-value-of-mark if set, else NULL.  We use this in exchange_point_and_mark() when 'mark' is not set -- see   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 
 		dirty:				Bool,				# TRUE iff textpile contents have been modified since being loaded from file.
-		buffername:			String,				# 
+		readonly:			Bool,
+		name:				String,				# 
 		buffermode:			String
 	      }
 	withtype
@@ -382,6 +383,10 @@ herein
 	    mark:			Ref( Null_Or( g2d::Point ) ),							# (0,0)-origin 'mark' if set, else NULL.  Same coordinate system as 'point'.
 	    lastmark:			Ref( Null_Or( g2d::Point ) ),							# (0,0)-origin last-valid-value-of-mark if set, else NULL.  We use this in exchange_point_and_mark() when 'mark' is not set -- see   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 	    #
+	    readonly:			Ref(	      Bool	   ),							# TRUE iff textpile contents are read-only.  This is a local cache of the master textpile value.
+	    dirty:			Ref(	      Bool	   ),							# TRUE iff textpile contents are modified.   This is a local cache of the master textpile value.
+	    name:			Ref(	      String	   ),							# Name  of textpile.                         This is a local cache of the master textpile value.
+	    #
 	    screen_origin:		Ref(	      g2d::Point   ),							# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
 	    #
 	    line_prefix:		Ref( String ),									# Prefix to show at start of each screenline.  Main motivation is to support minibuffer prompts.
@@ -396,7 +401,7 @@ herein
 
 	fun make_minibuffer (): Panestate
 	    =
-	    {   buffername = "*minibuffer*";
+	    {   name = "*minibuffer*";
 		#
 		textpile_options
 		    =
@@ -404,7 +409,7 @@ herein
 
 		textpile_arg
 		  =
-		  { buffername, textpile_options }:	mj::Textpile_Arg;
+		  { name, textpile_options }:	mj::Textpile_Arg;
 
 		egg =  tbi::make_textpile_egg  textpile_arg;
 		#
@@ -443,9 +448,13 @@ herein
 		    sitewatchers    =>  REF ([]:    List(  Null_Or((Id, g2d::Box )) -> Void  )),
 		    last_known_site =>  REF NULL,
 		    #
-		    point	    =>  REF ( g2d::point::zero ),							# Location of visible cursor in textpile.  Upperleft origin is { row => 0, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
+		    point	    =>  REF  g2d::point::zero,								# Location of visible cursor in textpile.  Upperleft origin is { row => 0, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
 		    mark	    =>  REF (NULL:		Null_Or(g2d::Point)),					# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'point' delimit the current text selection in the buffer.
 		    lastmark	    =>  REF (NULL:		Null_Or(g2d::Point)),					# When we set 'mark' field to NULL we save its previous value in 'lastmark' field.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+		    #													# For the minibuffer the following values will never be used, since the minibuffer doesn't have a modeline display:
+		    readonly	    =>  REF  FALSE,									# TRUE iff textpile contents are read-only.  This is a local cache of the master textpile value.
+		    dirty	    =>  REF  FALSE,									# TRUE iff textpile contents are modified.   This is a local cache of the master textpile value.
+		    name	    =>  REF  "<unknown>",								# Name  of textpile.                         This is a local cache of the master textpile value.
 		    #
 		    screen_origin   =>	REF( g2d::point::zero ),							# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
 		    #
@@ -470,10 +479,19 @@ herein
 	    {
 		fun default_modeline_fn (MODELINE_FN_ARG a)
 		    =
-		    {
+		    {   dirty_readonly
+			    =
+			    case (a.dirty, a.readonly)
+				#
+				(FALSE, FALSE)	=> "  ";
+				(TRUE,  FALSE)	=> "**";
+				(FALSE, TRUE )	=> "%%";
+				(TRUE,  TRUE )	=> "%*";								# This can happen if user manually flips readonly flag after modifying buffer.
+			    esac;
+
 			sprintf "%s   %s   L%d.%d   (%s)"
-				(a.dirty ?? "**" :: "  ")
-				 a.buffername
+				 dirty_readonly
+				 a.name
 				(a.point.row+1)										# '+1's because lines and columns are internally numbered 0->(N-1), but user expects traditional numbering of 1->N.
 				(a.point.col+1)
 				 a.buffermode
@@ -491,8 +509,6 @@ herein
 		modeline_fn__global		=  REF default_modeline_fn;						# Generates string for modeline, typically via sprintf.
 
 		have_keyboard_focus__global	=  REF FALSE;
-
-		readonly__global		=  REF FALSE;								# This is a local mirror of the textpile-imp.pkg readonly flag, to save interthread round trips.
 
 		subkeymap__global											# Normally NULL; Used to implement keys with prefixes by saving current subkeymap in it.
 		    =
@@ -773,8 +789,9 @@ herein
 						    mark	=>  *ps.mark,
 						    lastmark	=>  *ps.lastmark,
 						    #
-						    dirty	=>   tb.get_dirty (),
-						    buffername	=>   tb.get_buffername (),
+						    dirty	=>  *ps.dirty,
+						    readonly	=>  *ps.readonly,
+						    name	=>   tb.get_name (),
 						    buffermode
 						  }
 						where
@@ -1087,6 +1104,7 @@ get_text_dimensions "foo";
 		    mark_changed:	Bool,		mark:		Null_Or(g2d::Point),
 		    lastmark_changed:	Bool,		lastmark:	Null_Or(g2d::Point),
 		    textpile_changed:	Bool,		textpile:	Null_Or( mj::Textpane_To_Textpile ),
+		    readonly_changed:	Bool,		readonly:	Bool,
 		    done:		Bool,		quit:		Bool,
 		    editfn_failed:	Bool,		save:		Bool
 		  };
@@ -1100,6 +1118,7 @@ get_text_dimensions "foo";
 			      mark_changed	 => FALSE,	mark	  => *ps.mark,
 			      lastmark_changed	 => FALSE,	lastmark  => *ps.lastmark,
 			      textpile_changed	 => FALSE,	textpile  =>  NULL,
+			      readonly_changed	 => FALSE,	readonly  => FALSE,
 			      done		 => FALSE,	quit	  => FALSE,
 			      editfn_failed	 => TRUE,	save	  => FALSE
 			    };
@@ -1132,6 +1151,9 @@ get_text_dimensions "foo";
 				my_textpile		= REF r.textpile;
 				my_textpile_changed	= REF r.textpile_changed;
 				#
+				my_readonly		= REF r.readonly;
+				my_readonly_changed	= REF r.readonly_changed;
+				#
 				my_quit			= REF r.quit;
 				my_done			= REF r.done;
 				my_save			= REF r.save;
@@ -1143,6 +1165,7 @@ get_text_dimensions "foo";
 					do_option (mj::MARK      mark	  ) =>	{ my_mark       := mark;	my_mark_changed       := TRUE;	};
 					do_option (mj::LASTMARK  lastmark ) =>	{ my_lastmark   := lastmark;	my_lastmark_changed   := TRUE;	};
 					do_option (mj::TEXTPILE         tb) =>  { my_textpile   := THE tb;	my_textpile_changed   := TRUE;	};
+					do_option (mj::READONLY         ro) =>  { my_readonly   :=     ro;	my_readonly_changed   := TRUE;	};
 					do_option (mj::QUIT		  ) =>  { my_quit       := TRUE;					};
 					do_option (mj::DONE		  ) =>  { my_done       := TRUE;					};
 					do_option (mj::SAVE		  ) =>  { my_save       := TRUE;					};
@@ -1163,6 +1186,9 @@ get_text_dimensions "foo";
 
 				  textpile		=> *my_textpile,
 				  textpile_changed	=> *my_textpile_changed,
+
+				  readonly		=> *my_readonly,
+				  readonly_changed	=> *my_readonly_changed,
 
 				  quit			=> *my_quit,
 				  done			=> *my_done,
@@ -1280,6 +1306,7 @@ get_text_dimensions "foo";
 				      mark_changed,       mark,
 				      lastmark_changed,   lastmark,
 				      textpile_changed,	  textpile, 	
+				      readonly_changed,	  readonly, 	
 				      #	
 				      done,		  quit,
 				      editfn_failed,	  save
@@ -1290,6 +1317,11 @@ get_text_dimensions "foo";
 				    # Should beep here, but not sure how to do that yet.	XXX SUCKO FIXME.
 				    ();
 				else
+
+				    if readonly_changed
+					#
+					ps.readonly := readonly;
+				    fi;
 
 				    if point_changed
 					#
@@ -1416,7 +1448,8 @@ get_text_dimensions "foo";
 					if (mark_changed							# NB: Changing lastmark will have no visible effect on screenline display.
 					or  point_changed
 					or  textlines_changed
-					or  textpile_changed)
+					or  textpile_changed
+					or  readonly_changed)
 					    #
 					    refresh_screenlines ps;
 					fi;
@@ -1444,7 +1477,11 @@ get_text_dimensions "foo";
 						    mark		=>  REF NULL,				# No mark set in this new file.
 						    lastmark		=>  REF NULL,				# 
 						    #
-						    screen_origin	=>  REF( g2d::point::zero ),		# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
+						    readonly		=>  REF FALSE,				# TRUE iff textpile contents are read-only.  This is a local cache of the master textpile value.
+						    dirty		=>  REF FALSE,				# TRUE iff textpile contents are modified.   This is a local cache of the master textpile value.
+						    name		=>  REF  "<unknown>",			# Name  of textpile.                         This is a local cache of the master textpile value.
+						    #
+						    screen_origin	=>  REF g2d::point::zero,		# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
 						    #
 						    line_prefix		=>  REF ""
 						  };
@@ -1481,8 +1518,8 @@ get_text_dimensions "foo";
 				    if save									# Maybe save buffer contents to disk.
 					#
 					tb.save_to_file ();
-
-					refresh_screenlines  ps;						# Force modeline to redraw, clearing the 'dirty' flag ('**' at left).
+# XXX SUCKO FIXME Soon we should wait for the statechange notification.
+#					refresh_screenlines  ps;						# Force modeline to redraw, clearing the 'dirty' flag ('**' at left).
 				    fi;
 
 				else										# We ARE in the minibuffer
@@ -1548,6 +1585,7 @@ get_text_dimensions "foo";
 								  mark_changed,		mark,
 								  lastmark_changed,	lastmark,
 								  textpile_changed,	textpile, 	
+								  readonly_changed,	readonly, 		# At the moment at least we ignore this.
 								  #	
 								  done,		  	quit,
 								  editfn_failed,	save
@@ -1882,7 +1920,6 @@ get_text_dimensions "foo";
 		      sitewatchers
 		    };
 
-#		sitewatchers_global	:= sitewatchers;
 		modeline_fn__global	:= modeline_fn;
 
 
@@ -1939,11 +1976,15 @@ get_text_dimensions "foo";
 			      sitewatchers    =>  REF sitewatchers,
 			      last_known_site =>  REF NULL,
 			      #
-			      point	      =>  REF ( g2d::point::zero ),							# Location of visible cursor in textpile.  Upperleft origin is { row => 0, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
+			      point	      =>  REF g2d::point::zero,								# Location of visible cursor in textpile.  Upperleft origin is { row => 0, col => 0 } (but is displayed to user as L1C1 to conform with standard text-editor practice).  This is in buffer (file) coordinates, not screen coordinates.
 			      mark	      =>  REF (NULL:			 Null_Or(g2d::Point)),				# Location of the emacs-traditional buffer 'mark'.  If this is non-NULL, the 'mark' and 'point' delimit the current text selection in the buffer.
 			      lastmark	      =>  REF (NULL:			 Null_Or(g2d::Point)),				# When we set mark__global to NULL we save its previous value in lastmark__global.  This gets used by exchange_point_and_mark in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 			      #
-			      screen_origin   =>  REF( g2d::point::zero ),							# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
+			      readonly	      =>  REF FALSE,									# TRUE iff textpile contents are read-only.  This is a local cache of the master textpile value.
+			      dirty	      =>  REF FALSE,									# TRUE iff textpile contents are modified.   This is a local cache of the master textpile value.
+			      name	      =>  REF  "<unknown>",								# Name  of textpile.                         This is a local cache of the master textpile value.
+			      #
+			      screen_origin   =>  REF g2d::point::zero,								# Origin of screen relative to textpile contents:  (0,0) means we're showing top of buffer at top of textpane.
 			      #	
 			      line_prefix	     =>  REF "",
 			      minibuffer_screenlines =>  THE minibuffer__global.screenlines					# Note that we're sharing the minibuffer__global.screenlines refcell here.
@@ -1953,28 +1994,44 @@ get_text_dimensions "foo";
 				    =
 				    eb.get_or_make_textpile
 					#
-					{ buffername	     =>  "mybuffer",
+					{ name		   =>  "my_textpile",
 					  textpile_options =>	 [ mj::UTF8 text ]
 					};
 			    end;	
 
 
-			{   ((*mainbuffer__global).textpane_to_textpile)							# Subscribe to textpile updates.
+			{   ps = *mainbuffer__global;										# Subscribe to mainbuffer textpile updates, so this textpane can update correctly when changes are made via another textpane.
+			    #
+			    ps.textpane_to_textpile
 				->
-				mj::TEXTPANE_TO_TEXTPILE t2t;
+				mj::TEXTPANE_TO_TEXTPILE  t2t;
 
 			    t2t.note_statewatcher (textpane_id, note_textpile_statechange)
 			    where
-				fun note_textpile_statechange (change: mj::Textpile_Statechange)
+				fun note_textpile_statechange (id, change: mj::Textpile_Statechange)
 				    =
 				    do {.											# The 'do' switches us from executing in microthread of textpile caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
-					case change
+
+					minibuffer__global.textpane_to_textpile							# First job is to figure out which panestate is being updated -- minibuffer or mainbuffer.
+					    ->											#
+					    mj::TEXTPANE_TO_TEXTPILE  t2t;							#
+					    			      								#
+					ps = if (same_id (id, t2t.id))	 minibuffer__global;					#
+					     else	     		*mainbuffer__global;					#
+					     fi;	       									#
+
+					ps.textpane_to_textpile									# Don't leave stale value of 't2t' in-scope.
+					    ->
+					    mj::TEXTPANE_TO_TEXTPILE  t2t;
+
+					case change										# 
 					    #
-					    mj::TEXTSTATE_CHANGED	(id, { was, now	}) =>	refresh_screenlines *mainbuffer__global;
-					    mj::UNDO		(id, { was, now }) =>	refresh_screenlines *mainbuffer__global;
-					    mj::FILESPEC_CHANGED	(id, { was, now }) =>	refresh_screenlines *mainbuffer__global;
-					    mj::BUFFERNAME_CHANGED	(id, { was, now	}) =>	refresh_screenlines *mainbuffer__global;
-# SOON: READONLY
+					    mj::TEXTSTATE_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
+					    mj::UNDO			{ was, now } => {				refresh_screenlines  ps;	};
+					    mj::FILESPEC_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
+					    mj::NAME_CHANGED		{ was, now } =>	{   ps.name	:= now;		refresh_screenlines  ps;	};
+					    mj::READONLY_CHANGED	{ was, now } =>	{   ps.readonly := now;		refresh_screenlines  ps;	};
+					    mj::DIRTY_CHANGED		{ was, now } =>	{   ps.dirty    := now;		refresh_screenlines  ps;	};
 					esac;
 				    };				
 			    end;
