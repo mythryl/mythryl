@@ -122,7 +122,7 @@ fun eof ()
 
 fun error s
     =
-    raise exception FAIL s;
+    raise exception DIE s;
 
 %% 
 %header (package approximate_ml_lex);

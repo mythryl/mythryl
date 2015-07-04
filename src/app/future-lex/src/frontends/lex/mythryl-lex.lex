@@ -37,10 +37,10 @@ fun uniChar s = let
 		 | 'b' => 0w11 | 'B' => 0w11 | 'c' => 0w12 | 'C' => 0w12
 		 | 'd' => 0w13 | 'D' => 0w13 | 'e' => 0w14 | 'E' => 0w14
 		 | 'f' => 0w15 | 'F' => 0w15
-		 | _ => raise exception FAIL "invalid unicode escape sequence")
+		 | _ => raise exception DIE "invalid unicode escape sequence")
       fun iter ('u' . _, v) = v
         | iter (c . cs,   v) = iter (cs, ((one_word_unt::from_int 16)*v + (toW32 c))
-	| iter _ = raise exception FAIL "invalid unicode escape sequence"
+	| iter _ = raise exception DIE "invalid unicode escape sequence"
       uni = iter (list::reverse (string::explode s), 0w0)
       in iter (list::reverse (string::explode s), 0w0)
       end
