@@ -140,10 +140,12 @@ herein
 	  };
 
 
-	Screenline_Info
+	Pane_Info
 	  =
-	  { textpane_to_screenline:		p2l::Textpane_To_Screenline,
-	    editboss_to_screenline:		b2l::Editboss_To_Screenline
+	  { pane_id:				Id,
+	    pane_tag:				Ref( Int ),								# We assign each pane a tag in the dense range 1-N, to be displayed on modeline and used by "C-x o" (other_pane) in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+	    editboss_to_pane:			Ref( Null_Or( b2p::Editboss_To_Pane ) ),				# Our port to the pane, once it registers with us.
+	    crypt_queue:			Ref( List( Crypt ) )							# Messages to be delivered to pane once it registers with us via Gadget_To_Editboss.note_pane().	We reverse this queue before delivering it to preserve message order.
 	  };
 
 	Textpane_Info
@@ -155,17 +157,6 @@ herein
 	    screenline_to_textpane:		l2p::Screenline_To_Textpane
 	  };
  
- 	Textpane_Info_2
- 	  =
- 	  { textpane_id:			Id,
- 	    #
- 	      editboss_to_textpane:		Ref( Null_Or(   e2p::Editboss_To_Textpane ) ),
- 	    screenline_to_textpane:		Ref( Null_Or( l2p::Screenline_To_Textpane ) ),
- 	    #
- 	    screenlines:			Ref( im::Map( Screenline_Info		  ) )
- 	  };
- 
-
 	Editboss_State													# Holds all nonephemeral mutable state maintained by package.
 	  =
 	  {
@@ -173,7 +164,7 @@ herein
 	    textmills_by_id:			Ref( im::Map( Textmill_Info   ) ),					# All currently active textmills, by id.
 	    textmills_by_filepath:		Ref( sm::Map( Textmill_Info   ) ),					# All currently active textmills WHICH ARE OPEN ON A FILE, by filepath. (We expect this to typically be a full pathname like "/home/jayne/foo.txt", so as to help avoid having multiple buffers open on one file.)
 	    textpanes_by_id:			Ref( im::Map( Textpane_Info   ) ),					# All currently active textpanes, by id.
-	    textpanes:				Ref( im::Map( Textpane_Info_2 ) )
+	    panes_by_id:			Ref( im::Map( Pane_Info	      ) )
 	  };
 
 	Me_Slot = Mailslot( { imports:		Imports,
@@ -267,18 +258,16 @@ herein
 			get_cutbuffer_contents,
 			set_cutbuffer_contents,
 			#
-			note_screenline,
-			note_textpane,
-			#
-			drop_screenline,
-			drop_textpane
+			note_pane,
+			drop_pane,
+			mail_pane
 		      };
 
 		exports	    = { gadget_to_editboss => crypt }
 				where
 				    crypt = { key => "gadget_to_editboss::GADGET_TO_EDITBOSS",
 					      doc => "src/lib/x-kit/widget/edit/gadget-to-editboss.pkg",
-					      val =>  mj::GADGET_TO_EDITBOSS_CRYPT  gadget_to_editboss
+					      val =>  mj::GADGET_TO_EDITBOSS__CRYPT  gadget_to_editboss
 					    };	
 				end;
 
@@ -346,171 +335,57 @@ herein
 		#
 		#
 
-		fun get_or_make_textpane_info_2
+		fun get_or_make_pane_info
 		      {
 			me:		Editboss_State,
-			textpane_id:	Id
-		      }:		Textpane_Info_2
+			pane_id:	Id
+		      }:		Pane_Info
 		    =
-		    {
-			case (im::get  (*me.textpanes,  id_to_int textpane_id))
-			    #
-			    THE textpane_info
-				=>
-				textpane_info;
-			    #
-			    NULL =>
-				{   textpane_info2 =  {
-							textpane_id,
-							#
-							  editboss_to_textpane  => REF NULL,
-							screenline_to_textpane  => REF NULL,
-							#
-							screenlines		=> REF im::empty
-						      };
-
-				    me.textpanes
-					:=
-					im::set (*me.textpanes,  id_to_int textpane_id,  textpane_info2);
-
-				    textpane_info2;
-				};
-			esac;
-		    };
-
-
-		fun drop_textpane_if_empty
-		      {
-			me:		Editboss_State,
-			textpane_id:	Id
- 		      }
-		    =
-		    {
-			textpane_info2
-			    =
-			    get_or_make_textpane_info_2 { me, textpane_id };
+		    case (im::get  (*me.panes_by_id,  id_to_int pane_id))
 			#
-			textpane_info2
-			  ->
-			  { textpane_id:			Id,
-			    #
-			      editboss_to_textpane:		Ref( Null_Or(   e2p::Editboss_To_Textpane ) ),
-			    screenline_to_textpane:		Ref( Null_Or( l2p::Screenline_To_Textpane ) ),
-			    #
-			    screenlines:			Ref( im::Map( Screenline_Info		  ) )
-			  };
-
-			case (  *editboss_to_textpane,
-			      *screenline_to_textpane)
-			    #
-			    (NULL, NULL)
-				=>
-				if (im::is_empty *screenlines)
-				    #	
-				    me.textpanes
-					:=
-					im::drop  (*me.textpanes,  id_to_int textpane_id);
-				fi;
-
-			    _ => ();
-			esac;
-		    };
-
-
-		fun note_screenline
-		      (
-			editboss_to_screenline:		b2l::Editboss_To_Screenline,
-			textpane_to_screenline:		p2l::Textpane_To_Screenline
-		      )
-		    =
-		    put_in_mailqueue  (editboss_q,
+			THE pane_info
+			    =>
+			    pane_info;
 			#
-			\\ ({ id, me, ... }: Runstate)
-			    =
-			    {   r = textpane_to_screenline;								# For brevity.
-				#
-				textpane_id   = r.textpane_id;
-				screenline_id = r.screenline_id;
+			NULL =>
+			    {   pane_info
+				  =
+				  { pane_id,
+				    pane_tag	     => REF 0,										# We assign each pane a tag in the dense range 1-N, to be displayed on modeline and used by "C-x o" (other_pane) in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
+				    editboss_to_pane => REF NULL,									# Our port to the pane, once it registers with us.
+				    crypt_queue	     => REF []										# Messages to be delivered to pane once it registers with us via Gadget_To_Editboss.note_pane().	We reverse this queue before delivering it to preserve message order.
+				  };
 
-				textpane_info2
-				    =
-				    get_or_make_textpane_info_2 { me, textpane_id };
-
-				screenline_info
-				    =
-				    { editboss_to_screenline, textpane_to_screenline };
-
-				textpane_info2.screenlines
+				me.panes_by_id
 				    :=
-				    im::set (  *textpane_info2.screenlines,
-						id_to_int screenline_id,
-						screenline_info
- 					    );
+				    im::set  (*me.panes_by_id,  id_to_int pane_id,  pane_info);
 
+				pane_info;
+			    };
+		    esac;
 
-				case (*textpane_info2.screenline_to_textpane)
-				    #
-				    THE screenline_to_textpane
-					=>
-					editboss_to_screenline.note__screenline_to_textpane  screenline_to_textpane;
-				    #
-				    NULL => ();										# Haven't seen the textpane.pkg instance yet, so we'll do above in note_textpane.
-				esac;
-
-
-				case (*textpane_info2.editboss_to_textpane)
-				    #
-				    THE editboss_to_textpane
-					=>
-					editboss_to_textpane.note__textpane_to_screenline  textpane_to_screenline;
-				    #
-				    NULL => ();										# Haven't seen the textpane.pkg instance yet, so we'll do above in note_textpane.
-				esac;
-			    }
-		    );
-
-		fun drop_screenline
-		      {
-			screenline_id:		Id,
-			textpane_id:		Id
-		      }
-
-		    =
-		    put_in_mailqueue  (editboss_q,
-			#
-			\\ ({ id, me, ... }: Runstate)
-			    =
-			    {
- 				textpane_info2
- 				    =
- 				    get_or_make_textpane_info_2 { me, textpane_id };
- 
- 				textpane_info2.screenlines
- 				    :=
- 				    im::drop(  *textpane_info2.screenlines,
- 						id_to_int screenline_id
- 					    );
-
-				# Should we notify textpane?  Currently presuming it initiated things, hence already knows.
-
- 				drop_textpane_if_empty { me, textpane_id };
-			    }
-		    );
 
 		fun renumber_panes											# Assign all active textpanes numeric tags in the range 1-N.  These are displayed on the modeline and used by "C-x o" (other_pane) in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 		      (													# renumber_panes should be called whenever a textpane is noted or dropped.
 			{ id, me, ... }: 	Runstate
 		      )
 		    =
-		    {   textpanes =  im::vals_list  *me.textpanes_by_id;
+		    {   panes =  im::vals_list  *me.panes_by_id;
 			#
-			renumber (textpanes, 1)
+			renumber (panes, 1)
 			    where
-				fun renumber ((pane: Textpane_Info) ! rest,  n)
+				fun renumber ((pane: Pane_Info) ! rest,  n)
 					=>
-					{   pane.editboss_to_textpane.note_tag  n;
-					    #
-					    renumber (rest, n+1); 
+					{   case *pane.editboss_to_pane
+						#
+						THE editboss_to_pane
+						    =>
+						    editboss_to_pane.note_tag  n;
+
+						NULL => ();
+					    esac;
+
+					    renumber (rest, n+1);							# NB: We allocate a tag to panes which have not yet registered, the idea being to minimize the number of visible renumberings which the user must cope with.
 					};
 
 				    renumber ([], _) => ();
@@ -518,92 +393,79 @@ herein
 			    end;
 		    };	
 
-		fun note_textpane
+		fun note_pane
 		      (
-			editboss_to_textpane:			e2p::Editboss_To_Textpane,
-			screenline_to_textpane:			l2p::Screenline_To_Textpane
+			editboss_to_pane:			b2p::Editboss_To_Pane
 		      )
 		    =
 		    put_in_mailqueue  (editboss_q,
 			#
 			\\ (r as { id, me, ... }: Runstate)
 			    =
-			    {   textpane_id =  editboss_to_textpane.textpane_id;
-				#
-				textpane_info
-				  =
-				  { textpane_id,
-				    pane_tag		=> REF 0,
-				    #
-				    editboss_to_textpane,
-				    screenline_to_textpane
-				  };
+			    {   pane_id   =  editboss_to_pane.pane_id;
+				pane_info =  get_or_make_pane_info { me, pane_id };
 
-				me.textpanes_by_id
+				pane_info.editboss_to_pane
 				    :=
-				    im::set (*me.textpanes_by_id,   id_to_int textpane_id,  textpane_info);
+				    THE editboss_to_pane;
 
-				renumber_panes r;									# This should be called whenever a textpane is noted or dropped.
+ 				renumber_panes r;									# This should be called whenever a pane is noted or dropped.
 
-
-				textpane_info2
-				    =
-				    get_or_make_textpane_info_2
-				      {
-					me,
-					textpane_id =>  screenline_to_textpane.textpane_id
-				      };
-
-				textpane_info2.editboss_to_textpane   :=  THE   editboss_to_textpane;
-				textpane_info2.screenline_to_textpane :=  THE screenline_to_textpane;
-
-
-				apply	do_screenline
+ 				apply	do_crypt   (reverse *pane_info.crypt_queue)					# We reverse to restore original message ordering.
 					#
-					(im::vals_list  *textpane_info2.screenlines)
 					where
-					    fun do_screenline (l: Screenline_Info)
+					    fun do_crypt (crypt: Crypt)
 						=
-						{   l ->  { textpane_to_screenline:		p2l::Textpane_To_Screenline,
-							    editboss_to_screenline:		b2l::Editboss_To_Screenline
-							  };
-
-						    editboss_to_textpane.note__textpane_to_screenline    textpane_to_screenline;
-
-						    editboss_to_screenline.note__screenline_to_textpane  screenline_to_textpane;
-						};
+						editboss_to_pane.note_crypt  crypt;
 					end;
+
+				pane_info.crypt_queue
+				    :=
+				    [];
 			    }
 		    );
-		fun drop_textpane
+		fun mail_pane												# Send something to a pane. If the pane is not yet registered with editboss, the crypt will be queued up and delivered when the pane registers. Used for linking up screenline.pkg instances to textpane.pkg instances at startup (etc).
+		      (													# Using a Crypt here makes the mechanism general at a small cost in typesafety.  In particular, it buys us valuable modularity by keeping editboss from needing to know the types of the interfaces between textpane and screenline (etc).
+			pane_id:	Id,										#
+			crypt:		Crypt
+		      )
+		    =
+		    put_in_mailqueue  (editboss_q,
+			#
+			\\ (r as { id, me, ... }: Runstate)
+			    =
+			    {	pane_info =  get_or_make_pane_info { me, pane_id };
+				#
+				case *pane_info.editboss_to_pane
+				    #
+				    THE editboss_to_pane								# Pane has registered, so we can send the crypt immediately.
+					=>
+					editboss_to_pane.note_crypt  crypt;
+
+				    NULL =>										# Pane has not yet registered, so we queue the crypt up; we'll send it when the pane registers.
+					pane_info.crypt_queue
+					    :=
+					    crypt ! *pane_info.crypt_queue;
+				esac;
+			    }
+		    );
+		fun drop_pane
 		      {
-			textpane_id:		Id
+			pane_id:		Id
 		      }
 		    =
 		    put_in_mailqueue  (editboss_q,
 			#
 			\\ (r as { id, me, ... }: Runstate)
 			    =
-			    {	me.textpanes_by_id
+			    {	me.panes_by_id
 				    :=
-				    im::drop(*me.textpanes_by_id,   id_to_int textpane_id);
+				    im::drop  (*me.panes_by_id,   id_to_int pane_id);
 
-				renumber_panes r;									# This should be called whenever a textpane is noted or dropped.
-
-				textpane_info2
-				    =
-				    get_or_make_textpane_info_2
-				      {
-					me,
-					textpane_id
- 				      };
-
- 				textpane_info2.editboss_to_textpane   :=  NULL;
- 				textpane_info2.screenline_to_textpane :=  NULL;
-
-				# XXX SUCKO FIXME These drop_* fns will collectively leak memory by never removing empty Textpane_Info_2 and Textedit_Info nodes. Ignoring that for now; possibly we'll eventually want to do periodic cleanup passes or some such.
+				renumber_panes r;									# This should be called whenever a pane is noted or dropped.
 			    }
 		    );
+
 
 		stipulate
 		    cutbuffer_contents =  REF (ct::PARTLINE "");
@@ -852,9 +714,9 @@ herein
 		me =  {	textmills_by_name	=>  REF sm::empty,											# All currently active textmills, by name.
 			textmills_by_id		=>  REF im::empty,											# All currently active textmills, by id.
 			textpanes_by_id		=>  REF im::empty,											# All currently active textpanes, by id.
-			textpanes		=>  REF im::empty,
 			#
-			textmills_by_filepath	=>  REF sm::empty											# All currently active textmills WHICH ARE OPEN ON A FILE, by filename.
+			textmills_by_filepath	=>  REF sm::empty,											# All currently active textmills WHICH ARE OPEN ON A FILE, by filename.
+			panes_by_id		=>  REF im::empty											# All currently active panes, by id.
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );						# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.

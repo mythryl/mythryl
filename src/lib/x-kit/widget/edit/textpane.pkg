@@ -2038,12 +2038,142 @@ get_text_dimensions "foo";
 
 			maybe_change_number_of_screenlines *mainbuffer__global;
 
-			eb.note_textpane
+			eb.note_pane
 			  (
-			    editboss_to_textpane:			e2p::Editboss_To_Textpane,
-			    screenline_to_textpane:			l2p::Screenline_To_Textpane
+			    editboss_to_pane:				b2p::Editboss_To_Pane
 			  )
 			    where
+				fun note_crypt (crypt: Crypt)									# note_crypt() is a mechanism for gadgets to send us messages by our textpane_id via editboss-imp.pkg without (for improved modularity) the latter having to know all the types involved.
+				    =												# 
+				    do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
+					case crypt.val
+					    #
+					    mj::TEXTPANE_TO_SCREENLINE__CRYPT  textpane_to_screenline				# A screenline.pkg instance registering with us via editboss-imp.pkg.
+						=>
+						{
+						    fun screenline__mouse_click_fn									# Process a user mouseclick forwarded to us by one of our screenline.pkg instances (including the modeline one).
+							  (
+							    a:				tpt::Mouse_Click_Fn_Arg
+							  )
+							=
+							do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread.
+							    a ->  { 
+								    id => _:		Id,							# Unique Id for widget. (screenline.pkg widget.)  We avoid shadowing our own 'id'.
+								    doc:			String,							# Human-readable description of this widget, for debug and inspection.
+								    event:			gt::Mousebutton_Event,					# MOUSEBUTTON_PRESS or MOUSEBUTTON_RELEASE.
+								    button:			evt::Mousebutton,
+								    point:			g2d::Point,
+								    widget_layout_hint:	gt::Widget_Layout_Hint,
+								    frame_indent_hint:	gt::Frame_Indent_Hint,
+								    site:			g2d::Box,						# Widget's assigned area in window coordinates.
+								    modifier_keys_state:	evt::Modifier_Keys_State,				# State of the modifier keys (shift, ctrl...).
+								    mousebuttons_state:	evt::Mousebuttons_State,				# State of mouse buttons as a bool record.
+								    widget_to_guiboss:	gt::Widget_To_Guiboss,
+								    theme:			wt::Widget_Theme
+								  };
+
+							    case event
+								#
+								gt::MOUSEBUTTON_PRESS
+								    =>
+								    {
+									widget_to_guiboss.g.request_keyboard_focus id;
+								    };
+
+								gt::MOUSEBUTTON_RELEASE
+								    =>
+								    {
+								    };
+							    esac;
+							};
+
+						    fun screenline__cursor_offscreen								# Scroll horizontally in response to screenline notification that cursor is offscreen to left or right.
+							  {
+							    out_by_in_cols:		Int,								# If 'out_by_in_cols' is 10, cursor is 10 columns beyond right margin.  If arg0 is -10, cursor is 10 columns to left of left margin.
+							    panewidth_in_cols:	Int,								# Width of textpane in screencols.
+							    screencol0:		Int								# Using (*ps.screen_origin).col here directly led to weird oscillations due to messages getting stacked up in mailqueues between screenline.pkg and textpane.pkg instances.
+							  }
+							=
+							do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread.
+							    ps =	case *prompting__global
+									#
+									NULL =>	    *mainbuffer__global;
+									_    =>	     minibuffer__global;	
+								    esac;
+
+							    panewidth2 = panewidth_in_cols / 2;
+
+							    screen_origin =  *ps.screen_origin;
+
+
+							    screencol0'
+								=
+								if (out_by_in_cols < 0)
+								    #
+								    screencol0' = screencol0 + out_by_in_cols - panewidth2;
+
+								    max (0, screencol0');								# Don't let screen origin column go negative.
+
+								else
+								    screencol0 + out_by_in_cols + panewidth2;
+								fi;
+
+							    ps.screen_origin
+							      :=
+							      { row =>  screen_origin.row,
+								col =>  screencol0'
+							      };
+
+							    refresh_screenlines  ps;
+							};
+
+						    screenline_to_textpane
+						      =
+						      { textpane_id => id,
+							#
+							mouse_click_fn	 =>  screenline__mouse_click_fn,
+							cursor_offscreen =>  screenline__cursor_offscreen
+
+						      }:					l2p::Screenline_To_Textpane;
+
+						    textpane_to_screenline.note__screenline_to_textpane
+							#
+							screenline_to_textpane;
+ 
+						    if (textpane_to_screenline.paneline != -1)					# This '-1' kludge to distinguish the minibuffer/modeline screenline is pretty ugly.  Feel free to dream up something nicer.
+							#
+							ps  =  *mainbuffer__global;						# Normal case -- we're registering a screenline in the main textpane.
+							#
+							ps.screenlines
+							    :=
+							    im::set   (*ps.screenlines,
+									textpane_to_screenline.paneline,
+									textpane_to_screenline
+								      );
+
+							refresh_screenlines ps;
+						    else
+							ps  =  minibuffer__global;						# We're registering the screenline for the minibuffer/modeline textpane.
+							#
+							ps.screenlines
+							    :=
+							    im::set   (*ps.screenlines,
+									0,							# Ignore the bogus '-1' paneline value, so as to have the screenlines numbering be 0-based as usual.
+									textpane_to_screenline
+								      );
+						    fi;
+						};
+
+					    _   =>  {   msg =   sprintf "note_crypt:  Unknown Crypt value, key='%s' doc='%s'  --textpane.pkg"
+								    crypt.key
+								    crypt.doc
+								;
+							log::fatal msg;								# Shouldn't return.
+							raise exception DIE msg;						# Mainly to keep the compiler happy.
+						    };
+					esac;
+				    };
+
 				fun note_tag (tag: Int)										# editboss numbers textpanes 1-N. The tag is displayed on modeline, allowing user to compactly designate a textpane when switching between them via "C-x o".
 				    =												# This tag may be changed at any time -- editboss renumbers all textpanes every time a textpane is un/registered with it.
 				    do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
@@ -2056,130 +2186,13 @@ get_text_dimensions "foo";
 					fi;
 				    };
 
-				fun note__textpane_to_screenline
-				      (
-					textpane_to_screenline:		p2l::Textpane_To_Screenline
-				      )
-				    =
-				    do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
-					if (textpane_to_screenline.paneline != -1)						# This '-1' kludge to distinguish the minibuffer/modeline screenline is pretty ugly.  Feel free to dream up something nicer.
-					    #
-					    ps  =  *mainbuffer__global;								# Normal case -- we're registering a screenline in the main textpane.
-					    #
-					    ps.screenlines
-						:=
-						im::set   (*ps.screenlines,
-							    textpane_to_screenline.paneline,
-							    textpane_to_screenline
-							  );
-
-					    refresh_screenlines ps;
-					else
-					    ps  =  minibuffer__global;								# We're registering the screenline for the minibuffer/modeline textpane.
-					    #
-					    ps.screenlines
-						:=
-						im::set   (*ps.screenlines,
-							    0,									# Ignore the bogus '-1' paneline value, so as to have the screenlines numbering be 0-based as usual.
-							    textpane_to_screenline
-							  );
-					fi;
-				    };
-
-
-				fun screenline__mouse_click_fn									# Process a user mouseclick forwarded to us by one of our screenline.pkg instances (including the modeline one).
-				      (
-					a:				tpt::Mouse_Click_Fn_Arg
-				      )
-				    =
-				    do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread.
-					a ->  { 
-						id => _:		Id,							# Unique Id for widget. (screenline.pkg widget.)  We avoid shadowing our own 'id'.
-						doc:			String,							# Human-readable description of this widget, for debug and inspection.
-						event:			gt::Mousebutton_Event,					# MOUSEBUTTON_PRESS or MOUSEBUTTON_RELEASE.
-						button:			evt::Mousebutton,
-						point:			g2d::Point,
-						widget_layout_hint:	gt::Widget_Layout_Hint,
-						frame_indent_hint:	gt::Frame_Indent_Hint,
-						site:			g2d::Box,						# Widget's assigned area in window coordinates.
-						modifier_keys_state:	evt::Modifier_Keys_State,				# State of the modifier keys (shift, ctrl...).
-						mousebuttons_state:	evt::Mousebuttons_State,				# State of mouse buttons as a bool record.
-						widget_to_guiboss:	gt::Widget_To_Guiboss,
-						theme:			wt::Widget_Theme
-					      };
-
-					case event
-					    #
-					    gt::MOUSEBUTTON_PRESS
-						=>
-						{
-						    widget_to_guiboss.g.request_keyboard_focus id;
-						};
-
-					    gt::MOUSEBUTTON_RELEASE
-						=>
-						{
-						};
-					esac;
-				    };
-
-				fun screenline__cursor_offscreen								# Scroll horizontally in response to screenline notification that cursor is offscreen to left or right.
-				      {
-				        out_by_in_cols:		Int,								# If 'out_by_in_cols' is 10, cursor is 10 columns beyond right margin.  If arg0 is -10, cursor is 10 columns to left of left margin.
-					panewidth_in_cols:	Int,								# Width of textpane in screencols.
-					screencol0:		Int								# Using (*ps.screen_origin).col here directly led to weird oscillations due to messages getting stacked up in mailqueues between screenline.pkg and textpane.pkg instances.
-				      }
-				    =
-				    do {.											# The 'do' switches us from executing in microthread of screenline caller to our own textpane microthread.
-					ps =	case *prompting__global
-						    #
-						    NULL =>	    *mainbuffer__global;
-						    _    =>	     minibuffer__global;	
-						esac;
-
-					panewidth2 = panewidth_in_cols / 2;
-
-					screen_origin =  *ps.screen_origin;
-
-
-					screencol0'
-					    =
-					    if (out_by_in_cols < 0)
-						#
-						screencol0' = screencol0 + out_by_in_cols - panewidth2;
-
-						max (0, screencol0');								# Don't let screen origin column go negative.
-
-					    else
-						screencol0 + out_by_in_cols + panewidth2;
-					    fi;
-
-					ps.screen_origin
-					  :=
-					  { row =>  screen_origin.row,
-					    col =>  screencol0'
-					  };
-
-					refresh_screenlines  ps;
-				    };
-
-				editboss_to_textpane
+				editboss_to_pane
 				  =
-				  { textpane_id => id,										# Unique id to facilitate storing editboss_to_textpane instances in indexed datastructures like red-black trees.
+				  { pane_id => id,										# Unique id to facilitate storing editboss_to_textpane instances in indexed datastructures like red-black trees.
 				    #
-				    note__textpane_to_screenline,
-				    #
+				    note_crypt,
 				    note_tag
-				  }:					e2p::Editboss_To_Textpane;
-
-				screenline_to_textpane
-				  =
-				  { textpane_id => id,
-				    #
-				    mouse_click_fn	=>  screenline__mouse_click_fn,
-				    cursor_offscreen	=>  screenline__cursor_offscreen
-
-				  }:					l2p::Screenline_To_Textpane;
+				  }:					b2p::Editboss_To_Pane;
 			    end;
 
 			widget_to_guiboss.g.request_keyboard_focus  id;
@@ -2210,7 +2223,7 @@ get_text_dimensions "foo";
 					->
 					mj::GADGET_TO_EDITBOSS  eb;
 
-				    eb.drop_textpane  { textpane_id };
+				    eb.drop_pane  { pane_id => textpane_id };
 				};
 
 			    NULL => ();
@@ -2220,7 +2233,7 @@ get_text_dimensions "foo";
 
 			{   ps.textpane_to_textmill
 				->
-				mj::TEXTPANE_TO_TEXTMILL t2t;
+				mj::TEXTPANE_TO_TEXTMILL  t2t;
 
 			    t2t.drop_statewatcher  textpane_id;
 			};
