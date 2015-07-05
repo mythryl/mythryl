@@ -475,7 +475,8 @@ herein
 	    {
 		fun default_modeline_fn (MODELINE_FN_ARG a)
 		    =
-		    {   dirty_readonly
+		    {
+			dirty_readonly
 			    =
 			    case (a.dirty, a.readonly)
 				#
@@ -1273,7 +1274,9 @@ get_text_dimensions "foo";
 			prompted_args:		List( mj::Prompted_Arg ),
 			numeric_prefix:		Null_Or(Int),
 			widget_to_guiboss:	gt::Widget_To_Guiboss,
-			to:			Replyqueue							# Used to call 'pass_*' methods in other imps.
+			to:			Replyqueue,							# Used to call 'pass_*' methods in other imps.
+			#
+			note_textmill_statechange: (Id, mj::Textmill_Statechange) -> Void 
 		      )
 		    =
 		    {   ps.textpane_to_textmill
@@ -1423,7 +1426,8 @@ get_text_dimensions "foo";
 									  prompted_args,
 									  numeric_prefix,
 									  widget_to_guiboss,
-									  to
+									  to,
+									  note_textmill_statechange
 									);
 							    };
 
@@ -1484,6 +1488,10 @@ get_text_dimensions "foo";
 						    #
 						    line_prefix		=>  REF ""
 						  };
+
+
+						{   tb.textpane_to_textmill -> mj::TEXTPANE_TO_TEXTMILL t2t;  t2t.drop_statewatcher  textpane_id;				};	# Unsubscribe to statechanges from our old textmill.
+						{      textpane_to_textmill -> mj::TEXTPANE_TO_TEXTMILL t2t;  t2t.note_statewatcher (textpane_id, note_textmill_statechange);	};	#   Subscribe to statechanges from our new textmill.
 
 						refresh_screenlines  *mainbuffer__global;			# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minibuffer display used to read our string, and also the main textpane, to show the new file.
 
@@ -1623,6 +1631,32 @@ get_text_dimensions "foo";
 			};
 
 
+		fun note_textmill_statechange' (id, change: mj::Textmill_Statechange)
+		    =
+		    {
+			minibuffer__global.textpane_to_textmill							# First job is to figure out which panestate is being updated -- minibuffer or mainbuffer.
+			    ->											#
+			    mj::TEXTPANE_TO_TEXTMILL  t2t;							#
+														#
+			ps = if (same_id (id, t2t.id))	 minibuffer__global;					#
+			     else	     		*mainbuffer__global;					#
+			     fi;	       									#
+
+			ps.textpane_to_textmill									# Don't leave stale value of 't2t' in-scope.
+			    ->
+			    mj::TEXTPANE_TO_TEXTMILL  t2t;
+
+			case change										# 
+			    #
+			    mj::TEXTSTATE_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
+			    mj::UNDO			{ was, now } => {				refresh_screenlines  ps;	};
+			    mj::FILESPEC_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
+			    mj::NAME_CHANGED		{ was, now } =>	{   ps.name	:= now;		refresh_screenlines  ps;	};
+			    mj::READONLY_CHANGED	{ was, now } =>	{   ps.readonly := now;		refresh_screenlines  ps;	};
+			    mj::DIRTY_CHANGED		{ was, now } =>	{   ps.dirty    := now;		refresh_screenlines  ps;	};
+			esac;
+		    };
+
 		fun default_key_event_fn (KEY_EVENT_FN_ARG a)							# Process a user keystroke sent to us via guiboss-imp.pkg -> guiboss-event-dispatch.pkg -> widget-imp.pkg.
 		    =
 		    {
@@ -1650,6 +1684,12 @@ get_text_dimensions "foo";
 # keycode -> evt::KEYCODE kc;
 # nb {. sprintf "default_key_event_fn/AAA: keycode=%d key_event=%s keystring='%s' modkeys=%s  -- textpane.pkg" kc case key_event gt::KEY_PRESS=>"KEY_PRESS"; _ => "KEY_RELEASE"; esac  keystring  (evt::modifier_keys_state__to__string  modifier_keys_state); };
 
+
+			fun note_textmill_statechange arg
+			    =
+			    do {.											# The 'do' switches us from executing in microthread of textmill caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
+				note_textmill_statechange' arg;
+			    };				
 
 			case key_event
 			    #
@@ -1841,7 +1881,7 @@ get_text_dimensions "foo";
 							=>
 							if (node.args == [])
 							    #
-							    do_edit  (editfn_node, keystring, ps, [], numeric_prefix, widget_to_guiboss, to);
+							    do_edit  (editfn_node, keystring, ps, [], numeric_prefix, widget_to_guiboss, to, note_textmill_statechange);
 							else
 
 							    this_arg       =  head  node.args;
@@ -2005,35 +2045,13 @@ get_text_dimensions "foo";
 				->
 				mj::TEXTPANE_TO_TEXTMILL  t2t;
 
-			    t2t.note_statewatcher (textpane_id, note_textmill_statechange)
-			    where
-				fun note_textmill_statechange (id, change: mj::Textmill_Statechange)
-				    =
-				    do {.											# The 'do' switches us from executing in microthread of textmill caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
+			    fun note_textmill_statechange arg
+				=
+				do {.												# The 'do' switches us from executing in microthread of textmill caller to our own textpane microthread -- ensuring proper mutual exclusion while updating our state.
+				    note_textmill_statechange' arg;
+				};				
 
-					minibuffer__global.textpane_to_textmill							# First job is to figure out which panestate is being updated -- minibuffer or mainbuffer.
-					    ->											#
-					    mj::TEXTPANE_TO_TEXTMILL  t2t;							#
-					    			      								#
-					ps = if (same_id (id, t2t.id))	 minibuffer__global;					#
-					     else	     		*mainbuffer__global;					#
-					     fi;	       									#
-
-					ps.textpane_to_textmill									# Don't leave stale value of 't2t' in-scope.
-					    ->
-					    mj::TEXTPANE_TO_TEXTMILL  t2t;
-
-					case change										# 
-					    #
-					    mj::TEXTSTATE_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
-					    mj::UNDO			{ was, now } => {				refresh_screenlines  ps;	};
-					    mj::FILESPEC_CHANGED	{ was, now } =>	{				refresh_screenlines  ps;	};
-					    mj::NAME_CHANGED		{ was, now } =>	{   ps.name	:= now;		refresh_screenlines  ps;	};
-					    mj::READONLY_CHANGED	{ was, now } =>	{   ps.readonly := now;		refresh_screenlines  ps;	};
-					    mj::DIRTY_CHANGED		{ was, now } =>	{   ps.dirty    := now;		refresh_screenlines  ps;	};
-					esac;
-				    };				
-			    end;
+			    t2t.note_statewatcher (textpane_id, note_textmill_statechange);
 			};
 
 			maybe_change_number_of_screenlines *mainbuffer__global;
