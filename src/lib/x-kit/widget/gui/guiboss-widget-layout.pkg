@@ -543,7 +543,7 @@ raise exception DIE msg;
 				pixels_for_this_widget
 				    #
 				    =                wide_min
-				    + float::round ((wide_cut / total_cut) * sharable_pixels);
+				    + float::floor ((wide_cut / total_cut) * sharable_pixels);
 
 				site = { row, col, high, wide => pixels_for_this_widget };
 
@@ -557,168 +557,272 @@ raise exception DIE msg;
 
 			gt::RG_ROW r
 			    =>
-			    {
-				r.site    :=  site;									# Remember this widget's assigned site on its home pixmap.
+			    {   r.site    :=  site;									# Remember this widget's assigned site on its home pixmap.
 				#
-				min_widths =    int::sum  (map  wide_min_for_widget  r.widgets);			# Compute total pixels needed by fixed-width widgets.  Fixed-width widgets get first call on available space; variable-width widgets divide up what is left.
-				total_cut  =  float::sum  (map  wide_cut_for_widget  r.widgets);			# Sum cut values of all widgets. Each variable-width widget will get widget.share/total_cut of sharable_pixels.  Which might be zero.
+				widgets	   =  r.widgets;
 
-				total_cut  =	if (total_cut > 0.0)	total_cut;
-						else			1.0;						# Prevent divide-by-zero in subsequent logic.
-						fi;
-
-				site -> { row, col, high, wide };
-
-				sharable_pixels										# Compute pixels remaining after all fixed-width widgets have been given their cut.
+				fun assign_sites_to_widgets  (widgets, site, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
 				    =
-				    if (wide > min_widths)	float::from_int  (wide - min_widths);			#
-				    else			0.0;							# No pixels left after giving fixed-width widgets their allotments.
-				    fi;
-
-				fun assign_sites_to_widgets ([], col, dry_run, extra_pixels_left, total_pixels_allocated)
-					=>
-					total_pixels_allocated;
-
-				    assign_sites_to_widgets
-					  (
-					    (w as ( widget: gt::Rg_Widget_Type)) ! rest,
-					    col,
-					    dry_run,
-					    extra_pixels_left,
-					    total_pixels_allocated
-					  )
-					=>
-					{
-					    wide_min = wide_min_for_widget  w;
-					    wide_cut = wide_cut_for_widget  w;
-
-					    pixels_for_this_widget
+				    {
+					my (site, widgets, widget1_pixels)
+					    =
+					    case (r.first_cut, widgets)
 						#
-						=                wide_min
-						+ float::round ((wide_cut / total_cut) * sharable_pixels);
+						(THE fraction, first_widget ! remaining_widgets)				# If RG_ROW.first_cut is set  *and*  we have at least two widgets in the ROW
+						    =>										# then 'fraction' overrides our usual pixel-allocation formula.  We use this mechanism to support  "C-x ^"  in our emacs-ish editor.
+						    {   site -> { row, col, high, wide };
+							#
+							pixels_for_first_widget
+							    =
+							    float::floor (fraction * (float::from_int wide));
 
-					    my (pixels_for_this_widget, extra_pixels_left)
-						=
-						if (extra_pixels_left == 0)  (pixels_for_this_widget,     extra_pixels_left    );
-						else			     (pixels_for_this_widget + 1, extra_pixels_left - 1);
-						fi;
+							if (not dry_run)							# Allocate pixels to first_widget specially.
+							    #
+							    site1 = { row, col, high, wide => pixels_for_first_widget };
 
-					    site = { row, col, high, wide => pixels_for_this_widget };
+							    assign_sites_to_all_widgets						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
+							      (
+								site1,
+								subwindow_or_view,
+								first_widget
+							      );
+							fi;
 
-					    if (not dry_run)
-						#
-						assign_sites_to_all_widgets						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
-						  (
-						    site,
-						    subwindow_or_view,
-						    widget
-						  );
+							site =  { row,   col  => col  + pixels_for_first_widget,		# Allocate pixels to the remaining widgets normally.
+								  high,  wide => wide - pixels_for_first_widget
+							        };
+
+							(site, remaining_widgets, pixels_for_first_widget);
+						    };
+
+						_ => (site, widgets, 0);							# Normal case:  All widgets get allocated space by same logic.
+					    esac;
+
+					min_widths =    int::sum  (map  wide_min_for_widget  widgets);				# Compute total pixels needed by fixed-width widgets.  Fixed-width widgets get first call on available space; variable-width widgets divide up what is left.
+					total_cut  =  float::sum  (map  wide_cut_for_widget  widgets);				# Sum cut values of all widgets. Each variable-width widget will get widget.share/total_cut of sharable_pixels.  Which might be zero.
+
+					total_cut  =	if (total_cut > 0.0)	total_cut;
+							else			1.0;						# Prevent divide-by-zero in subsequent logic.
+							fi;
+
+					site -> { row, col, high, wide };
+
+					sharable_pixels										# Compute pixels remaining after all fixed-width widgets have been given their cut.
+					    =
+					    if (wide > min_widths)	float::from_int  (wide - min_widths);			#
+					    else			0.0;							# No pixels left after giving fixed-width widgets their allotments.
 					    fi;
 
-					    assign_sites_to_widgets							# Do remaining widgets in this ROW.
-					      (
-						rest,
-						col + pixels_for_this_widget,
-						dry_run,
-						extra_pixels_left,
-						pixels_for_this_widget + total_pixels_allocated
-					      );
-					};
-				end;
 
-				total_pixels_allocated
-				    =
-				    assign_sites_to_widgets (r.widgets, col, TRUE, 0, 0);
+					fun assign_sites_to_widgets' ([], col, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
+						=>
+						total_pixels_allocated;
+
+					    assign_sites_to_widgets'
+						  (
+						    (w as (widget: gt::Rg_Widget_Type))  !  rest,
+						    col,
+						    dry_run,
+						    first_widget,
+						    extra_pixels_left,
+						    total_pixels_allocated
+						  )
+						=>
+						{
+						    pixels_for_this_widget
+							#
+							=
+							{   wide_min = wide_min_for_widget  w;
+							    wide_cut = wide_cut_for_widget  w;
+
+									     wide_min
+							    + float::floor ((wide_cut / total_cut) * sharable_pixels);
+							};
+
+						    my (pixels_for_this_widget, extra_pixels_left)
+							=
+							if (extra_pixels_left == 0)  (pixels_for_this_widget,     extra_pixels_left    );
+							else			     (pixels_for_this_widget + 1, extra_pixels_left - 1);
+							fi;
+
+						    site = { row, col, high, wide => pixels_for_this_widget };
+
+						    if (not dry_run)
+							#
+							assign_sites_to_all_widgets						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
+							  (
+							    site,
+							    subwindow_or_view,
+							    widget
+							  );
+						    fi;
+
+						    assign_sites_to_widgets'							# Do remaining widgets in this ROW.
+						      (
+							rest,
+							col + pixels_for_this_widget,
+							dry_run,
+							FALSE,									# first_widget
+							extra_pixels_left,
+							pixels_for_this_widget + total_pixels_allocated
+						      );
+						};
+					end;
+
+					total_pixels_allocated
+					    =
+					    assign_sites_to_widgets'  (widgets, col, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
+					    +
+					    widget1_pixels;
+
+					(total_pixels_allocated, sharable_pixels, min_widths);
+				    };
+
+				(assign_sites_to_widgets (widgets, site, TRUE, TRUE, 0, 0))
+				    ->
+				    (total_pixels_allocated, sharable_pixels, min_widths);
 
 				extra_pixels_left
 				    =
 				    (min_widths + (float::floor sharable_pixels)) - total_pixels_allocated;
 
-				assign_sites_to_widgets (r.widgets, col, FALSE, extra_pixels_left, 0);
+				assign_sites_to_widgets (widgets, site, FALSE, TRUE, extra_pixels_left, 0);
 
 				();
 			    };
 
 			gt::RG_COL r
 			    =>
-			    {
-				r.site    :=  site;									# Remember this widget's assigned site on its home pixmap.
+			    {   r.site    :=  site;									# Remember this widget's assigned site on its home pixmap.
 				#
-				min_heights =    int::sum  (map  high_min_for_widget  r.widgets);			# Compute total pixels needed by fixed-height widgets.  Fixed-height widgets get first call on available space; variable-height widgets divide up what is left.
-				total_cut   =  float::sum  (map  high_cut_for_widget  r.widgets);			# Sum cut values of all widgets. Each variable-height widget will get widget.share/total_cut of sharable_pixels.  Which might be zero.
+				widgets	   =  r.widgets;
 
-				total_cut  =	if (total_cut > 0.0)	total_cut;
-						else			1.0;						# Prevent divide-by-zero in subsequent logic.
-						fi;
-
-				site -> { row, col, high, wide };
-
-				sharable_pixels										# Compute pixels remaining after all fixed-height widgets have been given their cut.
+				fun assign_sites_to_widgets  (widgets, site, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
 				    =
-				    if (high > min_heights)	float::from_int  (high - min_heights);			#
-				    else			0.0;							# No pixels left after giving fixed-height widgets their allotments.
-				    fi;
-
-				fun assign_sites_to_widgets ([], row, dry_run, extra_pixels_left, total_pixels_allocated)
-					=>
-					total_pixels_allocated;
-
-				    assign_sites_to_widgets
-					(
-					  (w as (widget: gt::Rg_Widget_Type))  !  rest,
-					  row,
-					  dry_run,
-					  extra_pixels_left,
-					  total_pixels_allocated
-					)
-					=>
-					{
-					    high_min =  high_min_for_widget  w;
-					    high_cut =  high_cut_for_widget  w;
-
-					    pixels_for_this_widget
+				    {
+					my (site, widgets, widget1_pixels)
+					    =
+					    case (r.first_cut, widgets)
 						#
-						=                high_min
-						+ float::floor ((high_cut / total_cut) * sharable_pixels);
+						(THE fraction, first_widget ! remaining_widgets)				# If RG_ROW.first_cut is set  *and*  we have at least two widgets in the ROW
+						    =>										# then 'fraction' overrides our usual pixel-allocation formula.  We use this mechanism to support  "C-x ^"  in our emacs-ish editor.
+						    {   site -> { row, col, high, wide };
+							#
+							pixels_for_first_widget
+							    =
+							    float::floor (fraction * (float::from_int high));
 
-					    my (pixels_for_this_widget, extra_pixels_left)
-					    	=
-						if (extra_pixels_left == 0)  (pixels_for_this_widget,     extra_pixels_left    );
-						else			     (pixels_for_this_widget + 1, extra_pixels_left - 1);
-						fi;
+							if (not dry_run)							# Allocate pixels to first_widget specially.
+							    #
+							    site1 = { row, col, wide, high => pixels_for_first_widget };
 
-					    site = { row, col, wide, high => pixels_for_this_widget };
+							    assign_sites_to_all_widgets						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
+							      (
+								site1,
+								subwindow_or_view,
+								first_widget
+							      );
+							fi;
 
-					    if (not dry_run)
-						#
-						assign_sites_to_all_widgets 						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
-						  (
-						    site,
-						    subwindow_or_view,
-						    widget
-						  );
+							site =  { col,   row  => row  + pixels_for_first_widget,		# Allocate pixels to the remaining widgets normally.
+								  wide,  high => high - pixels_for_first_widget
+							        };
+
+							(site, remaining_widgets, pixels_for_first_widget);
+						    };
+
+						_ => (site, widgets, 0);							# Normal case:  All widgets get allocated space by same logic.
+					    esac;
+
+					min_heights =    int::sum  (map  high_min_for_widget  widgets);				# Compute total pixels needed by fixed-height widgets.  Fixed-height widgets get first call on available space; variable-height widgets divide up what is left.
+					total_cut   =  float::sum  (map  high_cut_for_widget  widgets);				# Sum cut values of all widgets. Each variable-height widget will get widget.share/total_cut of sharable_pixels.  Which might be zero.
+
+					total_cut  =	if (total_cut > 0.0)	total_cut;
+							else			1.0;						# Prevent divide-by-zero in subsequent logic.
+							fi;
+
+					site -> { row, col, high, wide };
+
+					sharable_pixels										# Compute pixels remaining after all fixed-width widgets have been given their cut.
+					    =
+					    if (high > min_heights)	float::from_int  (high - min_heights);			#
+					    else			0.0;							# No pixels left after giving fixed-width widgets their allotments.
 					    fi;
 
-					    assign_sites_to_widgets							# Do remaining widgets in this COL.
-					      (
-						rest,
-						row + pixels_for_this_widget,
-						dry_run,
-						extra_pixels_left,
-						pixels_for_this_widget + total_pixels_allocated
-					      );
-					};
-				end;
 
-				total_pixels_allocated
-				    =
-				    assign_sites_to_widgets (r.widgets, row, TRUE, 0, 0);
+					fun assign_sites_to_widgets' ([], row, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
+						=>
+						total_pixels_allocated;
+
+					    assign_sites_to_widgets'
+						  (
+						    (w as (widget: gt::Rg_Widget_Type))  !  rest,
+						    row,
+						    dry_run,
+						    first_widget,
+						    extra_pixels_left,
+						    total_pixels_allocated
+						  )
+						=>
+						{
+						    pixels_for_this_widget
+							#
+							=
+							{   high_min = high_min_for_widget  w;
+							    high_cut = high_cut_for_widget  w;
+
+									     high_min
+							    + float::floor ((high_cut / total_cut) * sharable_pixels);
+							};
+
+						    my (pixels_for_this_widget, extra_pixels_left)
+							=
+							if (extra_pixels_left == 0)  (pixels_for_this_widget,     extra_pixels_left    );
+							else			     (pixels_for_this_widget + 1, extra_pixels_left - 1);
+							fi;
+
+						    site = { row, col, wide, high => pixels_for_this_widget };
+
+						    if (not dry_run)
+							#
+							assign_sites_to_all_widgets						# This widget may be a nested ROW, COL, GRID, SCROALLBLE_VIEW (...) so assign sites recursively within it.
+							  (
+							    site,
+							    subwindow_or_view,
+							    widget
+							  );
+						    fi;
+
+						    assign_sites_to_widgets'							# Do remaining widgets in this ROW.
+						      (
+							rest,
+							row + pixels_for_this_widget,
+							dry_run,
+							FALSE,									# first_widget
+							extra_pixels_left,
+							pixels_for_this_widget + total_pixels_allocated
+						      );
+						};
+					end;
+
+					total_pixels_allocated
+					    =
+					    assign_sites_to_widgets'  (widgets, row, dry_run, first_widget, extra_pixels_left, total_pixels_allocated)
+					    +
+					    widget1_pixels;
+
+					(total_pixels_allocated, sharable_pixels, min_heights);
+				    };
+
+				(assign_sites_to_widgets (widgets, site, TRUE, TRUE, 0, 0))
+				    ->
+				    (total_pixels_allocated, sharable_pixels, min_heights);
 
 				extra_pixels_left
 				    =
 				    (min_heights + (float::floor sharable_pixels)) - total_pixels_allocated;
 
-				assign_sites_to_widgets (r.widgets, row, FALSE, extra_pixels_left, 0);
+				assign_sites_to_widgets (widgets, site, FALSE, TRUE, extra_pixels_left, 0);
 
 				();
 			    };

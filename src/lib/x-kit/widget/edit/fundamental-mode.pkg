@@ -1517,8 +1517,8 @@ herein
 				textpane_to_textmill:	mj::Textpane_To_Textmill
 			      };
 
-		    do_while_true {.
-			#
+		    do_while_true {.										# Repeat guipith edit until it takes.  This is needed because other concurrent microthreads may be
+			#											# attempting overlapping guipith edits with us.  This avoids deadlock at a (tiny) risk of livelock.
 			get_guipiths		 =  widget_to_guiboss.g.get_guipiths;
 			install_updated_guipiths =  widget_to_guiboss.g.install_updated_guipiths;
 
@@ -1558,10 +1558,11 @@ herein
 								    screenlines_mark =  issue_unique_id ();
 
 								    textpane_id	     =  issue_unique_id ();
+								    rowcol_id	     =  issue_unique_id ();
 
 								    xirow_or_xicol						# gt::XI_ROW or gt::XI_COL, depending whether we're splitting horizontally or vertically.
 								      {
-									id        =>  issue_unique_id (),
+									id        =>  rowcol_id,
 									#
 									first_cut =>  NULL,
 									widgets   =>  [ w,
@@ -1711,8 +1712,8 @@ herein
 
 		done = REF FALSE;
 
-		do_while_true {.
-		    #
+		do_while_true {.										# Repeat guipith edit until it takes.  This is needed because other concurrent microthreads may be
+		    #												# attempting overlapping guipith edits with us.  This avoids deadlock at a (tiny) risk of livelock.
 		    get_guipiths	     =  widget_to_guiboss.g.get_guipiths;
 		    install_updated_guipiths =  widget_to_guiboss.g.install_updated_guipiths;
 
@@ -1805,6 +1806,166 @@ herein
 	      );
 
 
+	fun enlarge_pane (arg:				mj::Editfn_In)							# Re-allocate space after doing a split_pane_vertically or split_pane_horizontally.
+	    :						mj::Editfn_Out
+	    =
+	    {   arg -> 	  { args:			List( mj::Prompted_Arg ),
+			    textlines:			mj::Textlines,
+			    point:			g2d::Point,							# As in Point_And_Mark.
+			    mark:			Null_Or(g2d::Point),						# 
+			    lastmark:			Null_Or(g2d::Point),						# 
+			    readonly:			Bool,								# TRUE iff contents of textmill are currently marked as read-only.
+			    keystring:			String,								# User keystroke that invoked this editfn.
+			    numeric_prefix:		Null_Or( Int ),							# ^U "Universal numeric prefix" value for this editfn if supplied by user, else NULL.
+			    pane_id:			Id,								# Id of pane for which this editfn is being invoked.
+			    widget_to_guiboss:		gt::Widget_To_Guiboss,						# 
+			    gadget_to_editboss:		mj::Gadget_To_Editboss,
+			    mainbuffer_mode:		mj::Buffermode,
+			    minibuffer_mode:		mj::Buffermode,
+			    textpane_to_textmill:	mj::Textpane_To_Textmill
+
+			  };
+
+		do_while_true {.											# Repeat guipith edit until it takes.  This is needed because other concurrent microthreads may be
+		    #													# attempting overlapping guipith edits with us.  This avoids deadlock at a (tiny) risk of livelock.
+		    get_guipiths	     =  widget_to_guiboss.g.get_guipiths;
+		    install_updated_guipiths =  widget_to_guiboss.g.install_updated_guipiths;
+
+		    (get_guipiths ())
+			->
+			(gui_version, guipiths)
+			     #
+			     :  (Int, im::Map( gt::Xi_Topwindow_Info ))
+			     ;
+
+		    guipiths =  gtj::guipith_map (guipiths, options)
+				    where
+					fun is_us (widget: gt::Xi_Widget_Type):  Bool					# 
+					    =										#
+					    case widget 								#
+						#									#
+						gt::XI_FRAME { frame_widget => gt::XI_WIDGET { widget_id, ... }, ... }	#
+						    =>									#
+						    if (same_id (widget_id, pane_id))	TRUE;				# 
+						    else				FALSE;				#
+						    fi;
+															#
+						_   =>					FALSE;				#
+					    esac;									#
+
+					fun bump_cut
+					      (
+						first_cut:		Null_Or(Float),					# Fraction of available pixels to assign to first widget.
+						delta:			Float,						# Amount to change first_cut by.
+						we_are_first_widget:	Bool						#
+					      )
+					    =
+					    {   first_cut
+						    =
+						    case numeric_prefix
+							#
+							THE i =>    if we_are_first_widget
+									#
+									0.01 * (float::from_int i);			# User specified ^U dd so take that as absolute fraction to assign to widget and convert from (0 -> 100) to (0.0 -> 1.0) scaling, and from int to float.
+								    else			 
+									0.01 * (float::from_int (100-i));		# If user thinks he's specifying size of second widget, convert to first-widget view by subtracting from 100%.
+								    fi;	
+							NULL  =>							#
+							    case first_cut						# No numeric prefix, so if
+								#							#
+								THE f => f;						# we already have a first_cut value, go ahead and use it, otherwise 
+								NULL  => 0.5;						# default to 0.5 (equal pixels distribution between two widgets in ROW/COL).
+							    esac;
+						    esac;
+
+						first_cut = first_cut + delta;						# Make requested change.
+
+						first_cut = if   (first_cut < 0.05)  0.05;				# Do a little data validation. We don't want to assign zero pixels to a widget -- it would confuse the user -- so we arbitrarily require a minimum of 5% pixels.
+							    elif (first_cut > 0.95)  0.95;
+							    else	             first_cut;
+							    fi;
+
+						THE first_cut;
+					    };
+
+
+
+					fun do_widget  (widget:  gt::Xi_Widget_Type):  gt::Xi_Widget_Type		#
+					    =										#
+					    case widget									#
+						#									#
+						gt::XI_ROW								# If we've  found a ROW...	(Currently we can't just write (gt::XI_ROW | gt::XI_COL) here, we have to duplicate the pattern.)
+						  {
+						    id:		Id,
+						    first_cut:  Null_Or(Float),
+						    widgets as	[ topwidget:	gt::Xi_Widget_Type,			# As above, we handle only ROW and COLs with two widgets.
+								  botwidget:	gt::Xi_Widget_Type
+								]
+						  }
+						    =>
+						    {
+							first_cut
+							    =
+							    if   (is_us topwidget)  bump_cut (first_cut,  0.05, TRUE );
+							    elif (is_us botwidget)  bump_cut (first_cut, -0.05, FALSE);
+							    else	                      first_cut;
+							    fi;
+
+							gt::XI_ROW { id, first_cut, widgets };
+						    };
+
+						gt::XI_COL								# ... or if we've found a COL.  
+						  {
+						    id:		Id,
+						    first_cut:  Null_Or(Float),
+						    widgets as	[ topwidget:	gt::Xi_Widget_Type,			# As above, we handle only ROW and COLs with two widgets.
+								  botwidget:	gt::Xi_Widget_Type
+								]
+						  }
+						    =>
+						    {
+							first_cut
+							    =
+							    if   (is_us topwidget)  bump_cut (first_cut,  0.05, TRUE );
+							    elif (is_us botwidget)  bump_cut (first_cut, -0.05, FALSE);
+							    else	                      first_cut;
+							    fi;
+
+							gt::XI_COL { id, first_cut, widgets };
+						    };
+
+						_   =>  widget;								# 'widget' is not a ROW/COL, so leave it unchnaged.
+					    esac;
+
+					options = [  gtj::XI_WIDGET_TYPE_MAP_FN  do_widget  ]
+						#
+						: List( gtj::Guipith_Map_Option )
+						;
+				    end;
+
+			install_updated_guipiths									# If this returns FALSE we'll loop and retry.
+			    #
+			    (gui_version, guipiths);
+		    };													# do_while_true
+
+
+		result =  WORK  [ 
+				];
+		result;
+	    };
+	enlarge_pane__editfn
+	    =
+	    mj::EDITFN (
+	      mj::PLAIN_EDITFN
+		{
+		  name	 =>  "enlarge_pane",
+		  doc	 =>  "Enlarge space by 5% pixelspace in ROW/COL assigned to current textpane. With PREFIX in 5-95, set as absolute percentage of available pixels.",
+		  args	 =>  [],
+		  editfn =>  enlarge_pane
+		}
+	      );
+
+
 	fun delete_this_pane (arg:			mj::Editfn_In)						# Opposite of split_pane_vertically_or_horizontally:  Replace ROW/COL containing widget with sib widget.  We assume a binary tree -- each ROW or COL has two children. (That's what split_pane_horizontally_or_vertically will create.)
 	    :						mj::Editfn_Out
 	    =
@@ -1827,8 +1988,8 @@ herein
 
 		done = REF FALSE;
 
-		do_while_true {.
-		    #
+		do_while_true {.										# Repeat guipith edit until it takes.  This is needed because other concurrent microthreads may be
+		    #												# attempting overlapping guipith edits with us.  This avoids deadlock at a (tiny) risk of livelock.
 		    get_guipiths	     =  widget_to_guiboss.g.get_guipiths;
 		    install_updated_guipiths =  widget_to_guiboss.g.install_updated_guipiths;
 
@@ -3395,10 +3556,11 @@ nb {. sprintf "indent_rigidly not implemented   -- fundamental-mode.pkg"; };
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "C-q"	],	toggle_readonly__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "C-s"	],	save_buffer__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "C-x"	],	exchange_point_and_mark__editfn	);
+		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "TAB"	],	indent_rigidly__editfn		);
+		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "^"		],	enlarge_pane__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "b"		],	switch_to_buffer__editfn	);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "h"		],	mark_whole_buffer__editfn	);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "o"		],	other_pane__editfn		);
-		keymap = mj::add_editfn_to_keymap (keymap, [ "C-x", "TAB"	],	indent_rigidly__editfn		);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-y"		],	yank__editfn			);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-_"		],	undo__editfn			);
 		keymap = mj::add_editfn_to_keymap (keymap, [ "C-/"		],	undo__editfn			);
