@@ -245,7 +245,7 @@ herein
 		readonly:			Bool,
 		pane_tag:			Int,				# Unique-among-textpanes numeric tag in the dense range 1-N assigned by renumber_panes() in editboss-imp.pkg, displayed on modeline, and used by "C-x o" (other_pane) in   src/lib/x-kit/widget/edit/fundamental-mode.pkg
 		name:				String,				# Name of mill displayed in this pane. This is unique over all active mills, courtesy of uniquify_name() in   src/lib/x-kit/widget/edit/editboss-imp.pkg
-		buffermode:			String,
+		millmode:			String,
 		message:			Null_Or(String)			# Normally NULL: Used to temporarily display a message in the modeline, like "New file" or "No files need saving" or such.
 	      }
 	withtype
@@ -253,11 +253,11 @@ herein
 
 
 	Textpane_Hint								# We store these into textmill-imp.pkg via Textpane_To_Textmill.set_textpane_hint().
-	  =									# The point of the exercise is that if we open a different textmill in this textpane and then later come back to it, we can position the point+cursor at a reasonable spot instead of just the top of file, and select a reasonable buffermode.
+	  =									# The point of the exercise is that if we open a different textmill in this textpane and then later come back to it, we can position the point+cursor at a reasonable spot instead of just the top of file, and select a reasonable millmode.
 	  { point:			g2d::Point,				# (0,0)-origin 'point' (==cursor) screen coordinates, in rows and cols (we assume a fixed-width font).  (Remember to display these as (1,1)-origin when printing them out as numbers!)
 	    mark:			Null_Or(g2d::Point),			# (0,0)-origin 'mark' if set, else NULL.  Same coordinate system as 'point'.
 	    lastmark:			Null_Or(g2d::Point),			# (0,0)-origin last-valid-value-of-mark if set, else NULL.  We use this in exchange_point_and_mark() when 'mark' is not set -- see   src/lib/x-kit/widget/edit/fundamental-mode.pkg
-	    buffermode:			mj::Millmode
+	    millmode:			mj::Millmode
 	  };
 	exception TEXTPANE_HINT Textpane_Hint;					# We'll never 'raise' this exception:  It is purely a datastructure to hide the Textpane_Hint datatype from textmill-imp.pkg, in the interests of good modularity.
 
@@ -370,7 +370,9 @@ herein
 	    screenlines:		Ref( im::Map( p2l::Textpane_To_Screenline )),					# Indexed by paneline.
 	    expected_screenlines:	Ref( Int ),									# So we can tell when ps.screenlines is fully populated (for example).
 	    #
-	    buffermode:			Ref( mj::Millmode ),								# Contains mode name and mode keymap.
+	    millmode:			Ref( mj::Millmode ),								# Contains mode name and mode keymap.
+	    millmode_state:		mj::Millmode_State,								# Holds any required private state(s) for 'millmode'.  We deliberately do not even know the types (they are hidden in Crypts).
+	    #
 	    sitewatchers:		Ref( List(  Null_Or((Id, g2d::Box )) -> Void  )),
 	    last_known_site:		Ref (Null_Or( g2d::Box )),
 	    #
@@ -429,9 +431,14 @@ herein
 
 		screenlines = REF (im::empty:  im::Map(p2l::Textpane_To_Screenline));
 
-		buffermode  = REF minimillmode;
+		millmode    = REF minimillmode;
 
 		expected_screenlines =	REF 1;
+
+		minimillmode -> mj::MILLMODE  mm;
+
+		millmode_state = { mode => minimillmode, data => sm::empty };						# Set up any required private state(s) for our textpane millmode.  We deliberately do not even know the types (they are hidden in Crypts).
+		millmode_state = mm.initialize_state (minimillmode, millmode_state);					#
 
 		panestate
 		  =
@@ -439,7 +446,9 @@ herein
 		    screenlines,
 		    expected_screenlines,
 		    #
-		    buffermode,
+		    millmode,
+		    millmode_state,
+		    #
 		    sitewatchers    =>  REF ([]:    List(  Null_Or((Id, g2d::Box )) -> Void  )),
 		    last_known_site =>  REF NULL,
 		    #
@@ -454,6 +463,7 @@ herein
 		    screen_origin   =>	REF( g2d::point::zero ),							# Origin of screen relative to textmill contents:  (0,0) means we're showing top of buffer at top of textpane.
 		    #
 		    line_prefix	    =>  REF "",
+		    #
 		    minimill_screenlines => NULL
 		  };
 
@@ -468,7 +478,7 @@ herein
 		screenlines_mark:	Id,										# This MARK marks our COL of src/lib/x-kit/widget/edit/screenline.pkg instances in the guipith. This is set up by src/lib/x-kit/widget/edit/texteditor.pkg.
 		textmill:		mj::Textmill_Spec,								# 
 		minimillmode:		mj::Millmode,
-		buffermode:		mj::Millmode,
+		mainmillmode:		mj::Millmode,
 
 		options:		List(Option)
 	      }
@@ -498,7 +508,7 @@ herein
 					 a.name
 					(a.point.row+1)									# '+1's because lines and columns are internally numbered 0->(N-1), but user expects traditional numbering of 1->N.
 					(a.point.col+1)
-					 a.buffermode
+					 a.millmode
 				;
 			    };
 		    esac;
@@ -789,7 +799,7 @@ herein
 			    #
 			    (NULL, THE (REF minimill_screenlines))				# *prompting__global==NULL so minimill is not active and we can go ahead and update the modeline, which displays on the same screenline as the minimill.
 				=>
-				case (im::get (minimill_screenlines, 0))			# We expect a single screenline, stored under key 0 (but internally marked as paneline -1).
+				case (im::get (minimill_screenlines, 0))			# We expect a single screenline, stored under key 0 (albeit internally marked as paneline -1).
 				    #
 				    THE textpane_to_screenline
 					=>
@@ -797,6 +807,8 @@ herein
 						->
 						mj::TEXTPANE_TO_TEXTMILL tb;
 					    #
+					    (*ps.millmode) ->  mj::MILLMODE  mm;
+
 					    modeline_fn_arg
 						=
 						MODELINE_FN_ARG
@@ -809,14 +821,9 @@ herein
 						    readonly	=>  *ps.readonly,
 						    pane_tag	=>  *pane_tag__global,
 						    name	=>   tb.get_name (),
-						    buffermode,
+						    millmode	=>   mm.name,
 						    message	=>  *modeline_message__global
-						  }
-						where
-						    (*ps.buffermode)
-							->
-							mj::MILLMODE { name => buffermode, ... };
-						end;
+						  };
 
 					    modeline_fn   =  *modeline_fn__global;
 
@@ -1324,8 +1331,8 @@ get_text_dimensions "foo";
 					pane_id		     => textpane_id,
 					editfn_node,
 					widget_to_guiboss,
-					mainmill_mode	     => *(*mainmill__global).buffermode,
-					minimill_mode	     => *( minimill__global).buffermode,
+					mainmill_mode	     => *(*mainmill__global).millmode,
+					minimill_mode	     => *( minimill__global).millmode,
 					textpane_to_textmill => ps.textpane_to_textmill
 				      };
 
@@ -1482,7 +1489,7 @@ get_text_dimensions "foo";
 					    NULL => ();								# We're not expecting this to happen -- 'done' should only be set if we're reading prompted args from user by setting *prompting__global non-NULL.
 					esac;
 
-					refresh_screenlines  *mainmill__global;				# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minimill display used to read our string.
+					refresh_screenlines  *mainmill__global;					# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minimill display used to read our string.
 				    else
 
 					if (mark_changed							# NB: Changing lastmark will have no visible effect on screenline display.
@@ -1502,35 +1509,44 @@ get_text_dimensions "foo";
 					    {
 						tb = *mainmill__global;
 						#
+						mainmillmode -> mj::MILLMODE  mm;
+
+						millmode_state = { mode => mainmillmode, data => sm::empty };	# Set up any required private state(s) for our textpane millmode.  We deliberately do not even know the types (they are hidden in Crypts).
+						millmode_state = mm.initialize_state
+								   (mainmillmode, millmode_state);
+
 						mainmill__global						# Remember the new textmill we're now displaying.
 						  := 
 						  { textpane_to_textmill,
-						    screenlines		=>  tb.screenlines,			# We still have the same screen real estate in which to display.
-						    expected_screenlines=>  tb.expected_screenlines,		# "							      ".
-						    last_known_site	=>  tb.last_known_site,			# "							      ".
-						    minimill_screenlines	=>  tb.minimill_screenlines,	# "							      ".
+						    screenlines		 =>  tb.screenlines,			# We still have the same screen real estate in which to display.
+						    expected_screenlines =>  tb.expected_screenlines,		# "							      ".
+						    last_known_site	 =>  tb.last_known_site,		# "							      ".
+						    minimill_screenlines =>  tb.minimill_screenlines,		# "							      ".
 						    #
-						    buffermode		=>  REF buffermode,
-						    sitewatchers	=>  tb.sitewatchers,			# We still have the same set of clients watching us for state changes.
+# XXX SUCKO FIXME: Eventually we'll want to change textpane's millmode appropriately when we change textmills:
+						    millmode		 =>  REF mainmillmode,
+						    millmode_state,
 						    #
-						    point		=>  REF ({ row => 0, col => 0 }),	# This is a newly loaded file so set cursor to topleft origin.
-						    mark		=>  REF NULL,				# No mark set in this new file.
-						    lastmark		=>  REF NULL,				# 
+						    sitewatchers	 =>  tb.sitewatchers,			# We still have the same set of clients watching us for state changes.
 						    #
-						    readonly		=>  REF FALSE,				# TRUE iff textmill contents are read-only.  This is a local cache of the master textmill value.
-						    dirty		=>  REF FALSE,				# TRUE iff textmill contents are modified.   This is a local cache of the master textmill value.
-						    name		=>  REF  "<unknown>",			# Name  of textmill.                         This is a local cache of the master textmill value.
+						    point		 =>  REF ({ row => 0, col => 0 }),	# This is a newly loaded file so set cursor to topleft origin.
+						    mark		 =>  REF NULL,				# No mark set in this new file.
+						    lastmark		 =>  REF NULL,				# 
 						    #
-						    screen_origin	=>  REF g2d::point::zero,		# Origin of screen relative to textmill contents:  (0,0) means we're showing top of buffer at top of textpane.
+						    readonly		 =>  REF FALSE,				# TRUE iff textmill contents are read-only.  This is a local cache of the master textmill value.
+						    dirty		 =>  REF FALSE,				# TRUE iff textmill contents are modified.   This is a local cache of the master textmill value.
+						    name		 =>  REF  "<unknown>",			# Name  of textmill.                         This is a local cache of the master textmill value.
 						    #
-						    line_prefix		=>  REF ""
+						    screen_origin	 =>  REF g2d::point::zero,		# Origin of screen relative to textmill contents:  (0,0) means we're showing top of buffer at top of textpane.
+						    #
+						    line_prefix		 =>  REF ""
 						  };
 
 
 						{   tb.textpane_to_textmill -> mj::TEXTPANE_TO_TEXTMILL t2t;  t2t.drop_statewatcher  textpane_id;				};	# Unsubscribe to statechanges from our old textmill.
 						{      textpane_to_textmill -> mj::TEXTPANE_TO_TEXTMILL t2t;  t2t.note_statewatcher (textpane_id, note_textmill_statechange);	};	#   Subscribe to statechanges from our new textmill.
 
-						refresh_screenlines  *mainmill__global;			# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minimill display used to read our string, and also the main textpane, to show the new file.
+						refresh_screenlines  *mainmill__global;				# Refresh main textpane -- this will redraw the modeline screenline, which currently contains the minimill display used to read our string, and also the main textpane, to show the new file.
 
 						();
 					    };
@@ -1549,8 +1565,8 @@ get_text_dimensions "foo";
 					  {
 					    point	=>  *ps.point,
 					    mark	=>  *ps.mark,
-					    lastmark    =>  *ps.lastmark,
-					    buffermode  =>  *ps.buffermode
+					    lastmark	=>  *ps.lastmark,
+					    millmode	=>  *ps.millmode
 					  };
 
 				    ps.textpane_to_textmill
@@ -1619,8 +1635,8 @@ get_text_dimensions "foo";
 								    log_undo_info,
 								    keystring		    => "",
 								    numeric_prefix	    => NULL,
-								    mainmill_mode	    => *(*mainmill__global).buffermode,
-								    minimill_mode	    => *( minimill__global).buffermode,
+								    mainmill_mode	    => *(*mainmill__global).millmode,
+								    minimill_mode	    => *( minimill__global).millmode,
 								    textpane_to_textmill    => ps.textpane_to_textmill
 								  };
 
@@ -1879,11 +1895,11 @@ get_text_dimensions "foo";
 						    };
 
 						NULL =>
-						    find_keymap *ps.buffermode						# Check keymap in current buffermode, then (if necessary) search up its parent buffermodes.
+						    find_keymap *ps.millmode						# Check keymap in current millmode, then (if necessary) search up its parent-millmode chain.
 						    where
-							fun find_keymap  buffermode
+							fun find_keymap  millmode
 							    = 
-							    {   buffermode
+							    {   millmode
 								    ->
 								    mj::MILLMODE { keymap, parent, ... };
 
@@ -1893,9 +1909,9 @@ get_text_dimensions "foo";
 
 								    NULL => case parent					# No binding for keystroke in this keymap -- search parent keymaps.
 										#
-										THE buffermode				# We do have a current keymap, so ...
+										THE millmode				# We do have a current keymap, so ...
 										    =>
-										    find_keymap  buffermode;		# ... go search it.
+										    find_keymap  millmode;		# ... go search it.
 
 										NULL =>  NULL;				# No parent keymap so give up -- this keystroke does nothing.
 									    esac;
@@ -2047,6 +2063,10 @@ get_text_dimensions "foo";
 			    mj::GADGET_TO_EDITBOSS eb;
 
 
+			mainmillmode  ->  mj::MILLMODE  mm;
+			millmode_state =  { mode => mainmillmode, data => sm::empty };						# Set up any required private state(s) for our textpane millmode.  We deliberately do not even know the types (they are hidden in Crypts).
+			millmode_state =  mm.initialize_state (mainmillmode, millmode_state);					#
+
 			mainmill__global
 			    :=
 			    { textpane_to_textmill,
@@ -2054,7 +2074,9 @@ get_text_dimensions "foo";
 			      #
 			      screenlines     =>  REF (im::empty:  im::Map(p2l::Textpane_To_Screenline)),
 			      #
-			      buffermode      =>  REF buffermode,
+			      millmode	      =>  REF mainmillmode,
+			      millmode_state,
+			      #
 			      sitewatchers    =>  REF sitewatchers,
 			      last_known_site =>  REF NULL,
 			      #
@@ -2068,8 +2090,8 @@ get_text_dimensions "foo";
 			      #
 			      screen_origin   =>  REF g2d::point::zero,								# Origin of screen relative to textmill contents:  (0,0) means we're showing top of buffer at top of textpane.
 			      #	
-			      line_prefix	     =>  REF "",
-			      minimill_screenlines =>  THE minimill__global.screenlines					# Note that we're sharing the minimill__global.screenlines refcell here.
+			      line_prefix	   =>  REF "",
+			      minimill_screenlines =>  THE minimill__global.screenlines						# Note that we're sharing the minimill__global.screenlines refcell here.
 			    }
 			    where
 				textpane_to_textmill
@@ -2316,6 +2338,20 @@ get_text_dimensions "foo";
 
 			    t2t.drop_statewatcher  textpane_id;
 			};
+
+			{   ps    = *mainmill__global;										# Do any required state shutdown for our mainmill Millmode.
+			    state = ps.millmode_state;										#
+			    mode  = state.mode;											#
+			    mode ->  mj::MILLMODE  mm;										#
+			    mm.finalize_state (mode, state);									#
+			};
+			{   ps    =  minimill__global;										# Do any required state shutdown for our minimill Millmode.
+			    state = ps.millmode_state;										#
+			    mode  = state.mode;											#
+			    mode ->  mj::MILLMODE  mm;										#
+			    mm.finalize_state (mode, state);									#
+			};
+
 
 			apply   tell_watcher  portwatchers									# 
 				where
