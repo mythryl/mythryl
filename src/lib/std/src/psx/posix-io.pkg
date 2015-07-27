@@ -218,71 +218,132 @@ herein
 
 	# Oddly, we nowhere call   cfun "write"   ==   src/c/lib/posix-io/write.c    The file should be used or deleted.  XXX BUGGO FIXME
 
-
+													# These two are motivated by a desire to have
+													#     src/lib/x-kit/widget/edit/eval-mode.pkg
+													# be able to capture all stdout/stderr output
+													# from evaluated Mythryl code.
+													#   The safest, simplest approach seems to be
+													# to do the redirect as late and low in the I/O
+													# stack as practical, which is here in this file.
+													#   There will be problems if the redirects are
+													# into concurrent code but the calls wind up
+													# coming from non-concurrent code (Mythryl code
+													# executing in other hostthreads). Got a fix?	XXX SUCKO FIXME.
+	stdout_redirect = REF (NULL: (Null_Or( String -> Void ) ));
+	stderr_redirect = REF (NULL: (Null_Or( String -> Void ) ));
 			
 			
 
-	(cfun "writebuf")	#	       fd   buffer         nbytes offset			# writebuf	def in   src/c/lib/posix-io/writebuf.c
-	    ->			#              --   -------------  ------ ------
+	(cfun "writebuf")	#	       fd   buffer         nbytes offset     bytes_written	# writebuf	def in   src/c/lib/posix-io/writebuf.c
+	    ->			#              --   -------------  ------ ------     -------------
 	    (      write_ro_slice__syscall:   (Int,    ru::Vector, Int,   Int   ) -> Int,
 		   write_ro_slice__ref,
 	      set__write_ro_slice__ref
 	    );
 	
-	(cfun "writebuf")	#	       fd   buffer         nbytes offset			# writebuf	def in   src/c/lib/posix-io/writebuf.c
-	    ->			#              --   -------------  ------ ------
+	(cfun "writebuf")	#	       fd   buffer         nbytes offset     bytes_written	# writebuf	def in   src/c/lib/posix-io/writebuf.c
+	    ->			#              --   -------------  ------ ------     -------------
 	    (      write_rw_slice__syscall:   (Int, wu::Rw_Vector, Int,   Int   ) -> Int,
 		   write_rw_slice__ref,
 	      set__write_rw_slice__ref
 	    );
 	
 
-	fun write_rw_vector (fd, asl)							# This fn is exported to clients.
+	fun write_rw_vector (fd, rw_vector_slice)									# This fn is exported to clients.
 	    =
-	    {   (wus::burst_slice  asl)
+	    {   (wus::burst_slice  rw_vector_slice)
 		    ->
 		    (buf, i, len);
 
-		*write_rw_slice__ref  (pf::fd_to_int fd,  buf,  len,  i);		# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+		fd = pf::fd_to_int fd;
+
+		fun slice_to_string vector_slice
+		    =
+		    {   bytes = wus::to_vector vector_slice;
+			#
+			byte::bytes_to_string  bytes;
+		    };
+
+		case fd													# Handle optional stdout/stderr redirection to an arbitrary concurrent Mythryl fn instead of the usual C-layer output fn.
+		    #
+		    1 => case *stdout_redirect  THE fn =>  { fn (slice_to_string rw_vector_slice); len; };
+			     			NULL   => *write_rw_slice__ref  (fd,  buf,  len,  i);			# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+			 esac;
+		    2 => case *stderr_redirect  THE fn =>  { fn (slice_to_string rw_vector_slice); len; };
+			     			NULL   => *write_rw_slice__ref  (fd,  buf,  len,  i);			# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+			 esac;
+		    _ =>				  *write_rw_slice__ref  (fd,  buf,  len,  i);		# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+		esac;
 	    };
 
-	fun write_rw_vector__without_syscall_redirection (fd, asl)			# This fn is exported to clients.
+	fun write_rw_vector__without_syscall_redirection (fd, rw_vector_slice)						# This fn is exported to clients.  I can't find any current uses of this call.  2015-07-14 CrT
 	    =
-	    {   (wus::burst_slice  asl)
+	    {   (wus::burst_slice  rw_vector_slice)
+		    ->
+		    (buf, i, len);
+															# We don't do the stdout/stderr redirection dance here because we're intended to be called from secondary hostthreads and we expect the redirection to be in the
+		fd = pf::fd_to_int fd;											# primary (concurrent) hostthread and calling concurrent code from nonconcurrent code won't work trivially.  Feel free to code that up.  XXX SUCKO FIXME.
+
+		write_rw_slice__syscall  (fd,  buf,  len,  i);								# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+	    };
+
+
+	fun write_vector (fd, vector_slice)										# This fn is exported to clients.
+	    =
+	    {   (rus::burst_slice  vector_slice)
 		    ->
 		    (buf, i, len);
 
-		write_rw_slice__syscall  (pf::fd_to_int fd,  buf,  len,  i);		# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+		fd = pf::fd_to_int fd;
+
+		fun slice_to_string vector_slice
+		    =
+		    {   bytes = rus::to_vector vector_slice;
+			#
+			byte::bytes_to_string  bytes;
+		    };
+
+		case fd													# Handle optional stdout/stderr redirection to an arbitrary concurrent Mythryl fn instead of the usual C-layer output fn.
+		    #
+		    1 => case *stdout_redirect  THE fn =>  { fn (slice_to_string vector_slice); len; };
+			     			NULL   => *write_ro_slice__ref  (fd,  buf,  len,  i);			# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+			 esac;
+		    2 => case *stderr_redirect  THE fn =>  { fn (slice_to_string vector_slice); len; };
+			     			NULL   => *write_ro_slice__ref  (fd,  buf,  len,  i);			# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+			 esac;
+		    _ =>				  *write_ro_slice__ref  (fd,  buf,  len,  i);			# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+		esac;
 	    };
 
-
-	fun write_vector (fd, vsl)							# This fn is exported to clients.
+	fun write_vector__without_syscall_redirection (fd, vector_slice)						# This fn is exported to clients.
 	    =
-	    {   (rus::burst_slice  vsl)
+	    {   (rus::burst_slice  vector_slice)
 		    ->
 		    (buf, i, len);
+															# We don't do the stdout/stderr redirection dance here because we're intended to be called from secondary hostthreads and we expect the redirection to be in the
+		fd = pf::fd_to_int fd;											# primary (concurrent) hostthread and calling concurrent code from nonconcurrent code won't work trivially.  Feel free to code that up.  XXX SUCKO FIXME.
 
-		*write_ro_slice__ref  (pf::fd_to_int fd,  buf,  len,  i);		# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
+		write_ro_slice__syscall  (fd,  buf,  len,  i);								# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
 	    };
 
-	fun write_vector__without_syscall_redirection (fd, vsl)				# This fn is exported to clients.
-	    =
-	    {   (rus::burst_slice  vsl)
-		    ->
-		    (buf, i, len);
-
-		write_ro_slice__syscall  (pf::fd_to_int fd,  buf,  len,  i);		# Write (to fd) 'len' bytes starting at &buf[i], via an atomic C write() call.
-	    };
-
-	fun write_string (fd, string)							# This fn is exported to clients.
-	    =
+	fun write_string (fd, string)											# This fn is exported to clients.  This fn added to support   src/lib/make-library-glue/patchfile.pkg
+	    =														# Seems strange it wasn't added earlier. :-)
 	    {   buf =  byte::string_to_bytes  string;
 		#
 		len =  ru::length  buf;
 		#
-		write_ro_slice__syscall
-		    (pf::fd_to_int fd,  buf,  len,  0);					# Write (to fd) 'len' bytes starting at &buf[0], via an atomic C write() call.
+		fd = pf::fd_to_int fd;
 
+		case fd													# Handle optional stdout/stderr redirection to an arbitrary concurrent Mythryl fn instead of the usual C-layer output fn.
+		    #
+		    1 => case *stdout_redirect  THE fn =>  { fn string; len; };
+			     			NULL   => *write_ro_slice__ref (fd,  buf,  len,  0);			# Write (to fd) 'len' bytes starting at &buf[0], via an atomic C write() call.
+			 esac;
+		    2 => case *stderr_redirect  THE fn =>  { fn string; len; };
+			     			NULL   => *write_ro_slice__ref (fd,  buf,  len,  0);			# Write (to fd) 'len' bytes starting at &buf[0], via an atomic C write() call.
+			 esac;
+		    _ =>			          *write_ro_slice__ref (fd,  buf,  len,  0);			# Write (to fd) 'len' bytes starting at &buf[0], via an atomic C write() call.
+		esac;
 	    };
 
 
@@ -918,5 +979,5 @@ end;					# stipulate
 
 
 ## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
-## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2015,
 ## released per terms of SMLNJ-COPYRIGHT.

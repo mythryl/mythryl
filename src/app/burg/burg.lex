@@ -1,7 +1,7 @@
 # burg-lex
 #
 # COPYRIGHT (c) 1995 AT&T Bell Laboratories.
-## Subsequent changes by Jeff Prothero Copyright (c) 2010-2014,
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2015,
 ## released per terms of SMLNJ-COPYRIGHT.
 #
 # Mythryl-Lex specification for mythryl-burg.
