@@ -157,7 +157,9 @@ herein
 	    #
 	    make_topwindow:	 gtg::Topwindow_Hints			    ->  gtg::Guiboss_To_Topwindow,		# 
 	    #
-	    start_gui:		(gtg::Guiboss_To_Topwindow, gt::Guiplan)   -> (Void -> gt::Client_To_Guiwindow)		# Calling return value will block microthread until gui-plan    startup is complete.
+	    start_gui:		(gtg::Guiboss_To_Topwindow, gt::Guiplan)   -> (Void -> gt::Client_To_Guiwindow),	# Calling return value will block microthread until gui-plan    startup is complete.
+	    #
+	    guiboss_done':	End_Gun											# Something to block on in   src/lib/x-kit/widget/gui/run-guiplan-on-x.pkg
 	  };
 
 	Guiboss_Option
@@ -199,7 +201,8 @@ herein
 			guiboss_arg:		Guiboss_Arg,
 			imports:		Imports,								# Imps to which we send requests.
 			to:			Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-			end_gun':		End_Gun									# We shut down the microthread when this fires.
+			end_gun':		End_Gun,								# We shut down the microthread when this fires.
+			fire__guiboss_done:	Void -> Void								# Fire Client_To_Guiboss.guiboss_done' mailop.  Callers block on this, e.g.     src/lib/x-kit/widget/gui/run-guiplan-on-x.pkg
 		      };
 
 	Guiboss_Q    = Mailqueue( Runstate -> Void );
@@ -210,16 +213,24 @@ herein
 	globals__global =  (REF sm::empty): Globals;									# For Gadget_To_Guiboss.note_global, .find_global and .drop_global.   Holds  gadget_to_millboss::GADGET_TO_MILLBOSS  and other global values whose types we don't want to import into guiboss_imp.
 															# Putting it here (instead of in gt::Guiboss_State) lets find_global() run in client microthread, reducing risk of deadlock.
 
+	fun shut_down_guiboss' (runstate: Runstate)
+	    =
+	    {	runstate.fire__guiboss_done ();
+		#
+		thread_exit { success => TRUE };									# Will not return.
+	    };
+
 	fun run ( guiboss_q:			Guiboss_Q,								# 
 		  #
 		  runstate as
 		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    id:				Id,
 		    me:				gt::Guiboss_State,							# State which is preserved across imp shutdown/restart cycles.
 		    guiboss_arg:		Guiboss_Arg,
 		    imports:			Imports,								# Imps to which we send requests.
 		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    end_gun':			End_Gun,								# 
-		    id:				Id
+		    fire__guiboss_done:		Void -> Void								# Fire Client_To_Guiboss.guiboss_done' mailop.  Callers block on this, e.g.     src/lib/x-kit/widget/gui/run-guiplan-on-x.pkg
 		  }
 		)
 	    =
@@ -246,9 +257,7 @@ herein
 			#
 			fun shut_down_guiboss_imp' ()
 			    =
-			    {
-				thread_exit { success => TRUE };							# Will not return.	
-			    };
+			    shut_down_guiboss'  runstate;
 		    end;
 	    end;	
 
@@ -256,12 +265,13 @@ herein
 	fun kill_gui'
 	      (
 		runstate as
-		{ me:				gt::Guiboss_State,							# State which is preserved across imp shutdown/restart cycles.
+		{ id:				Id,
+		  me:				gt::Guiboss_State,							# State which is preserved across imp shutdown/restart cycles.
 		  guiboss_arg:			Guiboss_Arg,
 		  imports:			Imports,								# Imps to which we send requests.
 		  to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		  end_gun':			End_Gun,								# 
-		  id:				Id
+		  fire__guiboss_done:		Void -> Void								# Fire Client_To_Guiboss.guiboss_done' mailop.  Callers block on this, e.g.     src/lib/x-kit/widget/gui/run-guiplan-on-x.pkg
 		}:				Runstate,
 		( guipane:			gt::Guipane,
 		  topwindow_info:		gt::Topwindow_Info,
@@ -493,12 +503,13 @@ herein
 	      (
 		( runstate
 		  as
-		  { me:				gt::Guiboss_State,							# 
+		  { id:				Id,
+		    me:				gt::Guiboss_State,							# 
 		    guiboss_arg:		Guiboss_Arg,
 		    imports:			Imports,								# Imps to which we send requests.
 		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    end_gun':			End_Gun,								# We shut down the guiboss microthread when end_gun' fires.
-		    id:				Id
+		    fire__guiboss_done:		Void -> Void								# Fire Client_To_Guiboss.guiboss_done' mailop.  Callers block on this, e.g.     src/lib/x-kit/widget/gui/run-guiplan-on-x.pkg
 		  }
 		):				Runstate,
 		#	
@@ -1273,6 +1284,17 @@ herein
 		    };
 
 
+		fun shut_down_guiboss ():	Void
+		    =
+		    {
+			put_in_mailqueue  (guiboss_q,
+			    #
+			    \\ (runstate: Runstate)
+				=
+				shut_down_guiboss' runstate
+		        );
+		    };
+
 		fun get_guipiths ()													# See Note[1] in src/lib/x-kit/widget/gui/translate-guipane-to-guipith.pkg
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( (Int, im::Map( gt::Xi_Topwindow_Info )) );
@@ -1528,6 +1550,8 @@ result;
 					    release_keyboard_focus,
 					    note_changed_gadget_activity,
 					    wake_me,
+					    #
+					    shut_down_guiboss,
 					    #
 					    get_guipiths,
 					    install_updated_guipiths,
@@ -1802,16 +1826,21 @@ result;
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
+		(make_end_gun ()) ->  { end_gun'     =>  guiboss_done',
+					fire_end_gun =>  fire__guiboss_done
+				      };
+
 		client_to_guiboss =   { id,
 					make_topwindow,
 					start_gui,
-#					restart_gui,
 					get_sprite_theme,
 					get_object_theme,
-					get_widget_theme
+					get_widget_theme,
+					guiboss_done'
 				      };
 
-		millboss_to_guiboss = { id											# Exported interface for use by    src/lib/x-kit/widget/edit/millboss-imp.pkg
+		millboss_to_guiboss = { id,											# Exported interface for use by    src/lib/x-kit/widget/edit/millboss-imp.pkg
+					shut_down_guiboss
 				      };
 
 		to          =  make_replyqueue();
@@ -1841,12 +1870,13 @@ result;
 		block_until_mailop_fires  run_gun';										# Wait for the starting gun.
 
 		run ( guiboss_q,		 										# Will not return.
-		      { me,
+		      { id,
+		        me,
 			guiboss_arg,
 			imports,
 			to,
 			end_gun',
-			id
+			fire__guiboss_done
 		      }
 		);
 	    }
@@ -1910,6 +1940,17 @@ printf "guievent_sink()/guiboss: received '%s' Gui_Event but saved it because *t
 				    }															# In-private-thread part of fun guievent_sink.
 			    );																# fun guievent_sink
 		    end;
+
+		fun shut_down_guiboss ():	Void													# PUBLIC.
+		    =
+		    {
+			put_in_mailqueue  (guiboss_q,
+			    #
+			    \\ (runstate: Runstate)
+				=
+				shut_down_guiboss' runstate
+		        );
+		    };
 
 		fun make_topwindow  (hints:	gtg::Topwindow_Hints)											# PUBLIC.
 		    :				gtg::Guiboss_To_Topwindow
