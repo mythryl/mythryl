@@ -103,6 +103,8 @@ stipulate
     package b2l =  millboss_to_screenline;			# millboss_to_screenline	is from   src/lib/x-kit/widget/edit/millboss-to-screenline.pkg
     package b2p =  millboss_to_pane;				# millboss_to_pane		is from   src/lib/x-kit/widget/edit/millboss-to-pane.pkg
 
+    package mgm =  millgraph_millout;				# millgraph_millout		is from   src/lib/x-kit/widget/edit/millgraph-millout.pkg
+
     tracefile   =  "widget-unit-test.trace.log";
 
     nb = log::note_on_stderr;					# log				is from   src/lib/std/src/log.pkg
@@ -126,6 +128,11 @@ herein
 		    millboss_to_guiboss:	e2g::Millboss_To_Guiboss
 		  };
 															# millboss should probably not know so much about textmill/screenline/textpane.
+
+	Millgraph_Watchers												# Type for tracking the set of clients subscribed to a mill for mt::Millgraph updates.
+	    =														#
+	    mt::ipm::Map( (mt::Inport, (mt::Outport, mt::Millgraph) -> Void) );						# 
+
 	Pane_Info
 	  =
 	  { pane_id:				Id,
@@ -141,7 +148,9 @@ herein
 	    mills_by_filepath:			Ref( sm::Map( mt::Mill_Info ) ),					# All currently active mills WHICH ARE OPEN ON A FILE, by filepath. (We expect this to typically be a full pathname like "/home/jayne/foo.txt", so as to help avoid having multiple buffers open on one file.)
 	    #
 	    pending_pane_mail:			Ref( im::Map( List( Crypt ) ) ),					# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
-	    panes_by_id:			Ref( im::Map( Pane_Info	    ) )
+	    panes_by_id:			Ref( im::Map( Pane_Info	    ) ),
+	    #
+	    name:				Ref( String		      )						# Name of millboss for display purposes.
 	  };
 
 	Me_Slot = Mailslot( { imports:		Imports,
@@ -161,12 +170,16 @@ herein
 
 
 	Runstate =    {													# These values will be statically globally visible throughout the code body for the imp.
+			id:			Id,
 			me:			Millboss_State,								# 
 			millboss_arg:		Millboss_Arg,
 			imports:		Imports,								# Imps to which we send requests.
 			to:			Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-			end_gun':		End_Gun,								# We shut down the microthread when this fires.
-			id:			Id
+			#												#
+			millgraph_outport:	mt::Outport,								# 
+			millgraph_watchers:	Ref( Millgraph_Watchers ),						# 
+			#												#
+			end_gun':		End_Gun									# We shut down the microthread when this fires.
 		      };
 
 	Millboss_Q    = Mailqueue( Runstate -> Void );
@@ -198,12 +211,16 @@ herein
 		  #
 		  runstate as
 		  {													# These values will be statically globally visible throughout the code body for the imp.
+		    id:				Id,
 		    me:				Millboss_State,								# 
 		    millboss_arg:		Millboss_Arg,
 		    imports:			Imports,								# Imps to which we send requests.
 		    to:				Replyqueue,								# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
-		    end_gun':			End_Gun,								# 
-		    id:				Id
+		    #													#
+		    millgraph_outport:		mt::Outport,								# 
+		    millgraph_watchers:		Ref( Millgraph_Watchers ),						# 
+		    #													#
+		    end_gun':			End_Gun									# 
 		  }
 		)
 	    =
@@ -243,6 +260,35 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
+		app_to_mill												# Generic interface supported by all mills.  Guiboss pretends to be a kinda-sorta mill itself to allow clients to subscribe to its Millgraph Outport via standard intermill connection protocols.
+		    =
+		    mt::APP_TO_MILL
+		      {
+			id,
+			#
+			get_dirty,
+			pass_dirty,
+
+			get_filepath,
+			set_filepath,
+			pass_filepath,
+
+			get_name,
+			set_name,
+			pass_name,
+
+			get_millouts,
+			pass_millouts,
+
+			get_millins,
+			pass_millins,
+
+			reload_from_file,
+			save_to_file,
+
+			make_pane
+		      };
+
 		gadget_to_millboss
 		    =
 		    mt::GADGET_TO_MILLBOSS
@@ -261,7 +307,9 @@ herein
 			mail_pane,
 			get_panes_by_id,
 			get_mills_by_name,
-			get_mills_by_id
+			get_mills_by_id,
+			#
+			app_to_mill											# Include App_To_Mill as a sub-interface to allow clients to subscribe to our Millgraph Outport via standard intermill connection protocols.
 		      };
 
 		exports	    = { gadget_to_millboss => crypt }
@@ -283,18 +331,83 @@ herein
 
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
+		millgraph_watchers =  REF mt::ipm::empty;
+
+		millgraph_outport
+		  =
+		  { mill_id	 => id,
+		    outport_name => "millgraph"
+		  };
+
 		run ( millboss_q,		 									# Will not return.
-		      { me,
+		      { id,
+			me,
 			millboss_arg,
 			imports,
 			to,
-			end_gun',
-			id
+			#
+			millgraph_outport,
+			millgraph_watchers,
+			#
+			end_gun'
 		      }
 		);
 	    }
 	    where
 		millboss_q     =  make_mailqueue (get_current_microthread()):  Millboss_Q;
+
+		fun tell_millgraph_watchers
+		      (
+			millgraph_watchers:		Millgraph_Watchers,								# 
+			millgraph:			mt::Millgraph,
+			r:				Runstate
+		      )
+		    =
+		    mt::ipm::apply   tell_watcher   millgraph_watchers
+		    where
+			fun tell_watcher
+			      (
+				inport:		 mt::Inport,											# Unique id identifying this watcher.
+				watcher:	(mt::Outport, mt::Millgraph) -> Void							# 
+			      )
+			    =
+			    {   outport = r.millgraph_outport;
+				#
+				watcher  (outport, millgraph);
+			    };
+		    end;
+
+		fun tell_millgraph_watcher_current_state
+		      (
+			watchfn:		(mt::Outport, mt::Millgraph) -> Void,
+			r:			Runstate
+		      )	
+		    =
+		    {   outport = r.millgraph_outport;
+			#
+			millgraph =   { outports => mt::opm::empty,
+					inports  => mt::ipm::empty,
+					mills    =>      im::empty
+				      };
+
+			watchfn  (outport, millgraph);
+		    };
+
+		fun tell_millgraph_watchers_current_state
+		      (
+			r:			Runstate
+		      )
+		    =
+		    mt::ipm::apply   tell_watcher   *r.millgraph_watchers
+		    where
+			fun tell_watcher
+			      (
+				inport:		 mt::Inport,											# 
+				watchfn:	(mt::Outport, mt::Millgraph) -> Void							# 
+			      )
+			    =
+			    tell_millgraph_watcher_current_state (watchfn, r);
+		    end;
 
 
 		fun note_textmill_statechange
@@ -820,7 +933,304 @@ herein
 
 			get_from_oneshot  reply_oneshot;
 		    };
+
+		#################################################################################
+		# App_To_Mill interface fns::
+		#
+		#
+		fun make_pane ():	gt::Gp_Widget_Type												# PUBLIC.
+		    =
+		    {	reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( gt::Gp_Widget_Type );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				{
+# 				    filepath	  =  *me.filepath;
+# 				    textpane_hint =  *me.textpane_hint;
+# 				    #
+# 				    gp_widget =	*make_pane_hack { textpane_to_textmill, filepath, textpane_hint };
+
+# XXX BUGGO FIXME TBD
+
+				    gp_widget = gt::NULL_WIDGET;
+
+				    put_in_oneshot (reply_oneshot, gp_widget);
+				}
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+		    #
+
+		fun get_dirty ()														# PUBLIC.  We don't actually support a 'dirty' flag on millboss, so this is always FALSE.
+		    =
+		    {	reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Bool );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, FALSE)
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+		    #
+		fun pass_dirty  (replyqueue: Replyqueue)  (reply_handler: Bool -> Void)								# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Bool );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, FALSE)
+			);
+ 
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+		fun set_filepath (filepath: Null_Or( String ))											# PUBLIC.  We don't support a filepath on millboss, so this is a no-op.
+		    =
+		    {	put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (runstate as { id, me, millgraph_watchers, ... }: Runstate)
+				=
+				{
+				}
+			);
+
+		    };
+		    #
+		fun get_filepath ()														# PUBLIC.
+		    =
+		    {	reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or( String ) );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, millgraph_watchers, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, NULL)										# We don't support a filepath on millboss, so this is always NULL.
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+		    #
+		fun pass_filepath (replyqueue: Replyqueue)  (reply_handler: Null_Or( String ) -> Void)						# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( Null_Or( String ) );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, NULL)										# We don't support a filepath on millboss, so this is always NULL.
+			);
+ 
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+		fun set_name (name: String)													# PUBLIC.
+		    =
+		    {	put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (runstate as { id, me, millgraph_watchers, ... }: Runstate)
+				=
+				{
+				    me.name := name;
+				}
+			);
+		    };
+		    #
+		fun get_name ()															# PUBLIC.
+		    =
+		    {	reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( String );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, *me.name)
+			);
+
+			get_from_oneshot  reply_oneshot;
+		    };
+		    #
+		fun pass_name  (replyqueue: Replyqueue)  (reply_handler: String -> Void)							# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( String );
+			#
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				put_in_oneshot (reply_oneshot, *me.name)
+			);
+ 
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> reply_handler);
+		    };
+
+		fun note_millgraph_watcher													# PUBLIC.
+		      (
+			watcher:		mt::Inport,											# 
+			watchfn:		(mt::Outport, mt::Millgraph) -> Void								# 
+		      )	
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (runstate as { id, me, millgraph_watchers, ... }: Runstate)
+				=
+				{   millgraph_watchers
+					:=
+					mt::ipm::set ( *millgraph_watchers,
+							watcher,
+							(watcher, watchfn)
+						     );
+
+				    tell_millgraph_watcher_current_state (watchfn, runstate);							# Start out new watcher with current state.
+				}
+			);
+		    };
+		    #
+		fun drop_millgraph_watcher (watcher:  mt::Inport)									# PUBLIC.
+		    =
+		    {   
+			put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, millgraph_watchers, ... }: Runstate)
+				=
+				millgraph_watchers
+				    :=
+				    mt::ipm::drop (*millgraph_watchers, watcher)
+			);
+		    };
+
+
+		stipulate
+		    fun make_millouts (r: Runstate):			mt::opm::Map(mt::Millout)						# Construct a description of all our outports, for client use.
+			=
+			{   millouts =  mt::opm::empty;												# Start with an empty outport map.
+			    #
+			    millouts =  mt::opm::set (millouts, outport, millout)								# Add our millgraph outport.
+					where													#
+					    outport = r.millgraph_outport;									#
+					    #													#
+					    millgraph_millout											#
+					      =													#
+					      { note_watcher =>  note_millgraph_watcher,							#
+						drop_watcher =>  drop_millgraph_watcher								#
+					      };												#
+																		#
+					    watchers =  mt::ipm::keys_list  *r.millgraph_watchers;						# Make up a set of all watchers for this port.
+					    #													#
+					    watchers =  mt::ips::add_list (mt::ips::empty, watchers);						#
+																		#
+					    millout  =  mgm::wrap__millgraph_millout								# Wrap it up so millboss, plugboard &tc don't need to know about port-specific types.
+							  (											#
+							    outport,										#
+							    millgraph_millout,									#
+							    watchers										#
+							  );											#
+					end;
+
+			    millouts;														# Return map defining all our our outports.
+			};
+		herein
+		    fun get_millouts ():	mt::opm::Map(mt::Millout)									# PUBLIC.  List outport available to watch.
+			=
+			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
+			    #
+			    put_in_mailqueue  (millboss_q,
+				#
+				\\ (runstate: Runstate)
+				    =
+				    put_in_oneshot (reply_oneshot,  make_millouts runstate)
+			    );
+
+			    get_from_oneshot  reply_oneshot;
+			};
+
+		    fun pass_millouts														# PUBLIC.  Pass output streams available to watch.
+			    (replyqueue:	Replyqueue)
+			    (replyhandler:	(mt::opm::Map(mt::Millout) -> Void))
+			:			Void
+			=
+			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
+			    #
+			    put_in_mailqueue  (millboss_q,
+				#
+				\\ (runstate: Runstate)
+				    =
+				    put_in_oneshot (reply_oneshot,  make_millouts runstate)
+			    );
+
+			    put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
+			};
+		end;
+
+		stipulate
+		    fun make_millins (r: Runstate):	mt::ipm::Map(mt::Millin)								# Construct a description of all our inports, for client use.
+			=
+			{   millins =  mt::ipm::empty;												# Start with an empty inport map.
+			    #															# We currently have no input ports. If you need to add one, crib from (e.g.)  src/lib/x-kit/widget/edit/textmill.pkg
+			    millins;														# Return map defining all our our inports.
+			};
+		herein
+		    fun get_millins ():	mt::ipm::Map(mt::Millin)										# PUBLIC.  List input streams available to set.
+			=
+			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
+			    #
+			    put_in_mailqueue  (millboss_q,
+				#
+				\\ (runstate: Runstate)
+				    =
+				    put_in_oneshot (reply_oneshot,  make_millins runstate)
+			    );
+
+			    get_from_oneshot  reply_oneshot;
+			};
+		    
+		    fun pass_millins														# PUBLIC.  Pass input streams available to set.
+			    (replyqueue:	Replyqueue)
+			    (replyhandler:	(mt::ipm::Map(mt::Millin) -> Void))
+			:			Void
+			=
+			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
+			    #
+			    put_in_mailqueue  (millboss_q,
+				#
+				\\ (runstate: Runstate)
+				    =
+				    put_in_oneshot  (reply_oneshot,  make_millins runstate)
+			    );
+
+			    put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
+			};
+		end;
+
+		fun reload_from_file  ()													# PUBLIC.  We don't support a filepath or state save/restore so this is a no-op.
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ ({ id, me, ... }: Runstate)
+				=
+				()
+			);
+		    };
+		    #
+		fun save_to_file  ()														# PUBLIC.  We don't support a filepath or state save/restore so this is a no-op.
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (runstate as  { id, me, millgraph_watchers, ... }: Runstate)
+				=
+				()
+			);
+		    };
 	    end;
+
 
 	#
 	fun process_options (options: List(Millboss_Option), { name, id })
@@ -876,7 +1286,10 @@ herein
 			mills_by_filepath =>  REF sm::empty,												# All currently active mills WHICH ARE OPEN ON A FILE, by filename.
 			#
 			pending_pane_mail =>  REF im::empty,												# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
-			panes_by_id	  =>  REF im::empty												# All currently active panes, by id.
+			panes_by_id	  =>  REF im::empty,												# All currently active panes, by id.
+			#
+			name		  =>  REF "millboss"												# Name of millboss-imp for display purposes.
+					
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );						# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
