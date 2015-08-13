@@ -149,11 +149,50 @@ herein
 		esac;
 	};
 
+	package millwatch_key {									# We use this to track which mill inports are watching which mill outports.
+	    #
+	    Key = { inport: Inport,
+		    outport: Outport
+		  };
+	    #
+	    fun compare										# This comparison is just for doing lookups,
+		  (										# so we do the Int compares first because the are fast,
+		    w1:		Key,								# followed by the string compares.
+		    w2:		Key
+		  )
+		=
+		case (int::compare ( (id_to_int w1.inport.mill_id),
+                                     (id_to_int w2.inport.mill_id)
+		     )             )
+		    #	
+		    GREATER =>  GREATER;
+		    LESS    =>  LESS;
+		    EQUAL   =>
+			case (int::compare ( (id_to_int w1.outport.mill_id),
+					     (id_to_int w2.outport.mill_id)
+			     )             )
+			    #
+			    GREATER =>  GREATER;
+			    LESS    =>  LESS;
+			    EQUAL   =>
+				case (string::compare (w1.inport.inport_name, w2.inport.inport_name))
+				    #
+				    GREATER =>  GREATER;
+				    LESS    =>  LESS;
+				    EQUAL   =>  string::compare (w1.outport.outport_name, w2.outport.outport_name);	
+				esac;
+			esac;		    
+		esac;
+	};
+
 	package ipm =  red_black_map_g(  inport_key );						# "ipm" ==  "inport_map".	red_black_map_g		is from   src/lib/src/red-black-map-g.pkg
 	package ips =  red_black_set_g(  inport_key );						# "ips" ==  "inport_set".	red_black_set_g		is from   src/lib/src/red-black-set-g.pkg
 
 	package opm =  red_black_map_g( outport_key );						# "opm" == "outport_map".	red_black_map_g		is from   src/lib/src/red-black-map-g.pkg
 	package ops =  red_black_set_g( outport_key );						# "ops" == "outport_set".	red_black_set_g		is from   src/lib/src/red-black-set-g.pkg
+
+	package mwm =  red_black_map_g( millwatch_key );					# "mwm" == "millwatch_map".	red_black_map_g		is from   src/lib/src/red-black-map-g.pkg
+	package mws =  red_black_set_g( millwatch_key );					# "mws" == "millwatch_set".	red_black_set_g		is from   src/lib/src/red-black-set-g.pkg
 
 	Millout											# One output port for a mill.  This is a specialization of the Crypt type in src/lib/core/init/pervasive.pkg
 	  =											# 
@@ -162,9 +201,7 @@ herein
 	    #
 	    port_type:		String,								# Type of the contents of the 'crypt' field, for debugging/inspection, e.g. "int_millout::Int_Millout"	for   src/lib/x-kit/widget/edit/int-millout.pkg
 	    data_type:		String,								# Type of the values that flow through the stream, for plugboard.pkg,  e.g. "Int"			for   src/lib/x-kit/widget/edit/int-millout.pkg
-	    info:		String,								# Any added info about the data field, for debugging/inspection.  This compensates for Millout's lack of typesafety; it should include any information useful when debugging "Whoops, we got the wrong Millout here" bugs. Can be just the empty string.
-	    #											#
-	    watchers:		ips::Set							# The list of mill input ports currently watching this mill output port.
+	    info:		String								# Any added info about the data field, for debugging/inspection.  This compensates for Millout's lack of typesafety; it should include any information useful when debugging "Whoops, we got the wrong Millout here" bugs. Can be just the empty string.
 	  };											#
 
 	Millin											# One input port for a mill.
@@ -174,11 +211,14 @@ herein
 	    mono:		Bool,								# TRUE iff this Input can watch at most one Watchable.
 	    #											#
 	    note_input:		Millout -> Void,						# For a MONO_INPUT this call will replace any previous setting;  for a POLY_INPUT this will add  the Millout to   the set of outputs read.
-	    drop_input:		Millout -> Void,						# For a MONO_INPUT this call will clear the input to NULL;       for a POLY_INPUT it will remove the Millout from the set of outputs read -- no-op if not present.
-	    #			   								#
-	    watching:		ops::Set							# The list of mill output ports currently being watched by this mill input port.
+	    drop_input:		Millout -> Void							# For a MONO_INPUT this call will clear the input to NULL;       for a POLY_INPUT it will remove the Millout from the set of outputs read -- no-op if not present.
 	  };				 	 						# 
 
+	Millwatch										# Everything millboss knows about a case of one mill inport watching one mill outport.
+	  =
+	  { millin:		Millin,
+	    millout:		Millout
+	  };
 
 	Graphic_Line_Prefix									# Support for drawing arbitrary mouse-sensitive graphics to the left of the line in   src/lib/x-kit/widget/edit/screenline.pkg
 	  =											# Motivating example is planned plugboard.pkg support;  could also be used for conventional [+] vs [-] collapsable hierarchy display, say.
@@ -362,7 +402,11 @@ herein
 												# The watcher protocol allows others imps (including other texteditors and also arbitrary application imps) to monitor changes to a given textmill.
 		note__textmill_statechange__watcher						#  
 		    :										#
-		    (Inport, (Outport, Textmill_Statechange) -> Void) -> Void,			#
+		    ( Inport,									# Globally unique name for the watching port.
+		      Null_Or(Millin),								# This will be NULL if watcher is not another mill (e.g. a pane). Lets us pass Millin+Millout to millboss at same time, keeping millboss consistent.
+		      (Outport, Textmill_Statechange) -> Void					# This fn is how we actually pass statechanges to watcher. The Outport arg lets a single watcher distinguish miltiple watchees.
+		    )
+		    -> Void,									#
 		    	     	       			     	      	 			#
 		drop__textmill_statechange__watcher						#
 		    :										#
@@ -405,11 +449,11 @@ herein
 	#     src/lib/x-kit/widget/edit/millboss-imp.pkg
 	#
 	also
-	Gadget_To_Millboss									# This is the toplevel application code access pathway to texteditor functionality, and more generally pane/mill functionality.
+	Mill_To_Millboss									# This is the toplevel application code access pathway to texteditor functionality, and more generally pane/mill functionality.
 	    =											# 
-	    GADGET_TO_MILLBOSS
+	    MILL_TO_MILLBOSS
 	      {
-		id:			Id,							# Unique id to facilitate storing gadget_to_millboss instances in indexed datastructures like red-black trees.
+		id:			Id,							# Unique id to facilitate storing mill_to_millboss instances in indexed datastructures like red-black trees.
 		#
 		get_textmill:		String -> Null_Or( Textpane_To_Textmill ),		# Get pre-existing textmill by name, return NULL if not found.
 		make_textmill:		Textmill_Arg ->    Textpane_To_Textmill,		# Create new       textmill.  If there is a pre-existing one by the same name, modify given name to make new buffer's name unique.
@@ -431,6 +475,9 @@ herein
 		get_mills_by_name:	Void -> sm::Map( Mill_Info ),
 		get_mills_by_id:	Void -> im::Map( Mill_Info ),
 		    
+		note_millwatch:		Millwatch -> Void,					# Take note of a new instance of one mill watching another.
+		drop_millwatch:		millwatch_key::Key -> Void,				# Undo previous.
+
 		app_to_mill:		App_To_Mill						# Include the App_To_Mill interface so that millboss can export a Millgraph Outport as a kinda-sorta mill itself. 
 	      }
 
@@ -513,7 +560,7 @@ herein
 	    mill_id:			Id,							# Id  of mill for which this editfn is being invoked.
 	    edit_history:		Edit_History,						# Recent visible states of textmill, to support undo functionality.
 	    widget_to_guiboss:		gt::Widget_To_Guiboss,					# 
-	    gadget_to_millboss:		Gadget_To_Millboss,
+	    mill_to_millboss:		Mill_To_Millboss,
 	    #
 	    mainmill_modestate:		Millmode_State,						# Any persistent per-mode state (e.g., private state for fundamental-mode.pkg) for main mill is available via this.
 	    minimill_modestate:		Millmode_State,						# Any persistent per-mode state (e.g., private state for    minimill-mode.pkg) for mini mill is available via this.
@@ -555,7 +602,7 @@ herein
 	    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.
 	    pane_id:			Id,							# Id  of pane for which this editfn is being invoked.
 	    editfn_node:		Editfn_Node,
- 	    widget_to_guiboss:		gt::Widget_To_Guiboss,					# Mainly for access to get_cutbuffer_contents/set_cutbuffer_contents in gadget_to_millboss.
+ 	    widget_to_guiboss:		gt::Widget_To_Guiboss,					# Mainly for access to get_cutbuffer_contents/set_cutbuffer_contents in mill_to_millboss.
 	    #
 	    mainmill_modestate:		Millmode_State,
 	    minimill_modestate:		Millmode_State,
@@ -567,8 +614,8 @@ herein
 	also
 	Millgraph										# A representation of the complete current graph of communicating mills.  Eventually I'd like this to be an instance of   src/lib/src/digraph.pkg  or  src/lib/src/digraphxy.pkg
 	  =											# millboss_imp should stream this for the benefit of plugboard. (Maybe 'plugboard' should be 'millgraphpane'? The latter is hard to warm up to...)
-	  { outports:			opm::Map(Millout),
-	    inports:			ipm::Map(Millin),
+	  { millouts:			opm::Map(Millout),
+	    millins:			ipm::Map(Millin),
 	    mills:			 im::Map(App_To_Mill)
 	  };
 
@@ -576,38 +623,26 @@ herein
 
 	Textmill_Spec										# A textpane is a window onto a textmill, so when creating a textpane we must somehow specify what textmill to display.
 	  #											# This type gets consumed by textpane::with in   src/lib/x-kit/widget/edit/textpane.pkg
-	  = OLD_TEXTMILL_BY_NAME	String							# Display a pre-existing textmill, fetching it by given name   via et::Gadget_To_Millboss.get_textmill.
+	  = OLD_TEXTMILL_BY_NAME	String							# Display a pre-existing textmill, fetching it by given name   via et::Mill_To_Millboss.get_textmill.
 	  | OLD_TEXTMILL_BY_PORT	Textpane_To_Textmill 					# Display a pre-existing textmill, specified by given port to it.
-	  | NEW_TEXTMILL		{ name: String,  contents: String }			# Display a newly made   textmill, created with given contents via et::Gadget_To_Millboss.make_textmill.
+	  | NEW_TEXTMILL		{ name: String,  contents: String }			# Display a newly made   textmill, created with given contents via et::Mill_To_Millboss.make_textmill.
 	  ;
 
-	exception  GADGET_TO_MILLBOSS__CRYPT	    Gadget_To_Millboss;
+	exception  MILL_TO_MILLBOSS__CRYPT	    Mill_To_Millboss;
 	exception  TEXTPANE_TO_SCREENLINE__CRYPT    p2l::Textpane_To_Screenline;
 
 
-	fun find__gadget_to_millboss
-	      (
-		gadget_to_guiboss:	gt::Gadget_To_Guiboss,
-		caller:			String
-	      )
+	mill_to_millboss__global								# millboss_imp will set this non-NULL when it starts up.  This provides an assured way for any mill to contact millboss.
+	    =											# We used to do this via gadget_to_guiboss but mills shouldn't have to know about gui stuff.
+	    REF (NULL: Null_Or(Mill_To_Millboss));
+
+	fun get__mill_to_millboss  (caller:  String):  Mill_To_Millboss
 	    =
-	    case (gadget_to_guiboss.find_global "gadget_to_millboss::GADGET_TO_MILLBOSS")
+	    case *mill_to_millboss__global
 		#
-		THE gadget_to_millboss
-		    =>
-		    case gadget_to_millboss.data
-			#
-			GADGET_TO_MILLBOSS__CRYPT gadget_to_millboss
-			    =>
-			    gadget_to_millboss;
+		THE mill_to_millboss =>  mill_to_millboss;
 
-			_ =>    {   msg =  sprintf "Expected Crypt of GADGET_TO_MILLBOSS__CRYPT but got Crypt of { type=>\"%s\", info=>\"%s\" }  -- gadget_to_millboss::find__gadget_to_millboss called by %s" gadget_to_millboss.type gadget_to_millboss.info caller;				# "Impossible."
-				    log::fatal msg;
-				    raise exception DIE msg;
-				};
-		    esac;
-
-		NULL =>	{   msg =  sprintf "GADGET_TO_MILLBOSS global not registered with guiboss_imp in time?! -- gadget_to_millboss::find__gadget_to_millboss called by %s" caller;				# "Impossible."
+		NULL =>	{   msg =  sprintf "mill_to_millboss_global not set by millboss_imp in time?! -- millboss_types::get__mill_to_millboss called by %s" caller;
 			    log::fatal msg;
 			    raise exception DIE msg;
 			};

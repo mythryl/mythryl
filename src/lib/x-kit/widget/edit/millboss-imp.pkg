@@ -91,7 +91,6 @@ stipulate
 
     package mt  =  millboss_types;				# millboss_types		is from   src/lib/x-kit/widget/edit/millboss-types.pkg
 
-#   package g2b =  gadget_to_millboss;				# gadget_to_millboss		is from   src/lib/x-kit/widget/edit/gadget-to-millboss.pkg
     package e2g =  millboss_to_guiboss;				# millboss_to_guiboss		is from   src/lib/x-kit/widget/edit/millboss-to-guiboss.pkg
 
     package tbi =  textmill;					# textmill			is from   src/lib/x-kit/widget/edit/textmill.pkg
@@ -144,8 +143,10 @@ herein
 	Millboss_State													# Holds all nonephemeral mutable state maintained by package.
 	  =
 	  { mills_by_name:			Ref( sm::Map( mt::Mill_Info ) ),					# All currently active mills, by name.
-	    mills_by_id:			Ref( im::Map( mt::Mill_Info ) ),					# All currently active mills, by id.
+	    mills_by_id:			Ref( im::Map( mt::Mill_Info ) ),					# All currently active mills, by id. Maintained by note_mill_info(). NEVER DELETED AS YET. XXX SUCKO FIXME.
 	    mills_by_filepath:			Ref( sm::Map( mt::Mill_Info ) ),					# All currently active mills WHICH ARE OPEN ON A FILE, by filepath. (We expect this to typically be a full pathname like "/home/jayne/foo.txt", so as to help avoid having multiple buffers open on one file.)
+	    #
+	    millwatches:			Ref( mt::mwm::Map (mt::Millwatch )), 					# Tracks which mill inports are watching which outports, maintained via note_millwatch + drop_millwatch.
 	    #
 	    pending_pane_mail:			Ref( im::Map( List( Crypt ) ) ),					# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
 	    panes_by_id:			Ref( im::Map( Pane_Info	    ) ),
@@ -162,7 +163,6 @@ herein
 			  );
 
 	Exports	= {													# Ports we provide for use by other imps.
-		    gadget_to_millboss:		Crypt									# The Crypt encapsulates type gadget_to_millboss::Gadget_To_Millboss. (We don't want to drag that typecomplex into guiboss.)
 		  };
 
 
@@ -289,9 +289,9 @@ herein
 			make_pane
 		      };
 
-		gadget_to_millboss
+		mill_to_millboss
 		    =
-		    mt::GADGET_TO_MILLBOSS
+		    mt::MILL_TO_MILLBOSS
 		      {
 			id,
 			get_textmill,
@@ -305,21 +305,22 @@ herein
 			note_pane,
 			drop_pane,
 			mail_pane,
+			#
 			get_panes_by_id,
 			get_mills_by_name,
 			get_mills_by_id,
 			#
+			note_millwatch,
+			drop_millwatch,
+			#
 			app_to_mill											# Include App_To_Mill as a sub-interface to allow clients to subscribe to our Millgraph Outport via standard intermill connection protocols.
 		      };
 
-		exports	    = { gadget_to_millboss => crypt }
-				where
-				    crypt = { id   =>  issue_unique_id (),
-					      type => "gadget_to_millboss::GADGET_TO_MILLBOSS",
-					      info => "src/lib/x-kit/widget/edit/gadget-to-millboss.pkg",
-					      data =>  mt::GADGET_TO_MILLBOSS__CRYPT  gadget_to_millboss
-					    };	
-				end;
+		mt::mill_to_millboss__global
+		    :=
+		    THE mill_to_millboss;
+
+		exports	    = { };
 
 		to          =  make_replyqueue();
 		#
@@ -356,6 +357,19 @@ herein
 	    where
 		millboss_q     =  make_mailqueue (get_current_microthread()):  Millboss_Q;
 
+		fun make_millgraph  (r:  Runstate):  mt::Millgraph
+		    =
+		    {
+			millgraph
+			  =
+			  { millouts => mt::opm::empty,
+			    millins  => mt::ipm::empty,
+			    mills    =>      im::empty
+			  };
+
+			millgraph;
+		    };
+
 		fun tell_millgraph_watchers
 		      (
 			millgraph_watchers:		Millgraph_Watchers,								# 
@@ -385,10 +399,7 @@ herein
 		    =
 		    {   outport = r.millgraph_outport;
 			#
-			millgraph =   { outports => mt::opm::empty,
-					inports  => mt::ipm::empty,
-					mills    =>      im::empty
-				      };
+			millgraph =  make_millgraph r;
 
 			watchfn  (outport, millgraph);
 		    };
@@ -410,7 +421,7 @@ herein
 		    end;
 
 
-		fun note_textmill_statechange
+		fun note_textmill_statechange												# Track textmill name changes.
 		      (
 			outport:	mt::Outport,
 			statechange:	mt::Textmill_Statechange
@@ -670,6 +681,36 @@ herein
 			get_from_oneshot  reply_oneshot;
 		    };
 
+		fun note_millwatch (millwatch:	mt::Millwatch)					# Remember new instance of inport on one mill watching outport on another mill.
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (r as { id, me, ... }: Runstate)
+				=
+				{   key = { inport  =>  millwatch.millin.inport,
+					    outport =>  millwatch.millout.outport
+					  };
+
+				    me.millwatches
+					:=
+					mt::mwm::set (*me.millwatches, key, millwatch);
+				}
+			);
+		    };
+		fun drop_millwatch (key:  mt::millwatch_key::Key)				# Opposite of above: Forget that input port was watching output port.
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (r as { id, me, ... }: Runstate)
+				=
+				{   
+				    me.millwatches
+					:=
+					mt::mwm::drop (*me.millwatches, key);
+				}
+			);
+		    };
+
 
 
 		stipulate
@@ -775,8 +816,7 @@ herein
 
 				    textmill_exports
 					->
-					{ textpane_to_textmill as mt::TEXTPANE_TO_TEXTMILL tb
-					};
+					{  textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL  tb  };
 
 				    mill_info =   { name,
 						    freshness	 =>  id_to_int (issue_unique_id()),
@@ -790,7 +830,7 @@ herein
 
 				    watcher = { mill_id => id, inport_name => "" }:  mt::Inport;
 
-				    tb.note__textmill_statechange__watcher (watcher, note_textmill_statechange);
+				    tb.note__textmill_statechange__watcher (watcher, NULL, note_textmill_statechange);	# We subscribe just to track textmill name changes.
 
 				    put_in_oneshot (reply_oneshot, textpane_to_textmill);
 			    }
@@ -859,7 +899,7 @@ herein
 
 					    watcher = { mill_id => id, inport_name => "" }:  mt::Inport;
 
-					    tb.note__textmill_statechange__watcher (watcher, note_textmill_statechange);
+					    tb.note__textmill_statechange__watcher (watcher, NULL, note_textmill_statechange);	# We subscribe just to track textmill name changes.
 
 					    put_in_oneshot (reply_oneshot, textpane_to_textmill);
 					};
@@ -921,7 +961,7 @@ herein
 
 				    watcher = { mill_id => id, inport_name => "" }:  mt::Inport;
 
-				    tb.note__textmill_statechange__watcher (watcher, note_textmill_statechange);
+				    tb.note__textmill_statechange__watcher (watcher, NULL, note_textmill_statechange);		# We subscribe just to track textmill name changes.
 
 				    am.set_filepath (THE filepath);
 
@@ -1075,6 +1115,7 @@ herein
 		fun note_millgraph_watcher													# PUBLIC.
 		      (
 			watcher:		mt::Inport,											# 
+			millin:			Null_Or(mt::Millin),										# This will be NULL if watcher is not another mill (e.g. a pane).
 			watchfn:		(mt::Outport, mt::Millgraph) -> Void								# 
 		      )	
 		    =
@@ -1123,15 +1164,10 @@ herein
 						drop_watcher =>  drop_millgraph_watcher								#
 					      };												#
 																		#
-					    watchers =  mt::ipm::keys_list  *r.millgraph_watchers;						# Make up a set of all watchers for this port.
-					    #													#
-					    watchers =  mt::ips::add_list (mt::ips::empty, watchers);						#
-																		#
-					    millout  =  mgm::wrap__millgraph_millout								# Wrap it up so millboss, plugboard &tc don't need to know about port-specific types.
+					    millout  =  mgm::wrap__millgraph_millout								# Wrap it so millboss, plugboard &tc don't need to know about port-specific types.
 							  (											#
 							    outport,										#
-							    millgraph_millout,									#
-							    watchers										#
+							    millgraph_millout									#
 							  );											#
 					end;
 
@@ -1284,6 +1320,8 @@ herein
 		me =  {	mills_by_name	  =>  REF sm::empty,												# All currently active mills, by name.
 			mills_by_id	  =>  REF im::empty,												# All currently active mills, by id.
 			mills_by_filepath =>  REF sm::empty,												# All currently active mills WHICH ARE OPEN ON A FILE, by filename.
+			#
+			millwatches	  =>  REF mt::mwm::empty,						 					# Everything we know about mill inports watching mill outports.
 			#
 			pending_pane_mail =>  REF im::empty,												# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
 			panes_by_id	  =>  REF im::empty,												# All currently active panes, by id.
