@@ -143,7 +143,7 @@ herein
 	    millboss_to_pane:			b2p::Millboss_To_Pane							# Our port to the pane.
 	  };
 
-	Millboss_State													# Holds all nonephemeral mutable state maintained by package.
+	Millboss_State													# 
 	  =
 	  { mills_by_name:			Ref(  sm::Map( mt::Mill_Info ) ),					# All currently active mills, by name.
 	    mills_by_id:			Ref( idm::Map( mt::Mill_Info ) ),					# All currently active mills, by id. Maintained by note_mill_info(). NEVER DELETED AS YET. XXX SUCKO FIXME.
@@ -570,11 +570,22 @@ herein
 	    =
 	    {   me_slot  =  make_mailslot  ()	:  Me_Slot;
 		#
+		millgraph_outport
+		  =
+		  { mill_id	 => id,
+		    outport_name => "millgraph"
+		  };
+
+		millouts =  make_millouts  millgraph_outport;
+
 		app_to_mill												# Generic interface supported by all mills.  Guiboss pretends to be a kinda-sorta mill itself to allow clients to subscribe to its Millgraph Outport via standard intermill connection protocols.
 		    =
 		    mt::APP_TO_MILL
 		      {
 			id,
+			millmode => fm::fundamental_mode,								# Nonsense value because we aren't actually a textmill or such.  Maybe should create a dummy millboss-mode.pkg just to fill this role.  XXX SUCKO FIXME.
+			millins  =>  mt::ipm::empty,
+			millouts,
 			#
 			get_dirty,
 			pass_dirty,
@@ -587,16 +598,12 @@ herein
 			set_name,
 			pass_name,
 
-			get_millouts,
-			pass_millouts,
-
-			get_millins,
-			pass_millins,
+			get_millmode_state,
+			pass_millmode_state,
 
 			reload_from_file,
 			save_to_file,
 
-			millmode => fm::fundamental_mode,								# Nonsense value because we aren't actually a textmill or such.  Maybe should create a dummy millboss-mode.pkg just to fill this role.  XXX SUCKO FIXME.
 			make_pane
 		      };
 
@@ -644,12 +651,6 @@ herein
 		block_until_mailop_fires  run_gun';									# Wait for the starting gun.
 
 		millgraph_watchers =  REF mt::ipm::empty;
-
-		millgraph_outport
-		  =
-		  { mill_id	 => id,
-		    outport_name => "millgraph"
-		  };
 
 		run ( millboss_q,		 									# Will not return.
 		      { id,
@@ -1073,13 +1074,14 @@ herein
 				    fire_run_gun ();
 
 				    textmill_exports
-					->
-					{  textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL  tb  };
+				      ->
+				      { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL  tb
+				      };
 
 				    tb.app_to_mill   ->  mt::APP_TO_MILL am;
 
-				    millins   =   am.get_millins ();
-				    millouts  =   am.get_millouts();	
+				    millins   =   am.millins ;
+				    millouts  =   am.millouts;
 
 				    mill_info =   { name,
 						    freshness	 =>  id_to_int (issue_unique_id()),
@@ -1156,8 +1158,8 @@ herein
 
 					    tb.app_to_mill   ->  mt::APP_TO_MILL am;
 
-					    millins   =   am.get_millins ();
-					    millouts  =   am.get_millouts();	
+					    millins   =   am.millins ;
+					    millouts  =   am.millouts;	
 
 					    mill_info = { name,
 							  freshness    =>  id_to_int (issue_unique_id()),
@@ -1229,13 +1231,13 @@ herein
 
 				    fire_run_gun ();
 
-				    textmill_exports ->  { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL tb
-							 };
+				    textmill_exports ->   { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL tb
+							  };
 
 				    tb.app_to_mill   ->  mt::APP_TO_MILL am;
 
-				    millins   =   am.get_millins ();
-				    millouts  =   am.get_millouts();	
+				    millins   =   am.millins ;
+				    millouts  =   am.millouts;	
 
 				    mill_info =   { name,
 						    freshness    =>  id_to_int (issue_unique_id()),
@@ -1440,102 +1442,140 @@ herein
 		    };
 
 
-		stipulate
-		    fun make_millouts (r: Runstate):			mt::opm::Map(mt::Millout)						# Construct a description of all our outports, for client use.
-			=
-			{   millouts =  mt::opm::empty;												# Start with an empty outport map.
+		fun make_millouts (millgraph_outport: mt::Outport):		mt::opm::Map(mt::Millout)					# Construct a description of all our outports, for client use.
+		    =
+		    {   millouts =  mt::opm::empty;												# Start with an empty outport map.
+			#
+			millouts =  mt::opm::set (millouts, outport, millout)								# Add our millgraph outport.
+				    where													#
+					outport = millgraph_outport;									#
+					#													#
+					millgraph_millout											#
+					  =													#
+					  { note_watcher =>  note_millgraph_watcher,							#
+					    drop_watcher =>  drop_millgraph_watcher								#
+					  };												#
+																	    #
+					millout  =  mgm::wrap__millgraph_millout								# Wrap it so millboss, plugboard &tc don't need to know about port-specific types.
+						      (											#
+							outport,										#
+							millgraph_millout									#
+						      );											#
+				    end;
+
+			millouts;														# Return map defining all our our outports.
+		    };
+# 		fun get_millouts ():	mt::opm::Map(mt::Millout)									# PUBLIC.  List outport available to watch.
+# 		    =
+# 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
+# 			#
+# 			put_in_mailqueue  (millboss_q,
+# 			    #
+# 			    \\ (runstate: Runstate)
+# 				=
+# 				put_in_oneshot (reply_oneshot,  make_millouts runstate.millgraph_outport)
+# 			);
+# 
+# 			get_from_oneshot  reply_oneshot;
+# 		    };
+# 
+# 		fun pass_millouts														# PUBLIC.  Pass output streams available to watch.
+# 			(replyqueue:	Replyqueue)
+# 			(replyhandler:	(mt::opm::Map(mt::Millout) -> Void))
+# 		    :			Void
+# 		    =
+# 		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
+# 			#
+# 			put_in_mailqueue  (millboss_q,
+# 			    #
+# 			    \\ (runstate: Runstate)
+# 				=
+# 				put_in_oneshot (reply_oneshot,  make_millouts runstate.millgraph_outport)
+# 			);
+# 
+# 			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
+# 		    };
+
+# 		    fun make_millins (r: Runstate):	mt::ipm::Map(mt::Millin)								# Construct a description of all our inports, for client use.
+# 			=
+# 			{   millins =  mt::ipm::empty;												# Start with an empty inport map.
+# 			    #															# We currently have no input ports. If you need to add one, crib from (e.g.)  src/lib/x-kit/widget/edit/textmill.pkg
+# 			    millins;														# Return map defining all our our inports.
+# 			};
+# 		    fun get_millins ():	mt::ipm::Map(mt::Millin)										# PUBLIC.  List input streams available to set.
+# 			=
+# 			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
+# 			    #
+# 			    put_in_mailqueue  (millboss_q,
+# 				#
+# 				\\ (runstate: Runstate)
+# 				    =
+# 				    put_in_oneshot (reply_oneshot,  make_millins runstate)
+# 			    );
+# 
+# 			    get_from_oneshot  reply_oneshot;
+# 			};
+# 		    
+# 		    fun pass_millins														# PUBLIC.  Pass input streams available to set.
+# 			    (replyqueue:	Replyqueue)
+# 			    (replyhandler:	(mt::ipm::Map(mt::Millin) -> Void))
+# 			:			Void
+# 			=
+# 			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
+# 			    #
+# 			    put_in_mailqueue  (millboss_q,
+# 				#
+# 				\\ (runstate: Runstate)
+# 				    =
+# 				    put_in_oneshot  (reply_oneshot,  make_millins runstate)
+# 			    );
+# 
+# 			    put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
+# 			};
+# 		end;
+
+		fun get_millmode_state ():	mt::Millmode_State										# PUBLIC.
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::Millmode_State );
+			#
+			put_in_mailqueue  (millboss_q,
 			    #
-			    millouts =  mt::opm::set (millouts, outport, millout)								# Add our millgraph outport.
-					where													#
-					    outport = r.millgraph_outport;									#
-					    #													#
-					    millgraph_millout											#
-					      =													#
-					      { note_watcher =>  note_millgraph_watcher,							#
-						drop_watcher =>  drop_millgraph_watcher								#
-					      };												#
-																		#
-					    millout  =  mgm::wrap__millgraph_millout								# Wrap it so millboss, plugboard &tc don't need to know about port-specific types.
-							  (											#
-							    outport,										#
-							    millgraph_millout									#
-							  );											#
-					end;
+			    \\ (runstate: Runstate)
+				=
+				{
+#				    put_in_oneshot (reply_oneshot,  runstate.millmode_state);
+# XXX BUGGO FIXME Need to cobble up some valid millmode state so millboss can look like a vanilla mill.
+				    msg = "millboss doesn't have a millmode_state yet! :-(  --millboss_imp::get_millmode_state";
+				    log::fatal msg;
+				    raise exception DIE msg;
+				}
+			);
 
-			    millouts;														# Return map defining all our our outports.
-			};
-		herein
-		    fun get_millouts ():	mt::opm::Map(mt::Millout)									# PUBLIC.  List outport available to watch.
-			=
-			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
+			get_from_oneshot  reply_oneshot;
+		    };
+
+		fun pass_millmode_state														# PUBLIC.  Pass input streams available to set.
+			(replyqueue:	Replyqueue)
+			(replyhandler:	(mt::Millmode_State -> Void))
+		    :			Void
+		    =
+		    {   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::Millmode_State );
+			#
+			put_in_mailqueue  (millboss_q,
 			    #
-			    put_in_mailqueue  (millboss_q,
-				#
-				\\ (runstate: Runstate)
-				    =
-				    put_in_oneshot (reply_oneshot,  make_millouts runstate)
-			    );
+			    \\ (runstate: Runstate)
+				=
+				{
+#				    put_in_oneshot  (reply_oneshot,  runstate.millmode_state);
+# XXX BUGGO FIXME Need to cobble up some valid millmode state so millboss can look like a vanilla mill.
+				    msg = "millboss doesn't have a millmode_state yet! :-(  --millboss_imp::pass_millmode_state";
+				    log::fatal msg;
+				    raise exception DIE msg;
+				}
+			);
 
-			    get_from_oneshot  reply_oneshot;
-			};
-
-		    fun pass_millouts														# PUBLIC.  Pass output streams available to watch.
-			    (replyqueue:	Replyqueue)
-			    (replyhandler:	(mt::opm::Map(mt::Millout) -> Void))
-			:			Void
-			=
-			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::opm::Map(mt::Millout) );
-			    #
-			    put_in_mailqueue  (millboss_q,
-				#
-				\\ (runstate: Runstate)
-				    =
-				    put_in_oneshot (reply_oneshot,  make_millouts runstate)
-			    );
-
-			    put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
-			};
-		end;
-
-		stipulate
-		    fun make_millins (r: Runstate):	mt::ipm::Map(mt::Millin)								# Construct a description of all our inports, for client use.
-			=
-			{   millins =  mt::ipm::empty;												# Start with an empty inport map.
-			    #															# We currently have no input ports. If you need to add one, crib from (e.g.)  src/lib/x-kit/widget/edit/textmill.pkg
-			    millins;														# Return map defining all our our inports.
-			};
-		herein
-		    fun get_millins ():	mt::ipm::Map(mt::Millin)										# PUBLIC.  List input streams available to set.
-			=
-			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
-			    #
-			    put_in_mailqueue  (millboss_q,
-				#
-				\\ (runstate: Runstate)
-				    =
-				    put_in_oneshot (reply_oneshot,  make_millins runstate)
-			    );
-
-			    get_from_oneshot  reply_oneshot;
-			};
-		    
-		    fun pass_millins														# PUBLIC.  Pass input streams available to set.
-			    (replyqueue:	Replyqueue)
-			    (replyhandler:	(mt::ipm::Map(mt::Millin) -> Void))
-			:			Void
-			=
-			{   reply_oneshot =  make_oneshot_maildrop():  Oneshot_Maildrop( mt::ipm::Map(mt::Millin) );
-			    #
-			    put_in_mailqueue  (millboss_q,
-				#
-				\\ (runstate: Runstate)
-				    =
-				    put_in_oneshot  (reply_oneshot,  make_millins runstate)
-			    );
-
-			    put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
-			};
-		end;
+			put_in_replyqueue (replyqueue, (get_from_oneshot' reply_oneshot) ==> replyhandler);
+		    };
 
 		fun reload_from_file  ()													# PUBLIC.  We don't support a filepath or state save/restore so this is a no-op.
 		    =

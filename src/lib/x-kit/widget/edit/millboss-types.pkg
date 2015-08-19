@@ -423,6 +423,10 @@ herein
 	    =
 	    APP_TO_MILL	
 	      { id:			Id,							# Unique id to facilitate storing textpane_to_textmill instances in indexed datastructures like red-black trees.
+		millmode:		Millmode,
+		millins:		ipm::Map(Millin),					# Get  Millins for this mill indexed by Inport.
+		millouts:		opm::Map(Millout),					# Get  output streams available to watch.  Indexed by Outport.
+
 		#
 		get_dirty:		Void -> Bool,						# TRUE iff textmill contents are currently out of sync with diskfile contents.
 		pass_dirty:		Replyqueue -> (Bool -> Void) -> Void,
@@ -435,16 +439,12 @@ herein
 		get_name:		Void -> String,						# 
 		pass_name:		Replyqueue -> (String -> Void) -> Void,
 
-		get_millouts:		Void       ->  opm::Map(Millout),			# Get  output streams available to watch.  Indexed by Outport.
-		pass_millouts:		Replyqueue -> (opm::Map(Millout) -> Void) -> Void,	# Pass output streams available to watch.  Indexed by Outport.
-
-		get_millins:		Void       ->  ipm::Map(Millin),			# Get  Millins for this mill indexed by Inport.
-		pass_millins:		Replyqueue -> (ipm::Map(Millin) -> Void) -> Void,	# Pass Millins for this mill indexed by Inport.
+		get_millmode_state:	Void	   ->  Millmode_State,
+		pass_millmode_state:	Replyqueue -> (Millmode_State -> Void) -> Void,
 
 		reload_from_file:	Void -> Void,
 		save_to_file:		Void -> Void,
 
-		millmode:		Millmode,
 		make_pane:		Void -> gt::Gp_Widget_Type				# Synthesize a GUI pane which will display the state of this mill.  This is primarily support for  switch_to_mill()  in  src/lib/x-kit/widget/edit/fundamental-mode.pkg
 	      }
 
@@ -510,8 +510,13 @@ herein
 		#
 		self_insert_command:	Keymap_Node,						# Support for C-q handling in   src/lib/x-kit/widget/edit/textpane.pkg
 		#
-		initialize_state:	(Millmode, Millmode_State) -> Millmode_State,		# Called when we create a new Millmode instance. This lets each running Millmode instance maintain private state.  We need multiple states because our parent mode(s) may also be maintaining private state(s).
-		finalize_state:		(Millmode, Millmode_State) -> Void			# Called when a millmode instance shuts down.
+		initialize_millmode_state							# Called when we create a new Millmode instance. This lets each running Millmode instance maintain private state.  We need multiple states because our parent mode(s) may also be maintaining private state(s).
+		  :
+		  (Id, Textmill_Q, Millmode, Millmode_State, ipm::Map(Millin), opm::Map(Millout))
+		  ->
+		  (Millmode_State, ipm::Map(Millin), opm::Map(Millout)),
+
+		finalize_state:		(    Millmode, Millmode_State) -> Void			# Called when a millmode instance shuts down.
 	      }
 
 	also
@@ -574,6 +579,78 @@ herein
 	    millmode:			Millmode,
 	    textmill_options:		List( Textmill_Option )
 	  }
+
+	also
+	Textmill_State																# 
+	  =
+	  { state:		Ref( Textstate			),										# Current visible state of textmill.
+	    edit_history:	Ref( Edit_History		),										# Recent visible states of textmill, to support undo functionality.
+	    filepath:		Ref( Null_Or( String )		),										# Name of file being edited in buffer, or NULL if no file is associated with buffer contents.
+	    name:		Ref( String			),										# Name of textmill for display purposes, typically defaults to filename.
+	    dirty:		Ref( Bool			),										# TRUE if buffer contents have been changed since being read from disk.
+	    readonly:		Ref( Bool			),										# TRUE if buffer contents are currently marked as read-only.
+	    textpane_hint:	Ref( Crypt			)										# Point+mark etc info stored for textpane.pkg, in a format (only) textpane can decipher.
+	  }
+
+	also
+	Textmill_Imports
+	  =
+	  {																	# Ports we use, provided by other imps.
+	  }
+
+	also
+	Textmill_Statechange__Watchers														# Type for tracking the set of clients subscribed to a mill for Textmill_Statechange updates.
+	    =																	#
+	    ipm::Map( (Inport, (Outport, Textmill_Statechange) -> Void) )									# 
+
+	also
+	Textmill_Statechange_Millout
+	  =	
+	  { note_watcher:  ( Inport,
+			     Null_Or(Millin),													# Second arg will be NULL if watcher is not another mill (e.g. a pane).
+			     (Outport,Textmill_Statechange) -> Void
+			   )
+			   -> Void,
+
+	    drop_watcher:  Inport -> Void													# The Inport must match that given to note_watcher.
+	  }				 
+
+	also
+	Textmill_Statechange__Watchee														# Type for tracking the client we are subscribed to for Textmill_Statechange updates.
+	  =																	#
+	  { wrapped_millout:			Millout,											# 
+	    millout:				Textmill_Statechange_Millout									# Unwrapped version of previous.
+	  }
+
+	also
+	Textmill_Runstate
+	  =
+	  {																	# These values will be statically globally visible throughout the code body for the imp.
+	    id:					Id,
+	    me:					Textmill_State,											# 
+	    textmill_arg:			Textmill_Arg,
+	    textpane_to_textmill:		Textpane_To_Textmill,
+	    mill_to_millboss:			Mill_To_Millboss,
+	    millins:				ipm::Map(Millin),										# Millins for this mill indexed by Inport.
+	    millouts:				opm::Map(Millout),										# Output streams available to watch.  Indexed by Outport.
+	    millmode_state:			Millmode_State,
+
+	    imports:				Textmill_Imports,										# Imps to which we send requests.
+	    to:					Replyqueue,											# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+	    #																	#
+	    textmill_statechange__outport:	Outport,											# 
+	    textmill_statechange__watchers:	Ref( Textmill_Statechange__Watchers ),								# 
+	    #																	#
+	    textmill_statechange__inport:	Inport,												#
+	    textmill_statechange__watchee:	Ref( Null_Or( Textmill_Statechange__Watchee ) ),						# 
+	    #																	#
+	    end_gun':				End_Gun												# We shut down the microthread when this fires.
+	  }
+
+	also
+	Textmill_Q
+	  =
+	  Mailqueue( Textmill_Runstate -> Void )
 
 	also
 	Editfn_In										# This is what  do_pass_edit_result()  passes to editfns in   src/lib/x-kit/widget/edit/textmill.pkg
