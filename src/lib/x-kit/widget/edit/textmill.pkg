@@ -196,13 +196,17 @@ herein
 		    mill_to_millboss:			mt::Mill_To_Millboss,
 		    millins:				mt::ipm::Map(mt::Millin),								# Millins for this mill indexed by Inport.
 		    millouts:				mt::opm::Map(mt::Millout),								# Output streams available to watch.  Indexed by Outport.
+		    make_pane':				mt::Make_Pane_Fn,
+		    finalize_textmill_extension:	Void -> Void,										# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 		    imports:				Imports,										# Imps to which we send requests.
 		    to:					Replyqueue,										# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 		    #																#
 		    textmill_statechange__outport:	mt::Outport,										#
+		    textmill_statechange__millout:	mt::Millout,										#
 		    textmill_statechange__watchers:	Ref( Textmill_Statechange__Watchers ),							# 
 		    #																#
 		    textmill_statechange__inport:	mt::Inport,										#
+		    textmill_statechange__millin:	mt::Millin,
 		    textmill_statechange__watchee:	Ref( Null_Or( Textmill_Statechange__Watchee ) ),					# 
 		    #																#
 		    end_gun':				End_Gun											# 
@@ -230,7 +234,8 @@ herein
 			#
 			fun shut_down_textmill' ()
 			    =
-			    {
+			    {	finalize_textmill_extension ();											# Let any textmill extension present do any needed shutdown work.
+				#
 				thread_exit { success => TRUE };										# Will not return.	
 			    };
 		    end;
@@ -261,15 +266,26 @@ herein
 		    inport_name  => "textmill_statechange"
 		  };
 
-		millins  =  make_millins  textmill_statechange__inport;
-		millouts =  make_millouts textmill_statechange__outport;
+		textmill_statechange__millin
+		    =
+		    make__textmill_statechange__millin  textmill_statechange__inport;
 
-		my { millins, millouts }													# If we have a textmill extension, let it initialize its state and register its millins and millouts.
+		textmill_statechange__millout
+		    =
+		    make__textmill_statechange__millout  textmill_statechange__outport;
+
+		millins    =  make_millins  (textmill_statechange__inport,  textmill_statechange__millin );
+		millouts   =  make_millouts (textmill_statechange__outport, textmill_statechange__millout);
+		#
+		make_pane' = *make_pane_hack;													# This should be the only read of make_pane_hack. Everywhere else we should use runstate.make_pane' because that support textmill extension overrides of the value.
+
+		my { millins, millouts, make_pane', finalize_textmill_extension }								# If we have a textmill extension, let it initialize its state and register its millins and millouts, also finalization code and preferred pane.
 		    =
 		    case textmill_extension
 			#
-			NULL  => { millins, millouts };
-			THE x => x.initialize_textmill_extension { mill_id => id, textmill_q, millins, millouts };
+			NULL  => { millins, millouts, make_pane', finalize_textmill_extension => \\ () = () };
+
+			THE x => x.initialize_textmill_extension { mill_id => id, textmill_q, millins, millouts, make_pane' };
 		    esac;
 
 		app_to_mill															# Generic interface supported by all mills.
@@ -357,13 +373,17 @@ herein
 				mill_to_millboss,
 				millins,
 				millouts, 
+				make_pane',
+				finalize_textmill_extension,
 				imports,
 				to,
 				#
 				textmill_statechange__outport,
+				textmill_statechange__millout,
 				textmill_statechange__watchers,
 				#
 				textmill_statechange__inport,
+				textmill_statechange__millin,
 				textmill_statechange__watchee,
 				#
 				end_gun'
@@ -396,9 +416,12 @@ herein
 				watcher:	(mt::Outport, mt::Textmill_Statechange) -> Void							# 
 			      )
 			    =
-			    {   outport = r.textmill_statechange__outport;
+			    {   outport  =  r.textmill_statechange__outport;
 				#
-				watcher  (outport, statechange);
+				watcher     (outport, statechange);
+
+				counter  =  r.textmill_statechange__millout.counter;								# Count messages sent through port,
+				counter := *counter + 1;											# for debug/display purposes.
 			    };
 		    end;
 
@@ -415,6 +438,9 @@ herein
 			watchfn  (outport, mt::NAME_CHANGED       { was => *r.me.name, 		now => *r.me.name	});
 			watchfn  (outport, mt::READONLY_CHANGED   { was => *r.me.readonly,	now => *r.me.readonly	});
 			watchfn  (outport, mt::DIRTY_CHANGED      { was => *r.me.dirty,		now => *r.me.dirty	});
+
+			counter  =  r.textmill_statechange__millout.counter;									# Count messages sent through port,
+			counter := *counter + 5;												# for debug/display purposes.
 		    };
 
 		fun tell__textmill_statechange__watchers_full_state
@@ -470,7 +496,7 @@ herein
 
 		fun do_get_or_pass_edit_result
 		      (
-			runstate as { id, me, textmill_statechange__watchers, ... }:	Runstate,
+			runstate as { id, me, make_pane', textmill_statechange__watchers, ... }: Runstate,
 			#
 			arg as
 			{ keystring:		String,								# User keystroke that invoked this editfn.
@@ -507,8 +533,7 @@ herein
 				{   filepath	  =  *me.filepath;
 				    textpane_hint =  *me.textpane_hint;
 				    #
-				    *make_pane_hack { textpane_to_textmill, filepath, textpane_hint };
-
+				    make_pane' { textpane_to_textmill, filepath, textpane_hint };
 				};
 			herein
 			    editfn_in =   { args		=>  prompted_args,
@@ -683,12 +708,12 @@ herein
 			#
 			put_in_mailqueue  (textmill_q,
 			    #
-			    \\ ({ id, me, textpane_to_textmill, ... }: Runstate)
+			    \\ ({ id, me, make_pane', textpane_to_textmill, ... }: Runstate)
 				=
 				{   filepath	  =  *me.filepath;
 				    textpane_hint =  *me.textpane_hint;
 				    #
-				    gp_widget =	*make_pane_hack { textpane_to_textmill, filepath, textpane_hint };
+				    gp_widget =	make_pane' { textpane_to_textmill, filepath, textpane_hint };
 				    #
 				    put_in_oneshot (reply_oneshot, gp_widget);
 				}
@@ -827,36 +852,40 @@ herein
 		    =
 		    {   put_in_mailqueue  (textmill_q,
 			    #
-			    \\ (runstate as { id, me, textmill_statechange__watchers, ... }: Runstate)
+			    \\ (runstate as { id, me, textmill_statechange__watchers, textmill_statechange__millin, ... }: Runstate)
 				=
-				case textmill_statechange
-				    #
-				    ( mt::TEXTSTATE_CHANGED	{ was: mt::Textstate,	   now: mt::Textstate	  }
-				    | mt::UNDO			{ was: mt::Textstate,	   now: mt::Undostate	  }
-				    )
-					=>
-					{   was_dirty    =  *me.dirty;
-					    #	
-					    me.state	    :=  now;
-					    me.dirty	    :=  FALSE;										# As a mirror of our upstream input, it makes no sense to think of our copy as 'dirty'.
-					    me.readonly	    :=  TRUE;										# As a mirror of our upstream input, it makes no sense to let user try to edit us.
-					    me.edit_history :=  bq::make_queue  max_history_length;						# As a mirror of our upstream input, it makes no sense to maintain an edit history.
+				{   case textmill_statechange
+					#
+					( mt::TEXTSTATE_CHANGED	{ was: mt::Textstate,	   now: mt::Textstate	  }
+					| mt::UNDO			{ was: mt::Textstate,	   now: mt::Undostate	  }
+					)
+					    =>
+					    {   was_dirty    =  *me.dirty;
+						#	
+						me.state	:=  now;
+						me.dirty	:=  FALSE;									# As a mirror of our upstream input, it makes no sense to think of our copy as 'dirty'.
+						me.readonly	:=  TRUE;									# As a mirror of our upstream input, it makes no sense to let user try to edit us.
+						me.edit_history :=  bq::make_queue  max_history_length;						# As a mirror of our upstream input, it makes no sense to maintain an edit history.
 
-					    tell__textmill_statechange__watchers								# Tell anyone watching us about our change of text contents.
-					      (
-						*textmill_statechange__watchers,
-						mt::TEXTSTATE_CHANGED  { was, now },
-						runstate
-					      );
+						tell__textmill_statechange__watchers								# Tell anyone watching us about our change of text contents.
+						  (
+						    *textmill_statechange__watchers,
+						    mt::TEXTSTATE_CHANGED  { was, now },
+						    runstate
+						  );
 																		# We don't tell our watchers about any change in our dirty or readonly state because they are basically meaningless.
 																		# Compare with above logic in do_get_or_pass_edit_result().
-					};
+					    };
 																		# List rest explicitly so that if one gets added we'll draw a compile error which reminds us to think about whether support is needed here.
-				    mt::FILEPATH_CHANGED    _ => ();										# Ignore because we're mirroring input from upstream so we don't want to be independently trying to save it to disk or such.
-				    mt::NAME_CHANGED	    _ => ();										# Ignore because as a mirror we don't want to have same name as upstream mill.
-				    mt::READONLY_CHANGED    _ => ();										# Ignore because as a mirror we always want to be readonly -- doesn't make sense to let user try to edit stuff which can be overwritten at any moment.
-				    mt::DIRTY_CHANGED	    _ => ();										# Ignore because as a readonly mirror 'dirty' isn't really relevant to us.
-				esac
+					mt::FILEPATH_CHANGED    _ => ();									# Ignore because we're mirroring input from upstream so we don't want to be independently trying to save it to disk or such.
+					mt::NAME_CHANGED	_ => ();									# Ignore because as a mirror we don't want to have same name as upstream mill.
+					mt::READONLY_CHANGED    _ => ();									# Ignore because as a mirror we always want to be readonly -- doesn't make sense to let user try to edit stuff which can be overwritten at any moment.
+					mt::DIRTY_CHANGED	_ => ();									# Ignore because as a readonly mirror 'dirty' isn't really relevant to us.
+				    esac;
+
+				    counter  =  textmill_statechange__millin.counter;								# Count messages read through port,
+				    counter := *counter + 1;											# for debug/display purposes.
+				}
 			);
 		    };
 		    #
@@ -887,7 +916,15 @@ herein
 		    =
 		    {   put_in_mailqueue  (textmill_q,
 			    #
-			    \\ (runstate as { id, me, textmill_statechange__watchers, textmill_statechange__outport, ... }: Runstate)
+			    \\ (runstate
+				as
+			        { id,
+				  me,
+				  textmill_statechange__watchers,
+				  textmill_statechange__outport,
+				  textmill_statechange__millout,
+				  ...
+				}:	Runstate)
 				=
 				{   textmill_statechange__watchers
 					:=
@@ -902,7 +939,7 @@ herein
 					    =>
 					    m2m.note_millwatch  millwatch									# Tell millboss about new watcher/watchee edge in the millgraph.
 						where
-						    millout   =  make__textmill_statechange__millout  textmill_statechange__outport;
+						    millout   =  textmill_statechange__millout;
 						    #
 						    millwatch =  { millin, millout };
 
@@ -944,14 +981,24 @@ herein
 			mono       =>   TRUE,													# This tells the world that we listen on at most one input textmill_statechange stream at a time.
 			#															# 
 			note_input =>   note__textmill_statechange__watchee,									# Caller uses this to tell us to start reading from a different textmill_statechange stream.
-			drop_input =>   drop__textmill_statechange__watchee									# Caller uses this to disconnect us from input textmill_statechange stream.
+			drop_input =>   drop__textmill_statechange__watchee,									# Caller uses this to disconnect us from input textmill_statechange stream.
+			#															# 
+			counter    =>   REF 0	
 		      }																#
 		also
 		fun note__textmill_statechange__watchee	(wrapped_millout: mt::Millout)								# PUBLIC.  Start watching 'wrapped_millout'.
 		    =
 		    {   put_in_mailqueue  (textmill_q,
 			    #
-			    \\ (runstate as { id, me, textmill_statechange__watchee, textmill_statechange__inport, ... }: Runstate)
+			    \\ (runstate
+				as
+				{ id,
+				  me,
+				  textmill_statechange__watchee,
+				  textmill_statechange__inport,
+				  textmill_statechange__millin,
+				  ...
+				}:		Runstate)
 				=
 				{   millout =  tso::unwrap__textmill_statechange_millout  wrapped_millout;
 				    #
@@ -964,7 +1011,7 @@ herein
 				    millout.note_watcher											# Say hello   to new watchee.
 				      (
 					textmill_statechange__inport,
-					THE (make__textmill_statechange__millin  textmill_statechange__inport),					# So note_watcher can pass Millout+Millin to millboss at same time, keeping millboss consistent.
+					THE textmill_statechange__millin,									# So note_watcher can pass Millout+Millin to millboss at same time, keeping millboss consistent.
 					note__textmill_statechange
 				      );
 
@@ -1000,30 +1047,30 @@ herein
 
 
 
-		fun make_millouts (textmill_statechange__outport:  mt::Outport):		mt::opm::Map(mt::Millout)			# Construct a description of all our outports, for client use.
+		fun make_millouts														# Construct a description of all our outports, for client use.
+		      (
+			textmill_statechange__outport:  mt::Outport,
+			textmill_statechange__millout:	mt::Millout
+		      )
+		    :					mt::opm::Map(mt::Millout)
 		    =
 		    {   millouts =  mt::opm::empty;												# Start with an empty outport map.
 			#
-			millouts =  mt::opm::set												# Add our textmill_statechange outport.
-				      (
-					millouts,
-					textmill_statechange__outport,
-					make__textmill_statechange__millout  textmill_statechange__outport
-				      );
+			millouts =  mt::opm::set (millouts, textmill_statechange__outport, textmill_statechange__millout );			# Add our textmill_statechange outport.
 
 			millouts;														# Return map defining all our our outports.
 		    };
 
-		fun make_millins (textmill_statechange__inport:	mt::Inport):	mt::ipm::Map(mt::Millin)					# Construct a description of all our inports, for client use.
+		fun make_millins
+		      (
+			textmill_statechange__inport:	mt::Inport,
+			textmill_statechange__millin:	mt::Millin
+		      )	
+		    :					mt::ipm::Map(mt::Millin)								# Construct a description of all our inports, for client use.
 		    =
 		    {   millins = mt::ipm::empty;												# Start with an empty inport map.
 			#
-			millins = mt::ipm::set													# Add our textmill_statechange inport.
-				    (
-				      millins,
-				      textmill_statechange__inport,
-				      make__textmill_statechange__millin textmill_statechange__inport
-				    );
+			millins = mt::ipm::set (millins, textmill_statechange__inport, textmill_statechange__millin );				# Add our textmill_statechange inport.
 
 			millins;														# Return map defining all our our inports.
 		    };

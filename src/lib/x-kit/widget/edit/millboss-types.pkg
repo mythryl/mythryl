@@ -204,7 +204,9 @@ herein
 	    #
 	    port_type:		String,								# Type of the contents of the 'crypt' field, for debugging/inspection, e.g. "int_millout::Int_Millout"	for   src/lib/x-kit/widget/edit/int-millout.pkg
 	    data_type:		String,								# Type of the values that flow through the stream, for plugboard.pkg,  e.g. "Int"			for   src/lib/x-kit/widget/edit/int-millout.pkg
-	    info:		String								# Any added info about the data field, for debugging/inspection.  This compensates for Millout's lack of typesafety; it should include any information useful when debugging "Whoops, we got the wrong Millout here" bugs. Can be just the empty string.
+	    info:		String,								# Any added info about the data field, for debugging/inspection.  This compensates for Millout's lack of typesafety; it should include any information useful when debugging "Whoops, we got the wrong Millout here" bugs. Can be just the empty string.
+	    #
+	    counter:		Ref(Int)							# Count messages sent through port, for debug/display purposes.
 	  };											#
 
 	Millin											# One input port for a mill.
@@ -214,7 +216,9 @@ herein
 	    mono:		Bool,								# TRUE iff this Input can watch at most one Watchable.
 	    #											#
 	    note_input:		Millout -> Void,						# For a MONO_INPUT this call will replace any previous setting;  for a POLY_INPUT this will add  the Millout to   the set of outputs read.
-	    drop_input:		Millout -> Void							# For a MONO_INPUT this call will clear the input to NULL;       for a POLY_INPUT it will remove the Millout from the set of outputs read -- no-op if not present.
+	    drop_input:		Millout -> Void,						# For a MONO_INPUT this call will clear the input to NULL;       for a POLY_INPUT it will remove the Millout from the set of outputs read -- no-op if not present.
+	    #
+	    counter:		Ref(Int)							# Count messages read through port, for debug/display purposes.
 	  };				 	 						# 
 
 	Millwatch										# Everything millboss knows about a case of one mill inport watching one mill outport.
@@ -493,6 +497,7 @@ herein
 	  #
 	  = EDITFN		Editfn_Node
 	  | SUBKEYMAP		Keymap
+	  | UNDEFINED										# This is so we can mark a keystroke sequence as undefined even if an ancestor defines it.
 
 	also
 	Panemode										# A panemode defines the semantics of a textpane. In particular, the keymap defines what editfns are invoked by what keystrokes.
@@ -513,12 +518,22 @@ herein
 	      }
 
 	also
-	Millgraph_Node
+	Millgraph_Node										# Information attachable to a node in a Millgraph.
 	  = MILL_INFO	Mill_Info
 	  | MILLIN	Millin
 	  | MILLOUT	Millout
 
 	withtype
+	Make_Pane_Fn
+	  =
+	  { textpane_to_textmill:	Textpane_To_Textmill,					# 
+	    filepath:			Null_Or( String ),					# make_pane will (should!) often select the pane mode to use based on the filename.
+	    textpane_hint:		Crypt	 						# Current pane mode (e.g. fundamental_mode) etc, wrapped up so textmill can't see the relevant types, in the interest of modularity.
+	  }
+	  ->
+	  gt::Gp_Widget_Type
+
+	also
 	Keymap
 	  = 
 	  sm::Map( Keymap_Node )
@@ -615,24 +630,26 @@ herein
 
 	also
 	Textmill_Runstate
-	  =
-	  {																	# These values will be statically globally visible throughout the code body for the imp.
-	    id:					Id,
+	  =																	# These values will be statically globally visible throughout the code body for the imp.
+	  { id:					Id,
 	    me:					Textmill_State,											# 
 	    textmill_arg:			Textmill_Arg,
 	    textpane_to_textmill:		Textpane_To_Textmill,
 	    mill_to_millboss:			Mill_To_Millboss,
 	    millins:				ipm::Map(Millin),										# Millins for this mill indexed by Inport.
 	    millouts:				opm::Map(Millout),										# Output streams available to watch.  Indexed by Outport.
-
+	    make_pane':				Make_Pane_Fn,
+	    finalize_textmill_extension:	Void -> Void,											# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 	    imports:				Textmill_Imports,										# Imps to which we send requests.
 	    to:					Replyqueue,											# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
 	    #																	#
-	    textmill_statechange__outport:	Outport,											# 
-	    textmill_statechange__watchers:	Ref( Textmill_Statechange__Watchers ),								# 
+	    textmill_statechange__outport:	Outport,											# Name of     port on which we stream out textmill changes.
+	    textmill_statechange__millout:	Millout,											#             Port on which we stream out textmill changes.
+	    textmill_statechange__watchers:	Ref( Textmill_Statechange__Watchers ),								# Watchers of port on which we stream out textmill changes.
 	    #																	#
-	    textmill_statechange__inport:	Inport,												#
-	    textmill_statechange__watchee:	Ref( Null_Or( Textmill_Statechange__Watchee ) ),						# 
+	    textmill_statechange__inport:	Inport,												# Name of     port on which we read in    textmill changes.
+	    textmill_statechange__millin:	Millin,												#             Port on which we read in    textmill changes.
+	    textmill_statechange__watchee:	Ref( Null_Or( Textmill_Statechange__Watchee ) ),						# Port from           which we read in    textmill changes.
 	    #																	#
 	    end_gun':				End_Gun												# We shut down the microthread when this fires.
 	  }
@@ -649,12 +666,17 @@ herein
 	      :
 	      { mill_id:		Id,
 		textmill_q:		Textmill_Q,
-		millins:		ipm::Map(Millin),
-		millouts:		opm::Map(Millout)
+		millins:		ipm::Map(Millin),					# Inports  exported by parent textmill.
+		millouts:		opm::Map(Millout),					# Outports exported by parent textmill.
+		make_pane':		Make_Pane_Fn
 	      }
 	     ->
-	      {	millins:		ipm::Map(Millin),
-		millouts:		opm::Map(Millout)
+	      {
+		millins:		ipm::Map(Millin),					# Above 'millins'  augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
+		millouts:		opm::Map(Millout),					# Above 'millouts' augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
+		#
+		make_pane':			Make_Pane_Fn,
+		finalize_textmill_extension:	Void -> Void					# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 	      }
 	  }
 

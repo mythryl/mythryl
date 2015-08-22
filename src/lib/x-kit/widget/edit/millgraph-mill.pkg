@@ -138,51 +138,55 @@ herein
 		  {
 		    mill_id:		Id,
 		    textmill_q:		mt::Textmill_Q,
-		    millins:		mt::ipm::Map(mt::Millin),
-		    millouts:		mt::opm::Map(mt::Millout)
+		    millins:		mt::ipm::Map(mt::Millin),						# Inports  exported by parent textmill.
+		    millouts:		mt::opm::Map(mt::Millout),						# Outports exported by parent textmill.
+		    make_pane':		mt::Make_Pane_Fn
 		  }
 		  :
-		  { millins:		mt::ipm::Map(mt::Millin),
-		    millouts:		mt::opm::Map(mt::Millout)
+		  { millins:		mt::ipm::Map(mt::Millin),						# Above 'millins'  augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
+		    millouts:		mt::opm::Map(mt::Millout),						# Above 'millouts' augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
+		    #
+		    make_pane':			    mt::Make_Pane_Fn,
+		    finalize_textmill_extension:    Void -> Void						# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 		  }
 		=
 		{
-		    (mt::get__mill_to_millboss  "millgraph_mode::initialize_panemode_state")
-			->
-			(mill_to_millboss  as  mt::MILL_TO_MILLBOSS m2m);
-
-		    m2m.app_to_mill -> mt::APP_TO_MILL a2m;
-
-		    millouts =   a2m.millouts;
-
-		    millgraph_outport
-		      =
-		      { mill_id	     =>  a2m.id,
-			outport_name =>  "millgraph"
-		      };
-
-		    millout =   case (mt::opm::get (millouts, millgraph_outport))
-				    #
-				    THE millout => millout;
-
-				    NULL => {	msg = "millport_imp did not export a millgraph millout?!  -- millgraph_mode::initialize_panemode_state";
-						log::fatal msg;
-						raise exception DIE msg;
-					    };
-				esac;
-
-		    millgraph__inport										# Our name for our millgraph input port.
+		    #############################################################################################
+		    # Shared persistent state used in later routines.
+		    #
+		    millgraph__inport										# Name of     port on which we read in    millgraphs.
 		      =
 		      { mill_id,
 			inport_name  => "millgraph"
 		      };
 
-		    millgraph__watchee =  REF (NULL:  Null_Or( Millgraph__Watchee ));				# Millgraph stream which we are currently reading. (Might be none, but that does not make much sense normally.)  Normally the millgraph outport on millboss_imp.
+		    millgraph__watchee										# Port from           which we read in    millgraphs.
+		      =
+		      REF (NULL:  Null_Or( Millgraph__Watchee ));						# Millgraph stream which we are currently reading. (Might be none, but that does not make much sense normally.)  Normally millboss_millgraph_millout (the millgraph outport on millboss_imp) -- see below.
+
+		    millgraph__millin										#             Port on which we read in    millgraphs.
+		      =
+		      REF {											# First half of a grody little hack to deal with mutual recursion between millgraph__millin and note__millgraph__watchee + drop__millgraph__watchee.
+			    inport     =>   millgraph__inport,							# This gives the world a globally unique name for this particular inport.
+			    port_type  =>   mgm::port_type,							# This tells the world that on this port we listen for millgraphs.
+			    mono       =>   TRUE,								# This tells the world that we only listen on one input millgraph stream at a time.
+			    #											#
+			    note_input =>   dummy__note__millgraph__watchee,					# Caller uses this to tell us to start reading from a different millgraph stream.
+			    drop_input =>   dummy__drop__millgraph__watchee,					# Caller uses this to disconnect us from input millgraph stream.
+			    #											#
+			    counter    =>   REF 0	
+			  }											# This record is a dummy that will be discarded momentarily -- see below.
+			where
+			    fun dummy__note__millgraph__watchee (wrapped_millout:  mt::Millout) = ();		# Only has to be type-correct.
+			    fun dummy__drop__millgraph__watchee (wrapped_millout:  mt::Millout) = ();		# Only has to be type-correct.
+			end;		
+
+		    #
+		    #############################################################################################
 
 
 
-
-		    #####################################################################################################
+		    #############################################################################################
 		    # millgraph input stuff
 		    #
 		    fun note__millgraph
@@ -195,48 +199,43 @@ herein
 				#
 				\\ (runstate as { id, me, ... }: mt::Textmill_Runstate)
 				    =
+				    {
 # XXX BUGGO FIXME TBD
-				    ()
+					counter  =  (*millgraph__millin).counter;				# Count messages read through port,
+					counter := *counter + 1;						# for debug/display purposes.
+				    }
 			    );
 			};
-		    fun make__millgraph__millin (millgraph__inport: mt::Inport):	mt::Millin		# Construct a description of the inport on which we read millgraphs from millboss_imp, for publication in our parent's App_To_Mill export.
-			  =											# 
-			  { inport     =>   millgraph__inport,							# This gives the world a globally unique name for this particular inport.
-			    port_type  =>   mgm::port_type,							# This tells the world that on this port we listen for millgraphs.
-			    mono       =>   TRUE,								# This tells the world that we only listen on one input millgraph stream at a time.
-			    #											#
-			    note_input =>   note__millgraph__watchee,						# Caller uses this to tell us to start reading from a different millgraph stream.
-			    drop_input =>   drop__millgraph__watchee						# Caller uses this to disconnect us from input millgraph stream.
-			  }											#
-		    also
+		    fun note__millgraph__watchee' (wrapped_millout:	mt::Millout)				# Start watching 'wrapped_millout'.
+			=
+			{   millout =  mgm::unwrap__millgraph_millout  wrapped_millout;
+			    #
+			    case *millgraph__watchee
+				#
+				THE watchee =>  watchee.millout.drop_watcher  millgraph__inport;		# Say goodbye to previous watchee.
+				NULL	    =>  ();
+			    esac;
+
+			    millout.note_watcher								# Say hello   to new watchee.
+			      (
+				millgraph__inport,
+				THE *millgraph__millin,								# So note_watcher can pass Millout+Millin to millboss at same time, keeping millboss consistent.
+				note__millgraph
+			      );
+
+			    millgraph__watchee
+				:=
+				THE  { wrapped_millout, millout };
+			};
 		    fun note__millgraph__watchee	(wrapped_millout: mt::Millout)				# PUBLIC.  Start watching 'wrapped_millout'.
 			=
 			{   put_in_mailqueue  (textmill_q,
 				#
-				\\ (runstate as { id, me, ... }: mt::Textmill_Runstate)
+				\\ (runstate: mt::Textmill_Runstate)
 				    =
-				    {   millout =  mgm::unwrap__millgraph_millout  wrapped_millout;
-					#
-					case *millgraph__watchee
-					    #
-					    THE watchee =>  watchee.millout.drop_watcher  millgraph__inport;	# Say goodbye to previous watchee.
-					    NULL	    =>  ();
-					esac;
-
-					millout.note_watcher							# Say hello   to new watchee.
-					  (
-					    millgraph__inport,
-					    THE (make__millgraph__millin  millgraph__inport),			# So note_watcher can pass Millout+Millin to millboss at same time, keeping millboss consistent.
-					    note__millgraph
-					  );
-
-					millgraph__watchee
-					    :=
-					    THE  { wrapped_millout, millout };
-				    }
+				    note__millgraph__watchee'  wrapped_millout					# We don't actually use runstate, but now we're running as the mill microthread instead of as caller, so any required mutual exclusion is assured.
 			    );
-			}
-		    also
+			};
 		    fun drop__millgraph__watchee (wrapped_millout:  mt::Millout)				# PUBLIC.
 			=
 			{   
@@ -259,36 +258,75 @@ herein
 			    );
 			};
 
+		    millgraph__millin										# Second half of grody little hack to deal with mutual recursion between millgraph__millin and note__millgraph__watchee + drop__millgraph__watchee.
+		      :=
+		      { inport     =>   millgraph__inport,							# This gives the world a globally unique name for this particular inport.
+			port_type  =>   mgm::port_type,								# This tells the world that on this port we listen for millgraphs.
+			mono       =>   TRUE,									# This tells the world that we only listen on one input millgraph stream at a time.
+			#											#
+			note_input =>   note__millgraph__watchee,						# Caller uses this to tell us to start reading from a different millgraph stream.
+			drop_input =>   drop__millgraph__watchee,						# Caller uses this to disconnect us from input millgraph stream.
+			#											#
+			counter    =>   REF 0									# 
+		      };
+
 		    #
 		    # millgraph input stuff
 		    #####################################################################################################
 
 
-		    millins = mt::ipm::set									# Tell parent about our millgraph inport.  Parent will publish to the world via its App_To_Mill export.
+
+		    #############################################################################################
+		    # textmill extension wrapup stuff
+		    #
+		    fun	finalize_textmill_extension (): Void
+			=
+			{											# Currently nothing to do at textmill shutdown for this textmill extension.
+			};
+		    #
+		    #############################################################################################
+
+
+		    note__millgraph__watchee'  millboss_millgraph_millout					# Subscribe to millboss_imp's millgraph stream.
+		    where
+			(mt::get__mill_to_millboss  "millgraph_mode::initialize_panemode_state")
+			    ->
+			    (mill_to_millboss  as  mt::MILL_TO_MILLBOSS m2m);
+
+			m2m.app_to_mill -> mt::APP_TO_MILL a2m;
+
+			millboss_millouts =   a2m.millouts;
+
+			millboss_millgraph_outport
+			  =
+			  { mill_id	     =>  a2m.id,
+			    outport_name =>  "millgraph"
+			  };
+
+			millboss_millgraph_millout
+			    =
+			    case (mt::opm::get (millboss_millouts, millboss_millgraph_outport))
+				#
+				THE millout => millout;
+
+				NULL => {	msg = "millport_imp did not export a millgraph millout?!  -- millgraph_mode::initialize_panemode_state";
+					    log::fatal msg;
+					    raise exception DIE msg;
+					};
+			    esac;
+		    end;
+
+
+		    millins = mt::ipm::set									# Add our millgraph inport to list of exports inports for this mill.  Our textmill parent will publish to the world via its App_To_Mill interface.
 				(
 				  millins,
 				  millgraph__inport,
-				  make__millgraph__millin  millgraph__inport
+				 *millgraph__millin
 				);
 
-		    { millins, millouts };
+		    { millins, millouts, make_pane', finalize_textmill_extension };				# Return augmented inport/outport sets to textmill parent for publication via App_To_Mill port.
 		};
 
-	    fun	finalize_state
-		  (
-		    panemode:		mt::Panemode,								# This will be millgraph_mode (below).
-		    panemode_state:	mt::Panemode_State
-		  )
-		  :			Void
-		=
-		{   panemode ->  mt::PANEMODE  mm;								# Let our parent panemodes also finalize.
-		    #
-		    case mm.parent
-			#
-			THE (parent as mt::PANEMODE p) =>  p.finalize_state (parent, panemode_state);
-			NULL                           =>                   (                      );
-		    esac;
-		};
 	herein		  
 
 	    millgraph_mill
