@@ -420,6 +420,8 @@ herein
 		    :										#
 		    Inport -> Void,								# The Inport must match that given to note__textmill_statechange__watcher.
 		    
+		textmill_extension:	Null_Or( Textmill_Extension ),
+
 		app_to_mill:		App_To_Mill						# Include the more general mill-agnostic interface.
 	      }
 
@@ -446,7 +448,9 @@ herein
 		reload_from_file:	Void -> Void,
 		save_to_file:		Void -> Void,
 
-		make_pane:		Void -> gt::Gp_Widget_Type				# Synthesize a GUI pane which will display the state of this mill.  This is primarily support for  switch_to_mill()  in  src/lib/x-kit/widget/edit/fundamental-mode.pkg
+		make_pane_guiplan:	Void -> gt::Gp_Widget_Type				# Synthesize a guiplan for a pane which will display the state of this mill.  This is primarily support for  switch_to_mill()  in  src/lib/x-kit/widget/edit/fundamental-mode.pkg
+												# In general we do not want mills to know about GUI stuff (as a matter of clean layering and also to avoid package dependency loops) but we do want to have a way
+												# for a client to open up a GUI pane on an arbitrary mill, hence this call in the App_To_Mill interface.
 	      }
 
 	# This port is implemented in:
@@ -512,7 +516,11 @@ herein
 		#
 		self_insert_command:	Keymap_Node,						# Support for C-q handling in   src/lib/x-kit/widget/edit/textpane.pkg
 		#
-		initialize_panemode_state: (Panemode, Panemode_State) ->  Panemode_State,	# Called when we create a new Panemode instance. This lets each running Panemode instance maintain private state.  We need multiple states because our parent mode(s) may also be maintaining private state(s).
+		initialize_panemode_state							# Initialize state for (e.g.) the millgraph-mode part of a textpane at startup. This lets each running Panemode instance maintain private state.  We need multiple states because our parent mode(s) may also be maintaining private state(s).
+		  :										# Our canonical call is from textpane::startup_fn().		# textpane	is from   src/lib/x-kit/widget/edit/textpane.pkg
+		  ( Panemode, Panemode_State, Null_Or(Textmill_Extension))
+		  ->
+		  ( Panemode_State, Null_Or(Textmill_Extension)),
 
 		finalize_state:		(    Panemode, Panemode_State) -> Void			# Called when a panemode instance shuts down.
 	      }
@@ -524,10 +532,10 @@ herein
 	  | MILLOUT	Millout
 
 	withtype
-	Make_Pane_Fn
+	Make_Pane_Guiplan_Fn
 	  =
 	  { textpane_to_textmill:	Textpane_To_Textmill,					# 
-	    filepath:			Null_Or( String ),					# make_pane will (should!) often select the pane mode to use based on the filename.
+	    filepath:			Null_Or( String ),					# make_pane_guiplan will (should!) often select the pane mode to use based on the filename.
 	    textpane_hint:		Crypt	 						# Current pane mode (e.g. fundamental_mode) etc, wrapped up so textmill can't see the relevant types, in the interest of modularity.
 	  }
 	  ->
@@ -638,7 +646,7 @@ herein
 	    mill_to_millboss:			Mill_To_Millboss,
 	    millins:				ipm::Map(Millin),										# Millins for this mill indexed by Inport.
 	    millouts:				opm::Map(Millout),										# Output streams available to watch.  Indexed by Outport.
-	    make_pane':				Make_Pane_Fn,
+	    make_pane_guiplan':			Make_Pane_Guiplan_Fn,
 	    finalize_textmill_extension:	Void -> Void,											# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 	    imports:				Textmill_Imports,										# Imps to which we send requests.
 	    to:					Replyqueue,											# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
@@ -662,20 +670,22 @@ herein
 	also
 	Textmill_Extension
 	  =
-	  { initialize_textmill_extension
+	  { id				: Id,							# Unique id for extension, to facilitate distinguishing them and storing them in indexed collections like id_maps.
+	    #
+	    initialize_textmill_extension
 	      :
 	      { mill_id:		Id,
 		textmill_q:		Textmill_Q,
 		millins:		ipm::Map(Millin),					# Inports  exported by parent textmill.
 		millouts:		opm::Map(Millout),					# Outports exported by parent textmill.
-		make_pane':		Make_Pane_Fn
+		make_pane_guiplan':	Make_Pane_Guiplan_Fn
 	      }
 	     ->
 	      {
 		millins:		ipm::Map(Millin),					# Above 'millins'  augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
 		millouts:		opm::Map(Millout),					# Above 'millouts' augmented as required by this textmill extension.  Parent textmill will publish via its App_To_Mill interface.
 		#
-		make_pane':			Make_Pane_Fn,
+		make_pane_guiplan':		Make_Pane_Guiplan_Fn,
 		finalize_textmill_extension:	Void -> Void					# Function to be called at textmill shutdown, so textmill extension can do any required shutdown of its own.
 	      }
 	  }
@@ -693,7 +703,7 @@ herein
 	    keystring:			String,							# User keystroke that invoked this editfn.
 	    readonly:			Bool,							# TRUE iff textmill contents are currently marked as read-only.
 	    numeric_prefix:		Null_Or( Int ),						# ^U "Universal numeric prefix" value for this editfn if supplied by user, else NULL.
-	    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.
+	    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.  This is a small int for human/GUI use.
 	    pane_id:			Id,							# Id  of pane for which this editfn is being invoked.
 	    mill_id:			Id,							# Id  of mill for which this editfn is being invoked.
 	    edit_history:		Edit_History,						# Recent visible states of textmill, to support undo functionality.
@@ -703,8 +713,8 @@ herein
 	    mainmill_modestate:		Panemode_State,						# Any persistent per-mode state (e.g., private state for fundamental-mode.pkg) for main mill is available via this.
 	    minimill_modestate:		Panemode_State,						# Any persistent per-mode state (e.g., private state for    minimill-mode.pkg) for mini mill is available via this.
 	    #
-	    textpane_to_textmill:	Textpane_To_Textmill,					# NB: Editfns run in textmill's microthread to guarantee atomicity, so any attempt by them to invoke the textpane_to_textmill.* fns is likely to deadlock.
-	    make_pane:			Void -> gt::Gp_Widget_Type,				# This fn is safe to call from within editfns.
+#	    textpane_to_textmill:	Textpane_To_Textmill,					# NB: Editfns run in textmill's microthread to guarantee atomicity, so any attempt by them to invoke the textpane_to_textmill.* fns is likely to deadlock.
+	    make_pane_guiplan:		Void -> gt::Gp_Widget_Type,				# This fn is safe to call from within editfns because it does not indirect through textmill_q, potentially deadlocking us if calling ourself.
 	    valid_completions:		Null_Or( String -> List(String) )			# If this is non-NULL then user is entering a commandname or filename or millname(=buffername) on the modeline, and given fn returns all valid completions of string-entered-so-far.
 	  }
 
@@ -737,7 +747,7 @@ herein
 	    visible_lines:		Int,							# Number of lines of text visible in pane.
 	    log_undo_info:		Bool,							# If log_undo_info is FALSE no entry will be made in the undo history.
 	    #
-	    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.
+	    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.  This is a small int for human/GUI use.
 	    pane_id:			Id,							# Id  of pane for which this editfn is being invoked.
 	    editfn_node:		Editfn_Node,
  	    widget_to_guiboss:		gt::Widget_To_Guiboss,					# Mainly for access to get_cutbuffer_contents/set_cutbuffer_contents in mill_to_millboss.
@@ -755,7 +765,7 @@ herein
 	  #											# This type gets consumed by textpane::with in   src/lib/x-kit/widget/edit/textpane.pkg
 	  = OLD_TEXTMILL_BY_NAME	String							# Display a pre-existing textmill, fetching it by given name   via et::Mill_To_Millboss.get_textmill.
 	  | OLD_TEXTMILL_BY_PORT	Textpane_To_Textmill 					# Display a pre-existing textmill, specified by given port to it.
-	  | NEW_TEXTMILL		{ name: String,  contents: String }			# Display a newly made   textmill, created with given contents via et::Mill_To_Millboss.make_textmill.
+	  | NEW_TEXTMILL		Textmill_Arg						# Display a newly made   textmill, created via et::Mill_To_Millboss.make_textmill.
 	  ;
 
 	exception  MILL_TO_MILLBOSS__CRYPT	    Mill_To_Millboss;
