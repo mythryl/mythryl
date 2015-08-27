@@ -144,6 +144,22 @@ herein
 	    millboss_to_pane:			b2p::Millboss_To_Pane							# Our port to the pane.
 	  };
 
+	Per_Mill_Wakeup_Info												# Infrastructure for the wakeup service we provide to mills.
+	  =
+	  {
+	    at_frame_n:		Ref (	Null_Or										# Call mill.wakeup once, during frame N, and pass wakeup_fn in call. NULL means this wakeup is off.
+					  { at_frame:	Int,
+					    wakeup_fn:	mt::Wakeup_Arg -> Void
+					  }
+				    ),
+	    every_n_frames:	Ref (	Null_Or										# Call gadget.wakeup every N frames,       and pass wakeup_fn in call. NULL means this wakeup is off.
+					  { n:		Int,
+					    next:	Ref(Int),
+					    wakeup_fn:	mt::Wakeup_Arg -> Void
+					  }
+				    )
+	  };
+	  
 	Millboss_State													# 
 	  =
 	  { mills_by_name:			Ref(  sm::Map( mt::Mill_Info ) ),					# All currently active mills, by name.
@@ -151,6 +167,9 @@ herein
 	    mills_by_filepath:			Ref(  sm::Map( mt::Mill_Info ) ),					# All currently active mills WHICH ARE OPEN ON A FILE, by filepath. (We expect this to typically be a full pathname like "/home/jayne/foo.txt", so as to help avoid having multiple buffers open on one file.)
 	    #
 	    millwatches:			Ref( mt::mwm::Map (mt::Millwatch )), 					# Tracks which mill inports are watching which outports, maintained via note_millwatch + drop_millwatch.
+	    #
+	    mill_wakeups:			Ref( idm::Map( Per_Mill_Wakeup_Info )),					# Support for wakeme calls to mills.
+	    current_frame_number:		Ref( Int ),								# "                               ".
 	    #
 	    pending_pane_mail:			Ref( idm::Map( List( Crypt ) ) ),					# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
 	    panes_by_id:			Ref( idm::Map( Pane_Info	   ) ),
@@ -166,8 +185,15 @@ herein
 			    }
 			  );
 
-	Exports	= {													# Ports we provide for use by other imps.
-		  };
+	Guiboss_To_Millboss
+	  =
+	  { do_one_frame:	Int -> Void										# Called by guiboss at 50Hz to allow millboss to do periodic stuff, mostly wakeme service for mills.  Int arg is current_frame_number.
+	  };
+
+	Exports
+	  =
+	  { guiboss_to_millboss:		Guiboss_To_Millboss							# Ports we provide for use by other imps.
+	  };
 
 
 	Millboss_Egg =  Void -> (Exports,   (Imports, Run_Gun, End_Gun) -> Void);
@@ -628,6 +654,8 @@ herein
 			note_millwatch,
 			drop_millwatch,
 			#
+			wake_me,
+			#
 			app_to_mill											# Include App_To_Mill as a sub-interface to allow clients to subscribe to our Millgraph Outport via standard intermill connection protocols.
 		      };
 
@@ -635,7 +663,12 @@ herein
 		    :=
 		    THE mill_to_millboss;
 
-		exports	    = { };
+		guiboss_to_millboss
+		  =
+		  { do_one_frame											# Guiboss calls this at 50Hz to help us service mill wakeups.
+		  };
+
+		exports	    = { guiboss_to_millboss };
 
 		to          =  make_replyqueue();
 		#
@@ -724,15 +757,16 @@ herein
 					    =>
 					    {	mill_info								# Remember new name of mill.  This is one of those places where functional record update support in the compiler would be nice.
 						  =
-						  { name	 =>  now,						# The updated field.
-						    freshness	 =>  id_to_int (issue_unique_id()),			# Might as well update freshness too.
+						  { name		=>  now,					# The updated field.
+						    freshness		=>  id_to_int (issue_unique_id()),		# Might as well update freshness too.
 						    #
-						    mill_id      =>  mill_info.mill_id,					# The unchanged fields.
-						    app_to_mill  =>  mill_info.app_to_mill,				#
-						    pane_to_mill =>  mill_info.pane_to_mill,				#
-						    filepath     =>  mill_info.filepath,				#
-						    millins	 =>  mill_info.millins,					#
-						    millouts	 =>  mill_info.millouts					#
+						    mill_id		=>  mill_info.mill_id,				# The unchanged fields.
+						    app_to_mill		=>  mill_info.app_to_mill,			#
+						    pane_to_mill	=>  mill_info.pane_to_mill,			#
+						    filepath		=>  mill_info.filepath,				#
+						    millins		=>  mill_info.millins,				#
+						    millouts		=>  mill_info.millouts,				#
+						    millboss_to_mill	=>  mill_info.millboss_to_mill			#
 						  };
 
 						me.mills_by_name :=  sm::drop (*me.mills_by_name, was);			# Forget   old name of mill.
@@ -757,7 +791,7 @@ herein
 		    esac;
 
 		#################################################################################
-		# guiboss interface fns::
+		# mill_to_millboss interface fns::
 		#
 		#
 
@@ -853,13 +887,14 @@ herein
 					    #
 					    mill_info =	  { freshness,							# Updated field.
 							    #
-							    mill_id	  =>  mill_info.mill_id,			# Unchanged fields.  Oh, for functional record updates! :-)
-							    app_to_mill	  =>  mill_info.app_to_mill,			#
-							    pane_to_mill  =>  mill_info.pane_to_mill,			#	
-							    name	  =>  mill_info.name,				#
-							    filepath	  =>  mill_info.filepath,			#
-							    millins	  =>  mill_info.millins,			#
-							    millouts	  =>  mill_info.millouts			#
+							    mill_id		=>  mill_info.mill_id,			# Unchanged fields.  Oh, for functional record updates! :-)
+							    app_to_mill		=>  mill_info.app_to_mill,		#
+							    pane_to_mill	=>  mill_info.pane_to_mill,		#	
+							    name		=>  mill_info.name,			#
+							    filepath		=>  mill_info.filepath,			#
+							    millins		=>  mill_info.millins,			#
+							    millouts		=>  mill_info.millouts,			#
+							    millboss_to_mill	=>  mill_info.millboss_to_mill		#
 							  };
 
 					    note_mill_info (r, mill_info);
@@ -1002,6 +1037,48 @@ herein
 			);
 		    };
 
+		fun wake_me												# Used to schedule millboss_to_mill.wakeup calls.
+		      {
+			id:		Id,
+			options:	List(mt::Wake_Me_Option)
+		      }
+		    =
+		    {   put_in_mailqueue  (millboss_q,
+			    #
+			    \\ (r as { me, ... }: Runstate)
+				=
+				{   i =	case (idm::get (*me.mill_wakeups, id))
+					    #
+					    THE per_mill_wakeup_info => per_mill_wakeup_info;
+					    #
+					    NULL		     => { at_frame_n	 => REF NULL,
+									  every_n_frames => REF NULL
+									};
+					esac;
+
+				    apply  do_option  options
+				    where
+					fun do_option (option: gt::Wake_Me_Option)
+					    =
+					    case option
+						#
+						gt::AT_FRAME_N	    NULL			=>  i.at_frame_n	:=  NULL;
+						gt::EVERY_N_FRAMES  NULL			=>  i.every_n_frames	:=  NULL;
+						#
+						gt::AT_FRAME_N     (THE (at_frame, wakeup_fn))  =>  i.at_frame_n	:=  THE { at_frame, wakeup_fn };
+						gt::EVERY_N_FRAMES (THE (n,        wakeup_fn))  =>  i.every_n_frames	:=  THE { n,        wakeup_fn, next => REF ( *me.current_frame_number + n) };
+					    esac;
+				    end;
+
+				    case  (*i.at_frame_n,  *i.every_n_frames)
+					#
+					(NULL, NULL )	=>	me.mill_wakeups := idm::drop (*me.mill_wakeups, id   );
+					_		=>	me.mill_wakeups := idm::set  (*me.mill_wakeups, id, i);
+				    esac;					
+				}
+			);
+		    };
+
 
 
 		stipulate
@@ -1107,7 +1184,8 @@ herein
 
 				    textmill_exports
 				      ->
-				      { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL  tb
+				      { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL  tb,
+					millboss_to_mill
 				      };
 
 				    tb.app_to_mill   ->  mt::APP_TO_MILL am;
@@ -1122,7 +1200,8 @@ herein
 						    app_to_mill	 =>  tb.app_to_mill,
 						    pane_to_mill =>  tmt::encrypt__textpane_to_textmill  textpane_to_textmill,
 						    millins,
-						    millouts
+						    millouts,
+						    millboss_to_mill
 						  };
 
 				    note_mill_info (r, mill_info);
@@ -1183,7 +1262,8 @@ herein
 
 					    textmill_exports
 						->
-						{ textpane_to_textmill as mt::TEXTPANE_TO_TEXTMILL tb
+						{ textpane_to_textmill as mt::TEXTPANE_TO_TEXTMILL tb,
+						  millboss_to_mill
 						};
 
 					    tb.app_to_mill   ->  mt::APP_TO_MILL am;
@@ -1198,7 +1278,8 @@ herein
 							  app_to_mill  =>  tb.app_to_mill,
 							  pane_to_mill =>  tmt::encrypt__textpane_to_textmill  textpane_to_textmill,
 							  millins,
-							  millouts
+							  millouts,
+							  millboss_to_mill
 							};
 
 					    note_mill_info (r, mill_info);
@@ -1264,7 +1345,8 @@ herein
 
 				    fire_run_gun ();
 
-				    textmill_exports ->   { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL tb
+				    textmill_exports ->   { textpane_to_textmill  as  mt::TEXTPANE_TO_TEXTMILL tb,
+							    millboss_to_mill
 							  };
 
 				    tb.app_to_mill   ->  mt::APP_TO_MILL am;
@@ -1279,7 +1361,8 @@ herein
 						    app_to_mill	 =>  tb.app_to_mill,
 						    pane_to_mill =>  tmt::encrypt__textpane_to_textmill  textpane_to_textmill,
 						    millins,
-						    millouts
+						    millouts,
+						    millboss_to_mill
 						  };
 
 				    note_mill_info (r, mill_info);
@@ -1304,6 +1387,99 @@ herein
 			get_from_oneshot  reply_oneshot;
 		    };
 
+		#################################################################################
+		# Guiboss_To_Millboss interface fns::
+		#
+		#
+		fun do_one_frame (frame_number: Int)								# Called by guiboss at 50Hz, helps us service mill wakeups.
+		    =
+		    put_in_mailqueue  (millboss_q,
+			#
+			\\ ({ id, me, ... }: Runstate)
+			    =
+			    {   wakeups =  idm::keyvals_list  *me.mill_wakeups;
+				#
+				apply do_wakeup wakeups
+				    where
+					fun find_mill_info (id: Id)
+					    =
+					    case  (idm::get  (*me.mills_by_id,  id))
+						#
+						THE mill_info => mill_info;
+
+						NULL =>	{   msg = sprintf "wakeup mill %d not found in mills_by_id  --millboss_imp::do_one_frame"  (id_to_int id);
+							    log::fatal msg;
+							    raise exception DIE msg;
+							}; 
+					    esac;
+	
+					fun do_wakeup
+					      (
+						id:	Id,
+						wu:	Per_Mill_Wakeup_Info
+					      )
+					    =
+					    {   wu -> 	{   at_frame_n:		Ref (	Null_Or										# Call mill.wakeup once, during frame N, and pass wakeup_fn in call. NULL means this wakeup is off.
+											  { at_frame:	Int,
+											    wakeup_fn:	mt::Wakeup_Arg -> Void
+											  }
+										    ),
+							    every_n_frames:	Ref (	Null_Or										# Call gadget.wakeup every N frames,       and pass wakeup_fn in call. NULL means this wakeup is off.
+											  { n:		Int,
+											    next:	Ref(Int),
+											    wakeup_fn:	mt::Wakeup_Arg -> Void
+											  }
+										    )
+							};
+
+						case *at_frame_n
+						    #
+						    THE   { at_frame:	Int,
+							    wakeup_fn:	mt::Wakeup_Arg -> Void
+							  }
+							=>
+							if (frame_number == at_frame)
+							    #	
+							    mill_info = find_mill_info id;
+
+							    mill_info.millboss_to_mill.wakeup { wakeup_arg => { frame_number }, wakeup_fn };
+
+							elif (frame_number  > at_frame)
+							    #
+							    case *every_n_frames
+								#
+								THE _ =>   at_frame_n     := NULL;									# We've done the call, null out the request for it.
+								NULL  =>   me.mills_by_id := idm::drop (*me.mills_by_id, id);						# No longer any wakeup work scheduled for this mill, so just drop its record.
+							    esac;
+							fi;
+
+						    NULL => ();
+						esac;
+
+						case *every_n_frames
+						    #
+						    THE	  { n:		Int,
+							    next:	Ref(Int),
+							    wakeup_fn:	mt::Wakeup_Arg -> Void
+							  }
+							=>
+							if  (frame_number >= *next)
+							    #
+							    mill_info = find_mill_info id;
+							    #
+							    mill_info.millboss_to_mill.wakeup { wakeup_arg => { frame_number }, wakeup_fn };
+
+							    next := frame_number + n;
+							fi;
+
+						    NULL => ();
+						esac;
+					    };
+				    end;
+			    }
+		    );
+
+		    
 		#################################################################################
 		# App_To_Mill interface fns::
 		#
@@ -1600,17 +1776,19 @@ herein
 
 		millboss_arg = (millboss_options);									# Currently no guiboss_needs component, so this is a no-op.
 
-		me =  {	mills_by_name	  =>  REF  sm::empty,								# All currently active mills, by name.
-			mills_by_id	  =>  REF idm::empty,								# All currently active mills, by id.
-			mills_by_filepath =>  REF  sm::empty,								# All currently active mills WHICH ARE OPEN ON A FILE, by filename.
+		me =  {	mills_by_name		=>  REF  sm::empty,							# All currently active mills, by name.
+			mills_by_id		=>  REF idm::empty,							# All currently active mills, by id.
+			mills_by_filepath	=>  REF  sm::empty,							# All currently active mills WHICH ARE OPEN ON A FILE, by filename.
 			#
-			millwatches	  =>  REF  mt::mwm::empty,						 	# Everything we know about mill inports watching mill outports.
+			millwatches		=>  REF  mt::mwm::empty,						# Everything we know about mill inports watching mill outports.
 			#
-			pending_pane_mail =>  REF idm::empty,								# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
-			panes_by_id	  =>  REF idm::empty,								# All currently active panes, by id.
+			mill_wakeups		=>  REF idm::empty,							# Mills which want wakeme calls.
+			current_frame_number	=>  REF 0,
 			#
-			name		  =>  REF "millboss"								# Name of millboss-imp for display purposes.
-					
+			pending_pane_mail	=>  REF idm::empty,							# Messages to panes which have not yet registered with us, indexed by pane_id.	To preserve message order we reverse these lists before delivering them  (although message order should rarely if ever matter).
+			panes_by_id		=>  REF idm::empty,							# All currently active panes, by id.
+			#
+			name			=>  REF "millboss"							# Name of millboss-imp for display purposes.
 		      };
 
 		\\ () = {   reply_oneshot = make_oneshot_maildrop():  Oneshot_Maildrop( (Me_Slot, Exports) );		# PUBLIC. PHASE 2: Start our microthread and return our Exports to caller.
