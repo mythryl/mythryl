@@ -61,6 +61,7 @@
 
 
 stipulate
+    package cms =  compiler_mapstack_set;							# compiler_mapstack_set						is from   src/lib/compiler/toplevel/compiler-state/compiler-mapstack-set.pkg
     package cs  =  compiler_state;								# compiler_state						is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
     package ds  =  deep_syntax;									# deep_syntax							is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
     package ctl =  global_controls;								# global_controls						is from   src/lib/compiler/toplevel/main/global-controls.pkg
@@ -81,6 +82,7 @@ stipulate
     package prs =  prettyprint_raw_syntax;							# prettyprint_raw_syntax					is from   src/lib/compiler/front/typer/print/prettyprint-raw-syntax.pkg
     package rpc =  runtime_internals::rpc;							# runtime_internals						is from   src/lib/std/src/nj/runtime-internals.pkg
     package rsj =  raw_syntax_junk;								# raw_syntax_junk						is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax-junk.pkg
+    package raw =  raw_syntax;									# raw_syntax							is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
     package sci =  sourcecode_info;								# sourcecode_info						is from   src/lib/compiler/front/basics/source/sourcecode-info.pkg
     package syx =  symbolmapstack;								# symbolmapstack						is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
     package tbi =  winix_base_text_file_io_driver_for_posix__premicrothread;			# winix_base_text_file_io_driver_for_posix__premicrothread	is from   src/lib/std/src/io/winix-base-text-file-io-driver-for-posix--premicrothread.pkg
@@ -91,8 +93,11 @@ stipulate
     package xs  =  exceptions;									# exceptions							is from   src/lib/std/exceptions.pkg
 #   package tmp =  highcode_codetemp;								# highcode_codetemp						is from   src/lib/compiler/back/top/highcode/highcode-codetemp.pkg
     #
-    include package   compiler_mapstack_set;							# compiler_mapstack_set						is from   src/lib/compiler/toplevel/compiler-state/compiler-mapstack-set.pkg
+#    include package   compiler_mapstack_set;							# compiler_mapstack_set						is from   src/lib/compiler/toplevel/compiler-state/compiler-mapstack-set.pkg
 #   include package   pp;
+
+    nb = log::note_on_stderr;									# log								is from   src/lib/std/src/log.pkg
+
 herein 
 
     # This generic is invoked (only) from:
@@ -206,7 +211,7 @@ herein
 			    #	
 			    fun get_current_compiler_mapstack_set ()
 				=
-				layer_compiler_mapstack_sets
+				cms::layer_compiler_mapstack_sets
 				  (
 				    top_level_pkg_etc_defs_jar.get_mapstack_set (),
 				    baselevel_pkg_etc_defs_jar.get_mapstack_set ()
@@ -426,7 +431,7 @@ herein
 
 			    new_compiler_mapstack_set
 				=
-				make_compiler_mapstack_set
+				cms::make_compiler_mapstack_set
 				  {
 				    symbolmapstack    =>  new_symbolmapstack,
 				    linking_mapstack  =>  new_linking_mapstack, 
@@ -442,7 +447,7 @@ herein
 			    #
 			    new_local_compiler_mapstack_set
 				=
-				concatenate_compiler_mapstack_sets
+				cms::concatenate_compiler_mapstack_sets
 				    (
 				      new_compiler_mapstack_set,
 				      top_level_pkg_etc_defs_jar.get_mapstack_set ()
@@ -467,7 +472,7 @@ herein
 				{   fun get ()
 					=
 					syx::get
-					    ( symbolmapstack_part (get_current_compiler_mapstack_set ()),
+					    ( cms::symbolmapstack_part (get_current_compiler_mapstack_set ()),
 					      symbol
 					    );
 
@@ -485,7 +490,7 @@ herein
 				=
 				{   symbolmapstack
 					=
-					symbolmapstack_part
+					cms::symbolmapstack_part
 					    (get_current_compiler_mapstack_set ());
 
 				    syx::symbols   symbolmapstack;
@@ -501,11 +506,11 @@ herein
 
 			    e0   =   get_current_compiler_mapstack_set ();
 
-			    e1   =   make_compiler_mapstack_set
+			    e1   =   cms::make_compiler_mapstack_set
 				       {
 					 symbolmapstack    =>  symbolmapstack1,
-					 linking_mapstack  =>  linking_part  e0,
-					 inlining_mapstack =>  inlining_part e0
+					 linking_mapstack  =>  cms::linking_part  e0,
+					 inlining_mapstack =>  cms::inlining_part e0
 				       };
 
 			    unparse_deep_syntax_tree_debug(       "Deep_Syntax:", deep_syntax_declaration);  #  Testing code to print deep_syntax_tree. 
@@ -931,22 +936,462 @@ herein
 				esac;
 			    };
 		};
-
-	    #
-	    fun compile_and_eval_string_in_given_compiler_state					# PUBLIC.
-		  {
-		    sourcecode_info:		sci::Sourcecode_Info,
-		    transform:			ds::Declaration -> ds::Declaration,
-		    pp:				pp::Prettyprint_Mill,
-		    compiler_state_stack:	(cs::Compiler_State, List(cs::Compiler_State)),
-		    options:			List( cs::Compile_And_Eval_String_Option )
-		  }
-		:
-		(cs::Compiler_State, List(cs::Compiler_State))
+												# The following duplicates a lot of code from read_eval_print_loop(), but the latter has quite enough conditionals already,
+	    #											# so I thought it was better to clone-and-mutate than to add more conditionals and make it an even bigger mess. -- 2015-09-09 CrT
+	    fun compile_and_eval_string_in_given_compiler_state					# PUBLIC.  This facility created for   src/lib/x-kit/widget/edit/eval-mode.pkg
+		  {										# 
+		    sourcecode_info:		sci::Sourcecode_Info,				# Source code to compile, also error sink.
+		    transform:			ds::Declaration -> ds::Declaration,		# Deep-syntax rewrite fn. May be used to instrument code or add debug logic to it or such.  Usually just set to the identity fn (i.e., no-op).
+		    pp:				pp::Prettyprint_Mill,				# Where to prettyprint results.
+		    compiler_state_stack:	(cs::Compiler_State, List(cs::Compiler_State)),	# Compiler symbol tables to use for this compile.
+		    options:			List( cs::Compile_And_Eval_String_Option )	# Future-proofing, lets us add more parameters in future without breaking backward compatibility at the client-call level.
+		  }										#
+		:										#
+		(cs::Compiler_State, List(cs::Compiler_State))					# Updated compiler symbol tables.  Caller may keep or discard.
 		=
 		{
-		    compiler_state_stack;
-		};
+pp.lit "ack";
+		    Compile_And_Eval_String_Options
+		      =
+		      { pprint_result_value:	Bool,
+			pprint_result_type:	Bool
+		      };
+
+		    fun process_options (options:  List( cs::Compile_And_Eval_String_Option ))
+			=
+			{   my_pprint_result_value	=  REF TRUE;
+			    my_pprint_result_type	=  REF FALSE;
+			    #
+			    apply  do_option  options
+			    where
+				fun do_option (cs::PPRINT_RESULT_VALUE	b) =>   my_pprint_result_value	:=  b;
+				    do_option (cs::PPRINT_RESULT_TYPE	b) =>   my_pprint_result_type   :=  b;
+				end;
+			    end;
+
+			    { pprint_result_value	=>  *my_pprint_result_value,
+			      pprint_result_type	=>  *my_pprint_result_type
+			    };
+			};
+
+		    (process_options  options)
+		      ->
+		      { pprint_result_value,
+			pprint_result_type
+		      };
+
+		    prompt_read_parse_and_return_one_toplevel_mythryl_expression
+			=
+			pm::prompt_read_parse_and_return_one_toplevel_mythryl_expression
+			    #
+			    sourcecode_info;
+
+		    per_compile_stuff								# per_compile_stuff				is from   src/lib/compiler/front/typer-stuff/main/per-compile-stuff.pkg
+			=									#
+			cpl::make_per_compile_stuff						# This record actually just contains stuff like a stamp generator and optional prettyprinter,
+			    {									# nothing really core to the compile like sourcecode, parsetree or symbol table -- the serious
+			      sourcecode_info,							# symbol table stuff is in compiler_state.
+			      transform,							# compiler_state				is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
+			      prettyprinter_or_null =>  THE pp
+			    };
+
+		    fun raise_compile_error_if_compile_errors  s
+			=
+{
+pp.newline();
+pp.lit "raise_compile_error_if_compile_errors/AAA  --read-eval-print-loop-g.pkg";
+pp.newline();
+			if (pcs::saw_errors  per_compile_stuff)
+			    #
+pp.newline();
+pp.lit "raise_compile_error_if_compile_errors/BBB -- raising exception  --read-eval-print-loop-g.pkg";
+pp.newline();
+			    raise exception  err::COMPILE_ERROR;
+			fi;
+};
+
+		    fun evaluate_and_print_toplevel_mythryl_declaration
+			  (
+			    raw_declaration:		raw::Declaration,
+			    compiler_state_stack:	(cs::Compiler_State, List(cs::Compiler_State))
+
+			  )
+			=
+			{
+pp.lit "eck";
+			    compiler_state_stack
+			    	->
+				( compiler_state:	      cs::Compiler_State,
+				  compiler_states:	List( cs::Compiler_State )
+				);
+
+			    top_level_pkg_etc_defs_jar =  compiler_state.top_level_pkg_etc_defs_jar;
+			    baselevel_pkg_etc_defs_jar =  compiler_state.baselevel_pkg_etc_defs_jar;
+			    #	
+			    fun get_current_compiler_mapstack_set ()
+				=
+				cms::layer_compiler_mapstack_sets
+				  (
+				    top_level_pkg_etc_defs_jar.get_mapstack_set (),
+				    baselevel_pkg_etc_defs_jar.get_mapstack_set ()
+				  );
+
+
+			    print_depth = control_print::print_depth;
+
+			    (get_current_compiler_mapstack_set ())
+				->
+				{ symbolmapstack,
+				  linking_mapstack,
+				  inlining_mapstack
+				};
+
+
+			    crossmodule_inlining_aggressiveness
+				=
+				ctl::inline::get ();
+			    #
+			    fun debug_print
+				    #
+				    (debugging: Ref( Bool ))
+				    #	
+				    ( msg:     String,
+				      printfn: pp::Prettyprint_Mill -> X -> Void,
+				      arg:     X
+				    )
+				=
+				if *debugging
+				    #
+				    pp.box {.									pp.rulename "repl1";
+					pp.lit  msg;
+					pp.newline();
+					pp.box {.								pp.rulename "repl2";
+					    printfn pp  arg;
+					};
+				    };
+				    pp.newline();
+				fi;
+
+
+			    fun unparse_raw_syntax_tree_debug
+				( msg,
+				  declaration
+				)
+				=
+				debug_print
+				    ctl::unparse_raw_syntax_tree
+				    ( msg,
+				      unparse_raw_syntax_tree_declaration,
+				      declaration
+				    )
+				where
+				    fun unparse_raw_syntax_tree_declaration
+					    prettyprinter
+					    declaration
+					=
+					urs::unparse_declaration
+					    (symbolmapstack, NULL)
+					    prettyprinter
+					    (declaration, *print_depth);
+				end;
+			    #
+			    fun prettyprint_raw_syntax_tree_debug
+				( msg,
+				  declaration
+				)
+				=
+				{   fun prettyprint_raw_syntax_tree_declaration
+					    prettyprinter
+					    declaration
+					=
+					prs::prettyprint_declaration
+					    (symbolmapstack, NULL)
+					    prettyprinter
+					    (declaration, *print_depth);
+
+				    debug_print
+					ctl::prettyprint_raw_syntax_tree
+					( msg,
+					  prettyprint_raw_syntax_tree_declaration,
+					  declaration
+					);
+				};
+			    #	
+			    fun print_raw_syntax_tree_as_nada_debug (msg, declaration)					# More experimental alternate syntax support.
+				=
+				{   fun print_raw_syntax_tree_as_nada prettyprinter declaration
+					=
+					print_raw_syntax_tree_as_nada::print_declaration_as_nada
+					    (symbolmapstack, NULL)
+					    prettyprinter
+					    (declaration, *print_depth);
+
+				    debug_print (ctl::unparse_raw_syntax_tree) (msg, print_raw_syntax_tree_as_nada, declaration);
+				};
+			    #
+			    fun unparse_deep_syntax_tree_debug (msg, declaration)
+				=
+				{   fun unparse_deep_syntax_tree_declaration  prettyprinter  declaration
+					= 
+					unparse_deep_syntax::unparse_declaration					# unparse_deep_syntax	is from   src/lib/compiler/front/typer/print/unparse-deep-syntax.pkg
+					   (symbolmapstack, NULL)
+					   prettyprinter
+					   (declaration, *print_depth);
+
+				    debug_print
+					(ctl::unparse_deep_syntax_tree)
+					(   msg,
+					    unparse_deep_syntax_tree_declaration,
+					    declaration
+					);
+				};
+			    #
+			    fun print_deep_syntax_tree_as_nada_debug (msg, declaration)					# More experimental alternate syntax support.
+				=
+				{   fun print_deep_syntax_tree_as_nada  prettyprinter  declaration
+					= 
+					print_deep_syntax_as_nada::print_declaration_as_nada
+					   (symbolmapstack, NULL)
+					   prettyprinter
+					   (declaration, *print_depth);
+
+				    debug_print
+					(ctl::unparse_deep_syntax_tree)
+					(   msg,
+					    print_deep_syntax_tree_as_nada,
+					    declaration
+					);
+				};
+															# NB: The difference between unparsing and prettyprinting is that unparsing tries to reproduce the original sourcecode but prettyprinting just dumps the parsetree datastructure literally.
+			    unparse_raw_syntax_tree_debug(        "Raw_Syntax: ", raw_declaration);			# Testing code to print  raw_declaration. 
+			    prettyprint_raw_syntax_tree_debug(    "Raw_Syntax: ", raw_declaration);			# Testing code to print  raw_declaration. 
+#			    print_raw_syntax_tree_as_nada_debug(  "LIB7_SYNTAX:", raw_declaration);			# Testing code to translate raw_declaration to lib7. 
+
+
+
+			    #    "Returning deep_syntax_tree and
+			    #     exported_highcode_variables here
+			    #     is a bad idea: They hold on to
+			    #     things unnecessarily.-								# (But they are used in the prettyprint_declaration below. --CrT)
+			    #     This must be fixed in the long run."
+			    #	                -- Zhong								# XXX SUCKO FIXME
+			    #
+			    # We do this one other place:
+			    #     src/app/makelib/compile/compile-in-dependency-order-g.pkg
+			    #
+nb {. sprintf "evaluate_and_print_toplevel_mythryl_declaration above translate_raw_syntax_to_execode  --read-eval-print-loop-g.pkg"; };
+pp.lit "ick";
+			    (cpl::translate_raw_syntax_to_execode
+			      {
+				sourcecode_info,
+				raw_declaration,
+				#
+				symbolmapstack,
+				inlining_mapstack,
+				#
+				per_compile_stuff,
+				handle_compile_errors => raise_compile_error_if_compile_errors,
+				crossmodule_inlining_aggressiveness,
+				#
+				compiledfile_version         =>  ()							# We don't have real on-disk compiled-code binaries here, we're just compiling console strings to memory.
+			      })
+			      ->
+			      { code_and_data_segments,
+				new_symbolmapstack,
+				deep_syntax_declaration,
+				export_picklehash,
+				exported_highcode_variables,
+				import_trees,
+				inline_expression,
+				...
+			      };
+nb {. sprintf "evaluate_and_print_toplevel_mythryl_declaration below translate_raw_syntax_to_execode  --read-eval-print-loop-g.pkg"; };
+pp.lit "ock";
+
+			    package_closure
+				=
+				lrp::make_package_closure
+				  {
+				    code_and_data_segments,
+				    exception_wrapper => EXCEPTION_DURING_EXECUTION
+				  }
+				then raise_compile_error_if_compile_errors ();
+
+			    package_closure
+				=
+				cw::trap_callcc (interruptible  package_closure);
+
+			    rpc::this_fn_profiling_hook_refcell__global							# Ultimately from src/c/main/construct-runtime-package.c
+				:=
+				wpr::in_other_code__cpu_user_index;
+
+pp.lit "uck";
+			    new_linking_mapstack
+				=
+				lrp::link_and_run_package_closure
+				  {
+				    package_closure,								# Package being linked into memory image.
+				    import_trees,									# Values which it needs to import from other packages.
+				    linking_mapstack,								# Values available for import from other packages.
+				    export_picklehash								# 'Name' under which exports from this package will be published.
+				  };
+pp.lit "yck";
+
+			    rpc::this_fn_profiling_hook_refcell__global							# Ultimately from src/c/main/construct-runtime-package.c
+				:=
+				wpr::in_compiler__cpu_user_index;							# Remember that we are now "in compiler" for CPU-cycle-accounting purposes.
+
+			    new_compiler_mapstack_set
+				=
+				cms::make_compiler_mapstack_set
+				  {
+				    symbolmapstack    =>  new_symbolmapstack,
+				    linking_mapstack  =>  new_linking_mapstack, 
+				    #
+				    inlining_mapstack =>  ims::make_inlining_mapstack
+							    ( export_picklehash,
+							      inline_expression
+							    )
+				  };
+
+			    # Re-fetch toplevel tables because execution
+			    # may have changed their contents:
+			    #
+			    new_local_compiler_mapstack_set
+				=
+				cms::concatenate_compiler_mapstack_sets
+				    (
+				      new_compiler_mapstack_set,
+				      top_level_pkg_etc_defs_jar.get_mapstack_set ()
+				    );
+
+			    # Install any new package defs etc
+			    # in our compile environment:
+			    #
+			    top_level_pkg_etc_defs_jar.set_mapstack_set
+				#
+				new_local_compiler_mapstack_set;
+				#
+				# NB: We install the new local compiler state
+				# before printing: Otherwise we would
+				# find ourselves in trouble if the
+				# autoloader changed the the contents
+				# of loc out from under our feet.
+
+			    #
+			    fun look_and_load  symbol
+				=
+				{   fun get ()
+					=
+					syx::get
+					    ( cms::symbolmapstack_part (get_current_compiler_mapstack_set ()),
+					      symbol
+					    );
+
+				    get ()
+				    except
+					syx::UNBOUND =  get ();
+				};
+
+			    # Notice that even through several potential rounds
+			    # the result of get_symbols is constant (up to list
+			    # order), so memoization (as performed by
+			    # syx::special) is ok.
+			    #
+			    fun get_symbols ()
+				=
+				{   symbolmapstack
+					=
+					cms::symbolmapstack_part
+					    (get_current_compiler_mapstack_set ());
+
+				    syx::symbols   symbolmapstack;
+				};
+
+			    symbolmapstack1
+				=
+				syx::special
+				    (
+				      look_and_load,
+				      get_symbols
+				    );
+
+			    e0   =   get_current_compiler_mapstack_set ();
+
+			    e1   =   cms::make_compiler_mapstack_set
+				       {
+					 symbolmapstack    =>  symbolmapstack1,
+					 linking_mapstack  =>  cms::linking_part  e0,
+					 inlining_mapstack =>  cms::inlining_part e0
+				       };
+
+			    unparse_deep_syntax_tree_debug(       "Deep_Syntax:", deep_syntax_declaration);  #  Testing code to print deep_syntax_tree. 
+#			    print_deep_syntax_tree_as_nada_debug( "LIB7_SYNTAx:", deep_syntax_declaration);  #  Testing code to translate deep_syntax_tree to lib7. 
+
+			    # Print the result of the evaluated expression:
+			    #
+pp.lit "wck";
+			    unparse_interactive_deep_syntax_declaration::unparse_declaration
+				e1
+				pp
+				(deep_syntax_declaration, exported_highcode_variables);
+pp.lit "zck";
+
+			    (compiler_state, compiler_states):  	(cs::Compiler_State, List(cs::Compiler_State));
+			};											# fun evaluate_and_print_toplevel_mythryl_declaration
+
+		    fun evaluate_and_print_toplevel_mythryl_declarations ([],   compiler_state_stack: (cs::Compiler_State, List(cs::Compiler_State)))
+			    =>
+			    compiler_state_stack;
+
+			evaluate_and_print_toplevel_mythryl_declarations (declaration ! declarations, compiler_state_stack)
+			    =>
+			    {   compiler_state_stack
+				    =
+				    evaluate_and_print_toplevel_mythryl_declaration
+				      ( declaration,
+					compiler_state_stack
+				      );
+				      
+				evaluate_and_print_toplevel_mythryl_declarations  (declarations, compiler_state_stack);
+			    };	
+		    end;			
+
+
+		    result = REF compiler_state_stack;
+		    
+		    fun prompt_read_evaluate_and_print_one_toplevel_mythryl_expression  ()
+			=
+{
+pp.newline ();
+pp.lit "prompt_read_evaluate_and_print_one_toplevel_mythryl_expression  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
+pp.newline ();
+			case (prompt_read_parse_and_return_one_toplevel_mythryl_expression ())
+			    #			  
+			    THE raw_declaration
+				=>
+				result :=   evaluate_and_print_toplevel_mythryl_declarations
+					      (
+						rsj::extract_toplevel_declarations  raw_declaration,
+						compiler_state_stack
+					      );
+
+			    NULL =>   raise exception END_OF_FILE;
+			esac;
+};
+
+pp.newline ();
+pp.lit "above interruptible(prompt_read_evaluate_and_print_one_toplevel_mythryl_expression)  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
+pp.newline ();
+		    interruptible
+			prompt_read_evaluate_and_print_one_toplevel_mythryl_expression
+                        ();
+pp.newline ();
+pp.lit "below interruptible(prompt_read_evaluate_and_print_one_toplevel_mythryl_expression)  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
+pp.newline ();
+
+		    *result;
+		};										# fun compile_and_eval_string_in_given_compiler_state
 
 	    fun read_eval_print_from_user ()							# PUBLIC.  This is the interactive loop used at the Linux commandline, invoked by src/app/makelib/main/makelib-g.pkg
 		=
@@ -957,7 +1402,7 @@ herein
 
                     print "\n";
 		    print mcv::mythryl_interactive_banner;					# Something like:  "Mythryl 110.58.3.0.2 built Thu Dec 23 14:11:49 2010"
-		    print "\nConsider instead using  M-x eval  in  mythryl-emacs.";
+		    print "\n(You might prefer to use  M-x eval  in  mythryl-emacs.)";
 		    print "\nDo   help();   for help.";
 
 		    outer_loop ();
