@@ -78,7 +78,7 @@ stipulate
     package myp =  mythryl_parser;								# mythryl_parser						is from   src/lib/compiler/front/parser/main/mythryl-parser.pkg
     package pcs =  per_compile_stuff;								# per_compile_stuff						is from   src/lib/compiler/front/typer-stuff/main/per-compile-stuff.pkg
     package pm  =  parse_mythryl;								# parse_mythryl							is from   src/lib/compiler/front/parser/main/parse-mythryl.pkg
-    package pp  =  standard_prettyprint_mill;							# standard_prettyprint_mill					is from   src/lib/prettyprint/big/src/standard-prettyprint-mill.pkg
+    package pp  =  standard_prettyprinter;							# standard_prettyprinter					is from   src/lib/prettyprint/big/src/standard-prettyprinter.pkg
     package prs =  prettyprint_raw_syntax;							# prettyprint_raw_syntax					is from   src/lib/compiler/front/typer/print/prettyprint-raw-syntax.pkg
     package rpc =  runtime_internals::rpc;							# runtime_internals						is from   src/lib/std/src/nj/runtime-internals.pkg
     package rsj =  raw_syntax_junk;								# raw_syntax_junk						is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax-junk.pkg
@@ -191,8 +191,9 @@ herein
 			cpl::make_per_compile_stuff						# This record actually just contains stuff like a stamp generator and optional prettyprinter,
 			    {									# nothing really core to the compile like sourcecode, parsetree or symbol table -- the serious
 			      sourcecode_info,							# symbol table stuff is in compiler_state.
-			      transform             =>  \\ x = x,				# compiler_state				is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
-			      prettyprinter_or_null =>  NULL
+			      deep_syntax_transform =>  \\ x = x,				# This can be used to profile or instrument code or insert debug support code.  This transform gets applied in   src/lib/compiler/front/typer/main/type-package-language-g.pkg   
+			      prettyprinter_or_null =>  NULL,
+			      compiler_verbosity    =>  pcs::print_everything
 			    };
 
 		    #
@@ -237,17 +238,17 @@ herein
 				    (debugging: Ref( Bool ))
 				    #	
 				    ( msg:     String,
-				      printfn: pp::Prettyprint_Mill -> X -> Void,
+				      printfn: pp::Prettyprinter -> X -> Void,
 				      arg:     X
 				    )
 				=
 				if *debugging
 				    #
-				    pp::with_standard_prettyprint_mill
+				    pp::with_standard_prettyprinter
 					#
 					(err::default_plaint_sink ())	[]
 					#
-					(\\ pp:   pp::Prettyprint_Mill
+					(\\ pp:   pp::Prettyprinter
 					    =
 					    {   pp.box {.								pp.rulename "repl1";
 						    pp.lit  msg;
@@ -525,11 +526,11 @@ herein
 				#
 				# Print the result of the evaluated expression:
 				#
-				pp::with_standard_prettyprint_mill
+				pp::with_standard_prettyprinter
 				    #
 				    sourcecode_info.error_consumer	[]					# unparse_interactive_deep_syntax_declaration	is from   src/lib/compiler/src/print/unparse-interactive-deep-syntax-declaration.pkg
 				    #
-				    (\\ pp:   pp::Prettyprint_Mill
+				    (\\ pp:   pp::Prettyprinter
 					=
 					unparse_interactive_deep_syntax_declaration::unparse_declaration
 					    e1
@@ -941,8 +942,7 @@ herein
 	    fun compile_and_eval_string_in_given_compiler_state					# PUBLIC.  This facility created for   src/lib/x-kit/widget/edit/eval-mode.pkg
 		  {										# 
 		    sourcecode_info:		sci::Sourcecode_Info,				# Source code to compile, also error sink.
-		    transform:			ds::Declaration -> ds::Declaration,		# Deep-syntax rewrite fn. May be used to instrument code or add debug logic to it or such.  Usually just set to the identity fn (i.e., no-op).
-		    pp:				pp::Prettyprint_Mill,				# Where to prettyprint results.
+		    pp:				pp::Prettyprinter,				# Where to prettyprint results.
 		    compiler_state_stack:	(cs::Compiler_State, List(cs::Compiler_State)),	# Compiler symbol tables to use for this compile.
 		    options:			List( cs::Compile_And_Eval_String_Option )	# Future-proofing, lets us add more parameters in future without breaking backward compatibility at the client-call level.
 		  }										#
@@ -950,34 +950,33 @@ herein
 		(cs::Compiler_State, List(cs::Compiler_State))					# Updated compiler symbol tables.  Caller may keep or discard.
 		=
 		{
-pp.lit "ack";
 		    Compile_And_Eval_String_Options
 		      =
-		      { pprint_result_value:	Bool,
-			pprint_result_type:	Bool
+		      { compiler_verbosity:	pcs::Compiler_Verbosity,
+			deep_syntax_transform:	ds::Declaration -> ds::Declaration
 		      };
 
 		    fun process_options (options:  List( cs::Compile_And_Eval_String_Option ))
 			=
-			{   my_pprint_result_value	=  REF TRUE;
-			    my_pprint_result_type	=  REF FALSE;
+			{   my_compiler_verbosity	=  REF  pcs::print_expression_value;
+			    my_deep_syntax_transform	=  REF  (\\ x = x);
 			    #
 			    apply  do_option  options
 			    where
-				fun do_option (cs::PPRINT_RESULT_VALUE	b) =>   my_pprint_result_value	:=  b;
-				    do_option (cs::PPRINT_RESULT_TYPE	b) =>   my_pprint_result_type   :=  b;
+				fun do_option (cs::COMPILER_VERBOSITY	  v) =>   my_compiler_verbosity	   :=  v;
+				    do_option (cs::DEEP_SYNTAX_TRANSFORM  t) =>   my_deep_syntax_transform :=  t;
 				end;
 			    end;
 
-			    { pprint_result_value	=>  *my_pprint_result_value,
-			      pprint_result_type	=>  *my_pprint_result_type
+			    { compiler_verbosity	=>  *my_compiler_verbosity,
+			      deep_syntax_transform	=>  *my_deep_syntax_transform
 			    };
 			};
 
 		    (process_options  options)
 		      ->
-		      { pprint_result_value,
-			pprint_result_type
+		      { compiler_verbosity,
+			deep_syntax_transform
 		      };
 
 		    prompt_read_parse_and_return_one_toplevel_mythryl_expression
@@ -991,24 +990,17 @@ pp.lit "ack";
 			cpl::make_per_compile_stuff						# This record actually just contains stuff like a stamp generator and optional prettyprinter,
 			    {									# nothing really core to the compile like sourcecode, parsetree or symbol table -- the serious
 			      sourcecode_info,							# symbol table stuff is in compiler_state.
-			      transform,							# compiler_state				is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
-			      prettyprinter_or_null =>  THE pp
+			      deep_syntax_transform,						# This can be used to profile or instrument code or insert debug support code.  This transform gets applied in   src/lib/compiler/front/typer/main/type-package-language-g.pkg
+			      prettyprinter_or_null =>  THE pp,
+			      compiler_verbosity
 			    };
 
 		    fun raise_compile_error_if_compile_errors  s
 			=
-{
-pp.newline();
-pp.lit "raise_compile_error_if_compile_errors/AAA  --read-eval-print-loop-g.pkg";
-pp.newline();
 			if (pcs::saw_errors  per_compile_stuff)
 			    #
-pp.newline();
-pp.lit "raise_compile_error_if_compile_errors/BBB -- raising exception  --read-eval-print-loop-g.pkg";
-pp.newline();
 			    raise exception  err::COMPILE_ERROR;
 			fi;
-};
 
 		    fun evaluate_and_print_toplevel_mythryl_declaration
 			  (
@@ -1018,7 +1010,6 @@ pp.newline();
 			  )
 			=
 			{
-pp.lit "eck";
 			    compiler_state_stack
 			    	->
 				( compiler_state:	      cs::Compiler_State,
@@ -1056,7 +1047,7 @@ pp.lit "eck";
 				    (debugging: Ref( Bool ))
 				    #	
 				    ( msg:     String,
-				      printfn: pp::Prettyprint_Mill -> X -> Void,
+				      printfn: pp::Prettyprinter -> X -> Void,
 				      arg:     X
 				    )
 				=
@@ -1179,8 +1170,6 @@ pp.lit "eck";
 			    # We do this one other place:
 			    #     src/app/makelib/compile/compile-in-dependency-order-g.pkg
 			    #
-nb {. sprintf "evaluate_and_print_toplevel_mythryl_declaration above translate_raw_syntax_to_execode  --read-eval-print-loop-g.pkg"; };
-pp.lit "ick";
 			    (cpl::translate_raw_syntax_to_execode
 			      {
 				sourcecode_info,
@@ -1205,8 +1194,6 @@ pp.lit "ick";
 				inline_expression,
 				...
 			      };
-nb {. sprintf "evaluate_and_print_toplevel_mythryl_declaration below translate_raw_syntax_to_execode  --read-eval-print-loop-g.pkg"; };
-pp.lit "ock";
 
 			    package_closure
 				=
@@ -1225,7 +1212,6 @@ pp.lit "ock";
 				:=
 				wpr::in_other_code__cpu_user_index;
 
-pp.lit "uck";
 			    new_linking_mapstack
 				=
 				lrp::link_and_run_package_closure
@@ -1235,7 +1221,6 @@ pp.lit "uck";
 				    linking_mapstack,								# Values available for import from other packages.
 				    export_picklehash								# 'Name' under which exports from this package will be published.
 				  };
-pp.lit "yck";
 
 			    rpc::this_fn_profiling_hook_refcell__global							# Ultimately from src/c/main/construct-runtime-package.c
 				:=
@@ -1330,12 +1315,10 @@ pp.lit "yck";
 
 			    # Print the result of the evaluated expression:
 			    #
-pp.lit "wck";
 			    unparse_interactive_deep_syntax_declaration::unparse_declaration
 				e1
 				pp
 				(deep_syntax_declaration, exported_highcode_variables);
-pp.lit "zck";
 
 			    (compiler_state, compiler_states):  	(cs::Compiler_State, List(cs::Compiler_State));
 			};											# fun evaluate_and_print_toplevel_mythryl_declaration
@@ -1362,10 +1345,6 @@ pp.lit "zck";
 		    
 		    fun prompt_read_evaluate_and_print_one_toplevel_mythryl_expression  ()
 			=
-{
-pp.newline ();
-pp.lit "prompt_read_evaluate_and_print_one_toplevel_mythryl_expression  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
-pp.newline ();
 			case (prompt_read_parse_and_return_one_toplevel_mythryl_expression ())
 			    #			  
 			    THE raw_declaration
@@ -1378,17 +1357,10 @@ pp.newline ();
 
 			    NULL =>   raise exception END_OF_FILE;
 			esac;
-};
 
-pp.newline ();
-pp.lit "above interruptible(prompt_read_evaluate_and_print_one_toplevel_mythryl_expression)  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
-pp.newline ();
 		    interruptible
 			prompt_read_evaluate_and_print_one_toplevel_mythryl_expression
                         ();
-pp.newline ();
-pp.lit "below interruptible(prompt_read_evaluate_and_print_one_toplevel_mythryl_expression)  --read_eval_print_loop_g::compile_and_eval_string_in_given_compiler_state";
-pp.newline ();
 
 		    *result;
 		};										# fun compile_and_eval_string_in_given_compiler_state
