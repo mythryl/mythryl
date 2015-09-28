@@ -243,7 +243,6 @@ herein
 		  =
 		  { id => issue_unique_id (),										# 
 		    #
-		    compile_and_eval_string_in_given_compiler_state,							#
 		    parse_string_to_raw_declarations,									# 
 		    compile_raw_declaration_to_package_closure,								# 
 		    link_and_run_package_closure									#
@@ -298,41 +297,11 @@ herein
 		# App_To_Compileimp interface fns::
 		#
 		#
-		fun compile_and_eval_string_in_given_compiler_state							# PUBLIC.
-		      {
-			sourcecode_info:		sci::Sourcecode_Info,
-			pp:				pp::Prettyprinter,						# Evaluation results will be prettyprinted into this.
-			compiler_state_stack:		(cs::Compiler_State, List(cs::Compiler_State)),			# Compiler symbol-tables to use for this compile.
-			options:			List( cs::Compile_And_Eval_String_Option )			# This is mainly future-proofing -- it allows us to add parameters in future without (mostly) breaking code using the previous API.
-		      }
-		    :
-		      (cs::Compiler_State, List(cs::Compiler_State))							# Updated symbol tables containing any new definitions from compile.  Caller can choose to retain or discard.
-		    =
-		    {   reply_oneshot =  make_oneshot_maildrop()
-				      :  Oneshot_Maildrop( (cs::Compiler_State, List(cs::Compiler_State)) );
-			#
-			put_in_mailqueue  (compileimp_q,
-			    #
-			    \\ (r as { id, me, ... }: Runstate)
-				=
-				{   (ml::compile_and_eval_string_in_given_compiler_state
-					  {
-					    sourcecode_info,
-					    pp,
-					    compiler_state_stack,
-					    options
-					  }
-				    ) ->  updated_compiler_state_stack;
-
-				    put_in_oneshot (reply_oneshot, updated_compiler_state_stack);
-				}
-			);
-			get_from_oneshot  reply_oneshot;
-		    };
 
 		fun parse_string_to_raw_declarations									# PUBLIC.
 		      {
-			sourcecode_info:		sci::Sourcecode_Info
+			sourcecode_info:		sci::Sourcecode_Info,
+			pp:				pp::Prettyprinter						# Where to prettyprint results.
 		      }
 		    :
 		      List( raw::Declaration )										# 
@@ -340,13 +309,14 @@ herein
 		    {   reply_oneshot =  make_oneshot_maildrop()
 				      :  Oneshot_Maildrop( List(raw::Declaration) );
 			#
-			put_in_mailqueue  (compileimp_q,
-			    #
-			    \\ (r as { id, me, ... }: Runstate)
-				=
+			put_in_mailqueue  (compileimp_q,								# Serialize access to the parser because it may not be threadsafe.
+			    #												# When/if we verify that the parser is threadsafe -- or make it
+			    \\ (r as { id, me, ... }: Runstate)								# threadsafe -- we can switch to doing the parse in the caller's
+				=											# microthread instead of our own.
 				{   (ml::parse_string_to_raw_declarations
 					  {
-					    sourcecode_info
+					    sourcecode_info,
+					    pp
 					  }
 				    ) ->  declarations;
 
@@ -368,6 +338,7 @@ herein
 		      }													#
 		    )
 		    :
+		    Null_Or (
 		      { package_closure:			seg::Package_Closure,
 			import_trees:				List( it::Import_Tree ),
 			export_picklehash:			Null_Or( ph::Picklehash ),
@@ -382,13 +353,14 @@ herein
 			compiler_verbosity:			pcs::Compiler_Verbosity,
 			compiler_state_stack:			(cs::Compiler_State, List(cs::Compiler_State))
 		      }
+		    )
 		    =
 		    {   reply_oneshot =  make_oneshot_maildrop();
 
 			#
-			put_in_mailqueue  (compileimp_q,
-			    #
-			    \\ (r as { id, me, ... }: Runstate)
+			put_in_mailqueue  (compileimp_q,								# Serialize access to the compiler because it is not threadsafe -- the SML/NJ people are fond of global variables.
+			    #												# When/if we rewrite the compiler to be threadsafe we can switch to doing the compile in the caller's microthread
+			    \\ (r as { id, me, ... }: Runstate)								# instead of our own.
 				=
 				{   (ml::compile_raw_declaration_to_package_closure  arg)
 				        ->
@@ -401,48 +373,39 @@ herein
 		    };
 
 
-		fun link_and_run_package_closure								# PUBLIC.
-		    ( arg as
-		      {												# 
-			sourcecode_info:			sci::Sourcecode_Info,				# Source code to compile, also error sink.
-			pp:					pp::Prettyprinter,				# Where to prettyprint results.
-			compiler_state_stack:			(cs::Compiler_State, List(cs::Compiler_State)),	# Compiler symbol tables to use for this compile.
-
+		fun link_and_run_package_closure									# PUBLIC.
+		    ( arg1 as
+		      {													# 
+			sourcecode_info:			sci::Sourcecode_Info,					# Source code to compile, also error sink.
+			pp:					pp::Prettyprinter					# Where to prettyprint results.
+		      }
+		    )
+		    ( arg2 as
+		      {													# 
 			package_closure:			seg::Package_Closure,
 			import_trees:       			List( it::Import_Tree ),
 			export_picklehash:  			Null_Or( ph::Picklehash ),
 			linking_mapstack:   			lt::Picklehash_To_Heapchunk_Mapstack,
 			code_and_data_segments:     		seg::Code_And_Data_Segments,
-			new_symbolmapstack:         		syx::Symbolmapstack,				# A symbol table delta containing (only) stuff from raw_declaration.
-			deep_syntax_declaration:    		ds::Declaration,				# Typechecked form of  raw_declaration.
+			new_symbolmapstack:         		syx::Symbolmapstack,					# A symbol table delta containing (only) stuff from raw_declaration.
+			deep_syntax_declaration:    		ds::Declaration,					# Typechecked form of  raw_declaration.
 			exported_highcode_variables:		List( tmp::Codetemp ),
 			inline_expression:			Null_Or( acf::Function ),
 			top_level_pkg_etc_defs_jar:		cs::Compiler_Mapstack_Set_Jar,
 			get_current_compiler_mapstack_set:	Void -> cs::Compiler_Mapstack_Set,
-			compiler_verbosity:			pcs::Compiler_Verbosity
-		      }												#
+			compiler_verbosity:			pcs::Compiler_Verbosity,
+			compiler_state_stack:			(cs::Compiler_State, List(cs::Compiler_State))		# Compiler symbol tables to use for this compile.
+		      }													#
 		    )
 		    :
-		      (cs::Compiler_State, List(cs::Compiler_State))						# Updated compiler symbol tables.  Caller may keep or discard.
+		      (cs::Compiler_State, List(cs::Compiler_State))							# Updated compiler symbol tables.  Caller may keep or discard.
 		    =
-		    {   reply_oneshot =  make_oneshot_maildrop()
-				      :  Oneshot_Maildrop( (cs::Compiler_State, List(cs::Compiler_State)) );
-			#
-			put_in_mailqueue  (compileimp_q,
-			    #
-			    \\ (r as { id, me, ... }: Runstate)
-				=
-				{   (ml::link_and_run_package_closure  arg)
-				        ->
-					result;
-
-				    put_in_oneshot (reply_oneshot, result);
-				}
-			);
-			get_from_oneshot  reply_oneshot;
+		    {
+			ml::link_and_run_package_closure  arg1 arg2;							# Do the actual execution in caller's microthread, because it might
+															# block indefinitely (maybe it invokes an interactive dialog or loop)
+															# and we don't want compile_imp dead in the water indefinitely.
+															# I'm hoping the link process is threadsafe -- should check.			# XXX QUERO FIXME
 		    };
-
-
 	    end;
 
 
