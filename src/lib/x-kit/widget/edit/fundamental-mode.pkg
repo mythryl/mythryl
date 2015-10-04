@@ -2660,6 +2660,134 @@ nb {. sprintf "copy_to_register/AAA --fundamental-mode.pkg"; };
 
 
 
+	fun rotate_panepair (arg:			mt::Editfn_In)						# Opposite of split_pane_vertically_or_horizontally:  Replace ROW/COL containing widget with just widget.  We assume a binary tree -- each ROW or COL has two children. (That's what split_pane_horizontally_or_vertically will create.)
+	    :						mt::Editfn_Out
+	    =
+	    {   arg -> 	  { args:			List( mt::Prompted_Arg ),
+			    textlines:			mt::Textlines,
+			    point:			g2d::Point,						# As in Point_And_Mark.
+			    mark:			Null_Or(g2d::Point),					# 
+			    lastmark:			Null_Or(g2d::Point),					# 
+			    screen_origin:		g2d::Point,						# Origin of pane-visible text relative to textmill contents:  (0,0) means we're showing top of buffer at top of textpane.
+			    visible_lines:		Int,							# Number of lines of text visible in pane.
+			    readonly:			Bool,							# TRUE iff contents of textmill are currently marked as read-only.
+			    keystring:			String,							# User keystroke that invoked this editfn.
+			    numeric_prefix:		Null_Or( Int ),						# ^U "Universal numeric prefix" value for this editfn if supplied by user, else NULL.
+			    edit_history:		mt::Edit_History,					# Recent visible states of textmill, to support undo functionality.
+			    pane_tag:			Int,							# Tag of pane for which this editfn is being invoked.  This is a small int for human/GUI use.
+			    pane_id:			Id,							# Id  of pane for which this editfn is being invoked.
+			    mill_id:			Id,							# Id  of mill for which this editfn is being invoked.
+			    to:				Replyqueue,						# The name makes   foo::pass_something(imp) to {. ... }   syntax read well.
+			    widget_to_guiboss:		gt::Widget_To_Guiboss,					# 
+			    mill_to_millboss:		mt::Mill_To_Millboss,
+			    #
+			    mainmill_modestate:		mt::Panemode_State,					# Any persistent per-mode state (e.g., private state for fundamental-mode.pkg) for main mill is available via this.
+			    minimill_modestate:		mt::Panemode_State,					# Any persistent per-mode state (e.g., private state for    minimill-mode.pkg) for mini mill is available via this.
+			    #
+			    mill_extension_state:	Crypt,
+			    textpane_to_textmill:	mt::Textpane_To_Textmill,				# NB: We're running in textmill's microthread to guarantee atomicity, so invoking blocking textpane_to_textmill.* fns is likely to deadlock.  See Note[1].
+			    valid_completions:		Null_Or( String -> List(String) )			# If this is non-NULL then user is entering a commandname or filename or millname(=buffername) on the modeline, and given fn returns all valid completions of string-entered-so-far.
+
+			  };
+
+		done = REF FALSE;
+
+		do_while_not {.											# Repeat guipith edit until it takes.  This is needed because other concurrent microthreads may be
+		    #												# attempting overlapping guipith edits with us.  This avoids deadlock at a (tiny) risk of livelock.
+		    get_guipiths	     =  widget_to_guiboss.g.get_guipiths;
+		    install_updated_guipiths =  widget_to_guiboss.g.install_updated_guipiths;
+
+		    (get_guipiths ())
+			->
+			(gui_version, guipiths)
+			     #
+			     :  (Int, idm::Map( gt::Xi_Hostwindow_Info ))
+			     ;
+
+		    guipiths =  gtj::guipith_map (guipiths, options)
+				    where
+					fun is_us (widget: gt::Xi_Widget_Type):  Bool					# 
+					    =										#
+					    case widget 								#
+						#									#
+						gt::XI_FRAME { frame_widget => gt::XI_WIDGET { widget_id, ... }, ... }	#
+						    =>									#
+						    if   *done						FALSE;		# Do only one substitution.  Without this check, we'll substitute recursively all the way up the tree, leaving only one pane.  (Which is the emacs semantics.)
+						    elif (same_id (widget_id, pane_id))  done:= TRUE;	TRUE;		# 
+						    else						FALSE;		#
+						    fi;
+															#
+						_   =>							FALSE;		#
+					    esac;									#
+
+
+
+					fun do_widget  (widget:  gt::Xi_Widget_Type):  gt::Xi_Widget_Type		#
+					    =										#
+					    case widget									#
+						#									#
+						gt::XI_ROW								# If we've  found a ROW...	(Currently we can't just write (gt::XI_ROW | gt::XI_COL) here, we have to duplicate the pattern.)
+						  {
+						    id:		Id,
+						    first_cut:  Null_Or(Float),
+						    widgets =>	[ topwidget:	gt::Xi_Widget_Type,			# As above, we handle only ROW and COLs with two widgets.
+								  botwidget:	gt::Xi_Widget_Type
+								]
+						  }
+						    =>
+						    if   (is_us topwidget)	topwidget;				# The first widget  in this ROW/COL is us, so replace ROW/COL with just us.
+						    elif (is_us botwidget)	botwidget;				# The second widget in this ROW/COL is us, so replace ROW/COL with just us.
+						    else	                   widget;				# Neither widget in this ROW/COL is us, so leave it unchanged.
+						    fi;
+
+						gt::XI_COL								# ... or if we've found a COL.  
+						  {
+						    id:		Id,
+						    first_cut:  Null_Or(Float),
+						    widgets =>	[ topwidget:	gt::Xi_Widget_Type,			# As above, we handle only ROW and COLs with two widgets.
+								  botwidget:	gt::Xi_Widget_Type
+								]
+						  }
+						    =>
+						    if   (is_us topwidget)	topwidget;				# The first widget  in this ROW/COL is us, so replace ROW/COL with just us.
+						    elif (is_us botwidget)	botwidget;				# The second widget in this ROW/COL is us, so replace ROW/COL with just us.
+						    else	                   widget;				# Neither widget in this ROW/COL is us, so leave it unchanged.
+						    fi;
+
+						_   =>  widget;								# 'widget' is not a ROW/COL, so leave it unchnaged.
+					    esac;
+
+					options = [  gtj::XI_WIDGET_TYPE_MAP_FN  do_widget  ]
+						#
+						: List( gtj::Guipith_Map_Option )
+						;
+				    end;
+
+			install_updated_guipiths									# If this returns FALSE we'll loop and retry.
+			    #
+			    (gui_version, guipiths);
+		    };													# do_while_not
+
+
+		result =  WORK  [ 
+				];
+		result;
+	    };
+	rotate_panepair__editfn
+	    =
+	    mt::EDITFN (
+	      mt::PLAIN_EDITFN
+		{
+		  name	 =>  "rotate_panepair",
+		  doc	 =>  "Rotate current panepair by ninety degrees.",
+		  args	 =>  [],
+		  editfn =>  rotate_panepair
+		}
+	      );				my _ =
+	mt::note_editfn  rotate_panepair__editfn;
+
+
+
 	fun delete_other_pane (arg:			mt::Editfn_In)						# Opposite of split_pane_vertically_or_horizontally:  Replace ROW/COL containing widget with just widget.  We assume a binary tree -- each ROW or COL has two children. (That's what split_pane_horizontally_or_vertically will create.)
 	    :						mt::Editfn_Out
 	    =
@@ -2785,6 +2913,7 @@ nb {. sprintf "copy_to_register/AAA --fundamental-mode.pkg"; };
 		}
 	      );				my _ =
 	mt::note_editfn  delete_other_pane__editfn;
+
 
 
 	fun enlarge_pane (arg:				mt::Editfn_In)							# Re-allocate space after doing a split_pane_vertically or split_pane_horizontally.
@@ -6101,6 +6230,7 @@ nb {. sprintf "copy_to_register/AAA --fundamental-mode.pkg"; };
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-w"		],	kill_region__editfn			);
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", "("		],	commence_keystroke_macro__editfn	);
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", ")"		],	conclude_keystroke_macro__editfn	);
+		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", "}"		],	rotate_panepair__editfn			);
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", "0"		],	delete_this_pane__editfn		);
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", "1"		],	delete_other_pane__editfn		);
 		keymap = mt::add_editfn_to_keymap (keymap, [ "C-x", "2"		],	split_pane_vertically__editfn		);
