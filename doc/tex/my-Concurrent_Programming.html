@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK REL=STYLESHEET type="text/css" HREF="local.css">
+<LINK rel="stylesheet" type="text/css" href="book.css">
+<TITLE>Concurrent Programming</TITLE>
+</HEAD>
+<BODY >
+<A HREF="my-Mythryl_Compiler_Switches.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A><A HREF="my-Advanced_Topics.html"><IMG SRC="contents_motif.gif" ALT="Up"></A><A HREF="my-Parallel_Programming.html"><IMG SRC="next_motif.gif" ALT="Next"></A><HR>
+<H3 CLASS="subsection"><A NAME="htoc178">5.6.3</A>  Concurrent Programming</H3><P>
+<A NAME="section:tut:topic:concurrent-programming"></A></P><P>Mythryl is a fork of the <A HREF="http://www.cs.cornell.edu/riccardo/smlnj.html">SML/NJ</A> codebase. SML was standardized in 1990 and is defined as a single-threaded language, 
+but SML/NJ supports <TT>callcc</TT> and SML/NJ&#X2019;s stackless implementation makes 
+<TT>callcc</TT> about 100X faster than in typical stack-based languages; This 
+makes SML/NJ an excellent foundation upon which to build a concurrent programming 
+language.</P><P>Mythryl (and more broadly ML-family languages) are wonderful candidates for 
+concurrent and parallel programming because the problems with concurrent and 
+parallel programming all revolve around heap side effects, and ML code typically 
+uses only about one percent as many side effects as equivalent code in mainstream 
+imperative languages like C/C++/Java/etc. One hundred times fewer side effects 
+translates directly to one hundred times fewer race condition bugs, clobbered-shared-variable 
+bugs and so forth. The typesafety provided by ML-family languages is also very 
+welcome in the context of concurrent and parallel programming, because they mean 
+fewer runtime bugs, and runtime debugging is inherently more difficult in concurrent 
+and parallel programs than in old-style single-threaded programs.</P><P>Starting in about 1990 <A HREF="http://people.cs.uchicago.edu/~jhr/">John H Reppy</A> developed a concurrent programming library for SML called <A HREF="http://cml.cs.uchicago.edu/">CML</A> ("Concurrent ML"), documented in his book of that title.</P><P>This library has been integrated into the Mythryl codebase and work is under way 
+to make concurrent programming the norm in Mythryl. At present, however, concurrent 
+programming in Mythryl is experimental and uses a separate set of libraries. (The 
+Mythryl codebase pervasively assumes single-threaded operation; making it all 
+threadsafe and concurrent-programming oriented will take a lot of detail work.)</P><P>The Mythryl port of CML is called "threadkit", and is not well documented because 
+the code is still evolving steadily. For an informal overview of what is working 
+so far, take a peek at </P><PRE CLASS="verbatim">    src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-unit-test.pkg
+</PRE><P>in the Mythryl sourcecode distribution.</P><P>As a quick sketch of the current threadkit facilities:</P><UL CLASS="itemize"><LI CLASS="li-itemize">
+Threadkit gives the illusion of concurrent execution of threads by 
+doing pre-emptive thread scheduling. (As opposed to cooperative 
+multithreading, where each thread must explicitly yield to other 
+threads, as in the Bad Old Days on MacOs.) <P>This pre-emptive thread switching is driven by 
+a 50Hz (by default &#X2014; configurable) SIGALRM from 
+the host OS. This is not something one wants to have 
+running by default when not being used, so before using 
+threadkit facilities you must first explicitly start it up via 
+</P><PRE CLASS="verbatim">            thread_scheduler_control::start_up_thread_scheduling ();
+</PRE><P>The above unit-test code has lots of examples of doing this. </P></LI><LI CLASS="li-itemize">Once the above has been done, new threads can be started 
+up via just <PRE CLASS="verbatim">        make_thread   (\\ () = whatever());
+</PRE><P>I usually write that as </P><PRE CLASS="verbatim">        make_thread  {.
+            #
+            whatever ();
+        };
+</PRE><P>taking advantage of Mythryl &#X2019;thunk&#X2019; syntax to improve 
+readability a bit. The &#X2019;whatever()&#X2019; stuff will usually 
+in practice be</P><PRE CLASS="verbatim">        for (;;) {
+
+            do_one_mailop [
+                ...
+            ];
+        }
+</PRE><P>which is to say, an infinite loop reading and handling 
+input from other threads. (More on "select" in a bit.) </P></LI><LI CLASS="li-itemize">The inter-thread communication facilities provided are:<UL CLASS="itemize"><LI CLASS="li-itemize">
+Mailslots. These provide synchronous message-passing 
+between threads. "Synchronous" means that nothing 
+happens until both the sending and receiving thread 
+are ready for the interaction; whichever gets to the 
+operation first blocks until the other is ready to 
+participate. <P>The basic protocol is: </P><PRE CLASS="verbatim">    include package   threadkit;
+
+    slot:  Mailslot (Foo)
+        =
+        make_mailslot ();      # Create a mailslot for
+                               # passing values of type Foo.
+
+    give (slot, foo);          # Send a type-Foo value via the slot.
+
+
+    foo = take slot;           # Receive a type-Foo value via the slot.
+</PRE><P>Here the &#X2019;give&#X2019; and &#X2019;take&#X2019; operations will of course 
+have to be performed in separate threads! If the above 
+code is executed as written in a single thread, the &#X2019;give&#X2019; 
+will block forever for lack of a synchronous &#X2019;take&#X2019;. </P></LI><LI CLASS="li-itemize">Oneshot-mailslots. These are just like vanilla mailslots 
+except that they can be used only once. They are typically 
+created, passed to a server thread in a &#X2019;give&#X2019; message, and 
+then used to read the return value from the server thread. 
+(This protocol avoids the race conditions that would arise 
+if multiple client threads used a single fixed reply mailslot.) <P>The basic protocol is: </P><PRE CLASS="verbatim">    include package   threadkit;
+
+    slot:  Oneshot_Mailslot (Foo)
+        =
+        make_oneshot_mailslot ();      # Create a oneshot for
+                                       # passing values of type Foo.
+
+    set (slot, foo);                   # Send a type-Foo value via the oneshot.
+
+
+    foo = get slot;                    # Receive a type-Foo value via the oneshot.
+</PRE></LI><LI CLASS="li-itemize">Maildrops. These provide asynchronous message passing 
+between threads: One thread can deposit a value in a 
+maildrop and one or more other threads can later read 
+that value.<P>In general, one should never share REF cells or mutable 
+vectors between concurrent threads; maildrops are in 
+essence concurrency-safe replacements for REF cells. </P><P>The basic protocol is: </P><PRE CLASS="verbatim">    include package   threadkit;
+
+    drop:  Maildrop (Foo)
+        =
+        make_empty_maildrop ();        # Create an empty maildrop holding
+                                       # values of type Foo.
+
+    fill (drop, foo);                  # Deposit a a type-Foo value in the maildrop.
+
+
+    foo = empty drop;                  # Get contents of maildrop, leaving it empty.
+</PRE><P>Attempts to read from an empty maildrop will 
+block until it is filled.</P><P>Attempts to fill an already full maildrop 
+will generate an error exception.</P><P>Void-valued maildrops are often used as 
+PV-style locks to provide mutual exclusion 
+in monitor-style code.</P><P>Additional maildrop operations include:</P><PRE CLASS="verbatim">    include package   threadkit;
+
+    drop:  Maildrop (Foo)
+        =
+        make_full_maildrop foo;              # Create an already-full maildrop holding
+                                        # values of type Foo.
+
+    foo = peek drop;                    # Read contents of maildrop without altering maildrop.
+    foo = swap (drop, foo');            # Get contents of maildrop, replacing with foo'.
+</PRE></LI><LI CLASS="li-itemize">&#X2019;do_one_mailop&#X2019; operator. This provides the 
+capability to do whichever of a set of 
+mail operations which will not block. 
+This is conceptually similar to the Posix 
+&#X2019;select()&#X2019; function, but at a much higher 
+level of abstraction.<P>A typical use looks like:</P><PRE CLASS="verbatim">    do_one_mailop [
+
+        take' mailslot1
+            ==&gt;
+            (\\ foo = handle_slot1_read foo),
+
+        take' mailslot2
+            ==&gt;
+            (\\ foo = handle_slot2_read foo)
+    ];
+</PRE><P>Here we are expecting to get input now and 
+then on either mailslot1 or mailslot2, but 
+don&#X2019;t know which. This construct lets us 
+block until either one is ready, rather than 
+having to guess correctly which will be ready 
+next, at the risk of deadlock if we guess wrong. </P><P>Note the use of <TT>take&#X2019;</TT> rather than <TT>take</TT>. 
+The difference is that <TT>take</TT> performs the 
+mail operation immediately, whereas <TT>take&#X2019;</TT> 
+generates a deferred operation suitable for 
+use by <TT>select</TT>.</P><P>In general all mail operations which can 
+block have primed versions suitable for 
+use in <TT>select</TT>, and <TT>select</TT> can handle 
+both blocking reads and writes, plus timeouts 
+besides. A fancier <TT>select</TT> statement than 
+you are ever likely to write demonstrates this: </P><PRE CLASS="verbatim">    do_one_mailop [
+
+        take' mailslot1
+            ==&gt;
+            (\\ foo =  handle_slot1_read  foo),
+
+        give' (mailslot1  foo)
+            ==&gt;
+            (\\ () = handle_slot1_write ()),
+
+        pull' mailqueue1                            # Mailqueues are covered below.
+            ==&gt;
+            (\\ foo =  handle_mailqueue1_read  foo),
+
+        timeout_in' (time::from_milliseconds 100)   # Timeouts are pretty self-explanatory.
+            ==&gt;                                     # They are -so- much more convenient
+            (\\ () =  handle_100_ms_timeout  ())    # than the vanilla-C equivalent! :-)
+    ];
+</PRE><P>One particularly nice aspect of Reppy&#X2019;s concurrent 
+programming model, distinguishing it from many other 
+such models, is that everything is first class. 
+Mailslots, maildrops and mailqueues are all first-class 
+values which may be freely constructed at runtime and 
+passed around, stored in datastructures etc. </P><P>In particular, the <TT>select</TT> argument list is in fact 
+a vanilla Mythryl list, which may be freely re/constructed 
+dynamically at runtime, although in most cases it will 
+be fixed at compiletime as in the above examples. </P><P>This first-classness provides tremendous reserve flexibility 
+for interactive programming, in distinct contrast to 
+concurrent programming paradigms in which (for example) 
+<TT>select</TT> style statements are completely fixed at compiletime.</P><P>(Reppy&#X2019;s model also provides for user definition of compound 
+mailops which are likewise first-class; I&#X2019;m not going to 
+cover that in this brief tutorial.) </P><P>Mailslots, oneshot mailslots, 
+maildrops and &#X2019;do_one_mailop&#X2019; statements 
+suffice for maybe ninety percent of typical 
+concurrent programming; the 
+remaining mail mechanisms are used 
+considerably less frequently: </P></LI><LI CLASS="li-itemize">Mail queues. These provide asynchronous 
+message passing via an unbounded buffer. <P>Reading from an empty mailqueue blocks 
+the thread until there is something to 
+read. </P><P>Writing to a mailqueue never blocks, 
+but the mailqueue contents can grow without 
+bound, potentially filling all of memory, 
+so they need to be used with considerable 
+caution. </P><P>The main virtue of mailqueues is that they 
+avoid the risk of deadlock due to a cycle 
+of threads all blocking waiting for each 
+other. </P><P>The deadlock-avoidance protocol that the 
+eXene development crew has arrived at is 
+to use mailqueues on all values containing 
+user input. This breaks most potential 
+deadlock cycles, and there is very little 
+risk of user-generated values filling all 
+of memory before threads get enough CPU 
+bandwidth to handle them. </P><P>The basic mailqueue protocol is: </P><PRE CLASS="verbatim">    include package   threadkit;
+
+    queue:  Mailqueue (Foo)
+        =
+        make_mailqueue ();             # Create an empty mailqueue holding
+                                       # values of type Foo.
+
+    push (queue, foo);                 # Deposit a a type-Foo value in the mailqueue.
+
+
+    foo = pull queue;                  # Get one type-Foo value from mailqueue.
+</PRE></LI><LI CLASS="li-itemize">Mail multicasters. These provide asynchronous 
+one-to-many mail broadcast communication between 
+threads, with each reader having its own mailqueue. <P>This presents considerable risk that if any individual 
+reader dies or blocks, its mailqueue may grow without 
+bound, eventually filling memory, so mailcasters must 
+be used with caution, but there are times when one-to-many 
+communication is exactly the functionality needed. </P><P>The basic mailcaster protocol is: </P><PRE CLASS="verbatim">    include package   threadkit;
+
+    mailcaster:  Mailcaster (Foo)
+        =
+        make_mailcaster ();            # Create an empty mailcaster for
+                                       # values of type Foo.
+
+    readqueue1 = make_readqueue mailcaster;
+    readqueue2 = make_readqueue mailcaster;
+    [...]                              # One readqueue per reading thread.
+
+    send (mailcaster, foo);            # Done in sender thread.
+
+
+    foo = receive readqueue1;          # Done in first reader thread.
+    foo = receive readqueue2;          # Done in second reader thread.
+</PRE></LI></UL></LI></UL><P>By far the largest body of code written in CML is <A HREF="http://people.cs.uchicago.edu/~jhr/eXene/index.html">eXene</A>, the X widgetset and and client library that John H Reppy wrote to exercise CML.
+The Mythryl port of eXene is called xkit and the code may be found in <TT>src/lib/x-kit/</TT> 
+in the Mythryl source distribution.</P><P>This code is an ambitious experiment in highly concurrent programming. Each widget uses 
+at least one private thread to animate it, and often more. In retrospect some of the 
+ideas tried out in this package worked very well and some worked not very well at all. </P><P>One of the biggest design problems turned out to be using primarily synchronous communication 
+between widgets (i.e. mailslots) while also having widgets send to both parent and child 
+widgets; this proved a fertile breeding ground for deadlock bugs. (If I were redesigning 
+it today I would use mailqueues as the primary interthread communication mechanism.) </P><P>Since xkit needs a fairly complete rewrite to bring it up to production quality 
+(and since Gtk is more apropos for most purposes) I have not yet written a tutorial 
+set for it, but sample apps may be found in </P><PRE CLASS="verbatim">    src/lib/x-kit/tut/
+</PRE><P>and using the widget kit is not terribly difficult working from these examples plus 
+an occasional peek at the widget library sourcecode and/or the original eXene documents. </P>
+
+<HR SIZE=2>
+<DIV CLASS="center">
+<FONT SIZE=1>Comments and suggestions to: </FONT><A HREF="mailto:bugs@mythryl.org"><FONT SIZE=1>bugs@mythryl.org</FONT></A></DIV>
+<HR>
+<A HREF="my-Mythryl_Compiler_Switches.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A><A HREF="my-Advanced_Topics.html"><IMG SRC="contents_motif.gif" ALT="Up"></A><A HREF="my-Parallel_Programming.html"><IMG SRC="next_motif.gif" ALT="Next"></A></BODY>
+</HTML>
